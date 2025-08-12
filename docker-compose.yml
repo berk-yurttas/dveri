@@ -1,0 +1,67 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    env_file:
+      - ./etl/.env
+    container_name: clickhouse-server
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    env_file:
+      - ./etl/.env
+    container_name: mssql-server
+    ports:
+      - "${MSSQL_PORT}:1433"
+    environment:
+      SA_PASSWORD: ${MSSQL_PASSWORD}
+      ACCEPT_EULA: Y
+      MSSQL_PID: Express
+    volumes:
+      - mssql_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U ${MSSQL_USER} -P ${MSSQL_PASSWORD} -C -Q 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  transfer:
+    build: ./etl
+    env_file:
+      - ./etl/.env
+    container_name: python-clickhouse-app
+    depends_on:
+      clickhouse:
+        condition: service_started
+      mssql:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_HOST: ${CLICKHOUSE_HOST}
+      CLICKHOUSE_PORT: ${CLICKHOUSE_PORT}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      MSSQL_HOST: ${MSSQL_HOST}
+      MSSQL_PORT: ${MSSQL_PORT}
+      MSSQL_USER: ${MSSQL_USER}
+      MSSQL_PASSWORD: ${MSSQL_PASSWORD}
+      MSSQL_DATABASE: master
+    volumes:
+      - ./etl:/app
+    command: sh -c "while true; do echo 'Running transfer at '$(date); python transfer.py; echo 'Transfer completed, sleeping for 5 minutes...'; sleep 300; done"
+
+volumes:
+  clickhouse_data:
+  mssql_data:
