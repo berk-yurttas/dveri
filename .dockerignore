@@ -1,0 +1,55 @@
+# Node.js
+dtfrontend/node_modules/
+dtfrontend/.next/
+dtfrontend/dist/
+dtfrontend/build/
+
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+dtbackend/venv/
+etl/venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+README*
+
+# Logs
+*.log
+logs/
+
+# Other build artifacts
+dist/
+build/
+*.egg-info/
+
+# Environment files
+.env*
+!.env.example
+
+# Temporary files
+tmp/
+temp/

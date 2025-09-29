@@ -1,4 +1,26 @@
 services:
+  postgres:
+    image: postgres:16
+    env_file:
+      - .env
+    container_name: postgres-db
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dt_report}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - sensor_default
+    restart: unless-stopped
+
   clickhouse:
     image: clickhouse/clickhouse-server:latest
     env_file:
@@ -18,26 +40,9 @@ services:
       nofile:
         soft: 262144
         hard: 262144
-
-  mssql:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    env_file:
-      - ./etl/.env
-    container_name: mssql-server
-    ports:
-      - "${MSSQL_PORT}:1433"
-    environment:
-      SA_PASSWORD: ${MSSQL_PASSWORD}
-      ACCEPT_EULA: Y
-      MSSQL_PID: Express
-    volumes:
-      - mssql_data:/var/opt/mssql
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U ${MSSQL_USER} -P ${MSSQL_PASSWORD} -C -Q 'SELECT 1'"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
+    networks:
+      - sensor_default
+    restart: unless-stopped
   transfer:
     build: ./etl
     env_file:
@@ -46,8 +51,6 @@ services:
     depends_on:
       clickhouse:
         condition: service_started
-      mssql:
-        condition: service_healthy
     environment:
       CLICKHOUSE_HOST: ${CLICKHOUSE_HOST}
       CLICKHOUSE_PORT: ${CLICKHOUSE_PORT}
@@ -61,7 +64,41 @@ services:
     volumes:
       - ./etl:/app
     command: sh -c "while true; do echo 'Running transfer at '$(date); python transfer.py; echo 'Transfer completed, sleeping for 5 minutes...'; sleep 300; done"
+    restart: unless-stopped
 
+  dtbackend:
+    container_name: dtbackend
+    build:
+      context: .
+      dockerfile: dtbackend/Dockerfile
+    ports:
+      - "${DTBACKEND_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - dtbackend/.env
+    networks:
+      - sensor_default
+    restart: unless-stopped
+
+  dtfrontend:
+    container_name: dtfrontend
+    build:
+      context: .
+      dockerfile: dtfrontend/Dockerfile
+    ports:
+      - "${DTFRONTEND_PORT}:3000"
+    depends_on:
+      - dtbackend
+    env_file:
+      - dtfrontend/.env
+    restart: unless-stopped
 volumes:
+  postgres_data:
   clickhouse_data:
   mssql_data:
+
+networks:
+  sensor_default:
+    external: true
