@@ -287,7 +287,7 @@ export function ProductTestWidget({ widgetId, dateFrom, dateTo }: ProductTestWid
                 {widgetData.summary.first_pass_ratio}%
               </div>
               <div className="text-xs font-medium text-green-800 text-center">
-                İlk Geçiş
+                Adımlara Göre First Pass
               </div>
             </div>
 

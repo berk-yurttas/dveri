@@ -75,27 +75,44 @@ class DataService:
             raise ValueError(f"Failed to fetch product list: {str(e)}")
     
     @staticmethod
-    def get_product_serial_numbers(db_client, product_id: int) -> List[Dict[str, Any]]:
-        """Get serial numbers for a specific product"""
+    def get_product_serial_numbers(db_client, product_id: int, firma: str = None) -> List[Dict[str, Any]]:
+        """Get serial numbers for a specific product, optionally filtered by firma"""
         try:
-            query = f"""
-            SELECT teu.SeriNo
-            FROM REHIS_TestTanim_Test_TabloUrun u
-            LEFT JOIN REHIS_TestKayit_Test_TabloTEU teu ON teu.UrunID = u.UrunID
-            WHERE u.UrunID = {product_id}
-            ORDER BY teu.TEUID
-            """
-            
+            if firma:
+                query = f"""
+                SELECT DISTINCT teu.SeriNo, p.Firma
+                FROM REHIS_TestTanim_Test_TabloUrun u
+                LEFT JOIN REHIS_TestKayit_Test_TabloTEU teu ON teu.UrunID = u.UrunID
+                LEFT JOIN REHIS_TestKayit_Test_TabloTestGrup g ON g.TEUID = teu.TEUID
+                LEFT JOIN REHIS_TestTanim_Test_TabloPersonel p ON g.PersonelID = p.PersonelID
+                WHERE u.UrunID = {product_id} AND upperUTF8(p.Firma) = upperUTF8('{firma}')
+                ORDER BY teu.TEUID
+                """
+            else:
+                query = f"""
+                SELECT DISTINCT teu.SeriNo
+                FROM REHIS_TestTanim_Test_TabloUrun u
+                LEFT JOIN REHIS_TestKayit_Test_TabloTEU teu ON teu.UrunID = u.UrunID
+                LEFT JOIN REHIS_TestKayit_Test_TabloTestGrup g ON g.TEUID = teu.TEUID
+                LEFT JOIN REHIS_TestTanim_Test_TabloPersonel p ON g.PersonelID = p.PersonelID
+                WHERE u.UrunID = {product_id}
+                ORDER BY teu.TEUID
+                """
+
             result = db_client.execute(query)
-            
+
             serial_numbers = []
             for row in result:
                 serial_numbers.append({
-                    "serial_number": str(row[0])
+                    "teu_id": None,
+                    "product_id": product_id,
+                    "product_name": "",
+                    "serial_number": str(row[0]) if row[0] else "",
+                    "firma": str(row[1]) if len(row) > 1 and row[1] else None
                 })
-            
+
             return serial_numbers
-            
+
         except Exception as e:
             print(f"Error fetching serial numbers for product {product_id}: {e}")
             raise ValueError(f"Failed to fetch serial numbers for product {product_id}: {str(e)}")

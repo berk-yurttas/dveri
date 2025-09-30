@@ -9,6 +9,7 @@ interface SerialNumberOption {
   product_name: string
   serial_number: string
   additional_info?: string
+  firma?: string
 }
 
 interface SerialNumberDropdownProps {
@@ -18,6 +19,8 @@ interface SerialNumberDropdownProps {
   placeholder?: string
   className?: string
   loading?: boolean
+  firmaFilter?: string | null
+  showFirma?: boolean
 }
 
 export function SerialNumberDropdown({
@@ -26,7 +29,9 @@ export function SerialNumberDropdown({
   onSelect,
   placeholder = "Seri no ara...",
   className = "",
-  loading = false
+  loading = false,
+  firmaFilter = null,
+  showFirma = false
 }: SerialNumberDropdownProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
@@ -34,11 +39,16 @@ export function SerialNumberDropdown({
 
   const currentOption = options.find(option => option.serial_number === selectedValue)
   
-  // Filter options based on search term
-  const filteredOptions = options.filter(option =>
-    option.serial_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (option.additional_info && option.additional_info.toLowerCase().includes(searchTerm.toLowerCase()))
-  )
+  // Filter options based on search term and firma filter
+  const filteredOptions = options.filter(option => {
+    const matchesSearch = option.serial_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (option.additional_info && option.additional_info.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (option.firma && option.firma.toLowerCase().includes(searchTerm.toLowerCase()))
+
+    const matchesFirma = !firmaFilter || !option.firma || option.firma === firmaFilter
+
+    return matchesSearch && matchesFirma
+  })
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -106,6 +116,9 @@ export function SerialNumberDropdown({
                     }`}
                   >
                     <div className="font-medium">{option.serial_number}</div>
+                    {showFirma && option.firma && (
+                      <div className="text-blue-600 text-xs mt-1 font-medium">{option.firma}</div>
+                    )}
                     {option.additional_info && option.additional_info !== "Product exists but no TEU records found" && (
                       <div className="text-gray-500 text-xs mt-1">{option.additional_info}</div>
                     )}

@@ -111,11 +111,12 @@ async def get_product_list(db_client: Client = Depends(get_clickhouse_db)):
 @router.get("/products/{product_id}/serial-numbers", response_model=List[Dict[str, Any]])
 async def get_product_serial_numbers(
     product_id: int,
+    firma: str = Query(None, description="Filter serial numbers by firma"),
     db_client: Client = Depends(get_clickhouse_db)
 ):
-    """Get serial numbers for a specific product"""
+    """Get serial numbers for a specific product, optionally filtered by firma"""
     try:
-        serial_numbers = DataService.get_product_serial_numbers(db_client, product_id)
+        serial_numbers = DataService.get_product_serial_numbers(db_client, product_id, firma)
         return serial_numbers
     except ValueError as ve:
         # Handle validation errors with 400 Bad Request

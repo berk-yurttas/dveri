@@ -66,6 +66,7 @@ class MeasurementAnalysisWidgetStrategy(WidgetStrategy):
           AND p.VeriTipi = 'numerical_comp'
         """
 
+        print(query)
         return query
 
     def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

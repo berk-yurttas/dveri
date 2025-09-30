@@ -36,6 +36,7 @@ interface SerialNumberOption {
   product_name: string
   serial_number: string
   additional_info?: string
+  firma?: string
 }
 
 interface ExcelExportWidgetProps {
@@ -105,20 +106,20 @@ export function ExcelExportWidget({ widgetId, dateFrom, dateTo }: ExcelExportWid
     loadCompanyOptions()
   }, [selectedProduct, instanceId])
 
-  // Load serial number options when product is selected
+  // Load serial number options when product or company is selected
   useEffect(() => {
     const loadSerialNumberOptions = async () => {
-      if (!selectedProduct) {
+      if (!selectedProduct || !selectedCompany) {
         setSerialNumberOptions([])
         setSelectedSerialNumber(null)
         return
       }
 
-      console.log(`ExcelExportWidget ${instanceId}: Loading serial number options for product ${selectedProduct}`)
+      console.log(`ExcelExportWidget ${instanceId}: Loading serial number options for product ${selectedProduct} and company ${selectedCompany}`)
 
       setLoadingSerialNumbers(true)
       try {
-        const options = await api.get<SerialNumberOption[]>(`/data/products/${selectedProduct}/serial-numbers`)
+        const options = await api.get<SerialNumberOption[]>(`/data/products/${selectedProduct}/serial-numbers?firma=${selectedCompany}`)
         setSerialNumberOptions(options)
         // Don't auto-select serial number, let user choose or keep all
         setSelectedSerialNumber(null)
@@ -132,7 +133,7 @@ export function ExcelExportWidget({ widgetId, dateFrom, dateTo }: ExcelExportWid
     }
 
     loadSerialNumberOptions()
-  }, [selectedProduct, instanceId])
+  }, [selectedProduct, selectedCompany, instanceId])
 
   // Get company logo URL
   const getCompanyLogo = (companyName: string | null) => {
@@ -166,8 +167,8 @@ export function ExcelExportWidget({ widgetId, dateFrom, dateTo }: ExcelExportWid
 
   // Handle Excel download
   const handleDownload = async () => {
-    if (!selectedProduct || !selectedCompany) {
-      setError('Lütfen ürün ve firma seçin')
+    if (!selectedProduct || !selectedCompany || !selectedSerialNumber) {
+      setError('Lütfen ürün, firma ve seri no seçin')
       return
     }
 
@@ -310,6 +311,8 @@ export function ExcelExportWidget({ widgetId, dateFrom, dateTo }: ExcelExportWid
             options={serialNumberOptions}
             selectedValue={selectedSerialNumber}
             onSelect={setSelectedSerialNumber}
+            showFirma={true}
+            firmaFilter={selectedCompany}
             placeholder="Seri no ara..."
             className="w-full"
             loading={loadingSerialNumbers}
@@ -343,7 +346,7 @@ export function ExcelExportWidget({ widgetId, dateFrom, dateTo }: ExcelExportWid
       <div>
         <button
           onClick={handleDownload}
-          disabled={!selectedProduct || !selectedCompany || downloading}
+          disabled={!selectedProduct || !selectedCompany || !selectedSerialNumber || downloading}
           className="w-full flex items-center justify-center space-x-2 py-2 px-3 bg-orange-600 text-white text-sm font-medium rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           <Download className="h-4 w-4" />

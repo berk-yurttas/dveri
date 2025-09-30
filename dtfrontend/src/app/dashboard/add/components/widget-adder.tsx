@@ -49,6 +49,9 @@ export function WidgetAdder({ onAddWidget, onDragStart, onDragEnd }: WidgetAdder
   const [isOpen, setIsOpen] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
+  const [modalPosition, setModalPosition] = useState({ x: 0, y: 0 })
+  const [isDraggingModal, setIsDraggingModal] = useState(false)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
 
   // Ensure component is mounted (for SSR compatibility)
   useEffect(() => {
@@ -59,6 +62,7 @@ export function WidgetAdder({ onAddWidget, onDragStart, onDragEnd }: WidgetAdder
   useEffect(() => {
     if (isOpen) {
       setIsDragging(false)
+      setModalPosition({ x: 0, y: 0 }) // Reset modal position when opened
     }
   }, [isOpen])
 
@@ -78,6 +82,44 @@ export function WidgetAdder({ onAddWidget, onDragStart, onDragEnd }: WidgetAdder
       }
     }
   }, [isDragging])
+
+  // Add mouse event listeners for modal dragging
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDraggingModal) {
+        setModalPosition({
+          x: e.clientX - dragOffset.x,
+          y: e.clientY - dragOffset.y
+        })
+      }
+    }
+
+    const handleMouseUp = () => {
+      setIsDraggingModal(false)
+    }
+
+    if (isDraggingModal) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+      }
+    }
+  }, [isDraggingModal, dragOffset])
+
+  const handleModalMouseDown = (e: React.MouseEvent) => {
+    // Only start dragging if clicking on the header area
+    if ((e.target as HTMLElement).closest('.modal-header')) {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      setDragOffset({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      })
+      setIsDraggingModal(true)
+    }
+  }
 
   const handleWidgetClick = (widget: Widget) => {
     if (onAddWidget) {
@@ -116,14 +158,22 @@ export function WidgetAdder({ onAddWidget, onDragStart, onDragEnd }: WidgetAdder
           {/* Modal Backdrop */}
           <div
             className="fixed inset-0 bg-opacity-50 z-[9998]"
+            style={{ backdropFilter: 'blur(2px)' }}
             onClick={() => setIsOpen(false)}
           />
           
           {/* Centered Modal Card */}
           <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
-            <Card className="w-full max-w-5xl max-h-[90vh] overflow-hidden shadow-2xl bg-white pointer-events-auto border-0">
+            <Card
+              className="w-full max-w-5xl max-h-[90vh] overflow-hidden shadow-2xl bg-white pointer-events-auto border-0"
+              style={{
+                transform: `translate(${modalPosition.x}px, ${modalPosition.y}px)`,
+                cursor: isDraggingModal ? 'grabbing' : 'default'
+              }}
+              onMouseDown={handleModalMouseDown}
+            >
               {/* Header */}
-              <div className="p-6 border-b border-gray-200 bg-white">
+              <div className="modal-header p-6 border-b border-gray-200 bg-white cursor-grab active:cursor-grabbing select-none">
                 <div className="flex items-center justify-between mb-2">
                   <h2 className="text-xl font-semibold text-gray-900">Widget Ekle</h2>
                   <Button

@@ -11,6 +11,16 @@ const nextConfig: NextConfig = {
         port: '8090',
         pathname: '/api/files/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'korykos.aselsan.com.tr',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'portal.aselsan.com.tr',
+        pathname: '/**',
+      },
     ],
   },
   webpack: (config) => {

@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { Bell, Calendar, Menu } from "lucide-react"
+import { Menu } from "lucide-react"
 import Image from "next/image"
 import { type UserInfo } from "./types"
 
@@ -18,45 +18,14 @@ interface AppHeaderProps {
   onMobileMenuClick?: () => void
   onPreferencesClick?: () => void
   onLogoutClick?: () => void
-  onClickBildirim?: () => void
-  notificationCount?: number
   userInfo?: UserInfo
 }
 
-export function AppHeader({ title, subtitle, customActions = [], onMobileMenuClick, onPreferencesClick, onLogoutClick, onClickBildirim, notificationCount, userInfo }: AppHeaderProps) {
+export function AppHeader({ title, subtitle, customActions = [], onMobileMenuClick, onPreferencesClick, onLogoutClick, userInfo }: AppHeaderProps) {
   const isMobile = useMediaQuery("(max-width: 799px)")
 
   // Default header actions
   const defaultActions = [
-    // Only include notification button if onClickBildirim is provided
-    onClickBildirim && (
-      <Button
-        key="notifications"
-        variant="ghost"
-        size="icon"
-        className="text-white hover:bg-white/10 relative"
-        onClick={onClickBildirim}
-      >
-        <Bell className="h-5 w-5" />
-        {/* Only show red dot if notificationCount > 0 */}
-        {notificationCount && notificationCount > 0 && (
-          <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 rounded-full flex items-center justify-center text-xs text-white font-medium">
-            {notificationCount > 99 ? '99+' : notificationCount}
-          </span>
-        )}
-        <span className="sr-only">Bildirimler</span>
-      </Button>
-    ),
-    <Button
-      key="calendar"
-      variant="ghost"
-      size="icon"
-      className="text-white hover:bg-white/10"
-      onClick={() => console.log("Calendar clicked")}
-    >
-      <Calendar className="h-5 w-5" />
-      <span className="sr-only">Takvim</span>
-    </Button>,
     // <ModeToggle key="theme-toggle" />,
     <UserProfile key="user-profile" userInfo={userInfo} onPreferencesClick={onPreferencesClick} onLogoutClick={onLogoutClick} />,
   ].filter(Boolean)

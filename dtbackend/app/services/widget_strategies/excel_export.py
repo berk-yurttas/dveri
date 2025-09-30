@@ -163,6 +163,7 @@ class ExcelExportWidgetStrategy(WidgetStrategy):
         
         query += " ORDER BY t.TestBaslangicTarihi DESC"
         
+        print(query)
         return query
     
     def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

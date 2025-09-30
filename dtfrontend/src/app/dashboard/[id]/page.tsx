@@ -13,7 +13,7 @@ import { Calendar, User, Eye, EyeOff,
   Map as MapIcon, Camera, Music, Heart, Star, Target, Gauge, Cpu,
   Wifi, Battery, HardDrive, Smartphone, Plus, Layout, Edit, Trash2, X
 } from "lucide-react";
-import { EfficiencyWidget, GaugeWidget, ProductTestWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget } from "@/components/widgets";
+import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget } from "@/components/widgets";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -79,6 +79,8 @@ const renderWidgetContent = (widget: any, index: number, dateFrom: string, dateT
       return <ExcelExportWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
     case 'measurement':
       return <MeasurementWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
+    case 'serialno_comparison':
+      return <SerialNoComparisonWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
     default:
       // Fallback widget display
       const config = widget.config || {};
