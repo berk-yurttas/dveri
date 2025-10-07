@@ -7,7 +7,7 @@ import { UserProvider } from "@/contexts/user-context";
 import { FilterProvider } from "@/contexts/filter-context";
 
 export const metadata: Metadata = {
-  title: "DT Report Frontend",
+  title: "DerinİZ",
   description: "Digital Transformation Report Frontend Application",
 };
 
