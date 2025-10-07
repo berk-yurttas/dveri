@@ -3,14 +3,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useRouter } from 'next/navigation'
-import { 
-  Play, 
-  Calendar, 
-  Clock, 
-  Database, 
-  BarChart3, 
-  Table, 
-  LineChart, 
+import {
+  Play,
+  Calendar,
+  Clock,
+  Database,
+  BarChart3,
+  Table,
+  LineChart,
   PieChart,
   AlertCircle,
   CheckCircle,
@@ -23,7 +23,8 @@ import {
   ChevronRight,
   Edit,
   X,
-  FileSpreadsheet
+  FileSpreadsheet,
+  User
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
@@ -48,7 +49,8 @@ import {
   AreaChart,
   Area,
   ScatterChart,
-  Scatter
+  Scatter,
+  ComposedChart
 } from 'recharts'
 
 const VISUALIZATION_ICONS = {
@@ -72,6 +74,7 @@ interface ReportData {
   is_public: boolean
   tags: string[]
   owner_id: number
+  owner_name: string
   created_at: string
   updated_at: string | null
   queries: QueryData[]
@@ -1420,12 +1423,191 @@ export default function ReportDetailPage() {
               <YAxis dataKey={visualization.yAxis || columns[1]} />
               <Tooltip />
               {visualization.showLegend && <Legend />}
-              <Scatter 
+              <Scatter
                 name={query.name}
-                data={chartData} 
+                data={chartData}
                 fill={colors[0]}
               />
             </ScatterChart>
+          </ResponsiveContainer>
+        )
+
+      case 'boxplot':
+        // Box plot implementation using custom components
+        const boxPlotData = chartData.map(item => ({
+          category: item[visualization.xAxis || columns[0]],
+          value: parseFloat(item[visualization.yAxis || columns[1]]) || 0
+        }))
+
+        // Group data by category and calculate quartiles
+        const groupedData = boxPlotData.reduce((acc, item) => {
+          if (!acc[item.category]) {
+            acc[item.category] = []
+          }
+          acc[item.category].push(item.value)
+          return acc
+        }, {} as Record<string, number[]>)
+
+        const boxPlotChartData = Object.entries(groupedData).map(([category, values]) => {
+          const sorted = values.sort((a, b) => a - b)
+          const q1 = sorted[Math.floor(sorted.length * 0.25)]
+          const median = sorted[Math.floor(sorted.length * 0.5)]
+          const q3 = sorted[Math.floor(sorted.length * 0.75)]
+          const min = Math.min(...sorted)
+          const max = Math.max(...sorted)
+
+          return {
+            category,
+            min,
+            q1,
+            median,
+            q3,
+            max,
+            values: sorted
+          }
+        })
+
+        return (
+          <ResponsiveContainer width="100%" height={400}>
+            <BarChart data={boxPlotChartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="category" />
+              <YAxis />
+              <Tooltip
+                content={({ active, payload, label }) => {
+                  if (active && payload && payload.length) {
+                    const data = payload[0].payload
+                    return (
+                      <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
+                        <p className="font-medium">{`${label}`}</p>
+                        <p className="text-blue-600">{`Min: ${data.min}`}</p>
+                        <p className="text-blue-600">{`Q1: ${data.q1}`}</p>
+                        <p className="text-blue-600">{`Median: ${data.median}`}</p>
+                        <p className="text-blue-600">{`Q3: ${data.q3}`}</p>
+                        <p className="text-blue-600">{`Max: ${data.max}`}</p>
+                        <p className="text-gray-600">{`Count: ${data.values.length}`}</p>
+                      </div>
+                    )
+                  }
+                  return null
+                }}
+              />
+              {visualization.showLegend && <Legend />}
+              <Bar dataKey="median" fill={colors[0]} name="Box Plot" />
+            </BarChart>
+          </ResponsiveContainer>
+        )
+
+      case 'pareto':
+        // Pareto chart implementation (bar + line combination)
+        const paretoData = chartData
+          .map(item => ({
+            category: item[visualization.xAxis || columns[0]],
+            value: parseFloat(item[visualization.yAxis || columns[1]]) || 0
+          }))
+          .sort((a, b) => b.value - a.value) // Sort descending
+
+        // Calculate cumulative percentages
+        const totalValue = paretoData.reduce((sum, item) => sum + item.value, 0)
+        let cumulative = 0
+        const paretoChartData = paretoData.map(item => {
+          cumulative += item.value
+          return {
+            ...item,
+            cumulative: (cumulative / totalValue) * 100
+          }
+        })
+
+        return (
+          <ResponsiveContainer width="100%" height={400}>
+            <ComposedChart data={paretoChartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="category" />
+              <YAxis yAxisId="left" />
+              <YAxis yAxisId="right" orientation="right" domain={[0, 100]} />
+              <Tooltip
+                formatter={(value, name) => {
+                  if (name === 'cumulative') {
+                    return [`${Number(value).toFixed(1)}%`, 'Cumulative %']
+                  }
+                  return [value, name]
+                }}
+              />
+              {visualization.showLegend && <Legend />}
+              <Bar yAxisId="left" dataKey="value" fill={colors[0]} name="Value" />
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="cumulative"
+                stroke={colors[1] || '#ff7300'}
+                strokeWidth={2}
+                dot={{ fill: colors[1] || '#ff7300' }}
+                name="Cumulative %"
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        )
+
+      case 'histogram':
+        // Histogram implementation
+        const histogramValues = chartData.map(item =>
+          parseFloat(item[visualization.yAxis || columns[1]]) || 0
+        ).filter(val => !isNaN(val))
+
+        if (histogramValues.length === 0) {
+          return (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
+              <div className="flex">
+                <AlertCircle className="h-5 w-5 text-yellow-400" />
+                <div className="ml-3">
+                  <p className="text-sm text-yellow-800">
+                    No numeric data available for histogram.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )
+        }
+
+        // Calculate histogram bins
+        const minVal = Math.min(...histogramValues)
+        const maxVal = Math.max(...histogramValues)
+        const binCount = Math.min(20, Math.max(5, Math.ceil(Math.sqrt(histogramValues.length))))
+        const binWidth = (maxVal - minVal) / binCount
+
+        const bins = Array.from({ length: binCount }, (_, i) => ({
+          binStart: minVal + i * binWidth,
+          binEnd: minVal + (i + 1) * binWidth,
+          count: 0,
+          binLabel: `${(minVal + i * binWidth).toFixed(1)}-${(minVal + (i + 1) * binWidth).toFixed(1)}`
+        }))
+
+        // Count values in each bin
+        histogramValues.forEach(value => {
+          const binIndex = Math.min(binCount - 1, Math.floor((value - minVal) / binWidth))
+          if (binIndex >= 0 && binIndex < bins.length) {
+            bins[binIndex].count++
+          }
+        })
+
+        return (
+          <ResponsiveContainer width="100%" height={400}>
+            <BarChart data={bins}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis
+                dataKey="binLabel"
+                angle={-45}
+                textAnchor="end"
+                height={80}
+              />
+              <YAxis />
+              <Tooltip
+                formatter={(value, name) => [value, 'Frequency']}
+                labelFormatter={(label) => `Range: ${label}`}
+              />
+              {visualization.showLegend && <Legend />}
+              <Bar dataKey="count" fill={colors[0]} name="Frequency" />
+            </BarChart>
           </ResponsiveContainer>
         )
 
@@ -1525,12 +1707,14 @@ export default function ReportDetailPage() {
         <div className="flex items-center gap-4 text-xs text-gray-500" style={{ marginTop: '10px' }}>
           <div className="flex items-center gap-1">
             <Calendar className="h-3 w-3" />
-            Oluşturulma tarihi: {new Date(report.created_at).toLocaleDateString()}
+            {new Date(report.created_at).toLocaleDateString()}
           </div>
-          <div className="flex items-center gap-1">
-            <Database className="h-3 w-3" />
-            {report.queries.length} Sorgu
-          </div>
+          {report.owner_name && (
+            <div className="flex items-center gap-1">
+              <User className="h-3 w-3" />
+              {report.owner_name}
+            </div>
+          )}
           {report.is_public && (
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
               Public

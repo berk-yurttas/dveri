@@ -7,7 +7,7 @@ import time
 import re
 import json
 
-from app.models.postgres_models import Report, ReportQuery, ReportQueryFilter
+from app.models.postgres_models import Report, ReportQuery, ReportQueryFilter, User
 from app.schemas.reports import (
     ReportCreate, ReportUpdate, ReportFullUpdate, QueryConfigCreate, QueryConfigUpdate,
     FilterConfigCreate, FilterConfigUpdate, ReportExecutionRequest,
@@ -81,8 +81,11 @@ class ReportsService:
             raise ValueError("User not found")
 
         """Get a report by ID with all queries and filters (only if user owns it or it's public)"""
+        from sqlalchemy.orm import joinedload
+
         stmt = select(Report).options(
-            selectinload(Report.queries).selectinload(ReportQuery.filters)
+            selectinload(Report.queries).selectinload(ReportQuery.filters),
+            joinedload(Report.owner)
         ).where(
             and_(
                 Report.id == report_id,
@@ -90,7 +93,12 @@ class ReportsService:
             )
         )
         result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
+        report = result.scalar_one_or_none()
+
+        if report:
+            report.owner_name = report.owner.name if report.owner else None
+
+        return report
 
     async def get_reports(self, username: str, skip: int = 0, limit: int = 100, my_reports_only: bool = False) -> List[Report]:
         user = await UserService.get_user_by_username(self.db, username)
@@ -98,21 +106,114 @@ class ReportsService:
             raise ValueError("User not found")
 
         """Get reports for a user with all queries and filters (owned + public or only owned)"""
+        from sqlalchemy.orm import joinedload
+
         if my_reports_only:
             stmt = select(Report).options(
-                selectinload(Report.queries).selectinload(ReportQuery.filters)
+                selectinload(Report.queries).selectinload(ReportQuery.filters),
+                joinedload(Report.owner)
             ).where(
                 Report.owner_id == user.id
             ).offset(skip).limit(limit)
         else:
             stmt = select(Report).options(
-                selectinload(Report.queries).selectinload(ReportQuery.filters)
+                selectinload(Report.queries).selectinload(ReportQuery.filters),
+                joinedload(Report.owner)
             ).where(
                 or_(Report.owner_id == user.id, Report.is_public == True)
             ).offset(skip).limit(limit)
-        
+
         result = await self.db.execute(stmt)
-        return result.scalars().all()
+        reports = result.scalars().all()
+
+        # Set owner_name for each report
+        for report in reports:
+            report.owner_name = report.owner.name if report.owner else None
+
+        return reports
+
+    async def get_reports_list(self, username: str, skip: int = 0, limit: int = 100, my_reports_only: bool = False) -> List[Report]:
+        """Get reports list for a user (without nested queries and filters for performance)"""
+        user = await UserService.get_user_by_username(self.db, username)
+        if not user:
+            raise ValueError("User not found")
+
+        from sqlalchemy.orm import joinedload
+        from sqlalchemy import func
+
+        if my_reports_only:
+            stmt = select(
+                Report.id,
+                Report.name,
+                Report.description,
+                Report.is_public,
+                Report.owner_id,
+                Report.created_at,
+                Report.updated_at,
+                Report.tags,
+                func.count(ReportQuery.id).label('query_count')
+            ).outerjoin(ReportQuery).group_by(
+                Report.id,
+                Report.name,
+                Report.description,
+                Report.is_public,
+                Report.owner_id,
+                Report.created_at,
+                Report.updated_at,
+                Report.tags
+            ).where(
+                Report.owner_id == user.id
+            ).offset(skip).limit(limit)
+        else:
+            stmt = select(
+                Report.id,
+                Report.name,
+                Report.description,
+                Report.is_public,
+                Report.owner_id,
+                Report.created_at,
+                Report.updated_at,
+                Report.tags,
+                func.count(ReportQuery.id).label('query_count')
+            ).outerjoin(ReportQuery).group_by(
+                Report.id,
+                Report.name,
+                Report.description,
+                Report.is_public,
+                Report.owner_id,
+                Report.created_at,
+                Report.updated_at,
+                Report.tags
+            ).where(
+                or_(Report.owner_id == user.id, Report.is_public == True)
+            ).offset(skip).limit(limit)
+
+        result = await self.db.execute(stmt)
+        report_rows = result.all()
+
+        # Get owner names for all reports
+        owner_ids = list(set([row.owner_id for row in report_rows]))
+        owner_stmt = select(User.id, User.name).where(User.id.in_(owner_ids))
+        owner_result = await self.db.execute(owner_stmt)
+        owner_map = {row.id: row.name for row in owner_result.all()}
+
+        # Build ReportList objects
+        reports = []
+        for row in report_rows:
+            reports.append({
+                'id': row.id,
+                'name': row.name,
+                'description': row.description,
+                'is_public': row.is_public,
+                'owner_id': row.owner_id,
+                'owner_name': owner_map.get(row.owner_id),
+                'created_at': row.created_at,
+                'updated_at': row.updated_at,
+                'tags': row.tags,
+                'query_count': row.query_count
+            })
+
+        return reports
 
     async def update_report(self, report_id: int, report_data: ReportUpdate, username: str) -> Optional[Report]:
         user = await UserService.get_user_by_username(self.db, username)

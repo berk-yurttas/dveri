@@ -252,7 +252,7 @@ async def create_report(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/", response_model=List[Report])
+@router.get("/", response_model=List[ReportList])
 async def get_reports(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -260,9 +260,9 @@ async def get_reports(
     current_user: User = Depends(check_authenticated),
     db: AsyncSession = Depends(get_postgres_db)
 ):
-    """Get reports with all queries and filters (owned + public, or only owned)"""
+    """Get reports list (owned + public, or only owned)"""
     service = ReportsService(db)
-    reports = await service.get_reports(current_user.username, skip, limit, my_reports_only)
+    reports = await service.get_reports_list(current_user.username, skip, limit, my_reports_only)
     return reports
 
 

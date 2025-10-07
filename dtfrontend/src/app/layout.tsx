@@ -4,6 +4,7 @@ import "./globals.css";
 import { AppLayout } from "@/components/app-layout";
 import { DashboardProvider } from "@/contexts/dashboard-context";
 import { UserProvider } from "@/contexts/user-context";
+import { FilterProvider } from "@/contexts/filter-context";
 
 export const metadata: Metadata = {
   title: "DT Report Frontend",
@@ -20,9 +21,11 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <UserProvider>
-          <DashboardProvider>
-            <AppLayout>{children}</AppLayout>
-          </DashboardProvider>
+          <FilterProvider>
+            <DashboardProvider>
+              <AppLayout>{children}</AppLayout>
+            </DashboardProvider>
+          </FilterProvider>
         </UserProvider>
       </body>
     </html>

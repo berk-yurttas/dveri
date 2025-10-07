@@ -52,10 +52,12 @@ class DashboardService:
         username: str
     ) -> Optional[Dashboard]:
         """Get dashboard by ID"""
-        query = select(Dashboard).where(Dashboard.id == dashboard_id)
+        from sqlalchemy.orm import joinedload
+
+        query = select(Dashboard).options(joinedload(Dashboard.owner)).where(Dashboard.id == dashboard_id)
         result = await db.execute(query)
         dashboard = result.scalar_one_or_none()
-        
+
         if not dashboard:
             return None
 
@@ -65,15 +67,16 @@ class DashboardService:
 
         # Check if dashboard is favorited by the user
         is_favorite_query = select(DashboardUser).where(
-            DashboardUser.dashboard_id == dashboard_id, 
+            DashboardUser.dashboard_id == dashboard_id,
             DashboardUser.user_id == user.id
         )
         is_favorite_result = await db.execute(is_favorite_query)
         dashboard_user = is_favorite_result.scalar_one_or_none()
-        
-        # Set the is_favorite field on the dashboard object
+
+        # Set the is_favorite field and owner_name on the dashboard object
         dashboard.is_favorite = dashboard_user.is_favorite if dashboard_user else False
-        
+        dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
+
         return dashboard
     
     @staticmethod
@@ -87,36 +90,38 @@ class DashboardService:
         user = await UserService.get_user_by_username(db, username)
         if not user:
             return []
-        
+
         # Get dashboards where user is in the users relationship OR dashboard is public
         from sqlalchemy import or_
-        
+        from sqlalchemy.orm import joinedload
+
         # Subquery for dashboards where user is explicitly added
         user_dashboards_subquery = select(Dashboard.id).join(DashboardUser).where(
             DashboardUser.user_id == user.id
         )
-        
+
         # Main query: dashboards where user is added OR dashboard is public
-        query = select(Dashboard).where(
+        query = select(Dashboard).options(joinedload(Dashboard.owner)).where(
             or_(
                 Dashboard.id.in_(user_dashboards_subquery),
                 Dashboard.is_public == True
             )
         ).offset(skip).limit(limit)
-        
+
         result = await db.execute(query)
         dashboards = result.scalars().all()
-        
-        # Set is_favorite field for each dashboard
+
+        # Set is_favorite field and owner_name for each dashboard
         for dashboard in dashboards:
             is_favorite_query = select(DashboardUser).where(
-                DashboardUser.dashboard_id == dashboard.id, 
+                DashboardUser.dashboard_id == dashboard.id,
                 DashboardUser.user_id == user.id
             )
             is_favorite_result = await db.execute(is_favorite_query)
             dashboard_user = is_favorite_result.scalar_one_or_none()
             dashboard.is_favorite = dashboard_user.is_favorite if dashboard_user else False
-        
+            dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
+
         return dashboards
     
     @staticmethod
@@ -128,11 +133,19 @@ class DashboardService:
         user = await UserService.get_user_by_username(db, username)
         if not user:
             return []
-        
-        query = select(Dashboard).join(DashboardUser).where(
+
+        from sqlalchemy.orm import joinedload
+
+        query = select(Dashboard).options(joinedload(Dashboard.owner)).join(DashboardUser).where(
             DashboardUser.user_id == user.id, DashboardUser.is_favorite == True)
         result = await db.execute(query)
-        return result.scalars().all()
+        dashboards = result.scalars().all()
+
+        # Set owner_name for each dashboard
+        for dashboard in dashboards:
+            dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
+
+        return dashboards
     
     @staticmethod
     async def add_favorite_dashboard(
@@ -227,7 +240,7 @@ class DashboardService:
     @staticmethod
     async def delete_dashboard(db: AsyncSession, dashboard_id: int, username: str) -> bool:
         """Delete dashboard"""
-        dashboard = await DashboardService.get_dashboard_by_id(db, dashboard_id)
+        dashboard = await DashboardService.get_dashboard_by_id(db, dashboard_id, username)
         if not dashboard:
             return False
         
@@ -243,25 +256,29 @@ class DashboardService:
         limit: int = 100
     ) -> List[Dashboard]:
         """Get all public dashboards"""
-        query = select(Dashboard).where(Dashboard.is_public == True).offset(skip).limit(limit)
+        from sqlalchemy.orm import joinedload
+
+        query = select(Dashboard).options(joinedload(Dashboard.owner)).where(Dashboard.is_public == True).offset(skip).limit(limit)
         result = await db.execute(query)
         dashboards = result.scalars().all()
-        
+
         # Get user for favorite status
         user = await UserService.get_user_by_username(db, username)
         if user:
-            # Set is_favorite field for each dashboard
+            # Set is_favorite field and owner_name for each dashboard
             for dashboard in dashboards:
                 is_favorite_query = select(DashboardUser).where(
-                    DashboardUser.dashboard_id == dashboard.id, 
+                    DashboardUser.dashboard_id == dashboard.id,
                     DashboardUser.user_id == user.id
                 )
                 is_favorite_result = await db.execute(is_favorite_query)
                 dashboard_user = is_favorite_result.scalar_one_or_none()
                 dashboard.is_favorite = dashboard_user.is_favorite if dashboard_user else False
+                dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
         else:
             # If user not found, set all to False
             for dashboard in dashboards:
                 dashboard.is_favorite = False
-        
+                dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
+
         return dashboards

@@ -3,10 +3,14 @@
 import { useState, useEffect } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { WidgetAdder } from "../../add/components/widget-adder"
-import { EfficiencyWidget, ExcelExportWidget, GaugeWidget, MeasurementWidget, ProductTestWidget, TestAnalysisWidget, TestDurationWidget } from "@/components/widgets"
+import { EfficiencyWidget, ExcelExportWidget, GaugeWidget, MeasurementWidget, ProductTestWidget, TestAnalysisWidget, TestDurationWidget, SerialNoComparisonWidget, TestDurationAnalysisWidget } from "@/components/widgets"
 import { dashboardService } from "@/services/dashboard"
 import { Dashboard, DashboardUpdate, PlacedWidget as PlacedWidgetType } from "@/types/dashboard"
 import { useDashboards } from "@/contexts/dashboard-context"
+import { useFilters } from "@/contexts/filter-context"
+import { DateInput } from "@/components/ui/date-input"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/appShell/ui/dialog"
+import { Button } from "@/components/appShell/ui/button"
 import { 
   BarChart3, PieChart, Activity, TrendingUp, Users, Settings,
   Calendar, Clock, Database, FileText, MessageSquare, Bell,
@@ -72,19 +76,23 @@ const renderWidgetContent = (widget: PlacedWidget, dateFrom: string, dateTo: str
   
   switch (baseId) {
     case 'efficiency':
-      return <EfficiencyWidget {...dateFilterProps} />
+      return <EfficiencyWidget widgetId={widget.id} {...dateFilterProps} />
     case 'gauge':
-      return <GaugeWidget {...dateFilterProps} />  
+      return <GaugeWidget {...dateFilterProps} />
     case 'product':
-      return <ProductTestWidget {...dateFilterProps} />
+      return <ProductTestWidget widgetId={widget.id} {...dateFilterProps} />
     case 'test':
-      return <TestAnalysisWidget {...dateFilterProps} />
+      return <TestAnalysisWidget widgetId={widget.id} {...dateFilterProps} />
     case 'test_duration':
-      return <TestDurationWidget {...dateFilterProps} />
+      return <TestDurationWidget widgetId={widget.id} {...dateFilterProps} />
     case 'excel':
-      return <ExcelExportWidget {...dateFilterProps} />
+      return <ExcelExportWidget widgetId={widget.id} {...dateFilterProps} />
     case 'measurement':
-      return <MeasurementWidget {...dateFilterProps} />
+      return <MeasurementWidget widgetId={widget.id} {...dateFilterProps} />
+    case 'serialno_comparison':
+      return <SerialNoComparisonWidget widgetId={widget.id} {...dateFilterProps} />
+      case 'test_duration_analysis':
+        return <TestDurationAnalysisWidget widgetId={widget.id} {...dateFilterProps} />;
     default:
       return (
         <div className="flex flex-col items-center justify-center h-full">
@@ -105,7 +113,8 @@ export default function EditDashboardPage() {
   const params = useParams()
   const dashboardId = parseInt(params.id as string)
   const { updateDashboardInList } = useDashboards()
-  
+  const { dateFrom, dateTo, setDateFrom, setDateTo } = useFilters()
+
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [placedWidgets, setPlacedWidgets] = useState<PlacedWidget[]>([])
   const [draggedOverCell, setDraggedOverCell] = useState<number | null>(null)
@@ -114,16 +123,14 @@ export default function EditDashboardPage() {
   const [draggedWidgetSize, setDraggedWidgetSize] = useState<{ width: number; height: number } | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [dashboardName, setDashboardName] = useState("")
+  const [isPublic, setIsPublic] = useState(false)
   const [currentDraggedWidget, setCurrentDraggedWidget] = useState<any>(null)
   const [originalDraggedWidget, setOriginalDraggedWidget] = useState<PlacedWidget | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
-  
-  // Date filter state
-  const [dateFrom, setDateFrom] = useState("2025-08-01")
-  const [dateTo, setDateTo] = useState("2025-09-01")
+  const [successModalOpen, setSuccessModalOpen] = useState(false)
 
   // Load existing dashboard data
   useEffect(() => {
@@ -133,6 +140,7 @@ export default function EditDashboardPage() {
         const dashboardData = await dashboardService.getDashboardById(dashboardId)
         setDashboard(dashboardData)
         setDashboardName(dashboardData.title)
+        setIsPublic(dashboardData.is_public || false)
         
         // Convert dashboard widgets to PlacedWidget format
         if (dashboardData.widgets) {
@@ -209,6 +217,7 @@ export default function EditDashboardPage() {
     try {
       const updateData: DashboardUpdate = {
         title: dashboardName.trim(),
+        is_public: isPublic,
         layout_config: {
           grid_size: { width: 6, height: 6 }
         },
@@ -216,16 +225,16 @@ export default function EditDashboardPage() {
       }
 
       const result = await dashboardService.updateDashboard(dashboardId, updateData)
-      
+
       console.log("Dashboard updated successfully:", result)
       setSuccessMessage("Dashboard başarıyla güncellendi!")
       setIsModalOpen(false)
-      
+
       // Update the dashboard in the context list
       updateDashboardInList(result)
-      
-      // Redirect to the dashboard view page
-      router.push(`/dashboard/${result.id}`)
+
+      // Show success modal
+      setSuccessModalOpen(true)
       
     } catch (err: any) {
       console.error("Error updating dashboard:", err)
@@ -239,8 +248,14 @@ export default function EditDashboardPage() {
     if (!isLoading) {
       setIsModalOpen(false)
       setDashboardName(dashboard?.title || "")
+      setIsPublic(dashboard?.is_public || false)
       setError(null)
     }
+  }
+
+  const handleSuccessModalClose = () => {
+    setSuccessModalOpen(false)
+    router.push(`/dashboard/${dashboardId}`)
   }
 
   const findShiftPositionBasedOnTargetIndex = (
@@ -957,22 +972,18 @@ export default function EditDashboardPage() {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
               <label htmlFor="dateFrom" className="text-sm text-gray-600">Başlangıç:</label>
-              <input
-                id="dateFrom"
-                type="date"
+              <DateInput
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={setDateFrom}
+                className="px-3 py-1 text-sm"
               />
             </div>
             <div className="flex items-center space-x-2">
               <label htmlFor="dateTo" className="text-sm text-gray-600">Bitiş:</label>
-              <input
-                id="dateTo"
-                type="date"
+              <DateInput
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={setDateTo}
+                className="px-3 py-1 text-sm"
               />
             </div>
           </div>
@@ -1234,7 +1245,36 @@ export default function EditDashboardPage() {
                 autoFocus
               />
             </div>
-            
+
+            <div className="mb-6">
+              <div className="flex items-center justify-between">
+                <label htmlFor="dashboard-public" className="block text-sm font-medium text-gray-700">
+                  Dashboard Görünürlüğü
+                </label>
+                <div className="flex items-center space-x-3">
+                  <span className={`text-sm ${!isPublic ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>Özel</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsPublic(!isPublic)}
+                    disabled={isLoading}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 ${
+                      isPublic ? 'bg-blue-600' : 'bg-gray-200'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        isPublic ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                  <span className={`text-sm ${isPublic ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>Herkese Açık</span>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {isPublic ? 'Dashboard tüm kullanıcılar tarafından görüntülenebilir' : 'Dashboard sadece size özeldir'}
+              </p>
+            </div>
+
             <div className="flex gap-3 justify-end">
               <button
                 onClick={handleModalCancel}
@@ -1257,6 +1297,37 @@ export default function EditDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Success Modal */}
+      <Dialog open={successModalOpen} onOpenChange={handleSuccessModalClose}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="w-16 h-16 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div className="space-y-2">
+                <DialogTitle className="text-xl font-bold text-emerald-600">
+                  🐟 Fener balığınız size yol gösteriyor!
+                </DialogTitle>
+                <p className="text-slate-600">
+                  Dashboard başarıyla güncellendi
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+          <DialogFooter className="flex justify-center pt-4">
+            <Button
+              onClick={handleSuccessModalClose}
+              className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white px-8"
+            >
+              Tamam
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

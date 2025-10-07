@@ -169,10 +169,11 @@ class ReportFullUpdate(BaseModel):
 class Report(ReportBase):
     id: int
     owner_id: int
+    owner_name: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     queries: List[QueryConfig] = []
-    
+
     class Config:
         from_attributes = True
 
@@ -182,11 +183,12 @@ class ReportList(BaseModel):
     description: Optional[str] = None
     is_public: bool
     owner_id: int
+    owner_name: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     tags: Optional[List[str]] = []
     query_count: Optional[int] = 0
-    
+
     class Config:
         from_attributes = True
 

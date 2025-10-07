@@ -34,10 +34,11 @@ class DashboardUpdate(BaseModel):
 class Dashboard(DashboardBase):
     id: int
     owner_id: int
+    owner_name: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     is_favorite: Optional[bool] = False
-    
+
     class Config:
         from_attributes = True
 
@@ -46,11 +47,12 @@ class DashboardList(BaseModel):
     title: str
     is_public: bool
     owner_id: int
+    owner_name: Optional[str] = None
     layout_config: Optional[Dict[str, Any]] = None
     widgets: Optional[List[Dict[str, Any]]] = []  # Using Dict instead of Widget to avoid circular imports
     created_at: datetime
     updated_at: Optional[datetime] = None
     is_favorite: Optional[bool] = False
-    
+
     class Config:
         from_attributes = True

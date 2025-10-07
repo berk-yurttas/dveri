@@ -92,6 +92,33 @@ export default function Home() {
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  const handleDerinizHover = (event: React.MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+
+    // Check if mouse is in top right area (top 25% and right 25% of the div)
+    const isTopRight = mouseX > rect.width * 0.75 && mouseY < rect.height * 0.25;
+
+    setShowTooltip(isTopRight);
+  };
+
+  const handleDerinizMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+
+    // Check if mouse is in top right area (top 25% and right 25% of the div)
+    const isTopRight = mouseX > rect.width * 0.80 && mouseY < rect.height * 0.20;
+
+    setShowTooltip(isTopRight);
+  };
+
+  const handleDerinizLeave = () => {
+    setShowTooltip(false);
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -143,33 +170,73 @@ export default function Home() {
   return (
     <div className="min-h-screen">
             <div
-        className="fixed pointer-events-none z-10" 
+        className="fixed pointer-events-auto z-10 cursor-pointer"
         style={{
-          width: '800px',
-          height: '800px',
+          width: '450px',
+          height: '500px',
           backgroundImage: 'url(/deriniz-bg.png)',
           backgroundSize: 'contain',
           backgroundRepeat: 'no-repeat',
-          backgroundPosition: 'top left',
+          backgroundPosition: 'center',
           opacity: 0.2,
-          top: '-100px',
-          left: '-250px',
+          top: '100px',
+          left: '-200px',
         }}
+        onMouseMove={handleDerinizMove}
+        onMouseLeave={handleDerinizLeave}
       ></div>
+
+      {/* Tooltip */}
+      {showTooltip && (
+        <div
+          className="fixed z-50 pointer-events-none animate-fade-in"
+          style={{
+            bottom: '100px',
+            left: '0px',
+          }}
+        >
+          <div className="bg-gradient-to-br from-blue-600 to-purple-700 text-white rounded-xl py-4 px-6 shadow-2xl border border-blue-400/20 backdrop-blur-sm max-w-md">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
+                <div className="w-4 h-4 bg-white rounded-full"></div>
+              </div>
+              <div className="font-bold text-lg tracking-wide">DerinIZ</div>
+            </div>
+
+            <div className="text-blue-100 text-sm leading-relaxed mb-3">
+              <p className="mb-2">
+                Fener Balığı ışığı %90 verimlilik ile üreten nadir bi canlıdır. 1,500 metreyi bulan derinliklerde yaşar ve ışığı yansıtmayan özel kamuflajıyla "görünmez" hale gelir.
+              </p>
+              <p>
+                DerinİZ platformunda, görünmeyen test verilerini, kullanıcıya görünür kılmayı hedefliyoruz. Doğru veriyi ortaya çıkartarak ara yüz ekosistemimizi sürekli geliştiriyoruz.
+              </p>
+            </div>
+            {/* Glowing border effect */}
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-400/30 to-purple-600/30 rounded-xl blur-sm -z-10"></div>
+          </div>
+        </div>
+      )}
           <div
-        className="fixed pointer-events-none z-10" 
+        className="fixed pointer-events-none z-10"
         style={{
-          width: '800px',
-          height: '800px',
+          width: '500px',
+          height: '500px',
           backgroundImage: 'url(/deriniz-bg.png)',
           backgroundSize: 'contain',
           backgroundRepeat: 'no-repeat',
-          backgroundPosition: 'top left',
+          backgroundPosition: 'center',
           opacity: 0.2,
-          bottom: '0',
-          right: '-500px',
+          bottom: '100px',
+          right: '-250px',
         }}
-      ></div>
+      >
+        {/* Right top hover area */}
+        <div
+          className="absolute top-0 right-0 w-20 h-20 pointer-events-auto cursor-pointer"
+          onMouseEnter={handleDerinizHover}
+          onMouseLeave={handleDerinizLeave}
+        ></div>
+      </div>
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Welcome Section */}

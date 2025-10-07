@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { ProductDropdown } from "./product-dropdown"
 import { SerialNumberDropdown } from "./serial-number-dropdown"
 import { api } from "@/lib/api"
+import { useWidgetFilters } from "@/contexts/filter-context"
 
 // Widget yapılandırması
 ProductTestWidget.config = {
@@ -63,11 +64,18 @@ export function ProductTestWidget({ widgetId, dateFrom, dateTo }: ProductTestWid
   // Create unique instance identifier to ensure state isolation
   const instanceRef = useRef(widgetId || `product-test-${Math.random().toString(36).substr(2, 9)}`)
   const instanceId = instanceRef.current
-  
+
+  // Use widget-specific filters from context
+  const {
+    selectedProduct,
+    setSelectedProduct,
+    selectedSerialNumber,
+    setSelectedSerialNumber,
+    getFilteredProps
+  } = useWidgetFilters(instanceId)
+
   const [productOptions, setProductOptions] = useState<ProductOption[]>([])
   const [serialOptions, setSerialOptions] = useState<SerialNumberOption[]>([])
-  const [selectedProduct, setSelectedProduct] = useState<number | null>(null)
-  const [selectedSerial, setSelectedSerial] = useState<string | null>(null)
   const [widgetData, setWidgetData] = useState<WidgetData | null>(null)
   const [loading, setLoading] = useState(true)
   const [serialLoading, setSerialLoading] = useState(false)
@@ -82,8 +90,8 @@ export function ProductTestWidget({ widgetId, dateFrom, dateTo }: ProductTestWid
       try {
         const options = await api.get<ProductOption[]>('/data/products')
         setProductOptions(options)
-        // Select first option by default
-        if (options.length > 0) {
+        // Only set default if no product is currently selected
+        if (options.length > 0 && !selectedProduct) {
           setSelectedProduct(options[0].value)
         }
       } catch (err) {
@@ -102,22 +110,22 @@ export function ProductTestWidget({ widgetId, dateFrom, dateTo }: ProductTestWid
     const loadSerialNumbers = async () => {
       if (!selectedProduct) {
         setSerialOptions([])
-        setSelectedSerial(null)
+        setSelectedSerialNumber(null)
         return
       }
 
       console.log(`ProductTestWidget ${instanceId}: Loading serial numbers for product ${selectedProduct}`)
       
       setSerialLoading(true)
-      setSelectedSerial(null)
+      setSelectedSerialNumber(null)
       setWidgetData(null)
 
       try {
         const serials = await api.get<SerialNumberOption[]>(`/data/products/${selectedProduct}/serial-numbers`)
         setSerialOptions(serials)
-        // Select first serial by default
-        if (serials.length > 0 && serials[0].serial_number !== "No serial numbers available") {
-          setSelectedSerial(serials[0].serial_number)
+        // Only set default if no serial number is currently selected
+        if (serials.length > 0 && serials[0].serial_number !== "No serial numbers available" && !selectedSerialNumber) {
+          setSelectedSerialNumber(serials[0].serial_number)
         }
       } catch (err) {
         setError('Failed to load serial numbers')
@@ -133,24 +141,26 @@ export function ProductTestWidget({ widgetId, dateFrom, dateTo }: ProductTestWid
   // Load widget data when both product and serial are selected
   useEffect(() => {
     const loadWidgetData = async () => {
-      if (!selectedProduct || !selectedSerial || selectedSerial === "No serial numbers available") {
+      if (!selectedProduct || !selectedSerialNumber || selectedSerialNumber === "No serial numbers available") {
         setWidgetData(null)
         return
       }
 
-      console.log(`ProductTestWidget ${instanceId}: Loading data for product ${selectedProduct}, serial ${selectedSerial}`)
+      console.log(`ProductTestWidget ${instanceId}: Loading data for product ${selectedProduct}, serial ${selectedSerialNumber}`)
       
       setDataLoading(true)
       setError(null)
 
       try {
+        // Use shared filters with fallback to props
+        const filterProps = getFilteredProps()
         const data = await api.post<WidgetData>('/data/widget', {
           widget_type: 'product_test',
           filters: {
             urun_id: selectedProduct,
-            seri_no: selectedSerial,
-            date_from: '2025-08-01 00:00:00',
-            date_to: '2025-09-01 23:59:59'
+            seri_no: selectedSerialNumber,
+            date_from: dateFrom || filterProps.dateFrom,
+            date_to: dateTo || filterProps.dateTo
           }
         })
         setWidgetData(data)
@@ -163,7 +173,7 @@ export function ProductTestWidget({ widgetId, dateFrom, dateTo }: ProductTestWid
     }
 
     loadWidgetData()
-  }, [selectedProduct, selectedSerial, instanceId])
+  }, [selectedProduct, selectedSerialNumber, instanceId])
 
   // Show loading state
   if (loading) {
@@ -191,7 +201,7 @@ export function ProductTestWidget({ widgetId, dateFrom, dateTo }: ProductTestWid
   }
 
   // Show empty state if no data
-  if (!widgetData && !dataLoading && selectedProduct && selectedSerial) {
+  if (!widgetData && !dataLoading && selectedProduct && selectedSerialNumber) {
     return (
       <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 flex flex-col">
         {/* Header */}
@@ -210,8 +220,8 @@ export function ProductTestWidget({ widgetId, dateFrom, dateTo }: ProductTestWid
             />
             <SerialNumberDropdown
               options={serialOptions}
-              selectedValue={selectedSerial}
-              onSelect={setSelectedSerial}
+              selectedValue={selectedSerialNumber}
+              onSelect={setSelectedSerialNumber}
               placeholder="Seri no ara..."
               className="w-32"
               loading={serialLoading}
@@ -253,8 +263,8 @@ export function ProductTestWidget({ widgetId, dateFrom, dateTo }: ProductTestWid
           />
           <SerialNumberDropdown
             options={serialOptions}
-            selectedValue={selectedSerial}
-            onSelect={setSelectedSerial}
+            selectedValue={selectedSerialNumber}
+            onSelect={setSelectedSerialNumber}
             placeholder="Seri no ara..."
             className="w-32"
             loading={serialLoading}

@@ -32,6 +32,7 @@ export interface DashboardUpdate {
 export interface Dashboard extends DashboardBase {
   id: number
   owner_id: number
+  owner_name: string
   created_at: string
   updated_at?: string
   is_favorite?: boolean
@@ -42,6 +43,7 @@ export interface DashboardList {
   title: string
   is_public: boolean
   owner_id: number
+  owner_name: string
   layout_config?: Record<string, any>
   widgets?: Widget[]
   created_at: string

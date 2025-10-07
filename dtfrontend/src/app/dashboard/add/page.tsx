@@ -3,11 +3,13 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { WidgetAdder } from "./components/widget-adder"
-import { EfficiencyWidget, ExcelExportWidget, GaugeWidget, MeasurementWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget } from "@/components/widgets"
+import { EfficiencyWidget, ExcelExportWidget, GaugeWidget, MeasurementWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationAnalysisWidget, TestDurationWidget } from "@/components/widgets"
 import { dashboardService } from "@/services/dashboard"
 import { CreateDashboardRequest, PlacedWidget as PlacedWidgetType } from "@/types/dashboard"
 import { useDashboards } from "@/contexts/dashboard-context"
+import { useFilters } from "@/contexts/filter-context"
 import { AuthTest } from "@/components/auth/AuthTest"
+import { DateInput } from "@/components/ui/date-input"
 import { 
   BarChart3, PieChart, Activity, TrendingUp, Users, Settings,
   Calendar, Clock, Database, FileText, MessageSquare, Bell,
@@ -73,21 +75,23 @@ const renderWidgetContent = (widget: PlacedWidget, dateFrom: string, dateTo: str
   
   switch (baseId) {
     case 'efficiency':
-      return <EfficiencyWidget {...dateFilterProps} />
+      return <EfficiencyWidget widgetId={widget.id} {...dateFilterProps} />
     case 'gauge':
-      return <GaugeWidget {...dateFilterProps} />  
+      return <GaugeWidget {...dateFilterProps} />
     case 'product':
-      return <ProductTestWidget {...dateFilterProps} />
+      return <ProductTestWidget widgetId={widget.id} {...dateFilterProps} />
     case 'test':
-      return <TestAnalysisWidget {...dateFilterProps} />
+      return <TestAnalysisWidget widgetId={widget.id} {...dateFilterProps} />
     case 'test_duration':
-      return <TestDurationWidget {...dateFilterProps} />
+      return <TestDurationWidget widgetId={widget.id} {...dateFilterProps} />
     case 'excel':
-      return <ExcelExportWidget {...dateFilterProps} />
+      return <ExcelExportWidget widgetId={widget.id} {...dateFilterProps} />
     case 'measurement':
-      return <MeasurementWidget {...dateFilterProps} />
+      return <MeasurementWidget widgetId={widget.id} {...dateFilterProps} />
     case 'serialno_comparison':
-      return <SerialNoComparisonWidget {...dateFilterProps} />
+      return <SerialNoComparisonWidget widgetId={widget.id} {...dateFilterProps} />
+    case 'test_duration_analysis':
+      return <TestDurationAnalysisWidget widgetId={widget.id} {...dateFilterProps} />
     default:
       return (
         <div className="flex flex-col items-center justify-center h-full">
@@ -106,7 +110,8 @@ const renderWidgetContent = (widget: PlacedWidget, dateFrom: string, dateTo: str
 export default function AddDashboardPage() {
   const router = useRouter()
   const { addDashboardToList } = useDashboards()
-  
+  const { dateFrom, dateTo, setDateFrom, setDateTo, getWidgetFilters, updateWidgetFilters } = useFilters()
+
   const [placedWidgets, setPlacedWidgets] = useState<PlacedWidget[]>([])
   const [draggedOverCell, setDraggedOverCell] = useState<number | null>(null)
   const [shiftedWidgets, setShiftedWidgets] = useState<Map<string, number>>(new Map())
@@ -114,15 +119,12 @@ export default function AddDashboardPage() {
   const [draggedWidgetSize, setDraggedWidgetSize] = useState<{ width: number; height: number } | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [dashboardName, setDashboardName] = useState("")
+  const [isPublic, setIsPublic] = useState(false)
   const [currentDraggedWidget, setCurrentDraggedWidget] = useState<any>(null)
   const [originalDraggedWidget, setOriginalDraggedWidget] = useState<PlacedWidget | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
-  
-  // Date filter state
-  const [dateFrom, setDateFrom] = useState("2025-08-01")
-  const [dateTo, setDateTo] = useState("2025-09-01")
 
   const handleSaveDashboard = () => {
     setError(null)
@@ -134,7 +136,7 @@ export default function AddDashboardPage() {
     return widgets.map(widget => {
       const row = Math.floor(widget.cellIndex / 6)
       const col = widget.cellIndex % 6
-      
+
       return {
         id: widget.id,
         title: widget.name,
@@ -153,6 +155,44 @@ export default function AddDashboardPage() {
     })
   }
 
+  // Transfer filter state from temporary widget IDs to backend-assigned widget IDs
+  const transferWidgetFilters = (temporaryWidgets: PlacedWidget[], backendWidgets: any[]) => {
+    console.log('=== FILTER TRANSFER DEBUG ===')
+    console.log('Temporary widgets:', temporaryWidgets.map(w => ({ id: w.id, type: w.type, cellIndex: w.cellIndex })))
+    console.log('Backend widgets:', backendWidgets.map(w => ({ id: w.id, widget_type: w.widget_type, position_x: w.position_x, position_y: w.position_y })))
+
+    // Now that we pass widget IDs correctly, the IDs should match and no transfer should be needed
+    // But let's keep this function for debugging and edge cases
+
+    temporaryWidgets.forEach(tempWidget => {
+      // Find the corresponding backend widget by matching type and position
+      const backendWidget = backendWidgets.find(bw =>
+        bw.widget_type === tempWidget.type &&
+        bw.position_x === (tempWidget.cellIndex % 6) &&
+        bw.position_y === Math.floor(tempWidget.cellIndex / 6)
+      )
+
+      console.log(`Matching temp widget ${tempWidget.id} (type: ${tempWidget.type}, cell: ${tempWidget.cellIndex})`)
+      console.log(`Found backend widget:`, backendWidget)
+
+      if (backendWidget && tempWidget.id !== backendWidget.id) {
+        // Get filters from temporary widget ID
+        const tempFilters = getWidgetFilters(tempWidget.id)
+        console.log(`Temp filters for ${tempWidget.id}:`, tempFilters)
+
+        // Transfer to backend widget ID
+        updateWidgetFilters(backendWidget.id, tempFilters)
+
+        console.log(`✅ Transferred filters from ${tempWidget.id} to ${backendWidget.id}`)
+      } else if (backendWidget && tempWidget.id === backendWidget.id) {
+        console.log(`✅ Widget IDs match (${tempWidget.id}), no transfer needed`)
+      } else {
+        console.log(`❌ No backend widget found`)
+      }
+    })
+    console.log('=== END FILTER TRANSFER DEBUG ===')
+  }
+
   const handleModalSave = async () => {
     if (!dashboardName.trim()) {
       setError("Dashboard adı gereklidir")
@@ -167,7 +207,7 @@ export default function AddDashboardPage() {
         title: dashboardName.trim(),
         username: "current_user", // TODO: Get from auth context
         owner_id: 1, // TODO: Get from auth context
-        is_public: false,
+        is_public: isPublic,
         layout_config: {
           grid_size: { width: 6, height: 6 }
         },
@@ -175,15 +215,22 @@ export default function AddDashboardPage() {
       }
 
       const result = await dashboardService.createDashboard(dashboardData)
-      
+
       console.log("Dashboard created successfully:", result)
+
+      // Transfer filter state from temporary widget IDs to backend-assigned widget IDs
+      if (result.widgets && result.widgets.length > 0) {
+        transferWidgetFilters(placedWidgets, result.widgets)
+      }
+
       setSuccessMessage("Dashboard başarıyla oluşturuldu!")
       setIsModalOpen(false)
       setDashboardName("")
-      
+      setIsPublic(false)
+
       // Add the new dashboard to the context list
       addDashboardToList(result)
-      
+
       // Redirect to the new dashboard view page
       router.push(`/dashboard/${result.id}`)
       
@@ -199,6 +246,7 @@ export default function AddDashboardPage() {
     if (!isLoading) {
       setIsModalOpen(false)
       setDashboardName("")
+      setIsPublic(false)
       setError(null)
     }
   }
@@ -894,22 +942,18 @@ export default function AddDashboardPage() {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
               <label htmlFor="dateFrom" className="text-sm text-gray-600">Başlangıç:</label>
-              <input
-                id="dateFrom"
-                type="date"
+              <DateInput
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={setDateFrom}
+                className="px-3 py-1 text-sm"
               />
             </div>
             <div className="flex items-center space-x-2">
               <label htmlFor="dateTo" className="text-sm text-gray-600">Bitiş:</label>
-              <input
-                id="dateTo"
-                type="date"
+              <DateInput
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={setDateTo}
+                className="px-3 py-1 text-sm"
               />
             </div>
           </div>
@@ -1171,7 +1215,36 @@ export default function AddDashboardPage() {
                 autoFocus
               />
             </div>
-            
+
+            <div className="mb-6">
+              <div className="flex items-center justify-between">
+                <label htmlFor="dashboard-public" className="block text-sm font-medium text-gray-700">
+                  Dashboard Görünürlüğü
+                </label>
+                <div className="flex items-center space-x-3">
+                  <span className={`text-sm ${!isPublic ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>Özel</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsPublic(!isPublic)}
+                    disabled={isLoading}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 ${
+                      isPublic ? 'bg-blue-600' : 'bg-gray-200'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        isPublic ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                  <span className={`text-sm ${isPublic ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>Herkese Açık</span>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {isPublic ? 'Dashboard tüm kullanıcılar tarafından görüntülenebilir' : 'Dashboard sadece size özeldir'}
+              </p>
+            </div>
+
             <div className="flex gap-3 justify-end">
               <button
                 onClick={handleModalCancel}

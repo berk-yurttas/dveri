@@ -8,6 +8,7 @@ import { TestStatusDropdown } from "./test-status-dropdown"
 import { MeasurementLocationDropdown } from "./measurement-location-dropdown"
 import { SerialNumberMultiselect } from "./serial-number-multiselect"
 import { api } from "@/lib/api"
+import { useWidgetFilters } from "@/contexts/filter-context"
 
 // Widget configuration
 SerialNoComparisonWidget.config = {
@@ -110,20 +111,32 @@ export function SerialNoComparisonWidget({ widgetId, dateFrom, dateTo }: SerialN
   // Create unique instance identifier
   const instanceRef = useRef(widgetId || `serialno-comparison-${Math.random().toString(36).substr(2, 9)}`)
   const instanceId = instanceRef.current
-  
+
+  // Use widget-specific filters from context
+  const {
+    selectedProduct,
+    setSelectedProduct,
+    selectedTestName,
+    setSelectedTestName,
+    selectedTestStatus,
+    setSelectedTestStatus,
+    selectedMeasurementLocation,
+    setSelectedMeasurementLocation,
+    getFilteredProps,
+    allFilters,
+    updateFilter
+  } = useWidgetFilters(instanceId)
+
+  // Serial numbers need special handling for multi-select
+  const selectedSerialNumbers = (allFilters.selectedSerialNumbers as string[]) || []
+  const setSelectedSerialNumbers = (value: string[]) => updateFilter('selectedSerialNumbers', value)
+
   // State for dropdown options
   const [productOptions, setProductOptions] = useState<ProductOption[]>([])
   const [testNameOptions, setTestNameOptions] = useState<TestNameOption[]>([])
   const [testStatusOptions, setTestStatusOptions] = useState<TestStatusOption[]>([])
   const [measurementLocationOptions, setMeasurementLocationOptions] = useState<MeasurementLocationOption[]>([])
   const [serialNumberOptions, setSerialNumberOptions] = useState<SerialNumberOption[]>([])
-  
-  // State for selected values
-  const [selectedProduct, setSelectedProduct] = useState<number | null>(null)
-  const [selectedTestName, setSelectedTestName] = useState<string | null>(null)
-  const [selectedTestStatus, setSelectedTestStatus] = useState<string | null>(null)
-  const [selectedMeasurementLocation, setSelectedMeasurementLocation] = useState<string | null>(null)
-  const [selectedSerialNumbers, setSelectedSerialNumbers] = useState<string[]>([])
   
   // State for widget data and loading
   const [widgetData, setWidgetData] = useState<WidgetData | null>(null)
@@ -143,8 +156,8 @@ export function SerialNoComparisonWidget({ widgetId, dateFrom, dateTo }: SerialN
       try {
         const options = await api.get<ProductOption[]>('/data/products')
         setProductOptions(options)
-        // Select first option by default
-        if (options.length > 0) {
+        // Only set default if no product is currently selected
+        if (options.length > 0 && !selectedProduct) {
           setSelectedProduct(options[0].value)
         }
       } catch (err) {
@@ -175,8 +188,8 @@ export function SerialNoComparisonWidget({ widgetId, dateFrom, dateTo }: SerialN
       try {
         const testNames = await api.get<TestNameOption[]>(`/data/products/${selectedProduct}/test-names`)
         setTestNameOptions(testNames)
-        // Select first test by default
-        if (testNames.length > 0) {
+        // Only set default if no test name is currently selected
+        if (testNames.length > 0 && !selectedTestName) {
           setSelectedTestName(testNames[0].value)
         }
       } catch (err) {
@@ -207,8 +220,8 @@ export function SerialNoComparisonWidget({ widgetId, dateFrom, dateTo }: SerialN
        try {
          const testStatuses = await api.get<TestStatusOption[]>(`/data/products/${selectedProduct}/test-names/${selectedTestName}/test-statuses`)
          setTestStatusOptions(testStatuses)
-        // Select first status by default
-        if (testStatuses.length > 0) {
+        // Only set default if no test status is currently selected
+        if (testStatuses.length > 0 && !selectedTestStatus) {
           setSelectedTestStatus(testStatuses[0].value)
         }
       } catch (err) {
@@ -239,8 +252,8 @@ export function SerialNoComparisonWidget({ widgetId, dateFrom, dateTo }: SerialN
        try {
          const locations = await api.get<MeasurementLocationOption[]>(`/data/products/${selectedProduct}/test-names/${selectedTestName}/test-statuses/${selectedTestStatus}/measurement-locations`)
          setMeasurementLocationOptions(locations)
-        // Select first location by default
-        if (locations.length > 0) {
+        // Only set default if no measurement location is currently selected
+        if (locations.length > 0 && !selectedMeasurementLocation) {
           setSelectedMeasurementLocation(locations[0].value)
         }
       } catch (err) {
@@ -296,6 +309,8 @@ export function SerialNoComparisonWidget({ widgetId, dateFrom, dateTo }: SerialN
       setError(null)
 
       try {
+        // Use shared filters with fallback to props
+        const filterProps = getFilteredProps()
         const data = await api.post<WidgetData>('/data/widget', {
           widget_type: 'serialno_comparison',
           filters: {
@@ -304,8 +319,8 @@ export function SerialNoComparisonWidget({ widgetId, dateFrom, dateTo }: SerialN
             test_durum: selectedTestStatus,
             olcum_yeri: selectedMeasurementLocation,
             seri_no: selectedSerialNumbers,
-            date_from: dateFrom || '2025-08-01 00:00:00',
-            date_to: dateTo || '2025-09-01 23:59:59'
+            date_from: dateFrom || filterProps.dateFrom,
+            date_to: dateTo || filterProps.dateTo
           }
         })
         setWidgetData(data)

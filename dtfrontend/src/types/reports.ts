@@ -104,6 +104,7 @@ export interface SaveReportRequest {
 
 export interface SavedReport extends ReportConfig {
   id: number
+  owner_name: string
   created_at: string
   updated_at: string
   created_by: string

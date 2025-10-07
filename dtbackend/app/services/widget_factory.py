@@ -8,6 +8,7 @@ from .widget_strategies.test_duration import TestDurationWidgetStrategy
 from .widget_strategies.excel_export import ExcelExportWidgetStrategy
 from .widget_strategies.measurement_analysis import MeasurementAnalysisWidgetStrategy
 from .widget_strategies.serialno_comparison import SerialNoComparisonWidgetStrategy
+from .widget_strategies.test_duration_analysis import TestDurationAnalysisWidgetStrategy
 
 
 class WidgetFactory:
@@ -23,6 +24,7 @@ class WidgetFactory:
         'excel_export': ExcelExportWidgetStrategy(),
         'measurement_analysis': MeasurementAnalysisWidgetStrategy(),
         'serialno_comparison': SerialNoComparisonWidgetStrategy(),
+        'test_duration_analysis': TestDurationAnalysisWidgetStrategy(),
     }
     
     @classmethod

@@ -106,6 +106,9 @@ async def login_jwt(
     if not user:
         print(f"User not found in database, creating user: {current_user.username}")
         user = await UserService.create_user(db, current_user.username)
+    user.name = current_user.name
+    await db.commit()
+    await db.refresh(user)
 
     return current_user
 

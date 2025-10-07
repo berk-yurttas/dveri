@@ -44,6 +44,7 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
       title: newDashboard.title,
       is_public: newDashboard.is_public ?? false,
       owner_id: newDashboard.owner_id,
+      owner_name: newDashboard.owner_name,
       layout_config: newDashboard.layout_config,
       widgets: newDashboard.widgets,
       created_at: newDashboard.created_at,

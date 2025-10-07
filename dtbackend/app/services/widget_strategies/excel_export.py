@@ -99,70 +99,65 @@ class ExcelExportWidgetStrategy(WidgetStrategy):
             return []
 
     def get_query(self, filters: Optional[Dict[str, Any]] = None) -> str:
-        """Get Excel export query with UrunID, date filters, and Firma filter"""
-        
+        """Get Excel export query with UrunID and optional date filters"""
+
         # Filters are mandatory for Excel export widget
         if not filters:
             raise ValueError("Filters are mandatory for Excel export widget")
-        
+
         # Required filter validation
         if not filters.get('urun_id'):
             raise ValueError("urun_id filter is mandatory for Excel export widget")
-        if not filters.get('date_from'):
-            raise ValueError("date_from filter is mandatory for Excel export widget")
-        if not filters.get('date_to'):
-            raise ValueError("date_to filter is mandatory for Excel export widget")
-        if not filters.get('firma'):
-            raise ValueError("firma filter is mandatory for Excel export widget")
-        
-        # Extract required filters
+
+        # Extract filters
         urun_id = int(filters['urun_id'])
-        date_from = filters['date_from']
-        date_to = filters['date_to']
-        firma = filters.get('firma', '')  # Optional firma filter
-        seri_no = filters.get('seri_no', '')  # Optional serial number filter
-        
-        # Build query with all the joins as specified
+        date_from = filters.get('date_from')
+        date_to = filters.get('date_to')
+        firma = filters.get('firma')
+        seri_no = filters.get('seri_no')
+
+        # Build query with specific columns
         query = f"""
         SELECT
-            t.*,
-            ta.*,
-            tp.*,
-            g.*,
-            p.*,
-            teu.*,
-            cs.*,
-            tc.*,
-            tu.*
+            StokNo, SeriNo, t.TestAdi, TestBaslangicTarihi, TestSuresi, TestGectiKaldi,
+            OlcumYeri, OlculenDeger, AltLimit, UstLimit, Birim, Sicil, Ad, Soyad
         FROM REHIS_TestKayit_Test_TabloTest AS t
-        LEFT JOIN REHIS_TestKayit_Test_TabloTestAdimi AS ta 
+        LEFT JOIN REHIS_TestKayit_Test_TabloTestAdimi AS ta
             ON ta.TestID = t.TestID
-        LEFT JOIN REHIS_TestTanim_Test_TabloTestPlan AS tp 
+        LEFT JOIN REHIS_TestTanim_Test_TabloTestPlan AS tp
             ON tp.TPAdimID = ta.TPAdimID
-        LEFT JOIN REHIS_TestKayit_Test_TabloTestGrup AS g 
+        LEFT JOIN REHIS_TestKayit_Test_TabloTestGrup AS g
             ON g.TestGrupID = t.TestGrupID
-        LEFT JOIN REHIS_TestTanim_Test_TabloPersonel AS p 
+        LEFT JOIN REHIS_TestTanim_Test_TabloPersonel AS p
             ON p.PersonelID = g.PersonelID
-        LEFT JOIN REHIS_TestKayit_Test_TabloTEU AS teu 
+        LEFT JOIN REHIS_TestKayit_Test_TabloTEU AS teu
             ON teu.TEUID = g.TEUID
-        LEFT JOIN REHIS_TestKayit_Test_TabloTestCihazSetup AS cs 
+        LEFT JOIN REHIS_TestKayit_Test_TabloTestCihazSetup AS cs
             ON cs.SetupHashID = g.SetupHashID
-        LEFT JOIN REHIS_TestTanim_Test_TabloTestCihaz AS tc 
-            ON tc.CihazID = cs.CihazID
-        LEFT JOIN REHIS_TestTanim_Test_TabloUrun AS tu 
+        LEFT JOIN REHIS_TestTanim_Test_TabloUrun AS tu
             ON tu.UrunID = teu.UrunID
         WHERE tu.UrunID = {urun_id}
-          AND t.TestBaslangicTarihi >= '{date_from}'
-          AND t.TestBaslangicTarihi <= '{date_to}'
-          AND p.Firma = '{firma}'
         """
 
-        # Add serial number filter if provided
+        # Add optional filters
+        if date_from:
+            query += f" AND t.TestBaslangicTarihi >= '{date_from}'"
+
+        if date_to:
+            query += f" AND t.TestBaslangicTarihi <= '{date_to}'"
+
+        if firma:
+            query += f" AND p.Firma = '{firma}'"
+
         if seri_no:
             query += f" AND teu.SeriNo = '{seri_no}'"
-        
-        query += " ORDER BY t.TestBaslangicTarihi DESC"
-        
+
+        query += """
+        GROUP BY StokNo, SeriNo, t.TestAdi, TestBaslangicTarihi, TestSuresi, TestGectiKaldi,
+                 OlcumYeri, OlculenDeger, AltLimit, UstLimit, Birim, Sicil, Ad, Soyad
+        ORDER BY TestBaslangicTarihi DESC
+        """
+
         print(query)
         return query
     

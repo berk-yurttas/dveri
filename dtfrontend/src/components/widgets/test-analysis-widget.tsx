@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { ProductDropdown } from "./product-dropdown"
 import { TestNameDropdown } from "./test-name-dropdown"
 import { api } from "@/lib/api"
+import { useWidgetFilters } from "@/contexts/filter-context"
 
 // Widget yapılandırması
 TestAnalysisWidget.config = {
@@ -64,11 +65,18 @@ export function TestAnalysisWidget({ widgetId, dateFrom, dateTo }: TestAnalysisW
   // Create unique instance identifier to ensure state isolation
   const instanceRef = useRef(widgetId || `test-analysis-${Math.random().toString(36).substr(2, 9)}`)
   const instanceId = instanceRef.current
-  
+
+  // Use widget-specific filters from context
+  const {
+    selectedProduct,
+    setSelectedProduct,
+    selectedTestName,
+    setSelectedTestName,
+    getFilteredProps
+  } = useWidgetFilters(instanceId)
+
   const [productOptions, setProductOptions] = useState<ProductOption[]>([])
   const [testNameOptions, setTestNameOptions] = useState<TestNameOption[]>([])
-  const [selectedProduct, setSelectedProduct] = useState<number | null>(null)
-  const [selectedTestName, setSelectedTestName] = useState<string | null>(null)
   const [widgetData, setWidgetData] = useState<WidgetData | null>(null)
   const [loading, setLoading] = useState(true)
   const [testNamesLoading, setTestNamesLoading] = useState(false)
@@ -83,8 +91,8 @@ export function TestAnalysisWidget({ widgetId, dateFrom, dateTo }: TestAnalysisW
       try {
         const options = await api.get<ProductOption[]>('/data/products')
         setProductOptions(options)
-        // Select first option by default
-        if (options.length > 0) {
+        // Only set default if no product is currently selected
+        if (options.length > 0 && !selectedProduct) {
           setSelectedProduct(options[0].value)
         }
       } catch (err) {
@@ -116,8 +124,8 @@ export function TestAnalysisWidget({ widgetId, dateFrom, dateTo }: TestAnalysisW
       try {
         const testNames = await api.get<TestNameOption[]>(`/data/products/${selectedProduct}/test-names`)
         setTestNameOptions(testNames)
-        // Select first test by default
-        if (testNames.length > 0) {
+        // Only set default if no test name is currently selected
+        if (testNames.length > 0 && !selectedTestName) {
           setSelectedTestName(testNames[0].value)
         }
       } catch (err) {
@@ -145,13 +153,15 @@ export function TestAnalysisWidget({ widgetId, dateFrom, dateTo }: TestAnalysisW
       setError(null)
 
       try {
+        // Use shared filters with fallback to props
+        const filterProps = getFilteredProps()
         const data = await api.post<WidgetData>('/data/widget', {
           widget_type: 'test_analysis',
           filters: {
             urun_id: selectedProduct,
             test_adi: selectedTestName,
-            date_from: '2025-08-01 00:00:00',
-            date_to: '2025-09-01 23:59:59'
+            date_from: dateFrom || filterProps.dateFrom,
+            date_to: dateTo || filterProps.dateTo
           }
         })
         setWidgetData(data)
@@ -329,12 +339,12 @@ export function TestAnalysisWidget({ widgetId, dateFrom, dateTo }: TestAnalysisW
                     </div>
                     <div className="flex items-center space-x-3">
                       <div className="text-center">
-                        <div className="text-xs font-bold text-red-600">{serial.failed}/{serial.total}</div>
-                        <div className="text-xs text-red-600">başarısız</div>
+                        <div className="text-xs font-bold text-green-600">{serial.passed}/{serial.total}</div>
+                        <div className="text-xs text-green-600">başarılı</div>
                       </div>
                       <div className="text-center">
-                        <div className={`text-xs font-bold ${serial.fail_ratio === 0 ? 'text-green-600' : serial.fail_ratio <= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
-                          {serial.fail_ratio.toFixed(1)}%
+                        <div className={`text-xs font-bold ${serial.pass_ratio === 100 ? 'text-green-600' : serial.pass_ratio >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                          {serial.pass_ratio.toFixed(1)}%
                         </div>
                         <div className="text-xs text-gray-600">oran</div>
                       </div>

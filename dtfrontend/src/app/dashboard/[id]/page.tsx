@@ -5,6 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import { dashboardService } from "@/services/dashboard";
 import { Dashboard } from "@/types/dashboard";
 import { useDashboards } from "@/contexts/dashboard-context";
+import { useFilters } from "@/contexts/filter-context";
 
 import { Calendar, User, Eye, EyeOff, 
   BarChart3, PieChart, Activity, TrendingUp, Users, Settings,
@@ -13,7 +14,8 @@ import { Calendar, User, Eye, EyeOff,
   Map as MapIcon, Camera, Music, Heart, Star, Target, Gauge, Cpu,
   Wifi, Battery, HardDrive, Smartphone, Plus, Layout, Edit, Trash2, X
 } from "lucide-react";
-import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget } from "@/components/widgets";
+import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget } from "@/components/widgets";
+import { DateInput } from "@/components/ui/date-input";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -81,6 +83,8 @@ const renderWidgetContent = (widget: any, index: number, dateFrom: string, dateT
       return <MeasurementWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
     case 'serialno_comparison':
       return <SerialNoComparisonWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
+    case 'test_duration_analysis':
+      return <TestDurationAnalysisWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
     default:
       // Fallback widget display
       const config = widget.config || {};
@@ -104,7 +108,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { updateDashboardInList, removeDashboardFromList } = useDashboards();
-  
+  const { dateFrom, dateTo, setDateFrom, setDateTo } = useFilters();
+
   // Modal states
   const [isEditNameModalOpen, setIsEditNameModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -112,10 +117,6 @@ export default function DashboardPage() {
   const [newDashboardName, setNewDashboardName] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  
-  // Date filter state
-  const [dateFrom, setDateFrom] = useState("2025-08-01");
-  const [dateTo, setDateTo] = useState("2025-09-01");
   
   // Favorite state
   const [isFavorite, setIsFavorite] = useState(false);
@@ -332,10 +333,16 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {dashboard.owner_name && (
+            <div className="flex items-center gap-1 text-sm text-gray-600">
+              <User className="h-4 w-4" />
+              <span>Oluşturan: {dashboard.owner_name}</span>
+            </div>
+          )}
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-            dashboard.is_public 
-              ? "bg-blue-100 text-blue-800" 
+            dashboard.is_public
+              ? "bg-blue-100 text-blue-800"
               : "bg-gray-100 text-gray-800"
           }`}>
             {dashboard.is_public ? (
@@ -363,22 +370,18 @@ export default function DashboardPage() {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
               <label htmlFor="dateFrom" className="text-sm text-gray-600">Başlangıç:</label>
-              <input
-                id="dateFrom"
-                type="date"
+              <DateInput
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={setDateFrom}
+                className="px-3 py-1 text-sm"
               />
             </div>
             <div className="flex items-center space-x-2">
               <label htmlFor="dateTo" className="text-sm text-gray-600">Bitiş:</label>
-              <input
-                id="dateTo"
-                type="date"
+              <DateInput
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={setDateTo}
+                className="px-3 py-1 text-sm"
               />
             </div>
           </div>

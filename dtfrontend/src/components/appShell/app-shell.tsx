@@ -98,7 +98,7 @@ export function AppShell({
         />
       )}
 
-      <AppHeader title={title} subtitle={subtitle} customActions={customHeaderActions} onMobileMenuClick={toggleMobileSidebar} onPreferencesClick={onPreferencesClick} onLogoutClick={onLogoutClick} onClickBildirim={onClickBildirim} notificationCount={notificationCount} userInfo={userInfo} />
+      <AppHeader title={title} subtitle={subtitle} customActions={customHeaderActions} onMobileMenuClick={toggleMobileSidebar} onPreferencesClick={onPreferencesClick} onLogoutClick={onLogoutClick}  userInfo={userInfo} />
 
       <AppSidebar
         navigationItems={navigationItems}

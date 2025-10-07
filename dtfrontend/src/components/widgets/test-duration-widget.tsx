@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { ProductDropdown } from "./product-dropdown"
 import { SerialNumberDropdown } from "./serial-number-dropdown"
 import { api } from "@/lib/api"
+import { useWidgetFilters } from "@/contexts/filter-context"
 
 // Widget yapılandırması
 TestDurationWidget.config = {
@@ -57,11 +58,18 @@ export function TestDurationWidget({ widgetId, dateFrom, dateTo }: TestDurationW
   // Create unique instance identifier to ensure state isolation
   const instanceRef = useRef(widgetId || `test-duration-${Math.random().toString(36).substr(2, 9)}`)
   const instanceId = instanceRef.current
-  
+
+  // Use widget-specific filters from context
+  const {
+    selectedProduct,
+    setSelectedProduct,
+    selectedSerialNumber,
+    setSelectedSerialNumber,
+    getFilteredProps
+  } = useWidgetFilters(instanceId)
+
   const [productOptions, setProductOptions] = useState<ProductOption[]>([])
-  const [selectedProduct, setSelectedProduct] = useState<number | null>(null)
   const [serialNumberOptions, setSerialNumberOptions] = useState<SerialNumberOption[]>([])
-  const [selectedSerialNumber, setSelectedSerialNumber] = useState<string | null>(null)
   const [widgetData, setWidgetData] = useState<WidgetData | null>(null)
   const [loading, setLoading] = useState(true)
   const [serialNumbersLoading, setSerialNumbersLoading] = useState(false)
@@ -75,8 +83,8 @@ export function TestDurationWidget({ widgetId, dateFrom, dateTo }: TestDurationW
       try {
         const options = await api.get<ProductOption[]>('/data/products')
         setProductOptions(options)
-        // Select first option by default
-        if (options.length > 0) {
+        // Only set default if no product is currently selected
+        if (options.length > 0 && !selectedProduct) {
           setSelectedProduct(options[0].value)
         }
       } catch (err) {
@@ -104,8 +112,10 @@ export function TestDurationWidget({ widgetId, dateFrom, dateTo }: TestDurationW
       try {
         const serialNumbers = await api.get<SerialNumberOption[]>(`/data/products/${selectedProduct}/serial-numbers`)
         setSerialNumberOptions(serialNumbers)
-        // Reset serial number selection when product changes
-        setSelectedSerialNumber(serialNumbers[0].serial_number)
+        // Only set default if no serial number is currently selected
+        if (serialNumbers.length > 0 && !selectedSerialNumber) {
+          setSelectedSerialNumber(serialNumbers[0].serial_number)
+        }
       } catch (err) {
         console.error(`Error loading serial numbers for ${instanceId}:`, err)
         setSerialNumberOptions([])
@@ -129,10 +139,12 @@ export function TestDurationWidget({ widgetId, dateFrom, dateTo }: TestDurationW
       setError(null)
 
       try {
+        // Use shared filters with fallback to props
+        const filterProps = getFilteredProps()
         const filters: any = {
           urun_id: selectedProduct,
-          date_from: dateFrom || '2024-08-01 00:00:00',
-          date_to: dateTo || '2025-09-01 23:59:59'
+          date_from: dateFrom || filterProps.dateFrom,
+          date_to: dateTo || filterProps.dateTo
         }
 
         // Add serial number to filters if selected

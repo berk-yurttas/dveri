@@ -3,7 +3,7 @@ import clickhouse_connect
 import os
 from typing import Dict, List, Tuple, Any, Optional
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, time
 import sys
 from decimal import Decimal
 import uuid
@@ -156,27 +156,45 @@ class DataTransfer:
     def transform_value(self, value: Any, data_type: str) -> Any:
         if value is None:
             return None
-        
+
         data_type_lower = data_type.lower()
-        
+
         try:
             if data_type_lower in ['datetime' , 'datetimeoffset', 'datetime2', 'smalldatetime']:
                 if isinstance(value, datetime):
                     min_datetime = datetime(2000,1,1)
+                    max_datetime = datetime(2106,12,31)
                     if value < min_datetime:
                         return min_datetime
+                    elif value > max_datetime:
+                        return max_datetime
                     return value
                 # Handle string datetime values
                 elif isinstance(value, str):
                     try:
-                        return datetime.fromisoformat(value.replace('Z', '+00:00')).replace(tzinfo=None)
+                        parsed_dt = datetime.fromisoformat(value.replace('Z', '+00:00')).replace(tzinfo=None)
+                        max_datetime = datetime(2106,12,31)
+                        if parsed_dt > max_datetime:
+                            return max_datetime
+                        return parsed_dt
                     except:
                         return value
                 return value
             elif data_type_lower == 'date':
                 if isinstance(value, date):
+                    max_date = date(2106,12,31)
+                    if value > max_date:
+                        return max_date
                     return value
                 return value
+            elif data_type_lower == 'time':
+                if isinstance(value, time):
+                    # Convert time to string for ClickHouse storage
+                    return value.strftime('%H:%M:%S')
+                elif isinstance(value, str):
+                    # Already a string, return as is
+                    return value
+                return str(value) if value is not None else None
             elif data_type_lower in ['decimal', 'numeric', 'money', 'smallmoney']:
                 if isinstance(value, Decimal):
                     return float(value)

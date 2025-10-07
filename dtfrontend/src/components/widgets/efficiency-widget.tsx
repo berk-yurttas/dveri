@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { InfrastructureDropdown } from "./infrastructure-dropdown"
 import { api } from "@/lib/api"
+import { useWidgetFilters } from "@/contexts/filter-context"
 
 // Widget yapılandırması
 EfficiencyWidget.config = {
@@ -44,9 +45,15 @@ export function EfficiencyWidget({ widgetId, dateFrom, dateTo }: EfficiencyWidge
   // Create unique instance identifier to ensure state isolation
   const instanceRef = useRef(widgetId || `efficiency-${Math.random().toString(36).substr(2, 9)}`)
   const instanceId = instanceRef.current
-  
+
+  // Use widget-specific filters from context
+  const {
+    selectedInfrastructure,
+    setSelectedInfrastructure,
+    getFilteredProps
+  } = useWidgetFilters(instanceId)
+
   const [infrastructureOptions, setInfrastructureOptions] = useState<InfrastructureOption[]>([])
-  const [selectedInfra, setSelectedInfra] = useState<number | null>(null)
   const [widgetData, setWidgetData] = useState<WidgetData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -59,9 +66,9 @@ export function EfficiencyWidget({ widgetId, dateFrom, dateTo }: EfficiencyWidge
       try {
         const options = await api.get<InfrastructureOption[]>('/data/infrastructure')
         setInfrastructureOptions(options)
-        // Select first option by default
-        if (options.length > 0) {
-          setSelectedInfra(options[0].value)
+        // Only set default if no infrastructure is currently selected
+        if (options.length > 0 && !selectedInfrastructure) {
+          setSelectedInfrastructure(options[0].value)
         }
       } catch (err) {
         setError('Failed to load infrastructure options')
@@ -75,20 +82,22 @@ export function EfficiencyWidget({ widgetId, dateFrom, dateTo }: EfficiencyWidge
   // Load widget data when infrastructure is selected
   useEffect(() => {
     const loadWidgetData = async () => {
-      if (!selectedInfra) return
+      if (!selectedInfrastructure) return
 
-      console.log(`EfficiencyWidget ${instanceId}: Loading data for infrastructure ${selectedInfra}`)
+      console.log(`EfficiencyWidget ${instanceId}: Loading data for infrastructure ${selectedInfrastructure}`)
       
       setLoading(true)
       setError(null)
 
       try {
+        // Use shared filters with fallback to props
+        const filterProps = getFilteredProps()
         const data = await api.post<WidgetData>('/data/widget', {
           widget_type: 'efficiency',
           filters: {
-            infrastructure_id: selectedInfra,
-            date_from: dateFrom || '2025-08-01 00:00:00',
-            date_to: dateTo || '2025-09-01 23:59:59'
+            infrastructure_id: selectedInfrastructure,
+            date_from: dateFrom || filterProps.dateFrom,
+            date_to: dateTo || filterProps.dateTo
           }
         })
         setWidgetData(data)
@@ -101,7 +110,7 @@ export function EfficiencyWidget({ widgetId, dateFrom, dateTo }: EfficiencyWidge
     }
 
     loadWidgetData()
-  }, [selectedInfra, instanceId, dateFrom, dateTo])
+  }, [selectedInfrastructure, instanceId, dateFrom, dateTo])
 
   // Calculate derived values
   const totalFailCount = widgetData?.top_failed_products?.reduce((sum, product) => sum + product.fail_count, 0) || 0
@@ -159,8 +168,8 @@ export function EfficiencyWidget({ widgetId, dateFrom, dateTo }: EfficiencyWidge
           </div>
           <InfrastructureDropdown
             options={infrastructureOptions}
-            selectedValue={selectedInfra}
-            onSelect={setSelectedInfra}
+            selectedValue={selectedInfrastructure}
+            onSelect={setSelectedInfrastructure}
             placeholder="Test altyapısı ara..."
           />
         </div>
@@ -191,8 +200,8 @@ export function EfficiencyWidget({ widgetId, dateFrom, dateTo }: EfficiencyWidge
         </div>
         <InfrastructureDropdown
           options={infrastructureOptions}
-          selectedValue={selectedInfra}
-          onSelect={setSelectedInfra}
+          selectedValue={selectedInfrastructure}
+          onSelect={setSelectedInfrastructure}
           placeholder="Test altyapısı ara..."
         />
       </div>

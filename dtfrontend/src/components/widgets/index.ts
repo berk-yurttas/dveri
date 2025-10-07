@@ -6,6 +6,7 @@ export { TestDurationWidget } from './test-duration-widget'
 export { ExcelExportWidget } from './excel-export-widget'
 export { MeasurementWidget } from './measurement-widget'
 export { SerialNoComparisonWidget } from './serialno-comparison-widget'
+export { TestDurationAnalysisWidget } from './test-duration-analysis-widget'
 
 // Export widget configurations
 import { EfficiencyWidget } from './efficiency-widget'
@@ -16,6 +17,7 @@ import { TestDurationWidget } from './test-duration-widget'
 import { ExcelExportWidget } from './excel-export-widget'
 import { MeasurementWidget } from './measurement-widget'
 import { SerialNoComparisonWidget } from './serialno-comparison-widget'
+import { TestDurationAnalysisWidget } from './test-duration-analysis-widget'
 
 export const widgetConfigs = [
   EfficiencyWidget.config,
@@ -25,5 +27,6 @@ export const widgetConfigs = [
   TestDurationWidget.config,
   ExcelExportWidget.config,
   MeasurementWidget.config,
-  SerialNoComparisonWidget.config
+  SerialNoComparisonWidget.config,
+  TestDurationAnalysisWidget.config
 ]

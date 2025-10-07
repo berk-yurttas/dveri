@@ -360,6 +360,7 @@ export default function EditReportPage() {
   const [filterValues, setFilterValues] = useState<Record<string, any>>({})
   const [activeQueryForFilters, setActiveQueryForFilters] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [successModalOpen, setSuccessModalOpen] = useState(false)
 
   // Helper function to generate unique IDs
   const generateId = () => Math.random().toString(36).substr(2, 9)
@@ -724,6 +725,11 @@ export default function EditReportPage() {
     }
   }
 
+  const handleSuccessModalClose = () => {
+    setSuccessModalOpen(false)
+    router.push(`/reports/${reportId}`)
+  }
+
   const updateReport = async () => {
     if (!report.name.trim()) {
       alert('Lütfen rapor adını girin.')
@@ -747,10 +753,7 @@ export default function EditReportPage() {
       console.log('Updating report:', report)
       const updatedReport = await reportsService.updateReportFull(reportId, report)
       console.log('Report updated successfully:', updatedReport)
-      alert('Rapor başarıyla güncellendi!')
-
-      // Redirect back to the report detail page
-      router.push(`/reports/${reportId}`)
+      setSuccessModalOpen(true)
     } catch (error) {
       console.error('Error updating report:', error)
       alert('Rapor güncellenirken hata oluştu.')
@@ -786,9 +789,9 @@ export default function EditReportPage() {
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => router.push('/reports')}
+                onClick={() => router.push(`/reports/${reportId}`)}
                 className="p-2 rounded-md hover:bg-gray-100 flex items-center justify-center transition-colors"
-                title="Raporlara geri dön"
+                title="Rapor detayına geri dön"
               >
                 <ArrowLeft className="h-5 w-5 text-gray-600" />
               </button>
@@ -1617,6 +1620,37 @@ export default function EditReportPage() {
               ) : (
                 'Sorguyu Çalıştır'
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Success Modal */}
+      <Dialog open={successModalOpen} onOpenChange={handleSuccessModalClose}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="w-16 h-16 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div className="space-y-2">
+                <DialogTitle className="text-xl font-bold text-emerald-600">
+                  🐟 Fener balığınız size yol gösteriyor!
+                </DialogTitle>
+                <p className="text-slate-600">
+                  Rapor başarıyla güncellendi
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+          <DialogFooter className="flex justify-center pt-4">
+            <Button
+              onClick={handleSuccessModalClose}
+              className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white px-8"
+            >
+              Tamam
             </Button>
           </DialogFooter>
         </DialogContent>

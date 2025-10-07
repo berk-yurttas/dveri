@@ -434,9 +434,15 @@ export default function DashboardsPage() {
                           <Calendar className="h-4 w-4" />
                           <span>{new Date(dashboard.created_at).toLocaleDateString('tr-TR')}</span>
                         </div>
+                        {dashboard.owner_name && (
+                          <div className="flex items-center gap-1">
+                            <Users className="h-4 w-4" />
+                            <span>{dashboard.owner_name}</span>
+                          </div>
+                        )}
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          dashboard.is_public 
-                            ? "bg-blue-100 text-blue-800" 
+                          dashboard.is_public
+                            ? "bg-blue-100 text-blue-800"
                             : "bg-gray-100 text-gray-800"
                         }`}>
                           {dashboard.is_public ? (
@@ -542,6 +548,12 @@ export default function DashboardsPage() {
                     <Calendar className="h-4 w-4" />
                     <span>{new Date(dashboard.created_at).toLocaleDateString('tr-TR')}</span>
                   </div>
+                  {dashboard.owner_name && (
+                    <div className="flex items-center gap-1">
+                      <Users className="h-4 w-4" />
+                      <span>{dashboard.owner_name}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             );

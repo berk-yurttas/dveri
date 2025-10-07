@@ -4,7 +4,7 @@ import { AppShell } from "./appShell";
 import { Home, Users, Settings, BarChart3, Plus, Receipt, Layout, Star } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { useMemo, useCallback, useEffect } from "react";
+import { useMemo, useCallback, useEffect, useState } from "react";
 import { useDashboards } from "@/contexts/dashboard-context";
 import { useUser } from "@/contexts/user-context";
 
@@ -17,6 +17,33 @@ export function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
   const { user, loading, logout, isAuthenticated } = useUser();
 
+  // Easter egg state
+  const [keySequence, setKeySequence] = useState("");
+  const [title, setTitle] = useState("DerinIZ");
+
+  // Easter egg keypress listener
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      // Only track alphabetic keys
+      if (event.key.match(/^[a-zA-Z]$/)) {
+        const newSequence = (keySequence + event.key.toUpperCase()).slice(-6); // Keep last 6 characters
+        setKeySequence(newSequence);
+
+        // Check for easter egg sequence
+        if (newSequence === "ROMROM") {
+          setTitle("Biz de DERİNİZ ;)");
+          // Reset after 5 seconds
+          setTimeout(() => {
+            setTitle("DerinIZ");
+            setKeySequence("");
+          }, 5000);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [keySequence]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -91,8 +118,8 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <AppShell
-      title="AHTAPOT"
-      subtitle="DerinIZ"
+      title={title}
+      subtitle="AHTAPOT"
       navigationItems={navigationItems}
       currentPathname={pathname}
       onNavigationItemClick={handleNavigationClick}

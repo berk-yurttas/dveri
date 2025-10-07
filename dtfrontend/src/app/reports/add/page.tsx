@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/appShell/ui/card"
 import { Button } from "@/components/appShell/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/appShell/ui/tabs"
@@ -699,6 +700,8 @@ const ChartPreview = ({
 }
 
 export default function AddReportPage() {
+  const router = useRouter()
+
   const [report, setReport] = useState<ReportConfig>({
     name: '',
     description: '',
@@ -711,6 +714,8 @@ export default function AddReportPage() {
   const [filterDialogOpen, setFilterDialogOpen] = useState(false)
   const [filterValues, setFilterValues] = useState<Record<string, any>>({})
   const [activeQueryForFilters, setActiveQueryForFilters] = useState<string | null>(null)
+  const [successModalOpen, setSuccessModalOpen] = useState(false)
+  const [savedReportId, setSavedReportId] = useState<number | null>(null)
 
   // Helper function to generate unique IDs
   const generateId = () => Math.random().toString(36).substr(2, 9)
@@ -1056,13 +1061,20 @@ export default function AddReportPage() {
       console.log('Saving report:', report)
       const savedReport = await reportsService.saveReport(report)
       console.log('Report saved successfully:', savedReport)
-      alert('Rapor başarıyla kaydedildi!')
-      
-      // Optionally redirect to the reports list or the saved report view
-      // window.location.href = '/reports'
+      setSavedReportId(savedReport.id || null)
+      setSuccessModalOpen(true)
     } catch (error) {
       console.error('Error saving report:', error)
       alert('Rapor kaydedilirken hata oluştu.')
+    }
+  }
+
+  const handleSuccessModalClose = () => {
+    setSuccessModalOpen(false)
+    if (savedReportId) {
+      router.push(`/reports/${savedReportId}`)
+    } else {
+      router.push('/reports')
     }
   }
 
@@ -1990,6 +2002,37 @@ export default function AddReportPage() {
               ) : (
                 'Sorguyu Çalıştır'
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Success Modal */}
+      <Dialog open={successModalOpen} onOpenChange={handleSuccessModalClose}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="w-16 h-16 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div className="space-y-2">
+                <DialogTitle className="text-xl font-bold text-emerald-600">
+                  🐟 Fener balığınız size yol gösteriyor!
+                </DialogTitle>
+                <p className="text-slate-600">
+                  Rapor başarıyla oluşturuldu
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+          <DialogFooter className="flex justify-center pt-4">
+            <Button
+              onClick={handleSuccessModalClose}
+              className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white px-8"
+            >
+              Tamam
             </Button>
           </DialogFooter>
         </DialogContent>

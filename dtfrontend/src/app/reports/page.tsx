@@ -23,7 +23,8 @@ import {
   LineChart,
   AreaChart,
   ScatterChart,
-  Edit
+  Edit,
+  User
 } from "lucide-react";
 import { reportsService } from "@/services/reports";
 import { SavedReport } from "@/types/reports";
@@ -392,9 +393,15 @@ export default function ReportsPage() {
                           <Calendar className="h-4 w-4" />
                           <span>{new Date(report.created_at).toLocaleDateString('tr-TR')}</span>
                         </div>
+                        {report.owner_name && (
+                          <div className="flex items-center gap-1">
+                            <User className="h-4 w-4" />
+                            <span>{report.owner_name}</span>
+                          </div>
+                        )}
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          report.is_public 
-                            ? "bg-blue-100 text-blue-800" 
+                          report.is_public
+                            ? "bg-blue-100 text-blue-800"
                             : "bg-gray-100 text-gray-800"
                         }`}>
                           {report.is_public ? (
@@ -509,13 +516,15 @@ export default function ReportsPage() {
                 
                 <div className="flex items-center gap-4 text-sm text-gray-500">
                   <div className="flex items-center gap-1">
-                    <Database className="h-4 w-4" />
-                    <span>{report.queries?.length || 0} Sorgu</span>
-                  </div>
-                  <div className="flex items-center gap-1">
                     <Calendar className="h-4 w-4" />
                     <span>{new Date(report.created_at).toLocaleDateString('tr-TR')}</span>
                   </div>
+                  {report.owner_name && (
+                    <div className="flex items-center gap-1">
+                      <User className="h-4 w-4" />
+                      <span>{report.owner_name}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             );

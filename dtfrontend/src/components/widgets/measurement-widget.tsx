@@ -7,6 +7,7 @@ import { TestStatusDropdown } from "./test-status-dropdown"
 import { MeasurementLocationDropdown } from "./measurement-location-dropdown"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { api } from "@/lib/api"
+import { useWidgetFilters } from "@/contexts/filter-context"
 
 MeasurementWidget.config = {
   id: "measurement-widget",
@@ -70,18 +71,41 @@ interface MeasurementWidgetProps {
 }
 
 export function MeasurementWidget({ widgetId, dateFrom, dateTo }: MeasurementWidgetProps) {
-  const instanceRef = useRef(widgetId || `measurement-${Math.random().toString(36).substr(2, 9)}`)
-  const instanceId = instanceRef.current
+  // Ensure consistent widget ID - prefer provided widgetId, fallback only once
+  const instanceRef = useRef<string>(widgetId || `measurement-${Math.random().toString(36).substr(2, 9)}`)
+  if (!instanceRef.current) {
+    instanceRef.current = widgetId || `measurement-${Math.random().toString(36).substr(2, 9)}`
+  }
+  // Always use the provided widgetId if available, but keep the fallback consistent
+  const instanceId = widgetId || instanceRef.current
+
+  // Use widget-specific filters from context
+  const {
+    selectedProduct,
+    setSelectedProduct,
+    selectedTestName,
+    setSelectedTestName,
+    selectedTestStatus,
+    setSelectedTestStatus,
+    selectedMeasurementLocation,
+    setSelectedMeasurementLocation,
+    getFilteredProps
+  } = useWidgetFilters(instanceId)
+
+  // Debug: Log filter values when they change
+  useEffect(() => {
+    console.log(`[${instanceId}] Filter values:`, {
+      selectedProduct,
+      selectedTestName,
+      selectedTestStatus,
+      selectedMeasurementLocation
+    })
+  }, [instanceId, selectedProduct, selectedTestName, selectedTestStatus, selectedMeasurementLocation])
 
   const [productOptions, setProductOptions] = useState<ProductOption[]>([])
   const [testNameOptions, setTestNameOptions] = useState<TestNameOption[]>([])
   const [testStatusOptions, setTestStatusOptions] = useState<TestStatusOption[]>([])
   const [measurementLocationOptions, setMeasurementLocationOptions] = useState<MeasurementLocationOption[]>([])
-
-  const [selectedProduct, setSelectedProduct] = useState<number | null>(null)
-  const [selectedTestName, setSelectedTestName] = useState<string | null>(null)
-  const [selectedTestStatus, setSelectedTestStatus] = useState<string | null>(null)
-  const [selectedMeasurementLocation, setSelectedMeasurementLocation] = useState<string | null>(null)
 
   const [widgetData, setWidgetData] = useState<WidgetData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -99,7 +123,8 @@ export function MeasurementWidget({ widgetId, dateFrom, dateTo }: MeasurementWid
       try {
         const options = await api.get<ProductOption[]>('/data/products')
         setProductOptions(options)
-        if (options.length > 0) {
+        // Only set default if no product is currently selected
+        if (options.length > 0 && !selectedProduct) {
           setSelectedProduct(options[0].value)
         }
       } catch (err) {
@@ -125,17 +150,23 @@ export function MeasurementWidget({ widgetId, dateFrom, dateTo }: MeasurementWid
       console.log(`MeasurementWidget ${instanceId}: Loading test names for product ${selectedProduct}`)
 
       setTestNamesLoading(true)
-      setSelectedTestName(null)
-      setTestStatusOptions([])
-      setSelectedTestStatus(null)
-      setMeasurementLocationOptions([])
-      setSelectedMeasurementLocation(null)
+
+      // Only clear dependent selections if this is not the initial load
+      // During initial load, filter context might be restoring saved values
+      if (!loading) {
+        setSelectedTestName(null)
+        setTestStatusOptions([])
+        setSelectedTestStatus(null)
+        setMeasurementLocationOptions([])
+        setSelectedMeasurementLocation(null)
+      }
       setWidgetData(null)
 
       try {
         const testNames = await api.get<TestNameOption[]>(`/data/products/${selectedProduct}/test-names`)
         setTestNameOptions(testNames)
-        if (testNames.length > 0) {
+        // Only set default if no test name is currently selected
+        if (testNames.length > 0 && !selectedTestName) {
           setSelectedTestName(testNames[0].value)
         }
       } catch (err) {
@@ -161,15 +192,20 @@ export function MeasurementWidget({ widgetId, dateFrom, dateTo }: MeasurementWid
       console.log(`MeasurementWidget ${instanceId}: Loading test statuses for product ${selectedProduct}, test ${selectedTestName}`)
 
       setTestStatusLoading(true)
-      setSelectedTestStatus(null)
-      setMeasurementLocationOptions([])
-      setSelectedMeasurementLocation(null)
+
+      // Only clear dependent selections if this is not the initial load
+      if (!loading) {
+        setSelectedTestStatus(null)
+        setMeasurementLocationOptions([])
+        setSelectedMeasurementLocation(null)
+      }
       setWidgetData(null)
 
       try {
         const testStatuses = await api.get<TestStatusOption[]>(`/data/products/${selectedProduct}/test-names/${selectedTestName}/test-statuses`)
         setTestStatusOptions(testStatuses)
-        if (testStatuses.length > 0) {
+        // Only set default if no test status is currently selected
+        if (testStatuses.length > 0 && !selectedTestStatus) {
           setSelectedTestStatus(testStatuses[0].value)
         }
       } catch (err) {
@@ -188,20 +224,27 @@ export function MeasurementWidget({ widgetId, dateFrom, dateTo }: MeasurementWid
     const loadMeasurementLocations = async () => {
       if (!selectedProduct || !selectedTestName || !selectedTestStatus) {
         setMeasurementLocationOptions([])
-        setSelectedMeasurementLocation(null)
+        // Only clear selection if not during initial load
+        if (!loading) {
+          setSelectedMeasurementLocation(null)
+        }
         return
       }
 
       console.log(`MeasurementWidget ${instanceId}: Loading measurement locations`)
 
       setMeasurementLocationLoading(true)
-      setSelectedMeasurementLocation(null)
+      // Only clear selection if not during initial load
+      if (!loading) {
+        setSelectedMeasurementLocation(null)
+      }
       setWidgetData(null)
 
       try {
         const locations = await api.get<MeasurementLocationOption[]>(`/data/products/${selectedProduct}/test-names/${selectedTestName}/test-statuses/${selectedTestStatus}/measurement-locations`)
         setMeasurementLocationOptions(locations)
-        if (locations.length > 0) {
+        // Only set default if no measurement location is currently selected
+        if (locations.length > 0 && !selectedMeasurementLocation) {
           setSelectedMeasurementLocation(locations[0].value)
         }
       } catch (err) {
@@ -231,6 +274,8 @@ export function MeasurementWidget({ widgetId, dateFrom, dateTo }: MeasurementWid
       try {
         const productName = productOptions.find(p => p.value === selectedProduct)?.name || selectedProduct.toString()
 
+        // Use shared filters with fallback to props
+        const filterProps = getFilteredProps()
         const data = await api.post<WidgetData>('/data/widget', {
           widget_type: 'measurement_analysis',
           filters: {
@@ -238,8 +283,8 @@ export function MeasurementWidget({ widgetId, dateFrom, dateTo }: MeasurementWid
             test_adi: selectedTestName,
             test_durum: selectedTestStatus,
             olcum_yeri: selectedMeasurementLocation,
-            date_from: dateFrom || '2024-01-01 00:00:00',
-            date_to: dateTo || '2025-12-31 23:59:59'
+            date_from: dateFrom || filterProps.dateFrom,
+            date_to: dateTo || filterProps.dateTo
           }
         })
         setWidgetData(data)

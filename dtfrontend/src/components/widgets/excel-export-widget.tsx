@@ -6,6 +6,7 @@ import { ProductDropdown } from "./product-dropdown"
 import { CompanyDropdown } from "./company-dropdown"
 import { SerialNumberDropdown } from "./serial-number-dropdown"
 import { api } from "@/lib/api"
+import { useWidgetFilters } from "@/contexts/filter-context"
 
 // Widget configuration
 ExcelExportWidget.config = {
@@ -49,12 +50,20 @@ export function ExcelExportWidget({ widgetId, dateFrom, dateTo }: ExcelExportWid
   const instanceRef = useRef(widgetId || `excel-export-${Math.random().toString(36).substr(2, 9)}`)
   const instanceId = instanceRef.current
 
+  // Use shared filters from context
+  const {
+    selectedProduct,
+    setSelectedProduct,
+    selectedCompany,
+    setSelectedCompany,
+    selectedSerialNumber,
+    setSelectedSerialNumber,
+    getFilteredProps
+  } = useWidgetFilters(instanceId)
+
   const [productOptions, setProductOptions] = useState<ProductOption[]>([])
   const [companyOptions, setCompanyOptions] = useState<CompanyOption[]>([])
   const [serialNumberOptions, setSerialNumberOptions] = useState<SerialNumberOption[]>([])
-  const [selectedProduct, setSelectedProduct] = useState<number | null>(null)
-  const [selectedCompany, setSelectedCompany] = useState<string | null>(null)
-  const [selectedSerialNumber, setSelectedSerialNumber] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingSerialNumbers, setLoadingSerialNumbers] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -68,8 +77,8 @@ export function ExcelExportWidget({ widgetId, dateFrom, dateTo }: ExcelExportWid
       try {
         const options = await api.get<ProductOption[]>('/data/products')
         setProductOptions(options)
-        // Select first option by default
-        if (options.length > 0) {
+        // Only set default if no product is currently selected
+        if (options.length > 0 && !selectedProduct) {
           setSelectedProduct(options[0].value)
         }
       } catch (err) {
@@ -91,8 +100,8 @@ export function ExcelExportWidget({ widgetId, dateFrom, dateTo }: ExcelExportWid
       try {
         const options = await api.get<CompanyOption[]>(`/data/companies?product_id=${selectedProduct}`)
         setCompanyOptions(options)
-        // Select first option by default
-        if (options.length > 0) {
+        // Only set default if no company is currently selected
+        if (options.length > 0 && !selectedCompany) {
           setSelectedCompany(options[0].value)
         }
         setLoading(false)
@@ -178,11 +187,13 @@ export function ExcelExportWidget({ widgetId, dateFrom, dateTo }: ExcelExportWid
     try {
       console.log(`ExcelExportWidget ${instanceId}: Downloading Excel for product ${selectedProduct}, company ${selectedCompany}, serial number ${selectedSerialNumber || 'all'}`)
 
+      // Use shared filters with fallback to props
+      const filterProps = getFilteredProps()
       const filters: any = {
         urun_id: selectedProduct,
         firma: selectedCompany,
-        date_from: dateFrom || '2025-08-01 00:00:00',
-        date_to: dateTo || '2025-09-01 23:59:59'
+        date_from: dateFrom || filterProps.dateFrom,
+        date_to: dateTo || filterProps.dateTo
       }
 
       // Add serial number filter if selected
