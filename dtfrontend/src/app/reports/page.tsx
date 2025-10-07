@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { reportsService } from "@/services/reports";
 import { SavedReport } from "@/types/reports";
+import { DeleteModal } from "@/components/ui/delete-modal";
 
 // Icon mapping for visualization types
 const visualizationIconMap: { [key: string]: any } = {
@@ -64,6 +65,11 @@ export default function ReportsPage() {
   const [filterBy, setFilterBy] = useState<FilterOption>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
+
+  // Delete modal state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [reportToDelete, setReportToDelete] = useState<SavedReport | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -167,15 +173,24 @@ export default function ReportsPage() {
 
   const handleDeleteReport = async (report: SavedReport, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent navigation
-    
-    if (window.confirm(`"${report.name}" raporunu silmek istediğinizden emin misiniz?`)) {
-      try {
-        await reportsService.deleteReport(report.id.toString());
-        setReports(prev => prev.filter(r => r.id !== report.id));
-      } catch (error) {
-        console.error("Failed to delete report:", error);
-        setError("Rapor silinemedi");
-      }
+    setReportToDelete(report);
+    setDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!reportToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await reportsService.deleteReport(reportToDelete.id.toString());
+      setReports(prev => prev.filter(r => r.id !== reportToDelete.id));
+      setDeleteModalOpen(false);
+      setReportToDelete(null);
+    } catch (error) {
+      console.error("Failed to delete report:", error);
+      setError("Rapor silinemedi");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -558,6 +573,20 @@ export default function ReportsPage() {
           )}
         </div>
       )}
-        </div>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteModal
+        isOpen={deleteModalOpen}
+        onClose={() => {
+          setDeleteModalOpen(false);
+          setReportToDelete(null);
+        }}
+        onConfirm={confirmDelete}
+        title="Raporu Sil"
+        description="Bu işlem geri alınamaz. Rapor kalıcı olarak silinecek."
+        itemName={reportToDelete?.name}
+        isDeleting={isDeleting}
+      />
+    </div>
   );
 }

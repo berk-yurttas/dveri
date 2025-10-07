@@ -205,6 +205,8 @@ class ReportExecutionRequest(BaseModel):
     limit: Optional[int] = 1000
     page_size: Optional[int] = None  # Number of rows per page (for pagination)
     page_limit: Optional[int] = None  # Page number (1-based, for pagination)
+    sort_by: Optional[str] = None  # Column name to sort by
+    sort_direction: Optional[str] = None  # Sort direction: 'asc' or 'desc'
 
 class QueryExecutionResult(BaseModel):
     query_id: int

@@ -16,6 +16,7 @@ import { Calendar, User, Eye, EyeOff,
 } from "lucide-react";
 import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget } from "@/components/widgets";
 import { DateInput } from "@/components/ui/date-input";
+import { DeleteModal } from "@/components/ui/delete-modal";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -529,48 +530,15 @@ export default function DashboardPage() {
       )}
 
       {/* Delete Confirmation Modal */}
-      {isDeleteDialogOpen && (
-        <div className="fixed inset-0 flex items-center justify-center z-50" style={{backdropFilter: 'blur(3px)'}}>
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 pointer-events-auto shadow-2xl border border-gray-100">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">Dashboard'u Sil</h2>
-              <button
-                onClick={() => setIsDeleteDialogOpen(false)}
-                disabled={isDeleting}
-                className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            
-            <div className="mb-6">
-              <p className="text-sm text-gray-600">
-                Bu işlem geri alınamaz. "<strong>{dashboard?.title}</strong>" dashboard'u ve tüm widget'ları kalıcı olarak silinecek.
-              </p>
-            </div>
-            
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setIsDeleteDialogOpen(false)}
-                disabled={isDeleting}
-                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                İptal
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center gap-2"
-              >
-                {isDeleting && (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                )}
-                {isDeleting ? "Siliniyor..." : "Sil"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteModal
+        isOpen={isDeleteDialogOpen}
+        onClose={() => setIsDeleteDialogOpen(false)}
+        onConfirm={handleDelete}
+        title="Dashboard'u Sil"
+        description="Bu işlem geri alınamaz. Dashboard'u ve tüm widget'ları kalıcı olarak silinecek."
+        itemName={dashboard?.title}
+        isDeleting={isDeleting}
+      />
     </div>
   );
 }

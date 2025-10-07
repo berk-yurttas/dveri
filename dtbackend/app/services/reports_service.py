@@ -339,16 +339,33 @@ class ReportsService:
             raise ValueError("User not found")
 
         """Delete a report with all its queries and filters (only if user owns it)"""
+        # First, verify the report exists and user owns it
         stmt = select(Report).where(
             and_(Report.id == report_id, Report.owner_id == user.id)
         )
         result = await self.db.execute(stmt)
         db_report = result.scalar_one_or_none()
-        
+
         if not db_report:
             return False
 
-        self.db.delete(db_report)
+        # Get all query IDs for this report
+        report_queries_result = await self.db.execute(
+            select(ReportQuery).where(ReportQuery.report_id == report_id)
+        )
+        report_query_ids = [query.id for query in report_queries_result.scalars().all()]
+
+        # Delete filters first, then queries, then report
+        if report_query_ids:
+            await self.db.execute(
+                delete(ReportQueryFilter).where(ReportQueryFilter.query_id.in_(report_query_ids))
+            )
+            await self.db.execute(
+                delete(ReportQuery).where(ReportQuery.id.in_(report_query_ids))
+            )
+
+        # Finally delete the report
+        await self.db.delete(db_report)
         await self.db.commit()
         return True
 
@@ -470,7 +487,41 @@ class ReportsService:
         print(f"DEBUG: Final SQL: {sql}")
         return sql
 
-    def execute_query(self, query: ReportQuery, filter_values: List[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None) -> QueryExecutionResult:
+    def apply_sorting_to_query(self, sql: str, sort_by: str, sort_direction: str) -> str:
+        """Apply sorting to SQL query, overriding any existing ORDER BY clause"""
+        import re
+        
+        # Validate inputs
+        if not sort_by or not sort_by.strip():
+            raise ValueError("sort_by cannot be empty")
+        
+        if not sort_direction or not sort_direction.strip():
+            raise ValueError("sort_direction cannot be empty")
+        
+        # Validate sort direction
+        sort_direction = sort_direction.strip().lower()
+        if sort_direction not in ['asc', 'desc']:
+            raise ValueError(f"Invalid sort direction: {sort_direction}. Must be 'asc' or 'desc'")
+        
+        # Validate sort_by column name (basic SQL injection prevention)
+        # Allow qualified column names like "table.column" or "alias.column"
+        sort_by = sort_by.strip()
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$', sort_by):
+            raise ValueError(f"Invalid column name: {sort_by}. Must be a valid column name (optionally qualified with table alias like 'table.column')")
+        
+        # Remove existing ORDER BY clause (case insensitive)
+        # This regex matches ORDER BY followed by any characters until the end or LIMIT
+        sql_without_order = re.sub(r'\s+ORDER\s+BY\s+.*?(?=\s+LIMIT\s+|\s*$)', '', sql, flags=re.IGNORECASE)
+        
+        # Add new ORDER BY clause
+        new_sql = f"{sql_without_order} ORDER BY {sort_by} {sort_direction.upper()}"
+        
+        print(f"DEBUG: Applied sorting - Original SQL: {sql}")
+        print(f"DEBUG: Applied sorting - New SQL: {new_sql}")
+        
+        return new_sql
+
+    def execute_query(self, query: ReportQuery, filter_values: List[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None) -> QueryExecutionResult:
         """Execute a single query with optional filters"""
         if not self.clickhouse_client:
             raise ValueError("ClickHouse client not available")
@@ -481,6 +532,22 @@ class ReportsService:
             
             # Always apply filters (even if empty) to handle {{dynamic_filters}} placeholder
             sql = self.apply_filters_to_query(sql, query.filters, filter_values or [])
+            
+            # Apply sorting if provided
+            if sort_by and sort_direction:
+                try:
+                    sql = self.apply_sorting_to_query(sql, sort_by, sort_direction)
+                except ValueError as e:
+                    return QueryExecutionResult(
+                        query_id=query.id,
+                        query_name=query.name,
+                        columns=[],
+                        data=[],
+                        total_rows=0,
+                        execution_time_ms=0,
+                        success=False,
+                        message=f"Sorting error: {str(e)}"
+                    )
             
             # Sanitize the query
             sanitized_sql = self.sanitize_sql_query(sql)
@@ -508,8 +575,8 @@ class ReportsService:
                 print(f"DEBUG: Paginated SQL: {paginated_sql}")
                 result = self.clickhouse_client.execute(paginated_sql, with_column_types=True)
             else:
-                # Add limit if not present (non-paginated query)
-                if 'LIMIT' not in sanitized_sql.upper():
+                # Add limit only for table visualizations (non-paginated query)
+                if visualization_type == 'table' and 'LIMIT' not in sanitized_sql.upper():
                     sanitized_sql = f"{sanitized_sql} LIMIT {limit}"
                 
                 # Execute the query
@@ -590,12 +657,12 @@ class ReportsService:
                 if not query:
                     raise ValueError("Query not found in report")
                 
-                result = self.execute_query(query, request.filters, request.limit, request.page_size, request.page_limit)
+                result = self.execute_query(query, request.filters, request.limit, request.page_size, request.page_limit, request.sort_by, request.sort_direction, query.visualization_config.get('type', 'table'))
                 results.append(result)
             else:
                 # Execute all queries
                 for query in report.queries:
-                    result = self.execute_query(query, request.filters, request.limit, request.page_size, request.page_limit)
+                    result = self.execute_query(query, request.filters, request.limit, request.page_size, request.page_limit, request.sort_by, request.sort_direction, query.visualization_config.get('type', 'table'))
                     results.append(result)
 
             total_execution_time = (time.time() - start_time) * 1000

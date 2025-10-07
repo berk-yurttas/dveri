@@ -24,12 +24,17 @@ import {
   Edit,
   X,
   FileSpreadsheet,
-  User
+  User,
+  Trash2,
+  Settings,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
 import { reportsService } from '@/services/reports'
+import { DeleteModal } from '@/components/ui/delete-modal'
 
 // Visualization components
 import {
@@ -157,6 +162,10 @@ export default function ReportDetailPage() {
   const [filterModalOpen, setFilterModalOpen] = useState<{[key: string]: boolean}>({})
   const [isMounted, setIsMounted] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isSettingsDropdownOpen, setIsSettingsDropdownOpen] = useState(false)
+  const [sorting, setSorting] = useState<{[queryId: number]: {column: string, direction: 'asc' | 'desc'} | null}>({})
 
   // Debounce timeout refs for each filter
   const debounceTimeouts = useRef<{[key: string]: NodeJS.Timeout}>({})
@@ -164,6 +173,7 @@ export default function ReportDetailPage() {
   // Ref to track current reportId to prevent multiple loads
   const currentReportIdRef = useRef<string | null>(null)
   const isLoadingRef = useRef(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Fetch report details using the reports service
   const fetchReportDetails = async () => {
@@ -191,6 +201,136 @@ export default function ReportDetailPage() {
       setDropdownOptions(prev => ({
         ...prev,
         [key]: []
+      }))
+    }
+  }
+
+  // Execute a single query with custom filters and sorting
+  const executeQueryWithSorting = async (query: QueryData, reportId: number, customFilters: FilterState, page: number = 1, pageSize: number = 10, sortConfig?: {column: string, direction: 'asc' | 'desc'}) => {
+    try {
+      // Update loading state
+      setQueryResults(prev => ({
+        ...prev,
+        [query.id]: {
+          ...prev[query.id],
+          loading: true,
+          error: null,
+          currentPage: page,
+          pageSize: pageSize
+        }
+      }))
+
+      // Prepare filters for this query using custom filters
+      const queryFilters = query.filters
+        .map(filter => {
+          if (filter.type === 'date') {
+            const startKey = `${query.id}_${filter.fieldName}_start`
+            const endKey = `${query.id}_${filter.fieldName}_end`
+            const startValue = customFilters[startKey]
+            const endValue = customFilters[endKey]
+            
+            console.log(`Date filter debug: ${filter.fieldName}`)
+            console.log(`  Start key: ${startKey} = ${startValue}`)
+            console.log(`  End key: ${endKey} = ${endValue}`)
+            
+            if (startValue && endValue) {
+              // Both start and end dates provided - use BETWEEN
+              console.log(`Creating BETWEEN filter: [${startValue}, ${endValue}]`)
+              return {
+                field_name: filter.fieldName,
+                value: [startValue, endValue],
+                operator: 'BETWEEN'
+              }
+            } else if (startValue) {
+              // Only start date provided - use >=
+              return {
+                field_name: filter.fieldName,
+                value: startValue,
+                operator: '>='
+              }
+            } else if (endValue) {
+              // Only end date provided - use <=
+              return {
+                field_name: filter.fieldName,
+                value: endValue,
+                operator: '<='
+              }
+            }
+            return null
+          } else {
+            const key = `${query.id}_${filter.fieldName}`
+            const value = customFilters[key]
+            
+            if (filter.type === 'multiselect') {
+              // For multiselect, value should be an array
+              if (Array.isArray(value) && value.length > 0) {
+                return {
+                  field_name: filter.fieldName,
+                  value: value,
+                  operator: 'IN'
+                }
+              }
+            } else if (value && value !== '') {
+              return {
+                field_name: filter.fieldName,
+                value: value,
+                operator: '='
+              }
+            }
+            return null
+          }
+        })
+        .filter(Boolean)
+
+      const request = {
+        report_id: reportId,
+        query_id: query.id,
+        filters: queryFilters,
+        limit: query.visualization.type === 'table' ? pageSize : 1000,
+        ...(query.visualization.type === 'table' && {
+          page_size: pageSize,
+          page_limit: page
+        }),
+        // Add sorting if provided
+        ...(sortConfig && {
+          sort_by: sortConfig.column,
+          sort_direction: sortConfig.direction
+        })
+      }
+
+      const response = await reportsService.executeReport(request)
+      
+      if (response.success && response.results.length > 0) {
+        const result = response.results[0]
+        const totalPages = query.visualization.type === 'table' 
+          ? Math.ceil(result.total_rows / pageSize)
+          : 1
+          
+        setQueryResults(prev => ({
+          ...prev,
+          [query.id]: {
+            result: result,
+            loading: false,
+            error: null,
+            currentPage: page,
+            pageSize: pageSize,
+            totalPages: totalPages
+          }
+        }))
+      } else {
+        throw new Error(response.message || 'Query execution failed')
+      }
+    } catch (err) {
+      setQueryResults(prev => ({
+        ...prev,
+        [query.id]: {
+          result: null,
+          loading: false,
+          error: err instanceof Error ? err.message : 'Query execution failed',
+          currentPage: page,
+          pageSize: pageSize,
+          totalPages: 0
+        }
       }))
     }
   }
@@ -347,10 +487,20 @@ export default function ReportDetailPage() {
     }
 
     const handleClickOutside = (event: MouseEvent) => {
-      // Close all popovers when clicking outside
       const target = event.target as Element
-      if (!target.closest('.relative')) {
+      
+      // Close table filter popovers when clicking outside any filter area
+      const isInsideAnyTableFilter = target.closest('th.relative') || target.closest('.absolute.top-full')
+      const isInsideTable = target.closest('table')
+      
+      // Only close if not inside any table filter AND not inside the table at all
+      if (!isInsideAnyTableFilter && !isInsideTable) {
         setOpenPopovers({})
+      }
+      
+      // Close settings dropdown when clicking outside
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsSettingsDropdownOpen(false);
       }
     }
 
@@ -526,13 +676,31 @@ export default function ReportDetailPage() {
     const queryState = queryResults[query.id]
     if (!queryState) return
     
-    await executeQueryWithFilters(query, report.id, filters, newPage, queryState.pageSize)
+    // Get current sorting state for this query
+    const currentSort = sorting[query.id]
+    
+    if (currentSort) {
+      // Use sorting function to preserve sort order
+      await executeQueryWithSorting(query, report.id, filters, newPage, queryState.pageSize, currentSort)
+    } else {
+      // No sorting, use regular function
+      await executeQueryWithFilters(query, report.id, filters, newPage, queryState.pageSize)
+    }
   }
 
   const handlePageSizeChange = async (query: QueryData, newPageSize: number) => {
     if (!report) return
     
-    await executeQueryWithFilters(query, report.id, filters, 1, newPageSize)
+    // Get current sorting state for this query
+    const currentSort = sorting[query.id]
+    
+    if (currentSort) {
+      // Use sorting function to preserve sort order
+      await executeQueryWithSorting(query, report.id, filters, 1, newPageSize, currentSort)
+    } else {
+      // No sorting, use regular function
+      await executeQueryWithFilters(query, report.id, filters, 1, newPageSize)
+    }
   }
 
   // Capture chart as base64 image
@@ -560,6 +728,51 @@ export default function ReportDetailPage() {
       return null
     }
   }
+
+  // Handle column sorting
+  const handleColumnSort = (query: QueryData, column: string) => {
+    const currentSort = sorting[query.id]
+    let newDirection: 'asc' | 'desc' = 'asc'
+    
+    if (currentSort && currentSort.column === column) {
+      // Toggle direction if same column
+      newDirection = currentSort.direction === 'asc' ? 'desc' : 'asc'
+    }
+    
+    // Update sorting state
+    setSorting(prev => ({
+      ...prev,
+      [query.id]: { column, direction: newDirection }
+    }))
+    
+    // Execute query with new sorting, preserving current page
+    const queryState = queryResults[query.id]
+    const pageSize = queryState?.pageSize || 50
+    const currentPage = queryState?.currentPage || 1
+    
+    // Only reset to page 1 if changing to a different column
+    const targetPage = (currentSort && currentSort.column === column) ? currentPage : 1
+    
+    executeQueryWithSorting(query, report!.id, filters, targetPage, pageSize, { column, direction: newDirection })
+  }
+
+  // Delete report handler
+  const handleDelete = async () => {
+    if (!report) return;
+    
+    setIsDeleting(true);
+    try {
+      await reportsService.deleteReport(report.id.toString());
+      setIsDeleteDialogOpen(false);
+      router.push("/reports"); // Redirect to reports list after deletion
+    } catch (error) {
+      console.error("Failed to delete report:", error);
+      setError("Report silinemedi");
+      setIsDeleteDialogOpen(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Excel export functionality with chart images
   const exportToExcel = async () => {
@@ -974,20 +1187,52 @@ export default function ReportDetailPage() {
                     
                     return (
                       <th key={index} className="px-3 py-1.5 text-left font-semibold text-gray-800 text-xs relative">
-                        {filter ? (
-                          <div className="relative">
-                            <div 
-                              className="flex items-center justify-between cursor-pointer hover:bg-gray-100 -mx-1 px-1 py-0.5 rounded"
-                              onClick={() => {
-                                setOpenPopovers(prev => ({
-                                  ...prev,
-                                  [`${query.id}_${col}`]: !prev[`${query.id}_${col}`]
-                                }))
-                              }}
-                            >
-                              <span>{col}</span>
-                              <Filter className="h-2.5 w-2.5 text-gray-400" />
+                        <div className="flex items-center justify-between">
+                          {/* Sortable column header */}
+                          <div 
+                            className="flex items-center gap-1 cursor-pointer hover:bg-gray-100 px-1 py-0.5 rounded flex-1"
+                            onClick={() => handleColumnSort(query, col)}
+                          >
+                            <span>{col}</span>
+                            <div className="flex flex-col">
+                              {sorting[query.id]?.column === col ? (
+                                sorting[query.id]?.direction === 'asc' ? (
+                                  <ArrowUp className="h-3 w-3 text-blue-600" />
+                                ) : (
+                                  <ArrowDown className="h-3 w-3 text-blue-600" />
+                                )
+                              ) : (
+                                <div className="flex flex-col">
+                                  <ArrowUp className="h-2 w-2 text-gray-300" />
+                                  <ArrowDown className="h-2 w-2 text-gray-300 -mt-1" />
+                                </div>
+                              )}
                             </div>
+                          </div>
+                          
+                          {/* Filter button */}
+                          {filter && (
+                            <div className="relative">
+                              <div 
+                                className="cursor-pointer hover:bg-gray-100 p-1 rounded"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setOpenPopovers(prev => {
+                                    const currentKey = `${query.id}_${col}`
+                                    const isCurrentlyOpen = prev[currentKey]
+                                    
+                                    // Close all other popovers and toggle current one
+                                    const newPopovers: {[key: string]: boolean} = {}
+                                    if (!isCurrentlyOpen) {
+                                      newPopovers[currentKey] = true
+                                    }
+                                    
+                                    return newPopovers
+                                  })
+                                }}
+                              >
+                                <Filter className="h-3 w-3 text-gray-400" />
+                              </div>
                             
                             {openPopovers[`${query.id}_${col}`] && (
                               <div className={`absolute top-full mt-1 w-64 p-4 bg-white border border-gray-200 rounded-md shadow-lg z-[9999] ${
@@ -1127,7 +1372,7 @@ export default function ReportDetailPage() {
                                         handleDebouncedFilterChange(query.id, filter.fieldName, newValue, query)
                                       }}
                                       className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                      placeholder={`Filter ${col.toLowerCase()}...`}
+                                      placeholder={`${col} Filtrele`}
                                     />
                                   )}
                                   
@@ -1172,10 +1417,9 @@ export default function ReportDetailPage() {
                                 </div>
                               </div>
                             )}
-                          </div>
-                        ) : (
-                          <span>{col}</span>
-                        )}
+                            </div>
+                          )}
+                        </div>
                       </th>
                     )
                   })}
@@ -1184,11 +1428,36 @@ export default function ReportDetailPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {data.map((row, rowIndex) => (
                   <tr key={rowIndex} className="hover:bg-gray-50 transition-colors">
-                    {row.map((cell, cellIndex) => (
-                      <td key={cellIndex} className="px-3 py-2 text-xs text-gray-800 whitespace-nowrap">
-                        {cell?.toString() || ''}
-                      </td>
-                    ))}
+                    {row.map((cell, cellIndex) => {
+                      const cellValue = cell?.toString() || ''
+                      const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
+                      const showTooltip = cellValue.length > 50
+                      
+                      // Insert line break every 50 characters
+                      const formatTooltipText = (text: string) => {
+                        const chunks = []
+                        for (let i = 0; i < text.length; i += 50) {
+                          chunks.push(text.substring(i, i + 50))
+                        }
+                        return chunks.join('\n')
+                      }
+                      
+                      return (
+                        <td key={cellIndex} className="px-3 py-2 text-xs text-gray-800 whitespace-nowrap">
+                          {showTooltip ? (
+                            <div className="relative group">
+                              <span className="cursor-help">{displayValue}</span>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 max-w-xs whitespace-pre-wrap">
+                                {formatTooltipText(cellValue)}
+                                <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                              </div>
+                            </div>
+                          ) : (
+                            <span>{displayValue}</span>
+                          )}
+                        </td>
+                      )
+                    })}
                   </tr>
                 ))}
               </tbody>
@@ -1664,17 +1933,45 @@ export default function ReportDetailPage() {
             <div>
               <div className="flex items-center gap-3">
                 <h1 className="text-3xl font-bold">{report.name}</h1>
-                <button
-                onClick={() => router.push(`/reports/${reportId}/edit`)}
-                className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                title="Raporu Düzenle"
-              >
-                <Edit className="h-5 w-5" style={{ marginTop: '5px' }} />
-              </button>
+                <div className="relative" ref={dropdownRef}>
+                  <button 
+                    className="h-8 w-8 p-0 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-700"
+                    onClick={() => setIsSettingsDropdownOpen(!isSettingsDropdownOpen)}
+                  >
+                    <Settings className="h-4 w-4" />
+                  </button>
+                  
+                  {/* Settings Dropdown */}
+                  {isSettingsDropdownOpen && (
+                    <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+                      <div className="py-1">
+                        <button
+                          onClick={() => {
+                            setIsSettingsDropdownOpen(false);
+                            router.push(`/reports/${reportId}/edit`);
+                          }}
+                          className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          Düzenle
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsSettingsDropdownOpen(false);
+                            setIsDeleteDialogOpen(true);
+                          }}
+                          className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Sil
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <p className="text-gray-600 mt-2">{report.description}</p>
             </div>
-
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -1793,6 +2090,17 @@ export default function ReportDetailPage() {
           )
         })}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteModal
+        isOpen={isDeleteDialogOpen}
+        onClose={() => setIsDeleteDialogOpen(false)}
+        onConfirm={handleDelete}
+        title="Raporu Sil"
+        description="Bu işlem geri alınamaz. Raporu kalıcı olarak silinecek."
+        itemName={report?.name}
+        isDeleting={isDeleting}
+      />
     </div>
   )
 }
