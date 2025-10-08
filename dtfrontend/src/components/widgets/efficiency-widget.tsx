@@ -64,6 +64,7 @@ export function EfficiencyWidget({ widgetId, dateFrom, dateTo }: EfficiencyWidge
     
     const loadInfrastructureOptions = async () => {
       try {
+        // GET requests are automatically cached for 5 minutes
         const options = await api.get<InfrastructureOption[]>('/data/infrastructure')
         setInfrastructureOptions(options)
         // Only set default if no infrastructure is currently selected
@@ -81,6 +82,8 @@ export function EfficiencyWidget({ widgetId, dateFrom, dateTo }: EfficiencyWidge
 
   // Load widget data when infrastructure is selected
   useEffect(() => {
+    const abortController = new AbortController()
+    
     const loadWidgetData = async () => {
       if (!selectedInfrastructure) return
 
@@ -92,6 +95,7 @@ export function EfficiencyWidget({ widgetId, dateFrom, dateTo }: EfficiencyWidge
       try {
         // Use shared filters with fallback to props
         const filterProps = getFilteredProps()
+        // Widget data requests automatically use queue
         const data = await api.post<WidgetData>('/data/widget', {
           widget_type: 'efficiency',
           filters: {
@@ -99,17 +103,27 @@ export function EfficiencyWidget({ widgetId, dateFrom, dateTo }: EfficiencyWidge
             date_from: dateFrom || filterProps.dateFrom,
             date_to: dateTo || filterProps.dateTo
           }
-        })
+        }, { signal: abortController.signal })
         setWidgetData(data)
-      } catch (err) {
-        setError('Failed to load widget data')
-        console.error(`Error loading widget data for ${instanceId}:`, err)
+      } catch (err: any) {
+        // Don't show error if request was aborted
+        if (err?.status !== 0 && err?.message !== 'Request was cancelled') {
+          setError('Failed to load widget data')
+          console.error(`Error loading widget data for ${instanceId}:`, err)
+        }
       } finally {
-        setLoading(false)
+        if (!abortController.signal.aborted) {
+          setLoading(false)
+        }
       }
     }
 
     loadWidgetData()
+    
+    // Cancel the request if component unmounts or dependencies change
+    return () => {
+      abortController.abort()
+    }
   }, [selectedInfrastructure, instanceId, dateFrom, dateTo])
 
   // Calculate derived values

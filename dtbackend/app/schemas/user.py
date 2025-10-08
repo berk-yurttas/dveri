@@ -88,7 +88,7 @@ class User(UserBase):
             department=user_data.get("department", ""),
             management_dpt=user_data.get("managementDpt", ""),
             title=user_data.get("title", ""),
-            avatar_url=user_data.get("avatar_url", ""),
+            avatar_url=user_data.get("avatarUrl", ""),
             role=user_data.get("role", []),
             created=created,
             updated=updated,
