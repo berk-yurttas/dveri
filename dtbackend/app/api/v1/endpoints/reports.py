@@ -1,4 +1,6 @@
 from typing import List, Dict, Any, Optional
+from app.core.platform_middleware import get_current_platform, get_optional_platform
+from app.models.postgres_models import Platform
 from fastapi import APIRouter, Depends, HTTPException, Query
 from clickhouse_driver import Client
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,7 @@ import re
 
 from app.core.database import get_clickhouse_db, get_postgres_db
 from app.core.auth import check_authenticated
+from app.core.platform_db import DatabaseConnectionFactory
 from app.schemas.data import ReportPreviewRequest, ReportPreviewResponse
 from app.schemas.reports import (
     Report, ReportCreate, ReportUpdate, ReportFullUpdate, ReportList,
@@ -46,48 +49,106 @@ def sanitize_sql_query(query: str) -> str:
 @router.post("/preview", response_model=ReportPreviewResponse)
 async def preview_report_query(
     request: ReportPreviewRequest,
+    platform: Optional[Platform] = Depends(get_optional_platform),
     db_client: Client = Depends(get_clickhouse_db)
 ):
     """
-    Preview the results of a SQL query for report building
+    Preview the results of a SQL query for report building.
+    Supports multiple database types based on platform configuration.
     """
     try:
         # Sanitize the SQL query
         sanitized_query = sanitize_sql_query(request.sql_query)
-
-        # Add LIMIT to the query if not present
-        if 'LIMIT' not in sanitized_query.upper():
-            sanitized_query = f"{sanitized_query} LIMIT {request.limit}"
+        
+        # Determine database type
+        db_type = platform.db_type.lower() if platform else "clickhouse"
+        
+        # Add LIMIT to the query if not present (database-specific)
+        if db_type == "mssql":
+            # MSSQL uses TOP instead of LIMIT
+            if 'TOP' not in sanitized_query.upper() and 'LIMIT' not in sanitized_query.upper():
+                sanitized_query = sanitized_query.replace("SELECT", f"SELECT TOP {request.limit}", 1)
+        else:
+            # ClickHouse and PostgreSQL use LIMIT
+            if 'LIMIT' not in sanitized_query.upper():
+                sanitized_query = f"{sanitized_query} LIMIT {request.limit}"
 
         # Record execution start time
         start_time = time.time()
 
-        # Execute the query
-        result = db_client.execute(sanitized_query, with_column_types=True)
+        # Execute the query based on database type
+        if db_type == "clickhouse":
+            # Use ClickHouse client (existing logic)
+            result = db_client.execute(sanitized_query, with_column_types=True)
+            
+            # Extract columns and data for ClickHouse
+            if result and len(result) > 0:
+                columns = [col[0] for col in result[1]] if len(result) > 1 else []
+                data = result[0] if result[0] else []
+            else:
+                columns = []
+                data = []
+                
+        elif db_type == "postgresql":
+            # Use PostgreSQL connection (without RealDictCursor for raw data)
+            if not platform:
+                raise ValueError("Platform required for PostgreSQL queries")
+            
+            import psycopg2
+            db_config = platform.db_config or {}
+            
+            # Create connection without RealDictCursor to get raw tuples
+            conn = psycopg2.connect(
+                host=db_config.get("host", "localhost"),
+                port=int(db_config.get("port", 5432)),
+                database=db_config.get("database"),
+                user=db_config.get("user"),
+                password=db_config.get("password")
+            )
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute(sanitized_query)
+                columns = [desc[0] for desc in cursor.description] if cursor.description else []
+                data = cursor.fetchall()
+            finally:
+                cursor.close()
+                conn.close()
+                
+        elif db_type == "mssql":
+            # Use MSSQL connection
+            if not platform:
+                raise ValueError("Platform required for MSSQL queries")
+            
+            import pyodbc
+            conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute(sanitized_query)
+                columns = [column[0] for column in cursor.description] if cursor.description else []
+                data = cursor.fetchall()
+            finally:
+                cursor.close()
+                conn.close()
+        else:
+            raise ValueError(f"Unsupported database type: {db_type}")
 
         # Calculate execution time
         execution_time_ms = (time.time() - start_time) * 1000
 
-        # Extract columns and data
-        if result and len(result) > 0:
-            # First row contains column info (name, type)
-            columns = [col[0] for col in result[1]] if len(result) > 1 else []
-            data = result[0] if result[0] else []
-
-            # Convert data to list of lists for JSON serialization
-            formatted_data = []
-            for row in data:
-                formatted_row = []
-                for item in row:
-                    # Handle different data types for JSON serialization
-                    if isinstance(item, (int, float, str, bool)) or item is None:
-                        formatted_row.append(item)
-                    else:
-                        formatted_row.append(str(item))
-                formatted_data.append(formatted_row)
-        else:
-            columns = []
-            formatted_data = []
+        # Convert data to list of lists for JSON serialization (common for all database types)
+        formatted_data = []
+        for row in data:
+            formatted_row = []
+            for item in row:
+                # Handle different data types for JSON serialization
+                if isinstance(item, (int, float, str, bool)) or item is None:
+                    formatted_row.append(item)
+                else:
+                    # Handle datetime, date, and other types
+                    formatted_row.append(str(item))
+            formatted_data.append(formatted_row)
 
         return ReportPreviewResponse(
             columns=columns,
@@ -95,7 +156,7 @@ async def preview_report_query(
             total_rows=len(formatted_data),
             execution_time_ms=round(execution_time_ms, 2),
             success=True,
-            message=f"Query executed successfully. Retrieved {len(formatted_data)} rows."
+            message=f"Query executed successfully on {db_type.upper()}. Retrieved {len(formatted_data)} rows."
         )
 
     except ValueError as ve:
@@ -127,27 +188,83 @@ async def preview_report_query(
 @router.get("/validate-syntax", response_model=SqlValidationResponse)
 async def validate_sql_syntax(
     query: str = Query(..., description="SQL query to validate"),
+    platform: Optional[Platform] = Depends(get_optional_platform),
     db_client: Client = Depends(get_clickhouse_db)
 ):
     """
-    Validate SQL syntax without executing the query
+    Validate SQL syntax without executing the query.
+    Supports multiple database types based on platform configuration.
     """
     try:
         # Sanitize the query
         sanitized_query = sanitize_sql_query(query)
+        
+        # Determine database type
+        db_type = platform.db_type.lower() if platform else "clickhouse"
 
         # Use EXPLAIN to validate syntax without executing
         explain_query = f"EXPLAIN {sanitized_query}"
 
         start_time = time.time()
-        result = db_client.execute(explain_query)
+        
+        # Execute EXPLAIN based on database type
+        if db_type == "clickhouse":
+            result = db_client.execute(explain_query)
+            explain_plan = result
+            
+        elif db_type == "postgresql":
+            if not platform:
+                raise ValueError("Platform required for PostgreSQL queries")
+            
+            import psycopg2
+            db_config = platform.db_config or {}
+            
+            # Create connection without RealDictCursor to get raw tuples
+            conn = psycopg2.connect(
+                host=db_config.get("host", "localhost"),
+                port=int(db_config.get("port", 5432)),
+                database=db_config.get("database"),
+                user=db_config.get("user"),
+                password=db_config.get("password")
+            )
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute(explain_query)
+                explain_plan = [list(row) for row in cursor.fetchall()]
+            finally:
+                cursor.close()
+                conn.close()
+                
+        elif db_type == "mssql":
+            # MSSQL doesn't support EXPLAIN in the same way
+            # We can use SET SHOWPLAN_TEXT ON
+            if not platform:
+                raise ValueError("Platform required for MSSQL queries")
+            
+            import pyodbc
+            conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+            cursor = conn.cursor()
+            
+            try:
+                # MSSQL uses SET SHOWPLAN_TEXT ON for query plans
+                cursor.execute("SET SHOWPLAN_TEXT ON")
+                cursor.execute(sanitized_query)
+                explain_plan = [list(row) for row in cursor.fetchall()]
+                cursor.execute("SET SHOWPLAN_TEXT OFF")
+            finally:
+                cursor.close()
+                conn.close()
+        else:
+            raise ValueError(f"Unsupported database type: {db_type}")
+        
         execution_time_ms = (time.time() - start_time) * 1000
 
         return SqlValidationResponse(
             success=True,
-            message="Query syntax is valid",
+            message=f"Query syntax is valid for {db_type.upper()}",
             execution_time_ms=round(execution_time_ms, 2),
-            explain_plan=result
+            explain_plan=explain_plan
         )
 
     except ValueError as ve:
@@ -242,12 +359,13 @@ async def create_report(
     report_data: ReportCreate,
     current_user: User = Depends(check_authenticated),
     db: AsyncSession = Depends(get_postgres_db),
+    platform: Optional[Platform] = Depends(get_current_platform),
     clickhouse_client: Client = Depends(get_clickhouse_db)
 ):
     """Create a new report"""
     service = ReportsService(db, clickhouse_client)
     try:
-        return await service.create_report(report_data, current_user.username)
+        return await service.create_report(report_data, current_user.username, platform)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -257,12 +375,14 @@ async def get_reports(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     my_reports_only: bool = Query(False),
+    subplatform: Optional[str] = None,
+    platform: Optional[Platform] = Depends(get_current_platform),
     current_user: User = Depends(check_authenticated),
     db: AsyncSession = Depends(get_postgres_db)
 ):
-    """Get reports list (owned + public, or only owned)"""
+    """Get reports list (owned + public, or only owned) - optionally filtered by subplatform"""
     service = ReportsService(db)
-    reports = await service.get_reports_list(current_user.username, skip, limit, my_reports_only)
+    reports = await service.get_reports_list(current_user.username, skip, limit, my_reports_only, platform, subplatform)
     return reports
 
 

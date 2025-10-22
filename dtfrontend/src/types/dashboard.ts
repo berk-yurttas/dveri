@@ -44,6 +44,7 @@ export interface DashboardList {
   is_public: boolean
   owner_id: number
   owner_name: string
+  tags: string[]
   layout_config?: Record<string, any>
   widgets?: Widget[]
   created_at: string
@@ -64,6 +65,7 @@ export interface PlacedWidget {
 
 export interface CreateDashboardRequest {
   title: string
+  tags: string[] | undefined
   username: string
   owner_id: number
   is_public: boolean

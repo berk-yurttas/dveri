@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.middleware import AuthMiddleware
+from app.core.platform_middleware import PlatformMiddleware
 from app.api.v1.api import api_router
 
 app = FastAPI(
@@ -19,6 +20,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add platform middleware (before auth to set platform context)
+app.add_middleware(PlatformMiddleware)
 
 # Add authentication middleware
 app.add_middleware(AuthMiddleware)

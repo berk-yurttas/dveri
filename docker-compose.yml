@@ -21,6 +21,26 @@ services:
       - sensor_default
     restart: unless-stopped
 
+  ivme-postgresql:
+    image: postgres:16
+    container_name: ivme-postgres-db
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: ivmedb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ivme_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - sensor_default
+    restart: unless-stopped
+
   clickhouse:
     image: clickhouse/clickhouse-server:latest
     env_file:
@@ -98,6 +118,7 @@ volumes:
   postgres_data:
   clickhouse_data:
   mssql_data:
+  ivme_postgres_data:
 
 networks:
   sensor_default:

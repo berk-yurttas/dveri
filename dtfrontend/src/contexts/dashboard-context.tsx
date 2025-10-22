@@ -32,7 +32,7 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
       setDashboards(dashboardData);
     } catch (error) {
       console.error("Failed to fetch dashboards:", error);
-      setError("Dashboard'lar yüklenemedi");
+      setError("Ekranlar yüklenemedi");
     } finally {
       setLoading(false);
     }

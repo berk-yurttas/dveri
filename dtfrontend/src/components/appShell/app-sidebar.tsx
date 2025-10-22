@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState, memo, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { LogOutIcon, Loader2, ChevronDown, type LucideIcon } from "lucide-react"
 
 import { useMediaQuery } from "./hooks/use-media-query"
@@ -22,9 +23,11 @@ interface AppSidebarProps {
   onLogout?: () => void
   logoutLoading?: boolean
   mobileOpen?: boolean
+  isIvmePlatform?: boolean
 }
 
-export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPathname, onNavigationItemClick, onLogout, logoutLoading = false, mobileOpen }: AppSidebarProps) {
+export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPathname, onNavigationItemClick, onLogout, logoutLoading = false, mobileOpen, isIvmePlatform }: AppSidebarProps) {
+  const router = useRouter()
   const isDesktop = useMediaQuery("(min-width: 800px)")
   const [isExpanded, setIsExpanded] = useState(false)
   const [expandedSubmenus, setExpandedSubmenus] = useState<Set<string>>(new Set())
@@ -42,14 +45,18 @@ export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPat
   }
 
   const handleItemClick = (item: NavigationItem, e: React.MouseEvent) => {
+    e.preventDefault()
     if (item.children && item.children.length > 0) {
-      e.preventDefault()
       // Only allow submenu toggle when sidebar is expanded
       if ((isDesktop && isExpanded) || (!isDesktop && mobileOpen)) {
         toggleSubmenu(item.title)
       }
-    } else if (onNavigationItemClick) {
-      onNavigationItemClick(item)
+    } else {
+      // Use router.push for navigation
+      router.push(item.href)
+      if (onNavigationItemClick) {
+        onNavigationItemClick(item)
+      }
     }
   }
 
@@ -131,7 +138,7 @@ export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPat
       <div
         className={`fixed inset-y-0 left-0 z-40 flex h-full transition-[width] duration-300 ease-in-out ${
           mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-        } ${sidebarWidth} pt-16`}
+        } ${sidebarWidth} ${isIvmePlatform ? 'pt-[130px]' : 'pt-16'}`}
       >
         <div className="flex h-full w-full flex-col bg-gray-50 overflow-hidden shadow-lg">
           <div className="flex-1 overflow-hidden">

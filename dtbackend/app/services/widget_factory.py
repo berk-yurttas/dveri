@@ -9,6 +9,8 @@ from .widget_strategies.excel_export import ExcelExportWidgetStrategy
 from .widget_strategies.measurement_analysis import MeasurementAnalysisWidgetStrategy
 from .widget_strategies.serialno_comparison import SerialNoComparisonWidgetStrategy
 from .widget_strategies.test_duration_analysis import TestDurationAnalysisWidgetStrategy
+from .widget_strategies.capacity_analysis import CapacityAnalysisWidgetStrategy
+from .widget_strategies.machine_oee import MachineOeeWidgetStrategy
 
 
 class WidgetFactory:
@@ -25,6 +27,8 @@ class WidgetFactory:
         'measurement_analysis': MeasurementAnalysisWidgetStrategy(),
         'serialno_comparison': SerialNoComparisonWidgetStrategy(),
         'test_duration_analysis': TestDurationAnalysisWidgetStrategy(),
+        'capacity_analysis': CapacityAnalysisWidgetStrategy(),
+        'machine_oee': MachineOeeWidgetStrategy(),
     }
     
     @classmethod
@@ -54,14 +58,14 @@ class WidgetFactory:
     ) -> Dict[str, Any]:
         """Create widget data using appropriate strategy"""
         strategy = cls.get_strategy(widget_type)
-        
+
         try:
             # Execute real query
             query = strategy.get_query(filters)
-            result = db_client.execute(query)
+            result = cls._execute_query(db_client, query)
             print(result)
             return strategy.process_result(result, filters)
-                
+
         except Exception as e:
             print(f"Error executing query for widget {widget_type}: {e}")
             # Return error response instead of None to avoid API validation errors
@@ -71,3 +75,35 @@ class WidgetFactory:
                 "widget_type": widget_type,
                 "filters": filters or {}
             }
+
+    @classmethod
+    def _execute_query(cls, db_client, query: str) -> Any:
+        """Execute query on different database client types"""
+        # Detect client type and execute accordingly
+        client_type = type(db_client).__name__
+
+        if client_type == 'Client':  # ClickHouse client
+            return db_client.execute(query)
+        elif client_type == 'Connection':  # pyodbc (MSSQL) or psycopg2 (PostgreSQL)
+            cursor = db_client.cursor()
+            try:
+                cursor.execute(query)
+                result = cursor.fetchall()
+                return result
+            finally:
+                cursor.close()
+        else:
+            # Try direct execute first (ClickHouse-style)
+            if hasattr(db_client, 'execute'):
+                return db_client.execute(query)
+            # Try cursor-based execution (PostgreSQL/MSSQL-style)
+            elif hasattr(db_client, 'cursor'):
+                cursor = db_client.cursor()
+                try:
+                    cursor.execute(query)
+                    result = cursor.fetchall()
+                    return result
+                finally:
+                    cursor.close()
+            else:
+                raise ValueError(f"Unsupported database client type: {client_type}")

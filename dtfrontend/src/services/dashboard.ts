@@ -12,12 +12,15 @@ export const dashboardService = {
     return api.post<Dashboard>('/dashboards/', data)
   },
 
-  async getDashboards(skip = 0, limit = 100): Promise<DashboardList[]> {
-    return api.get<DashboardList[]>(`/dashboards/?skip=${skip}&limit=${limit}`)
-  },
-
-  async getPublicDashboards(skip = 0, limit = 100): Promise<DashboardList[]> {
-    return api.get<DashboardList[]>(`/dashboards/public?skip=${skip}&limit=${limit}`)
+  async getDashboards(skip = 0, limit = 100, subplatform?: string): Promise<DashboardList[]> {
+    const params = new URLSearchParams({
+      skip: skip.toString(),
+      limit: limit.toString(),
+    })
+    if (subplatform) {
+      params.append('subplatform', subplatform)
+    }
+    return api.get<DashboardList[]>(`/dashboards/?${params.toString()}`)
   },
 
   async getDashboardById(id: number): Promise<Dashboard> {
@@ -39,8 +42,4 @@ export const dashboardService = {
   async removeFromFavorites(dashboardId: number): Promise<DashboardList> {
     return api.delete<DashboardList>(`/dashboards/favorite?dashboard_id=${dashboardId}`)
   },
-
-  async getFavoriteDashboards(): Promise<DashboardList[]> {
-    return api.get<DashboardList[]>('/dashboards/favorite')
-  }
 }

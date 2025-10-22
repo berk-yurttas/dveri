@@ -1,9 +1,11 @@
 "use client"
 
 import Image from "next/image"
+import { useRouter } from "next/navigation"
 
 export function AselsanLogo() {
   const companyLogo = process.env.NEXT_PUBLIC_COMPANY_LOGO
+  const router = useRouter()
   const ahtapotLogo = process.env.NEXT_PUBLIC_AHTAPOT_LOGO
 
   return (
@@ -13,23 +15,27 @@ export function AselsanLogo() {
           src={companyLogo}
           alt="Aselsan 50 Yıl"
           width={140}
-          height={40}
-          className="h-10 w-auto"
+          height={50}
+          className="h-12 w-auto"
+          onClick={() => router.push("/")}
+          style={{ cursor: "pointer" }}
           priority
         />
       ) : (
-        <div className="h-10 w-35 flex items-center justify-center text-white font-bold text-lg">
+        <div className="h-12 w-35 flex items-center justify-center text-white font-bold text-lg">
           ASELSAN
         </div>
       )}
-      <div className="mx-3 h-8 w-px bg-white/30" aria-hidden="true" />
+      <div className="mx-3 h-12 w-px bg-white/30" aria-hidden="true" />
       {ahtapotLogo ? (
         <Image
           src={ahtapotLogo}
           alt="Ahtapot"
-          width={44}
-          height={44}
-          className="h-10 w-auto brightness-0 invert"
+          width={100}
+          height={100}
+          className="h-12 w-auto brightness-0 invert"
+          style={{ cursor: "pointer" }}
+          onClick={() => router.push("/")}
           priority
         />
       ) : (

@@ -5,9 +5,10 @@ import { AppLayout } from "@/components/app-layout";
 import { DashboardProvider } from "@/contexts/dashboard-context";
 import { UserProvider } from "@/contexts/user-context";
 import { FilterProvider } from "@/contexts/filter-context";
+import { PlatformProvider } from "@/contexts/platform-context";
 
 export const metadata: Metadata = {
-  title: "DerinİZ",
+  title: "Aselsan MİRAS",
   description: "Digital Transformation Report Frontend Application",
 };
 
@@ -20,13 +21,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-        <UserProvider>
-          <FilterProvider>
-            <DashboardProvider>
-              <AppLayout>{children}</AppLayout>
-            </DashboardProvider>
-          </FilterProvider>
-        </UserProvider>
+        <PlatformProvider>
+          <UserProvider>
+            <FilterProvider>
+              <DashboardProvider>
+                <AppLayout>{children}</AppLayout>
+              </DashboardProvider>
+            </FilterProvider>
+          </UserProvider>
+        </PlatformProvider>
       </body>
     </html>
   );

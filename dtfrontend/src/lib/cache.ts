@@ -89,10 +89,19 @@ class ApiCache {
 export const apiCache = new ApiCache()
 
 /**
- * Create a cache key from URL and params
+ * Create a cache key from URL, params, and platform code
+ * Platform code is included to ensure cache isolation per platform
  */
-export function createCacheKey(url: string, params?: any): string {
-  if (!params) return url
-  return `${url}:${JSON.stringify(params)}`
+export function createCacheKey(url: string, params?: any, platformCode?: string | null): string {
+  const baseKey = params ? `${url}:${JSON.stringify(params)}` : url
+  
+  // Include platform code in cache key to isolate cache per platform
+  // This ensures /dashboards for 'deriniz' is cached separately from /dashboards for 'app2'
+  if (platformCode) {
+    return `platform:${platformCode}:${baseKey}`
+  }
+  
+  // No platform = different cache entry
+  return `platform:none:${baseKey}`
 }
 

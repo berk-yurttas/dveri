@@ -7,6 +7,8 @@ export { ExcelExportWidget } from './excel-export-widget'
 export { MeasurementWidget } from './measurement-widget'
 export { SerialNoComparisonWidget } from './serialno-comparison-widget'
 export { TestDurationAnalysisWidget } from './test-duration-analysis-widget'
+export { CapacityAnalysisWidget } from './capacity-analysis-widget'
+export { MachineOeeWidget } from './machine-oee-widget'
 
 // Export widget configurations
 import { EfficiencyWidget } from './efficiency-widget'
@@ -18,6 +20,8 @@ import { ExcelExportWidget } from './excel-export-widget'
 import { MeasurementWidget } from './measurement-widget'
 import { SerialNoComparisonWidget } from './serialno-comparison-widget'
 import { TestDurationAnalysisWidget } from './test-duration-analysis-widget'
+import { CapacityAnalysisWidget } from './capacity-analysis-widget'
+import { MachineOeeWidget } from './machine-oee-widget'
 
 export const widgetConfigs = [
   EfficiencyWidget.config,
@@ -28,5 +32,7 @@ export const widgetConfigs = [
   ExcelExportWidget.config,
   MeasurementWidget.config,
   SerialNoComparisonWidget.config,
-  TestDurationAnalysisWidget.config
+  TestDurationAnalysisWidget.config,
+  CapacityAnalysisWidget.config,
+  MachineOeeWidget.config
 ]

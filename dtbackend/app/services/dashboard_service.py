@@ -1,7 +1,7 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.models.postgres_models import Dashboard, DashboardUser, User
+from app.models.postgres_models import Dashboard, DashboardUser, Platform, User
 from app.schemas.dashboard import DashboardCreate, DashboardUpdate
 from app.services.user_service import UserService
 
@@ -11,7 +11,8 @@ class DashboardService:
     async def create_dashboard(
         db: AsyncSession,
         dashboard_data: DashboardCreate,
-        username: str
+        username: str,
+        platform: Platform
     ) -> Dashboard:
         """Create a new dashboard and add owner to DashboardUser"""
         # Get the user by username
@@ -25,7 +26,9 @@ class DashboardService:
         # Create the dashboard
         db_dashboard = Dashboard(
             title=dashboard_data.title,
+            platform_id=platform.id if platform else None,
             owner_id=user.id,
+            tags=dashboard_data.tags,
             is_public=dashboard_data.is_public,
             layout_config=dashboard_data.layout_config,
             widgets=widgets_data
@@ -84,7 +87,9 @@ class DashboardService:
         db: AsyncSession,
         username: str,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
+        platform: Platform = None,
+        subplatform: str = None
     ) -> List[Dashboard]:
         """Get all dashboards by username"""
         user = await UserService.get_user_by_username(db, username)
@@ -92,20 +97,32 @@ class DashboardService:
             return []
 
         # Get dashboards where user is in the users relationship OR dashboard is public
-        from sqlalchemy import or_
+        from sqlalchemy import or_, and_, cast, String
         from sqlalchemy.orm import joinedload
+        from sqlalchemy.dialects.postgresql import ARRAY
 
         # Subquery for dashboards where user is explicitly added
         user_dashboards_subquery = select(Dashboard.id).join(DashboardUser).where(
             DashboardUser.user_id == user.id
         )
 
+        # Build base conditions
+        base_conditions = or_(
+            Dashboard.id.in_(user_dashboards_subquery),
+            Dashboard.is_public == True
+        )
+
+        # Build filter conditions
+        filters = [base_conditions]
+        if platform:
+            filters.append(Dashboard.platform_id == platform.id)
+        if subplatform:
+            # Use PostgreSQL array @> operator (contains) with proper type casting
+            filters.append(Dashboard.tags.op('@>')(cast([subplatform], ARRAY(String))))
+
         # Main query: dashboards where user is added OR dashboard is public
         query = select(Dashboard).options(joinedload(Dashboard.owner)).where(
-            or_(
-                Dashboard.id.in_(user_dashboards_subquery),
-                Dashboard.is_public == True
-            )
+            and_(*filters)
         ).offset(skip).limit(limit)
 
         result = await db.execute(query)
@@ -120,29 +137,6 @@ class DashboardService:
             is_favorite_result = await db.execute(is_favorite_query)
             dashboard_user = is_favorite_result.scalar_one_or_none()
             dashboard.is_favorite = dashboard_user.is_favorite if dashboard_user else False
-            dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
-
-        return dashboards
-    
-    @staticmethod
-    async def get_favorite_dashboards(
-        db: AsyncSession,
-        username: str
-    ) -> List[Dashboard]:
-        """Get all favorite dashboards by username"""
-        user = await UserService.get_user_by_username(db, username)
-        if not user:
-            return []
-
-        from sqlalchemy.orm import joinedload
-
-        query = select(Dashboard).options(joinedload(Dashboard.owner)).join(DashboardUser).where(
-            DashboardUser.user_id == user.id, DashboardUser.is_favorite == True)
-        result = await db.execute(query)
-        dashboards = result.scalars().all()
-
-        # Set owner_name for each dashboard
-        for dashboard in dashboards:
             dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
 
         return dashboards
@@ -248,37 +242,3 @@ class DashboardService:
         await db.commit()
         return True
     
-    @staticmethod
-    async def get_public_dashboards(
-        db: AsyncSession,
-        username: str,
-        skip: int = 0,
-        limit: int = 100
-    ) -> List[Dashboard]:
-        """Get all public dashboards"""
-        from sqlalchemy.orm import joinedload
-
-        query = select(Dashboard).options(joinedload(Dashboard.owner)).where(Dashboard.is_public == True).offset(skip).limit(limit)
-        result = await db.execute(query)
-        dashboards = result.scalars().all()
-
-        # Get user for favorite status
-        user = await UserService.get_user_by_username(db, username)
-        if user:
-            # Set is_favorite field and owner_name for each dashboard
-            for dashboard in dashboards:
-                is_favorite_query = select(DashboardUser).where(
-                    DashboardUser.dashboard_id == dashboard.id,
-                    DashboardUser.user_id == user.id
-                )
-                is_favorite_result = await db.execute(is_favorite_query)
-                dashboard_user = is_favorite_result.scalar_one_or_none()
-                dashboard.is_favorite = dashboard_user.is_favorite if dashboard_user else False
-                dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
-        else:
-            # If user not found, set all to False
-            for dashboard in dashboards:
-                dashboard.is_favorite = False
-                dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
-
-        return dashboards

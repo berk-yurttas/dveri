@@ -6,6 +6,7 @@ from enum import Enum
 # Enums for type safety
 class VisualizationType(str, Enum):
     TABLE = "table"
+    EXPANDABLE = "expandable"
     BAR = "bar"
     LINE = "line"
     PIE = "pie"
@@ -42,6 +43,18 @@ class ChartOptions(BaseModel):
     
     # Histogram specific
     bin_count: Optional[int] = Field(10, alias="binCount")
+    
+    # Expandable table specific
+    nested_queries: Optional[List[Dict[str, Any]]] = Field([], alias="nestedQueries")
+    # nested_queries structure:
+    # [
+    #   {
+    #     "id": "unique_id",
+    #     "sql": "SELECT * FROM child WHERE parent_id = {{parent_id}}",
+    #     "expandableFields": ["parent_id"],
+    #     "nestedQueries": [...]  // Can have more nested levels
+    #   }
+    # ]
     
     # Tooltip configuration
     tooltip_fields: Optional[List[str]] = Field([], alias="tooltipFields")

@@ -1,10 +1,13 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from clickhouse_driver import Client
 import io
 
 from app.core.database import get_clickhouse_db
+from app.core.platform_middleware import get_optional_platform
+from app.core.platform_db import DatabaseConnectionFactory, get_platform_db_client
+from app.models.postgres_models import Platform
 from app.services.data_service import DataService, WidgetFactory
 from app.schemas.data import (
     WidgetQueryRequest
@@ -12,12 +15,36 @@ from app.schemas.data import (
 
 router = APIRouter()
 
+def get_db_client(
+    platform: Optional[Platform] = Depends(get_optional_platform),
+    default_client: Client = Depends(get_clickhouse_db)
+):
+    """Get database client based on platform configuration or default ClickHouse"""
+    if platform:
+        try:
+            # Get platform-specific database client
+            db_type = platform.db_type.lower()
+            if db_type == "clickhouse":
+                return DatabaseConnectionFactory.get_clickhouse_client(platform)
+            elif db_type == "mssql":
+                return DatabaseConnectionFactory.get_mssql_connection(platform)
+            elif db_type == "postgresql":
+                return DatabaseConnectionFactory.get_postgresql_connection(platform)
+            else:
+                # Fallback to default if unsupported type
+                return default_client
+        except Exception as e:
+            print(f"Error getting platform database client: {e}")
+            return default_client
+    return default_client
+
+
 @router.post("/widget")
 async def get_widget_data(
     request: WidgetQueryRequest,
-    db_client: Client = Depends(get_clickhouse_db)
+    db_client = Depends(get_db_client)
 ):
-    """Get widget data from ClickHouse or Excel file for excel_export widget type"""
+    """Get widget data from platform-specific database or ClickHouse"""
     try:
         data = DataService.get_widget_data(
             db_client=db_client,
@@ -83,7 +110,7 @@ async def get_supported_widget_types():
 
 
 @router.get("/infrastructure", response_model=List[Dict[str, Any]])
-async def get_infrastructure_list(db_client: Client = Depends(get_clickhouse_db)):
+async def get_infrastructure_list(db_client = Depends(get_db_client)):
     """Get list of available infrastructure/equipment for dropdown filters"""
     try:
         infrastructure_list = DataService.get_infrastructure_list(db_client)
@@ -96,7 +123,7 @@ async def get_infrastructure_list(db_client: Client = Depends(get_clickhouse_db)
 
 
 @router.get("/products", response_model=List[Dict[str, Any]])
-async def get_product_list(db_client: Client = Depends(get_clickhouse_db)):
+async def get_product_list(db_client = Depends(get_db_client)):
     """Get list of all products for dropdown filters"""
     try:
         product_list = DataService.get_product_list(db_client)
@@ -112,7 +139,7 @@ async def get_product_list(db_client: Client = Depends(get_clickhouse_db)):
 async def get_product_serial_numbers(
     product_id: int,
     firma: str = Query(None, description="Filter serial numbers by firma"),
-    db_client: Client = Depends(get_clickhouse_db)
+    db_client = Depends(get_db_client)
 ):
     """Get serial numbers for a specific product, optionally filtered by firma"""
     try:
@@ -128,7 +155,7 @@ async def get_product_serial_numbers(
 @router.get("/products/{product_id}/test-names", response_model=List[Dict[str, Any]])
 async def get_product_test_names(
     product_id: int,
-    db_client: Client = Depends(get_clickhouse_db)
+    db_client = Depends(get_db_client)
 ):
     """Get list of test names for a specific product"""
     try:
@@ -142,7 +169,7 @@ async def get_product_test_names(
 
 
 @router.get("/companies", response_model=List[Dict[str, Any]])
-async def get_distinct_companies(product_id: int, db_client: Client = Depends(get_clickhouse_db)):
+async def get_distinct_companies(product_id: int, db_client = Depends(get_db_client)):
     """Get list of distinct companies for dropdown filters"""
     try:
         companies = DataService.get_distinct_companies(db_client, product_id)
@@ -158,7 +185,7 @@ async def get_distinct_companies(product_id: int, db_client: Client = Depends(ge
 async def get_test_statuses(
     product_id: int,
     test_name: str,
-    db_client: Client = Depends(get_clickhouse_db)
+    db_client = Depends(get_db_client)
 ):
     """Get list of test statuses for a specific product and test name"""
     try:
@@ -176,7 +203,7 @@ async def get_measurement_locations(
     product_id: int,
     test_name: str,
     test_status: str,
-    db_client: Client = Depends(get_clickhouse_db)
+    db_client = Depends(get_db_client)
 ):
     """Get list of measurement locations for a specific product, test name, and test status"""
     try:
@@ -190,10 +217,56 @@ async def get_measurement_locations(
 
 
 @router.get("/health")
-async def data_health_check(db_client: Client = Depends(get_clickhouse_db)):
-    """Check ClickHouse connection health"""
+async def data_health_check(
+    platform: Optional[Platform] = Depends(get_optional_platform),
+    db_client = Depends(get_db_client)
+):
+    """Check database connection health (platform-specific or default ClickHouse)"""
     try:
-        result = db_client.execute("SELECT 1 as health_check")
-        return {"status": "healthy", "clickhouse": "connected", "result": result}
+        db_type = platform.db_type.lower() if platform else "clickhouse"
+
+        if db_type == "clickhouse":
+            result = db_client.execute("SELECT 1 as health_check")
+            return {
+                "status": "healthy",
+                "database_type": db_type,
+                "platform": platform.code if platform else "default",
+                "connected": True,
+                "result": result
+            }
+        elif db_type == "mssql":
+            cursor = db_client.cursor()
+            cursor.execute("SELECT 1 as health_check")
+            result = cursor.fetchall()
+            cursor.close()
+            return {
+                "status": "healthy",
+                "database_type": db_type,
+                "platform": platform.code if platform else "default",
+                "connected": True,
+                "result": result
+            }
+        elif db_type == "postgresql":
+            cursor = db_client.cursor()
+            cursor.execute("SELECT 1 as health_check")
+            result = cursor.fetchall()
+            cursor.close()
+            return {
+                "status": "healthy",
+                "database_type": db_type,
+                "platform": platform.code if platform else "default",
+                "connected": True,
+                "result": result
+            }
+        else:
+            return {
+                "status": "unknown",
+                "database_type": db_type,
+                "platform": platform.code if platform else "default",
+                "connected": False
+            }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"ClickHouse connection failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database connection failed: {str(e)}"
+        )

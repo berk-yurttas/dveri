@@ -68,8 +68,15 @@ export const reportsService = {
   /**
    * Get all saved reports (future implementation)
    */
-  async getReports(skip = 0, limit = 100): Promise<SavedReport[]> {
-    return api.get<SavedReport[]>(`/reports/?skip=${skip}&limit=${limit}`)
+  async getReports(skip = 0, limit = 100, subplatform?: string): Promise<SavedReport[]> {
+    const params = new URLSearchParams({
+      skip: skip.toString(),
+      limit: limit.toString(),
+    })
+    if (subplatform) {
+      params.append('subplatform', subplatform)
+    }
+    return api.get<SavedReport[]>(`/reports/?${params.toString()}`)
   },
 
   /**

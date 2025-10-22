@@ -36,9 +36,18 @@ export interface SampleQueriesResponse {
   samples: SampleQuery[]
 }
 
+// Nested Query Configuration for Expandable Tables
+export interface NestedQueryConfig {
+  id: string
+  sql: string
+  expandableFields: string[]
+  filters?: FilterConfig[]  // Filters for this nested query
+  nestedQueries?: NestedQueryConfig[]  // Recursive for multiple levels
+}
+
 // Visualization Configuration Types
 export interface VisualizationConfig {
-  type: 'table' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram'
+  type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram'
   xAxis?: string
   yAxis?: string
   labelField?: string
@@ -67,6 +76,9 @@ export interface VisualizationConfig {
     // Histogram specific
     binCount?: number
 
+    // Expandable table specific
+    nestedQueries?: NestedQueryConfig[]
+
     // Tooltip configuration
     tooltipFields?: string[]
     fieldDisplayNames?: Record<string, string>
@@ -94,8 +106,9 @@ export interface QueryConfig {
 export interface ReportConfig {
   name: string
   description: string
+  tags: string[]
   queries: QueryConfig[]
-}
+  }
 
 // Future report save/load types
 export interface SaveReportRequest {

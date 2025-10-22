@@ -45,22 +45,27 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheO
     useQueue = isWidgetRequest // Default TRUE for widget data requests
   } = cacheOptions || {}
   
-  // Create cache key for GET requests
-  const cacheKey = createCacheKey(endpoint)
+  // Get platform code for cache key
+  const platformCode = typeof window !== 'undefined' 
+    ? localStorage.getItem('platform_code')
+    : null
+  
+  // Create cache key for GET requests (includes platform code for isolation)
+  const cacheKey = createCacheKey(endpoint, undefined, platformCode)
   
   // Check cache for GET requests
   if (isGetRequest) {
     if (useCache) {
       const cached = apiCache.get<T>(cacheKey)
       if (cached !== null) {
-        console.log(`[API Cache] Hit: ${endpoint}`)
+        console.log(`[API Cache] Hit: ${endpoint} (platform: ${platformCode || 'none'})`)
         return cached
       }
       
       // Check if there's a pending request for the same data
       const pending = apiCache.getPendingRequest<T>(cacheKey)
       if (pending) {
-        console.log(`[API Cache] Using pending request: ${endpoint}`)
+        console.log(`[API Cache] Using pending request: ${endpoint} (platform: ${platformCode || 'none'})`)
         return pending
       }
     }
@@ -70,6 +75,8 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheO
   const makeRequest = async () => {
     const url = `${API_BASE_URL}${endpoint}`
     
+    console.log(`[API] ${endpoint} - Platform code from localStorage:`, platformCode)
+    
     // Support for AbortController passed in options
     // If no signal is provided, create one with a default timeout of 30 seconds
     const controller = new AbortController()
@@ -77,15 +84,26 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheO
     
     const signal = options.signal || controller.signal
     
+    // Build headers
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...options.headers as Record<string, string>,
+    }
+    
+    // Only add platform header if platform code is set
+    if (platformCode) {
+      headers['X-Platform-Code'] = platformCode
+      console.log(`[API] ${endpoint} - Adding X-Platform-Code header:`, platformCode)
+    } else {
+      console.log(`[API] ${endpoint} - No platform code, header not added`)
+    }
+    
     // Create the fetch promise
     return (async () => {
     try {
       const response = await fetch(url, {
         credentials: 'include', // This is required to send and receive cookies
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
+        headers,
         ...options,
         signal,
       })
@@ -152,6 +170,7 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheO
   // Cache the result for GET requests
   if (isGetRequest && useCache && data !== null) {
     apiCache.set(cacheKey, data, cacheDuration)
+    console.log(`[API Cache] Set: ${endpoint} (platform: ${platformCode || 'none'}, expires in ${cacheDuration}ms)`)
   }
   
   return data
@@ -171,6 +190,13 @@ export const api = {
   put: <T>(endpoint: string, data?: any, options?: RequestInit, cacheOptions?: CacheOptions) =>
     apiRequest<T>(endpoint, {
       method: 'PUT',
+      body: data ? JSON.stringify(data) : undefined,
+      ...options,
+    }, cacheOptions),
+  
+  patch: <T>(endpoint: string, data?: any, options?: RequestInit, cacheOptions?: CacheOptions) =>
+    apiRequest<T>(endpoint, {
+      method: 'PATCH',
       body: data ? JSON.stringify(data) : undefined,
       ...options,
     }, cacheOptions),

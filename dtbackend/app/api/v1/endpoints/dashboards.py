@@ -1,6 +1,8 @@
-from typing import List
+from typing import List, Optional
 from app.core.auth import check_authenticated
 from app.schemas.user import User
+from app.core.platform_middleware import get_optional_platform
+from app.models.postgres_models import Platform
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,13 +21,15 @@ router = APIRouter()
 async def create_dashboard(
     dashboard_data: DashboardCreate,
     current_user: User = Depends(check_authenticated),
+    platform: Optional[Platform] = Depends(get_optional_platform),
     db: AsyncSession = Depends(get_postgres_db)
 ):
     """Create a new dashboard"""
     dashboard = await DashboardService.create_dashboard(
         db=db,
         dashboard_data=dashboard_data,
-        username=current_user.username
+        username=current_user.username,
+        platform=platform
     )
     return dashboard
 
@@ -33,40 +37,20 @@ async def create_dashboard(
 async def get_dashboards(
     skip: int = 0,
     limit: int = 100,
+    subplatform: Optional[str] = None,
+    platform: Optional[Platform] = Depends(get_optional_platform),
     current_user: User = Depends(check_authenticated),
     db: AsyncSession = Depends(get_postgres_db)
 ):
+    """Get dashboards - optionally filtered by platform and subplatform"""
     dashboards = await DashboardService.get_dashboards(
         db=db,
         username=current_user.username,
         skip=skip,
-        limit=limit
+        limit=limit,
+        platform=platform,
+        subplatform=subplatform
     )
-    return dashboards
-
-@router.get("/public", response_model=List[DashboardList])
-async def get_public_dashboards(
-    skip: int = 0,
-    limit: int = 100,
-    db: AsyncSession = Depends(get_postgres_db),
-    current_user: User = Depends(check_authenticated)
-):
-    """Get all public dashboards"""
-    dashboards = await DashboardService.get_public_dashboards(
-        db=db,
-        username=current_user.username,
-        skip=skip,
-        limit=limit
-    )
-    return dashboards
-
-@router.get("/favorite", response_model=List[DashboardList])
-async def get_favorite_dashboards(
-    db: AsyncSession = Depends(get_postgres_db),
-    current_user: User = Depends(check_authenticated)
-):
-    """Get all favorite dashboards"""
-    dashboards = await DashboardService.get_favorite_dashboards(db=db, username=current_user.username)
     return dashboards
 
 @router.post("/favorite", response_model=dict)

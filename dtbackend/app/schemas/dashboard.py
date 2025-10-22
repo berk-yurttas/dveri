@@ -17,6 +17,7 @@ class Widget(BaseModel):
 # Base schemas
 class DashboardBase(BaseModel):
     title: str
+    tags: Optional[List[str]] = []
     is_public: bool = False
     layout_config: Optional[Dict[str, Any]] = None
     widgets: Optional[List[Widget]] = []
@@ -27,6 +28,7 @@ class DashboardCreate(DashboardBase):
 
 class DashboardUpdate(BaseModel):
     title: Optional[str] = None
+    tags: Optional[List[str]] = None
     is_public: Optional[bool] = None
     layout_config: Optional[Dict[str, Any]] = None
     widgets: Optional[List[Widget]] = None
@@ -45,6 +47,7 @@ class Dashboard(DashboardBase):
 class DashboardList(BaseModel):
     id: int
     title: str
+    tags: Optional[List[str]] = []
     is_public: bool
     owner_id: int
     owner_name: Optional[str] = None
