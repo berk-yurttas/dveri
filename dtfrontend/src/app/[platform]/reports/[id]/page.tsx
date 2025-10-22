@@ -155,7 +155,7 @@ const NestedFilterInput = React.memo<{
   nestedFilters: any
   setNestedFilters: React.Dispatch<React.SetStateAction<any>>
   setNestedFilterPopovers: React.Dispatch<React.SetStateAction<any>>
-}>(({ filter, filterKey, nestedFilters, setNestedFilters, setNestedFilterPopovers }) => {
+}>(function NestedFilterInput({ filter, filterKey, nestedFilters, setNestedFilters, setNestedFilterPopovers }) {
   const [localValue, setLocalValue] = useState<any>(nestedFilters[filterKey] || '')
   const [localStartDate, setLocalStartDate] = useState<string>(nestedFilters[`${filterKey}_start`] || '')
   const [localEndDate, setLocalEndDate] = useState<string>(nestedFilters[`${filterKey}_end`] || '')

@@ -31,6 +31,7 @@ export interface DashboardUpdate {
 
 export interface Dashboard extends DashboardBase {
   id: number
+  tags: string[]
   owner_id: number
   owner_name: string
   created_at: string

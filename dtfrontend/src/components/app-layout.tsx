@@ -4,7 +4,7 @@ import { AppShell } from "./appShell";
 import { Home, Users, Settings, BarChart3, Plus, Receipt, Layout, Star, Database, Server, Cloud, Workflow } from "lucide-react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
-import { useMemo, useCallback, useEffect, useState } from "react";
+import { useMemo, useCallback, useEffect, useState, Suspense } from "react";
 import { useDashboards } from "@/contexts/dashboard-context";
 import { useUser } from "@/contexts/user-context";
 import { usePlatform } from "@/contexts/platform-context";
@@ -16,7 +16,7 @@ interface AppLayoutProps {
   children: ReactNode;
 }
 
-export function AppLayout({ children }: AppLayoutProps) {
+function AppLayoutContent({ children }: AppLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -259,5 +259,18 @@ export function AppLayout({ children }: AppLayoutProps) {
     >
       {children}
     </AppShell>
+  );
+}
+
+export function AppLayout({ children }: AppLayoutProps) {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+        <div className="text-lg text-gray-600">Yükleniyor...</div>
+      </div>
+    </div>}>
+      <AppLayoutContent>{children}</AppLayoutContent>
+    </Suspense>
   );
 }
