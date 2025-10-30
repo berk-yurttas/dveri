@@ -1,8 +1,9 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { Menu } from "lucide-react"
+import { Menu, Home } from "lucide-react"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
 import { type UserInfo } from "./types"
 
 import { Button } from "./ui/button"
@@ -26,6 +27,7 @@ interface AppHeaderProps {
 export function AppHeader({ title, subtitle, customActions = [], onMobileMenuClick, onPreferencesClick, onLogoutClick, userInfo, headerColor = "#1e3a8a" }: AppHeaderProps) {
   const isMobile = useMediaQuery("(max-width: 799px)")
   const { platform } = usePlatform()
+  const router = useRouter()
 
   // Default header actions
   const defaultActions = [
@@ -94,10 +96,46 @@ export function AppHeader({ title, subtitle, customActions = [], onMobileMenuCli
       </div>
       
       {!isIvmePlatform && (
-      <div className="relative z-10 flex items-center gap-3">
+      <div className="relative z-10 flex items-center gap-4">
+        {/* Homepage Link */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => router.push('/')}
+          className="text-white hover:bg-white/20 flex items-center gap-2"
+        >
+          <Home className="h-4 w-4" />
+          <span className="text-sm font-medium">Anasayfaya Git</span>
+        </Button>
+        {/* Vertical Divider */}
+        <div className="h-6 w-px bg-white/10" aria-hidden="true" />
+        {/* Icons from environment variables */}
+        {process.env.NEXT_PUBLIC_NOTIFICATION_ICON && (
+          <a href={process.env.NEXT_PUBLIC_NOTIFICATION_LINK || '#'} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+            <img src={process.env.NEXT_PUBLIC_NOTIFICATION_ICON} alt="Notifications" className="h-8 w-8 brightness-0 invert" />
+          </a>
+        )}
+        {process.env.NEXT_PUBLIC_MENU_ICON && (
+          <a href={process.env.NEXT_PUBLIC_MENU_LINK || '#'} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+            <img  src={process.env.NEXT_PUBLIC_MENU_ICON} alt="Menu" className="h-8 w-8 brightness-0 invert" />
+          </a>
+        )}
+        {process.env.NEXT_PUBLIC_PHONE_ICON && (
+          <a href={process.env.NEXT_PUBLIC_PHONE_LINK || '#'} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+            <img src={process.env.NEXT_PUBLIC_PHONE_ICON} alt="Phone" className="h-8 w-8 brightness-0 invert" />
+          </a>
+        )}
+        {process.env.NEXT_PUBLIC_SAYFAM_ICON && (
+          <a href={process.env.NEXT_PUBLIC_SAYFAM_LINK || '#'} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+            <img src={process.env.NEXT_PUBLIC_SAYFAM_ICON} alt="Sayfam" className="h-8 w-8 brightness-0 invert" />
+          </a>
+        )}
+        {/* Vertical Divider Between Actions and User Profile */}
+        <div className="h-6 w-px bg-white/10" aria-hidden="true" />
         {actions.map((action, index) => (
           <div key={index}>{action}</div>
         ))}
+
       </div>
       )}
       {isIvmePlatform && (

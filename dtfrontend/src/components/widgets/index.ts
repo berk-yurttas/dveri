@@ -9,6 +9,14 @@ export { SerialNoComparisonWidget } from './serialno-comparison-widget'
 export { TestDurationAnalysisWidget } from './test-duration-analysis-widget'
 export { CapacityAnalysisWidget } from './capacity-analysis-widget'
 export { MachineOeeWidget } from './machine-oee-widget'
+export { KablajDuruslarWidget } from './kablaj-duruslar-widget'
+export { MekanikHatalarWidget } from './mekanik-hatalar-widget'
+export { EmployeeCountWidget } from './employee-count-widget'
+export { AverageTenureWidget } from './average-tenure-widget'
+export { EducationDistributionWidget } from './education-distribution-widget'
+export { AverageSalaryWidget } from './average-salary-widget'
+export { AbsenteeismWidget } from './absenteeism-widget'
+export { PendingWorkWidget } from './pending-work-widget'
 
 // Export widget configurations
 import { EfficiencyWidget } from './efficiency-widget'
@@ -22,6 +30,14 @@ import { SerialNoComparisonWidget } from './serialno-comparison-widget'
 import { TestDurationAnalysisWidget } from './test-duration-analysis-widget'
 import { CapacityAnalysisWidget } from './capacity-analysis-widget'
 import { MachineOeeWidget } from './machine-oee-widget'
+import { KablajDuruslarWidget } from './kablaj-duruslar-widget'
+import { MekanikHatalarWidget } from './mekanik-hatalar-widget'
+import { EmployeeCountWidget } from './employee-count-widget'
+import { AverageTenureWidget } from './average-tenure-widget'
+import { EducationDistributionWidget } from './education-distribution-widget'
+import { AverageSalaryWidget } from './average-salary-widget'
+import { AbsenteeismWidget } from './absenteeism-widget'
+import { PendingWorkWidget } from './pending-work-widget'
 
 export const widgetConfigs = [
   EfficiencyWidget.config,
@@ -34,5 +50,13 @@ export const widgetConfigs = [
   SerialNoComparisonWidget.config,
   TestDurationAnalysisWidget.config,
   CapacityAnalysisWidget.config,
-  MachineOeeWidget.config
+  MachineOeeWidget.config,
+  KablajDuruslarWidget.config,
+  MekanikHatalarWidget.config,
+  EmployeeCountWidget.config,
+  AverageTenureWidget.config,
+  EducationDistributionWidget.config,
+  AverageSalaryWidget.config,
+  AbsenteeismWidget.config,
+  PendingWorkWidget.config
 ]

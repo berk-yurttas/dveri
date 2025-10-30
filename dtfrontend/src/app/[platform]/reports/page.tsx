@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { reportsService } from "@/services/reports";
 import { SavedReport } from "@/types/reports";
+import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 import { DeleteModal } from "@/components/ui/delete-modal";
 
 // Icon mapping for visualization types
@@ -605,6 +606,9 @@ export default function ReportsPage() {
         itemName={reportToDelete?.name}
         isDeleting={isDeleting}
       />
+
+      {/* MIRAS Assistant Chatbot */}
+      <MirasAssistant />
     </div>
   );
 }

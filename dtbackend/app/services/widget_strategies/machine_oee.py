@@ -28,7 +28,7 @@ class MachineOeeWidgetStrategy(WidgetStrategy):
             "AVG_OEE_60_Days" as avg_oee_60_days,
             "AVG_OEE_90_Days" as avg_oee_90_days
         FROM mes_production.mes_production_firma_tezgah_oee
-        WHERE 1=1
+        WHERE "MachineCode" is not null
         """
 
         if firma:

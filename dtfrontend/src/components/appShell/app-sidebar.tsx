@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, memo, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { LogOutIcon, Loader2, ChevronDown, type LucideIcon } from "lucide-react"
+import { LogOutIcon, Loader2, ChevronDown, type LucideIcon, Database } from "lucide-react"
 
 import { useMediaQuery } from "./hooks/use-media-query"
 import { Button } from "./ui/button"
@@ -16,6 +16,12 @@ export interface NavigationItem {
   children?: NavigationItem[]
 }
 
+export interface PlatformInfo {
+  name: string
+  logo?: string
+  code: string
+}
+
 interface AppSidebarProps {
   navigationItems: NavigationItem[]
   currentPathname?: string
@@ -24,9 +30,10 @@ interface AppSidebarProps {
   logoutLoading?: boolean
   mobileOpen?: boolean
   isIvmePlatform?: boolean
+  platformInfo?: PlatformInfo
 }
 
-export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPathname, onNavigationItemClick, onLogout, logoutLoading = false, mobileOpen, isIvmePlatform }: AppSidebarProps) {
+export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPathname, onNavigationItemClick, onLogout, logoutLoading = false, mobileOpen, isIvmePlatform, platformInfo }: AppSidebarProps) {
   const router = useRouter()
   const isDesktop = useMediaQuery("(min-width: 800px)")
   const [isExpanded, setIsExpanded] = useState(false)
@@ -52,11 +59,11 @@ export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPat
         toggleSubmenu(item.title)
       }
     } else {
-      // Use router.push for navigation
-      router.push(item.href)
+      // Call the navigation handler first - it will handle the actual navigation
       if (onNavigationItemClick) {
         onNavigationItemClick(item)
       }
+      // Don't call router.push here - let the parent handler decide
     }
   }
 
@@ -141,6 +148,47 @@ export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPat
         } ${sidebarWidth} ${isIvmePlatform ? 'pt-[130px]' : 'pt-16'}`}
       >
         <div className="flex h-full w-full flex-col bg-gray-50 overflow-hidden shadow-lg">
+          {/* Platform Info Section */}
+          {platformInfo && (
+            <div className="border-b border-gray-200 bg-white">
+              <div className={`flex items-center gap-3 p-4 ${
+                (isDesktop && !isExpanded) ? 'justify-center' : 'justify-start'
+              }`}>
+                {platformInfo.logo ? (
+                  <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center">
+                    <img
+                      src={platformInfo.logo}
+                      alt={platformInfo.name}
+                      className="max-w-full max-h-full object-contain"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        const parent = target.parentElement;
+                        if (parent) {
+                          parent.innerHTML = '<div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center"><svg class="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M20 6h-2V4c0-1.11-.89-2-2-2H8c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0H10V4h4v2z"/></svg></div>';
+                        }
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Database className="w-6 h-6 text-blue-600" />
+                  </div>
+                )}
+                <div className={`flex-1 min-w-0 transition-opacity duration-200 ${
+                  (isDesktop && isExpanded) || (!isDesktop && mobileOpen) ? 'opacity-100' : 'opacity-0'
+                }`}>
+                  <h3 className="font-semibold text-sm text-gray-900 truncate">
+                    {platformInfo.name}
+                  </h3>
+                  <p className="text-xs text-gray-500 truncate">
+                    Platform
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex-1 overflow-hidden">
             <div className="p-2">
               <ul className="flex flex-col gap-1">

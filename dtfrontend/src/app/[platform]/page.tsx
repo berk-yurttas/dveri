@@ -48,6 +48,7 @@ import { SavedReport } from "@/types/reports";
 import { useUser } from "@/contexts/user-context";
 import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
+import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -99,7 +100,9 @@ export default function PlatformHome() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
+  const [showIotApps, setShowIotApps] = useState(false);
   const isIvmePlatform = platformData?.code === 'ivme';
+  const isRomiotPlatform = platformCode === 'romiot';
 
   const handleDerinizHover = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -146,7 +149,7 @@ export default function PlatformHome() {
       try {
         console.log('[Platform Page] Fetching data for platform:', platformCode);
         console.log('[Platform Page] localStorage platform_code:', localStorage.getItem('platform_code'));
-        
+
         const [dashboardData, reportData] = await Promise.all([
           dashboardService.getDashboards(),
           reportsService.getReports(0, 3)
@@ -192,7 +195,11 @@ export default function PlatformHome() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative">
+      {/* Background Image with Opacity */}
+      {platformCode === 'ivme' && (
+        <div className="fixed -z-10 inset-0 top-[-400px] opacity-20 pointer-events-none" style={{ backgroundImage: 'url(/wave_bg.png)', backgroundSize: 'cover', backgroundPosition: 'center' }}></div>
+      )}
       {/* Only show DerinIZ branding elements when platform is deriniz */}
       {platformCode === 'deriniz' && (
         <>
@@ -268,12 +275,12 @@ export default function PlatformHome() {
         </>
       )}
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ${platformCode === 'deriniz' ? 'scale-90' : ''}`}>
         {/* Platform Logo - Show if exists */}
         {platformData?.theme_config?.leftLogo && (
           <div className="mb-6" style={{position: 'absolute', top: '100px', left: '50px'}}>
-            <img 
-              src={platformData.theme_config.leftLogo} 
+            <img
+              src={platformData.theme_config.leftLogo}
               alt={`${platformData.display_name} Logo`}
               className="h-30 object-contain"
             />
@@ -282,7 +289,7 @@ export default function PlatformHome() {
 
         {/* Welcome Section */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2" style={{"color": "rgb(69,81,89)"}}>
+          <h1 className="text-2xl font-bold text-center text-gray-900 mb-2" style={{"color": "rgb(69,81,89)"}}>
             Hoş Geldiniz{user?.name ? `, ${user.name}` : ''}
           </h1>
         </div>
@@ -294,8 +301,139 @@ export default function PlatformHome() {
           </div>
         )}
 
+        {/* Romiot Platform Special Features */}
+        {isRomiotPlatform && !showIotApps && (
+          <div className="mb-16">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+              {/* Katalog Card */}
+              <div
+                onClick={() => window.open('https://www.aselsan.com.tr/tr/urun-ve-cozumlerimiz/katalog', '_blank', 'noopener,noreferrer')}
+                className="bg-white rounded-lg shadow-xl shadow-slate-200 p-8 hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
+              >
+                <div className="flex flex-col items-center text-center">
+                  <div className="w-16 h-16 rounded-lg flex items-center justify-center mb-4 bg-blue-500">
+                    <FileText className="h-8 w-8 text-white" />
+                  </div>
+                  <h4 className="font-semibold text-gray-900 text-xl mb-2">Katalog</h4>
+                  <p className="text-sm text-gray-600">ROM ürün kataloğuna göz atın</p>
+                </div>
+              </div>
+
+              {/* IOT Uygulamaları Card */}
+              <div
+                onClick={() => setShowIotApps(true)}
+                className="bg-white rounded-lg shadow-xl shadow-slate-200 p-8 hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
+              >
+                <div className="flex flex-col items-center text-center">
+                  <div className="w-16 h-16 rounded-lg flex items-center justify-center mb-4 bg-green-500">
+                    <Wifi className="h-8 w-8 text-white" />
+                  </div>
+                  <h4 className="font-semibold text-gray-900 text-xl mb-2">IOT Uygulamaları</h4>
+                  <p className="text-sm text-gray-600">IOT çözümlerini keşfedin</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Romiot IOT Applications - 4 Category Cards */}
+        {isRomiotPlatform && showIotApps && (
+          <div className="mb-16">
+            <div className="mb-6 flex items-center justify-between">
+              <h3 className="text-2xl font-bold text-gray-900">IOT Uygulamaları</h3>
+              <button
+                onClick={() => setShowIotApps(false)}
+                className="text-sm text-gray-500 hover:text-blue-600 font-medium transition-colors flex items-center gap-2"
+              >
+                ← Geri Dön
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {/* Card 1 - M2X */}
+              <div
+                onClick={() => window.open('https://www.aselsan.com.tr/tr/urun-ve-cozumlerimiz/katalog?category=akilli-sehir', '_blank', 'noopener,noreferrer')}
+                className="bg-white rounded-lg shadow-xl shadow-slate-200 overflow-hidden hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
+              >
+                <div className="flex flex-col">
+                  <div className="w-full h-40 bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center">
+                    <img 
+                      src="https://via.placeholder.com/300x200/8b5cf6/ffffff?text=M2X+Software" 
+                      alt="M2X Software"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="p-6 text-center">
+                    <h4 className="font-semibold text-gray-900 mb-2">M2X YAZILIM VE DONANIMLARI</h4>
+                    <p className="text-sm text-gray-600">Kategoriye git</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 2 - Modelleme */}
+              <div
+                onClick={() => window.open('https://www.aselsan.com.tr/tr/urun-ve-cozumlerimiz/katalog?category=enerji', '_blank', 'noopener,noreferrer')}
+                className="bg-white rounded-lg shadow-xl shadow-slate-200 overflow-hidden hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
+              >
+                <div className="flex flex-col">
+                  <div className="w-full h-40 bg-gradient-to-br from-yellow-500 to-yellow-700 flex items-center justify-center">
+                    <img 
+                      src="https://via.placeholder.com/300x200/eab308/ffffff?text=Simulation" 
+                      alt="Simulation Solutions"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="p-6 text-center">
+                    <h4 className="font-semibold text-gray-900 mb-2">MODELLEME VE SİMÜLASYON ÇÖZÜMLERİ</h4>
+                    <p className="text-sm text-gray-600">Kategoriye git</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 3 - Otomasyon */}
+              <div
+                onClick={() => window.open('https://www.aselsan.com.tr/tr/urun-ve-cozumlerimiz/katalog?category=ulasim', '_blank', 'noopener,noreferrer')}
+                className="bg-white rounded-lg shadow-xl shadow-slate-200 overflow-hidden hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
+              >
+                <div className="flex flex-col">
+                  <div className="w-full h-40 bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center">
+                    <img 
+                      src="https://via.placeholder.com/300x200/3b82f6/ffffff?text=Automation" 
+                      alt="Automation Systems"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="p-6 text-center">
+                    <h4 className="font-semibold text-gray-900 mb-2">OTOMASYON SİSTEMLERİ</h4>
+                    <p className="text-sm text-gray-600">Kategoriye git</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 4 - Yazılım */}
+              <div
+                onClick={() => window.open('https://www.aselsan.com.tr/tr/urun-ve-cozumlerimiz/katalog?category=sanayi', '_blank', 'noopener,noreferrer')}
+                className="bg-white rounded-lg shadow-xl shadow-slate-200 overflow-hidden hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
+              >
+                <div className="flex flex-col">
+                  <div className="w-full h-40 bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center">
+                    <img 
+                      src="https://via.placeholder.com/300x200/ef4444/ffffff?text=Web+Services" 
+                      alt="Software and Web Services"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="p-6 text-center">
+                    <h4 className="font-semibold text-gray-900 mb-2">YAZILIM VE WEB SERVİSLERİ</h4>
+                    <p className="text-sm text-gray-600">Kategoriye git</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Features Section */}
-        {platformData?.theme_config?.features && platformData.theme_config.features.length > 0 && (
+        {platformData?.theme_config?.features && platformData.theme_config.features.length > 0 && !isRomiotPlatform && (
           <div className="mb-16">
             <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${
               platformData.theme_config.features.length === 4 
@@ -426,7 +564,7 @@ export default function PlatformHome() {
 
       {/* Full-width Duyurular Section for IVME Platform */}
       {isIvmePlatform && (
-        <div className="w-full py-12 mb-8" style={{ backgroundColor: '#f2f2f2' }}>
+        <div className="w-full py-12 mb-8" >
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="mb-8">
               <h3 className="text-2xl font-bold mb-2" style={{"color": "rgb(69,81,89)"}}>Duyurular</h3>
@@ -464,14 +602,13 @@ export default function PlatformHome() {
 
                     {/* Date Banner */}
                     <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                      <span className="text-sm font-bold uppercase">29 EYLÜL - 5 EKİM HAFTASI</span>
+                      <span className="text-sm font-bold uppercase">EKİM AYI</span>
                     </div>
 
                     {/* Main Title */}
                     <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
                       <div className="text-white font-bold text-lg leading-tight">
-                        <div>SAVUNMA SANAYİİNDE</div>
-                        <div>BU HAFTA NELER OLDU?</div>
+                        <div>ARAMIZA BU AY KATILAN FİRMALAR</div>
                       </div>
                     </div>
                   </div>
@@ -479,8 +616,8 @@ export default function PlatformHome() {
                   {/* Card Description */}
                   <div className="mt-3">
                     <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                    <h4 className="text-gray-900 font-semibold mb-1">Türk Savunma Sanayiinde Bu Hafta Neler Oldu? (Video)</h4>
-                    <p className="text-gray-600 text-sm">06.10.2025</p>
+                    <h4 className="text-gray-900 font-semibold mb-1">Bu ay aramıza hangi firmalar katıldı?</h4>
+                    <p className="text-gray-600 text-sm">31.10.2025</p>
                   </div>
                 </div>
 
@@ -499,14 +636,14 @@ export default function PlatformHome() {
 
                     {/* Date Banner */}
                     <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                      <span className="text-sm font-bold uppercase">22 - 28 EYLÜL HAFTASI</span>
+                      <span className="text-sm font-bold uppercase">EKİM AYI</span>
                     </div>
 
                     {/* Main Title */}
                     <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
                       <div className="text-white font-bold text-lg leading-tight">
-                        <div>SAVUNMA SANAYİİNDE</div>
-                        <div>BU HAFTA NELER OLDU?</div>
+                        <div>Firmaların Durumlarında</div>
+                        <div>HANGİ GELİŞMELER OLDU?</div>
                       </div>
                     </div>
                   </div>
@@ -514,8 +651,8 @@ export default function PlatformHome() {
                   {/* Card Description */}
                   <div className="mt-3">
                     <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                    <h4 className="text-gray-900 font-semibold mb-1">Türk Savunma Sanayiinde Bu Hafta Neler Oldu? (Video)</h4>
-                    <p className="text-gray-600 text-sm">30.09.2025</p>
+                    <h4 className="text-gray-900 font-semibold mb-1">Bu ay firmaların durumlarındaki gelişmeler</h4>
+                    <p className="text-gray-600 text-sm">31.10.2025</p>
                   </div>
                 </div>
 
@@ -534,14 +671,14 @@ export default function PlatformHome() {
 
                     {/* Date Banner */}
                     <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                      <span className="text-sm font-bold uppercase">15 - 21 EYLÜL HAFTASI</span>
+                      <span className="text-sm font-bold uppercase">EKİM AYI</span>
                     </div>
 
                     {/* Main Title */}
                     <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
                       <div className="text-white font-bold text-lg leading-tight">
-                        <div>SAVUNMA SANAYİİNDE</div>
-                        <div>BU HAFTA NELER OLDU?</div>
+                        <div>Miras İvme'de</div>
+                        <div>BU AY HANGİ RAPORLAR EKLENDİ?</div>
                       </div>
                     </div>
                   </div>
@@ -549,8 +686,8 @@ export default function PlatformHome() {
                   {/* Card Description */}
                   <div className="mt-3">
                     <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                    <h4 className="text-gray-900 font-semibold mb-1">Türk Savunma Sanayiinde Bu Hafta Neler Oldu? (Video)</h4>
-                    <p className="text-gray-600 text-sm">22.09.2025</p>
+                    <h4 className="text-gray-900 font-semibold mb-1">Bu ay hangi raporlar eklendi?</h4>
+                    <p className="text-gray-600 text-sm">31.10.2025</p>
                   </div>
                 </div>
               </div>
@@ -560,7 +697,7 @@ export default function PlatformHome() {
       )}
 
       {/* Continue Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 scale-90">
         {/* Dashboards Section */}
         {!isIvmePlatform && (
         <div className="mb-6 flex items-center justify-between">
@@ -779,6 +916,9 @@ export default function PlatformHome() {
         </div>
         )}
       </div>
+
+      {/* MIRAS Assistant Chatbot */}
+      <MirasAssistant />
     </div>
   );
 }

@@ -9,7 +9,7 @@ Handles database connections for different platforms supporting:
 
 from typing import Optional, Any, Generator
 from clickhouse_driver import Client as ClickHouseClient
-import pyodbc
+#import pyodbc
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from app.models.postgres_models import Platform
@@ -89,22 +89,22 @@ class DatabaseConnectionFactory:
         
         return client
     
-    @staticmethod
-    def get_mssql_connection(platform: Platform) -> pyodbc.Connection:
-        """
-        Create MSSQL connection for platform
+    # @staticmethod
+    # def get_mssql_connection(platform: Platform) -> pyodbc.Connection:
+    #     """
+    #     Create MSSQL connection for platform
         
-        Args:
-            platform: Platform model instance
+    #     Args:
+    #         platform: Platform model instance
             
-        Returns:
-            pyodbc Connection instance
-        """
-        if platform.db_type.lower() != "mssql":
-            raise ValueError(f"Platform {platform.code} is not configured for MSSQL")
+    #     Returns:
+    #         pyodbc Connection instance
+    #     """
+    #     if platform.db_type.lower() != "mssql":
+    #         raise ValueError(f"Platform {platform.code} is not configured for MSSQL")
         
-        connection_string = DatabaseConnectionFactory.get_connection_string(platform)
-        return pyodbc.connect(connection_string)
+    #     connection_string = DatabaseConnectionFactory.get_connection_string(platform)
+    #     return pyodbc.connect(connection_string)
     
     @staticmethod
     def get_postgresql_connection(platform: Platform) -> psycopg2.extensions.connection:

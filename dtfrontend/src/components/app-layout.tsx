@@ -46,6 +46,10 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   // Platform data for root page
   const [platforms, setPlatforms] = useState<PlatformType[]>([]);
   const [platformsLoading, setPlatformsLoading] = useState(false);
+  
+  // Under construction modal state
+  const [showUnderConstructionModal, setShowUnderConstructionModal] = useState(false);
+  const [underConstructionPlatform, setUnderConstructionPlatform] = useState<string>("");
 
   // Dynamic title based on platform and easter egg
   const getTitle = () => {
@@ -186,25 +190,41 @@ function AppLayoutContent({ children }: AppLayoutProps) {
                                       potentialPlatformCode === 'admin';
         
         if (!isRootOrStandardRoute) {
-          // This is a platform-specific route, extract the platform code
+          // This is a platform-specific route, check if platform is under construction
           const platformCode = potentialPlatformCode;
+          const targetPlatform = platforms.find(p => p.code === platformCode);
+          const isUnderConstruction = targetPlatform?.theme_config?.underConstruction || false;
+          
+          if (isUnderConstruction) {
+            // Show under construction modal instead of navigating
+            setUnderConstructionPlatform(targetPlatform?.display_name || platformCode);
+            setShowUnderConstructionModal(true);
+            return; // Don't navigate - exit early
+          }
+          
           console.log('[Navigation] Setting platform code:', platformCode);
           localStorage.setItem('platform_code', platformCode);
           api.clearCache();
           // Update platform context immediately to set headerColor
           await setPlatformByCode(platformCode);
+          router.push(item.href);
         } else if (item.href === '/') {
           // Navigating to root, clear platform
           console.log('[Navigation] Clearing platform code');
           localStorage.removeItem('platform_code');
           api.clearCache();
           clearPlatform();
+          router.push(item.href);
+        } else {
+          // Standard route, just navigate
+          router.push(item.href);
         }
+      } else {
+        // No platform match, just navigate
+        router.push(item.href);
       }
-      
-      router.push(item.href);
     }
-  }, [router, setPlatformByCode, clearPlatform]);
+  }, [router, setPlatformByCode, clearPlatform, platforms]);
 
   const handlePreferencesClick = () => {
     console.log("Preferences clicked");
@@ -244,21 +264,58 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   }, [user, loading]);
 
   return (
-    <AppShell
-      title={title}
-      subtitle=""
-      navigationItems={navigationItems}
-      currentPathname={pathname}
-      onNavigationItemClick={handleNavigationClick}
-      onPreferencesClick={handlePreferencesClick}
-      onLogoutClick={handleLogoutClick}
-      onClickBildirim={handleNotificationClick}
-      notificationCount={3}
-      userInfo={userInfo}
-      headerColor={headerColor}
-    >
-      {children}
-    </AppShell>
+    <>
+      <AppShell
+        title={title}
+        subtitle=""
+        navigationItems={navigationItems}
+        currentPathname={pathname}
+        onNavigationItemClick={handleNavigationClick}
+        onPreferencesClick={handlePreferencesClick}
+        onLogoutClick={handleLogoutClick}
+        onClickBildirim={handleNotificationClick}
+        notificationCount={3}
+        userInfo={userInfo}
+        headerColor={headerColor}
+      >
+        {children}
+      </AppShell>
+
+      {/* Under Construction Modal */}
+      {showUnderConstructionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-500 to-orange-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="text-4xl">🚧</div>
+                <h3 className="text-xl font-bold text-white">Yapım Aşamasında</h3>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6">
+              <p className="text-gray-700 text-lg mb-2">
+                <span className="font-semibold">{underConstructionPlatform}</span> platformu şu anda yapım aşamasındadır.
+              </p>
+              <p className="text-gray-600">
+                Bu platform üzerinde çalışmalar devam etmektedir. Yakında hizmetinizde olacaktır.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-end">
+              <button
+                onClick={() => setShowUnderConstructionModal(false)}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+              >
+                Tamam
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

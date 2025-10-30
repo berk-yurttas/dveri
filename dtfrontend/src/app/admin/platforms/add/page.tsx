@@ -684,6 +684,21 @@ export default function AddPlatformPage() {
                   />
                 </div>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Text Color (Platform Kartları İçin)
+                </label>
+                <input
+                  type="color"
+                  value={(formData.theme_config as any)?.textColor || "#374151"}
+                  onChange={(e) => handleThemeConfigChange('textColor', e.target.value)}
+                  className="w-full h-10 border border-gray-300 rounded-lg cursor-pointer"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Platform anasayfasındaki özellik kartlarının metin rengi
+                </p>
+              </div>
             </div>
           </div>
 

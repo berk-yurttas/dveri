@@ -14,9 +14,10 @@ import { Calendar, User, Eye, EyeOff,
   Map as MapIcon, Camera, Music, Heart, Star, Target, Gauge, Cpu,
   Wifi, Battery, HardDrive, Smartphone, Plus, Layout, Edit, Trash2, X
 } from "lucide-react";
-import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget } from "@/components/widgets";
+import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget } from "@/components/widgets";
 import { DateInput } from "@/components/ui/date-input";
 import { DeleteModal } from "@/components/ui/delete-modal";
+import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -90,6 +91,22 @@ const renderWidgetContent = (widget: any, index: number, dateFrom: string, dateT
       return <CapacityAnalysisWidget widgetId={widget.id || `widget-${index}`} />;
     case 'machine_oee':
       return <MachineOeeWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'kablaj_duruslar':
+      return <KablajDuruslarWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'mekanik_hatalar':
+      return <MekanikHatalarWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'employee_count':
+      return <EmployeeCountWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'average_tenure':
+      return <AverageTenureWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'education_distribution':
+      return <EducationDistributionWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'average_salary':
+      return <AverageSalaryWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'absenteeism':
+      return <AbsenteeismWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'pending_work':
+      return <PendingWorkWidget widgetId={widget.id || `widget-${index}`} />;
     default:
       // Fallback widget display
       const config = widget.config || {};
@@ -554,6 +571,9 @@ export default function DashboardPage() {
         itemName={dashboard?.title}
         isDeleting={isDeleting}
       />
+
+      {/* MIRAS Assistant Chatbot */}
+      <MirasAssistant />
     </div>
   );
 }

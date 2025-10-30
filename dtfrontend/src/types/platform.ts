@@ -14,6 +14,7 @@ export interface Platform {
   db_config?: Record<string, any> | null;
   logo_url: string | null;
   theme_config: {
+    textColor?: string;
     primaryColor?: string;
     secondaryColor?: string;
     accentColor?: string;

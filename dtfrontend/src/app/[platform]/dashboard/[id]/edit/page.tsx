@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter, useParams, useSearchParams } from "next/navigation"
 import { WidgetAdder } from "../../add/components/widget-adder"
-import { EfficiencyWidget, ExcelExportWidget, GaugeWidget, MeasurementWidget, ProductTestWidget, TestAnalysisWidget, TestDurationWidget, SerialNoComparisonWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget } from "@/components/widgets"
+import { EfficiencyWidget, ExcelExportWidget, GaugeWidget, MeasurementWidget, ProductTestWidget, TestAnalysisWidget, TestDurationWidget, SerialNoComparisonWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget } from "@/components/widgets"
 import { dashboardService } from "@/services/dashboard"
 import { Dashboard, DashboardUpdate, PlacedWidget as PlacedWidgetType } from "@/types/dashboard"
 import { useDashboards } from "@/contexts/dashboard-context"
@@ -97,6 +97,22 @@ const renderWidgetContent = (widget: PlacedWidget, dateFrom: string, dateTo: str
       return <CapacityAnalysisWidget widgetId={widget.id} {...dateFilterProps} />;
     case 'machine_oee':
       return <MachineOeeWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'kablaj_duruslar':
+      return <KablajDuruslarWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'mekanik_hatalar':
+      return <MekanikHatalarWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'employee_count':
+      return <EmployeeCountWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'average_tenure':
+      return <AverageTenureWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'education_distribution':
+      return <EducationDistributionWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'average_salary':
+      return <AverageSalaryWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'absenteeism':
+      return <AbsenteeismWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'pending_work':
+      return <PendingWorkWidget widgetId={widget.id} {...dateFilterProps} />;
     default:
       return (
         <div className="flex flex-col items-center justify-center h-full">

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { WidgetAdder } from "./components/widget-adder"
-import { CapacityAnalysisWidget, EfficiencyWidget, ExcelExportWidget, GaugeWidget, MachineOeeWidget, MeasurementWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationAnalysisWidget, TestDurationWidget } from "@/components/widgets"
+import { CapacityAnalysisWidget, EfficiencyWidget, EmployeeCountWidget, ExcelExportWidget, GaugeWidget, KablajDuruslarWidget, MachineOeeWidget, MeasurementWidget, MekanikHatalarWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationAnalysisWidget, TestDurationWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget } from "@/components/widgets"
 import { dashboardService } from "@/services/dashboard"
 import { CreateDashboardRequest, PlacedWidget as PlacedWidgetType } from "@/types/dashboard"
 import { useDashboards } from "@/contexts/dashboard-context"
@@ -96,6 +96,22 @@ const renderWidgetContent = (widget: PlacedWidget, dateFrom: string, dateTo: str
       return <CapacityAnalysisWidget widgetId={widget.id} {...dateFilterProps} />
     case 'machine_oee':
       return <MachineOeeWidget widgetId={widget.id} />
+    case 'kablaj_duruslar':
+      return <KablajDuruslarWidget widgetId={widget.id} />
+    case 'mekanik_hatalar':
+      return <MekanikHatalarWidget widgetId={widget.id} />
+    case 'employee_count':
+      return <EmployeeCountWidget widgetId={widget.id} />
+    case 'average_tenure':
+      return <AverageTenureWidget widgetId={widget.id} />
+    case 'education_distribution':
+      return <EducationDistributionWidget widgetId={widget.id} />
+    case 'average_salary':
+      return <AverageSalaryWidget widgetId={widget.id} />
+    case 'absenteeism':
+      return <AbsenteeismWidget widgetId={widget.id} />
+    case 'pending_work':
+      return <PendingWorkWidget widgetId={widget.id} />
     default:
       return (
         <div className="flex flex-col items-center justify-center h-full">

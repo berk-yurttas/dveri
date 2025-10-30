@@ -24,6 +24,7 @@ import { SavedReport } from "@/types/reports";
 import { useUser } from "@/contexts/user-context";
 import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
+import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -52,6 +53,13 @@ export default function SubPlatformPage() {
   const [selectedFirma, setSelectedFirma] = useState<string | null>(null);
   const [firmaOptions, setFirmaOptions] = useState<string[]>([]);
   const [showFirmaDropdown, setShowFirmaDropdown] = useState(false);
+  const [selectedDayRange, setSelectedDayRange] = useState<'day7' | 'day30' | 'day60' | 'day90'>('day7');
+  const [showDayDropdown, setShowDayDropdown] = useState(false);
+  
+  // Idari subplatform filters
+  const [selectedIdariDepartman, setSelectedIdariDepartman] = useState<string | null>(null);
+  const [departmanOptions, setDepartmanOptions] = useState<string[]>([]);
+  const [showDepartmanDropdown, setShowDepartmanDropdown] = useState(false);
 
   // Use useLayoutEffect to set platform BEFORE any effects run
   useLayoutEffect(() => {
@@ -122,6 +130,7 @@ export default function SubPlatformPage() {
                   firma: row[0], // NAME
                   machinecode: row[1], // MachineCode
                   name: `${row[0]} - ${row[1]}`, // Combined name for display
+                  displayName: String(row[1] || ''), // MachineCode only for filtered view
                   day7: Number(row[2]) || 0,
                   day30: Number(row[3]) || 0,
                   day60: Number(row[4]) || 0,
@@ -134,6 +143,34 @@ export default function SubPlatformPage() {
               setChartData(transformedData);
             } else {
               console.log('No data or invalid format:', chartResponse);
+              setChartData([]);
+            }
+          } catch (chartError) {
+            console.error("Failed to fetch chart data:", chartError);
+            setChartData([]);
+          }
+        } else if (subPlatformCode === 'idari') {
+          // Fetch real chart data for idari subplatform
+          try {
+            const chartResponse: any = await api.post('/reports/preview', {
+              sql_query: 'SELECT "Firma", "Departman", "Toplam Çalışan Sayısı" FROM mes_production.get_firma_departman_bazli_calisan_sayisi ORDER BY "Firma", "Toplam Çalışan Sayısı" DESC'
+            });
+
+            if (chartResponse && chartResponse.data && Array.isArray(chartResponse.data)) {
+              const transformedData = chartResponse.data.map((row: any[]) => ({
+                name: `${row[0]} - ${row[1]}`, // Firma - Departman
+                firma: row[0], // Firma
+                departman: row[1], // Departman
+                value: Number(row[2]) || 0 // Toplam Çalışan Sayısı
+              }));
+              setChartData(transformedData);
+
+              // Extract unique firma and department options
+              const uniqueFirmas = Array.from(new Set(chartResponse.data.map((row: any[]) => row[0]))).sort() as string[];
+              const uniqueDepartments = Array.from(new Set(chartResponse.data.map((row: any[]) => row[1]))).sort() as string[];
+              setFirmaOptions(uniqueFirmas);
+              setDepartmanOptions(uniqueDepartments);
+            } else {
               setChartData([]);
             }
           } catch (chartError) {
@@ -253,41 +290,256 @@ export default function SubPlatformPage() {
                     <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>Firma Bazlı OEE Değerleri</h2>
                   </div>
                 </div>
-                {firmaOptions.length > 0 && (
+                <div className="flex items-center gap-3">
+                  {firmaOptions.length > 0 && (
+                    <div className="relative">
+                      <button onClick={() => setShowFirmaDropdown(!showFirmaDropdown)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[160px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors">
+                        <span className="truncate">{selectedFirma || 'Tüm Firmalar'}</span>
+                        <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                      </button>
+                      {showFirmaDropdown && (
+                        <div className="absolute z-10 mt-2 w-48 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto right-0">
+                          <div onClick={() => { setSelectedFirma(null); setShowFirmaDropdown(false); }} className="px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer font-medium">Tüm Firmalar</div>
+                          {firmaOptions.map((firma) => (
+                            <div key={firma} onClick={() => { setSelectedFirma(firma); setShowFirmaDropdown(false); }} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedFirma === firma ? 'bg-blue-100 font-medium' : ''}`}>{firma}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="relative">
-                    <button onClick={() => setShowFirmaDropdown(!showFirmaDropdown)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[160px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors">
-                      <span className="truncate">{selectedFirma || 'Tüm Firmalar'}</span>
+                    <button onClick={() => setShowDayDropdown(!showDayDropdown)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[140px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors">
+                      <span className="truncate">
+                        {selectedDayRange === 'day7' && '7 Gün'}
+                        {selectedDayRange === 'day30' && '30 Gün'}
+                        {selectedDayRange === 'day60' && '60 Gün'}
+                        {selectedDayRange === 'day90' && '90 Gün'}
+                      </span>
                       <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                     </button>
-                    {showFirmaDropdown && (
-                      <div className="absolute z-10 mt-2 w-48 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto right-0">
-                        <div onClick={() => { setSelectedFirma(null); setShowFirmaDropdown(false); }} className="px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer font-medium">Tüm Firmalar</div>
-                        {firmaOptions.map((firma) => (
-                          <div key={firma} onClick={() => { setSelectedFirma(firma); setShowFirmaDropdown(false); }} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedFirma === firma ? 'bg-blue-100 font-medium' : ''}`}>{firma}</div>
-                        ))}
+                    {showDayDropdown && (
+                      <div className="absolute z-10 mt-2 w-40 bg-white border border-gray-300 rounded-lg shadow-lg right-0">
+                        <div onClick={() => { setSelectedDayRange('day7'); setShowDayDropdown(false); }} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedDayRange === 'day7' ? 'bg-blue-100 font-medium' : ''}`}>7 Gün</div>
+                        <div onClick={() => { setSelectedDayRange('day30'); setShowDayDropdown(false); }} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedDayRange === 'day30' ? 'bg-blue-100 font-medium' : ''}`}>30 Gün</div>
+                        <div onClick={() => { setSelectedDayRange('day60'); setShowDayDropdown(false); }} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedDayRange === 'day60' ? 'bg-blue-100 font-medium' : ''}`}>60 Gün</div>
+                        <div onClick={() => { setSelectedDayRange('day90'); setShowDayDropdown(false); }} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedDayRange === 'day90' ? 'bg-blue-100 font-medium' : ''}`}>90 Gün</div>
                       </div>
                     )}
                   </div>
-                )}
+                </div>
               </div>
 
               <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={selectedFirma ? chartData.filter(item => item.firma === selectedFirma) : chartData} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
+                <BarChart key={selectedFirma || 'all'} data={selectedFirma ? chartData.filter(item => item.firma === selectedFirma) : chartData} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
                   <defs>
-                    <linearGradient id="colorOee7" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3b82f6" stopOpacity={0.9}/><stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.9}/></linearGradient>
-                    <linearGradient id="colorOee30" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.9}/><stop offset="100%" stopColor="#6d28d9" stopOpacity={0.9}/></linearGradient>
-                    <linearGradient id="colorOee60" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity={0.9}/><stop offset="100%" stopColor="#059669" stopOpacity={0.9}/></linearGradient>
-                    <linearGradient id="colorOee90" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f59e0b" stopOpacity={0.9}/><stop offset="100%" stopColor="#d97706" stopOpacity={0.9}/></linearGradient>
+                    {[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19].map(i => (
+                      <linearGradient key={i} id={`colorOee${i}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#ec4899','#06b6d4','#84cc16','#6366f1','#f43f5e','#14b8a6','#a855f7','#f97316','#22c55e','#eab308','#d946ef','#0ea5e9','#facc15','#fb923c','#a3e635'][i]} stopOpacity={0.9}/>
+                        <stop offset="100%" stopColor={['#1d4ed8','#6d28d9','#059669','#d97706','#dc2626','#db2777','#0891b2','#65a30d','#4f46e5','#e11d48','#0d9488','#9333ea','#ea580c','#16a34a','#ca8a04','#c026d3','#0284c7','#eab308','#f97316','#84cc16'][i]} stopOpacity={0.9}/>
+                      </linearGradient>
+                    ))}
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" stroke="#6b7280" style={{ fontSize: '13px', fontWeight: 500 }} tickLine={false} angle={-45} textAnchor="end" height={80} />
+                  <XAxis dataKey={selectedFirma ? "machinecode" : "name"} stroke="#6b7280" style={{ fontSize: '13px', fontWeight: 500 }} tickLine={false} angle={-45} textAnchor="end" height={80} />
                   <YAxis stroke="#6b7280" style={{ fontSize: '13px', fontWeight: 500 }} tickLine={false} label={{ value: 'OEE (%)', angle: -90, position: 'insideLeft' }} />
                   <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px' }} cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }} formatter={(value: number) => `${value.toFixed(2)}%`} />
                   <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
-                  <Bar dataKey="day7" fill="url(#colorOee7)" name="7 Gün" radius={[8, 8, 0, 0]} maxBarSize={40} />
-                  <Bar dataKey="day30" fill="url(#colorOee30)" name="30 Gün" radius={[8, 8, 0, 0]} maxBarSize={40} />
-                  <Bar dataKey="day60" fill="url(#colorOee60)" name="60 Gün" radius={[8, 8, 0, 0]} maxBarSize={40} />
-                  <Bar dataKey="day90" fill="url(#colorOee90)" name="90 Gün" radius={[8, 8, 0, 0]} maxBarSize={40} />
+                  <Bar dataKey={selectedDayRange} name={
+                    selectedDayRange === 'day7' ? '7 Gün' :
+                    selectedDayRange === 'day30' ? '30 Gün' :
+                    selectedDayRange === 'day60' ? '60 Gün' : '90 Gün'
+                  } radius={[8, 8, 0, 0]} maxBarSize={60}>
+                    {(selectedFirma ? chartData.filter(item => item.firma === selectedFirma) : chartData).map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={`url(#colorOee${index % 20})`} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* Chart Section - Idari */}
+        {subPlatformCode === 'idari' && (
+          <div className="mb-12">
+            <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-lg bg-blue-500 text-white">
+                    <BarChart3 className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>Firma ve Departman Bazlı Çalışan Sayıları</h2>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {/* Firma Filter */}
+                  {firmaOptions.length > 0 && (
+                    <div className="relative">
+                      <button 
+                        onClick={() => {
+                          setShowFirmaDropdown(!showFirmaDropdown)
+                          setShowDepartmanDropdown(false)
+                        }} 
+                        className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[160px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
+                      >
+                        <span className="truncate">{selectedFirma || 'Tüm Firmalar'}</span>
+                        <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      {showFirmaDropdown && (
+                        <div className="absolute z-10 mt-2 w-48 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto right-0">
+                          <div 
+                            onClick={() => { 
+                              setSelectedFirma(null); 
+                              setSelectedIdariDepartman(null);
+                              setShowFirmaDropdown(false); 
+                            }} 
+                            className="px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer font-medium"
+                          >
+                            Tüm Firmalar
+                          </div>
+                          {firmaOptions.map((firma) => (
+                            <div 
+                              key={firma} 
+                              onClick={() => { 
+                                setSelectedFirma(firma); 
+                                setSelectedIdariDepartman(null);
+                                setShowFirmaDropdown(false); 
+                              }} 
+                              className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedFirma === firma ? 'bg-blue-100 font-medium' : ''}`}
+                            >
+                              {firma}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Department Filter */}
+                  {departmanOptions.length > 0 && (
+                    <div className="relative">
+                      <button 
+                        onClick={() => {
+                          setShowDepartmanDropdown(!showDepartmanDropdown)
+                          setShowFirmaDropdown(false)
+                        }} 
+                        className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[160px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
+                      >
+                        <span className="truncate">{selectedIdariDepartman || 'Tüm Departmanlar'}</span>
+                        <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      {showDepartmanDropdown && (
+                        <div className="absolute z-10 mt-2 w-48 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto right-0">
+                          <div 
+                            onClick={() => { 
+                              setSelectedIdariDepartman(null); 
+                              setShowDepartmanDropdown(false); 
+                            }} 
+                            className="px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer font-medium"
+                          >
+                            Tüm Departmanlar
+                          </div>
+                          {departmanOptions
+                            .filter(dept => {
+                              // If a firma is selected, only show departments from that firma
+                              if (selectedFirma) {
+                                return chartData.some(item => 
+                                  item.firma === selectedFirma && item.departman === dept
+                                )
+                              }
+                              return true
+                            })
+                            .map((departman) => (
+                              <div 
+                                key={departman} 
+                                onClick={() => { 
+                                  setSelectedIdariDepartman(departman); 
+                                  setShowDepartmanDropdown(false); 
+                                }} 
+                                className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedIdariDepartman === departman ? 'bg-blue-100 font-medium' : ''}`}
+                              >
+                                {departman}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <ResponsiveContainer width="100%" height={400}>
+                <BarChart 
+                  data={chartData.filter(item => {
+                    const firmaMatch = !selectedFirma || item.firma === selectedFirma
+                    const departmanMatch = !selectedIdariDepartman || item.departman === selectedIdariDepartman
+                    return firmaMatch && departmanMatch
+                  })} 
+                  margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
+                >
+                  <defs>
+                    {[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19].map(i => (
+                      <linearGradient key={i} id={`colorIdari${i}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#ec4899','#06b6d4','#84cc16','#6366f1','#f43f5e','#14b8a6','#a855f7','#f97316','#22c55e','#eab308','#d946ef','#0ea5e9','#facc15','#fb923c','#a3e635'][i]} stopOpacity={0.9}/>
+                        <stop offset="100%" stopColor={['#1d4ed8','#6d28d9','#059669','#d97706','#dc2626','#db2777','#0891b2','#65a30d','#4f46e5','#e11d48','#0d9488','#9333ea','#ea580c','#16a34a','#ca8a04','#c026d3','#0284c7','#eab308','#f97316','#84cc16'][i]} stopOpacity={0.9}/>
+                      </linearGradient>
+                    ))}
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis 
+                    dataKey={selectedFirma ? "departman" : "name"}
+                    stroke="#6b7280" 
+                    style={{ fontSize: '12px', fontWeight: 500 }} 
+                    tickLine={false} 
+                    angle={-45} 
+                    textAnchor="end" 
+                    height={100} 
+                  />
+                  <YAxis 
+                    stroke="#6b7280" 
+                    style={{ fontSize: '13px', fontWeight: 500 }} 
+                    tickLine={false}
+                    label={{ value: 'Çalışan Sayısı', angle: -90, position: 'insideLeft' }}
+                  />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'white', 
+                      border: '1px solid #e5e7eb', 
+                      borderRadius: '12px', 
+                      boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', 
+                      padding: '12px' 
+                    }} 
+                    cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+                    formatter={(value: number) => [`${value} Çalışan`, 'Toplam']}
+                    labelFormatter={(label: string, payload: any[]) => {
+                      if (payload && payload.length > 0) {
+                        return `${payload[0].payload.firma} - ${payload[0].payload.departman}`
+                      }
+                      return label
+                    }}
+                  />
+                  <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
+                  <Bar 
+                    dataKey="value" 
+                    name="Çalışan Sayısı" 
+                    radius={[8, 8, 0, 0]} 
+                    maxBarSize={60}
+                  >
+                    {chartData
+                      .filter(item => {
+                        const firmaMatch = !selectedFirma || item.firma === selectedFirma
+                        const departmanMatch = !selectedIdariDepartman || item.departman === selectedIdariDepartman
+                        return firmaMatch && departmanMatch
+                      })
+                      .map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={`url(#colorIdari${index % 20})`} />
+                      ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -295,7 +547,7 @@ export default function SubPlatformPage() {
         )}
 
         {/* Chart Section - Other Subplatforms */}
-        {subPlatformCode !== 'kapasite' && subPlatformCode !== 'verimlilik' && (
+        {subPlatformCode !== 'kapasite' && subPlatformCode !== 'verimlilik' && subPlatformCode !== 'idari' && (
           <div className="mb-12">
             <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6">
               <div className="flex items-center justify-between mb-6">
@@ -541,6 +793,9 @@ export default function SubPlatformPage() {
           )}
         </div>
       </div>
+
+      {/* MIRAS Assistant Chatbot */}
+      <MirasAssistant />
     </div>
   );
 }

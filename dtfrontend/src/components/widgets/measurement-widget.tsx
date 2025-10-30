@@ -304,6 +304,7 @@ export function MeasurementWidget({ widgetId, dateFrom, dateTo }: MeasurementWid
     index: index + 1,
     date: new Date(point.test_baslangic_tarihi).toLocaleDateString('tr-TR'),
     value: point.olculen_deger,
+    seri_no: point.seri_no,
     timestamp: point.test_baslangic_tarihi
   })).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) : []
 
@@ -397,7 +398,13 @@ export function MeasurementWidget({ widgetId, dateFrom, dateTo }: MeasurementWid
               />
               <YAxis fontSize={12} />
               <Tooltip
-                labelFormatter={(value, payload) => `Tarih: ${value}`}
+                labelFormatter={(value, payload) => {
+                  if (payload && payload.length > 0) {
+                    const seriNo = payload[0].payload.seri_no
+                    return `Tarih: ${value}${seriNo ? ` | Seri No: ${seriNo}` : ''}`
+                  }
+                  return `Tarih: ${value}`
+                }}
                 formatter={(value, name) => [
                   typeof value === 'number' ? value.toFixed(2) : value,
                   name === 'value' ? 'Ölçülen Değer' :

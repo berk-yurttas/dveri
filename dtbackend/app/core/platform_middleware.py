@@ -49,15 +49,15 @@ class PlatformMiddleware(BaseHTTPMiddleware):
                 logger.debug(f"Platform code from query param: {platform_code}")
         
         # 3. Try subdomain extraction
-        if not platform_code:
-            host = request.headers.get("host", "")
-            if "." in host:
-                subdomain = host.split(".")[0]
-                # Exclude common subdomains that aren't platform codes
-                excluded_subdomains = ["www", "api", "localhost", "127", "admin"]
-                if subdomain not in excluded_subdomains and not subdomain.isdigit():
-                    platform_code = subdomain
-                    logger.debug(f"Platform code from subdomain: {platform_code}")
+        # if not platform_code:
+        #     host = request.headers.get("host", "")
+        #     if "." in host:
+        #         subdomain = host.split(".")[0]
+        #         # Exclude common subdomains that aren't platform codes
+        #         excluded_subdomains = ["www", "api", "localhost", "127", "admin"]
+        #         if subdomain not in excluded_subdomains and not subdomain.isdigit():
+        #             platform_code = subdomain
+        #             logger.debug(f"Platform code from subdomain: {platform_code}")
         
         # 4. If no platform code found, continue without platform context
         if not platform_code:

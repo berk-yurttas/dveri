@@ -55,18 +55,31 @@ const platformWidgetMapping: { [key: string]: string[] } = {
   ],
   'ivme': [
     'capacity_analysis-widget',
-    'machine_oee-widget'
+    'machine_oee-widget',
+    'kablaj_duruslar-widget',
+    'mekanik_hatalar-widget',
+    'employee_count-widget'
   ],
 }
 
 // Subplatform-specific widget mapping (platform/subplatform combination)
 const subplatformWidgetMapping: { [key: string]: string[] } = {
   'ivme/verimlilik': [
-    'machine_oee-widget'
+    'machine_oee-widget',
+    'kablaj_duruslar-widget',
+    'mekanik_hatalar-widget'
   ],
   'ivme/kapasite': [
-    'capacity_analysis-widget'
+    'capacity_analysis-widget',
+    'pending_work-widget'
   ],
+  'ivme/idari': [
+    'employee_count-widget',
+    'average_tenure-widget',
+    'education_distribution-widget',
+    'average_salary-widget',
+    'absenteeism-widget'
+  ]
 }
 
 interface WidgetAdderProps {

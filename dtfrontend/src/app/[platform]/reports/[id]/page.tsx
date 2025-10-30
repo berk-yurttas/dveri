@@ -58,6 +58,7 @@ import {
   Scatter,
   ComposedChart
 } from 'recharts'
+import { MirasAssistant } from '@/components/chatbot/miras-assistant'
 
 const VISUALIZATION_ICONS = {
   table: Table,
@@ -3214,6 +3215,9 @@ export default function ReportDetailPage() {
         itemName={report?.name}
         isDeleting={isDeleting}
       />
+
+      {/* MIRAS Assistant Chatbot */}
+      <MirasAssistant />
     </div>
   )
 }

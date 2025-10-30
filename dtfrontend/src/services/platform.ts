@@ -28,7 +28,7 @@ export const platformService = {
       params.append('search', search);
     }
 
-    return api.get<Platform[]>(`/platforms?${params.toString()}`);
+    return api.get<Platform[]>(`/platforms/?${params.toString()}`);
   },
 
   /**
@@ -38,7 +38,7 @@ export const platformService = {
     const params = new URLSearchParams();
     params.append('include_inactive', includeInactive.toString());
     
-    return api.get(`/platforms/count?${params.toString()}`);
+    return api.get(`/platforms/count/?${params.toString()}`);
   },
 
   /**

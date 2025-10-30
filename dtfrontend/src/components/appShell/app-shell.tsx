@@ -53,6 +53,7 @@ export function AppShell({
 
   // Check if platform is 'ivme' for custom spacing
   const isIvmePlatform = platform?.code === 'ivme'
+  const isDerinizPlatform = platform?.code === 'deriniz'
 
   useEffect(() => {
     if (isDesktop) {
@@ -85,7 +86,7 @@ export function AppShell({
   return (
     <div className="flex min-h-screen relative overflow-hidden">
 
-      {!isIvmePlatform && (
+      {isDerinizPlatform && (
       // Arc Background Overlay
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
         {/* Large Quarter Circle Arc - Left Bottom */}
@@ -122,7 +123,10 @@ export function AppShell({
         <div className="fixed top-0 left-0 right-0 z-40 flex h-[30px] items-center justify-between px-6 overflow-hidden" style={{ backgroundColor: '#efefef' }}>
           <div className="absolute left-28 flex items-center gap-2 text-sm">
             <button
-              onClick={() => window.location.href = '/'}
+              onClick={() => 
+                {localStorage.removeItem('platform_code');
+                window.location.href = '/';
+                }}
               className="flex items-center gap-2 hover:opacity-70 transition-opacity"
             >
               <Home color="red" className="h-4 w-4" /> Anasayfa
@@ -256,6 +260,11 @@ export function AppShell({
         logoutLoading={logoutLoading}
         mobileOpen={mobileSidebarOpen}
         isIvmePlatform={isIvmePlatform}
+        platformInfo={platform ? {
+          name: platform.display_name,
+          logo: platform.logo_url || '',
+          code: platform.code
+        } : undefined}
       />
 
       <div className={`relative z-10 flex flex-1 flex-col md:ml-16 bg-gray-50/80 backdrop-blur-sm ${
