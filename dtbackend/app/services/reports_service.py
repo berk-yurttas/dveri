@@ -64,7 +64,8 @@ class ReportsService:
                     display_name=filter_data.display_name,
                     filter_type=filter_type_value,
                     dropdown_query=filter_data.dropdown_query,
-                    required=filter_data.required
+                    required=filter_data.required,
+                    sql_expression=filter_data.sql_expression
                 )
                 self.db.add(db_filter)
 
@@ -313,7 +314,8 @@ class ReportsService:
                         display_name=filter_data.display_name,
                         filter_type=filter_type_value,
                         dropdown_query=filter_data.dropdown_query,
-                        required=filter_data.required
+                        required=filter_data.required,
+                        sql_expression=filter_data.sql_expression
                     )
                     self.db.add(db_filter)
 
@@ -425,17 +427,18 @@ class ReportsService:
                 print(f"DEBUG: Filter {db_filter.field_name} has empty value")
                 continue
                 
-            field_name = db_filter.field_name
+            # Use sql_expression if provided, otherwise use field_name
+            field_expression = db_filter.sql_expression if db_filter.sql_expression else db_filter.field_name
             value = filter_value.value
             operator = filter_value.operator or "="
             
-            print(f"DEBUG: Building condition for {field_name} with value {value} and operator {operator}")
+            print(f"DEBUG: Building condition for {field_expression} with value {value} and operator {operator}")
             
             if db_filter.filter_type == "text":
                 # For text filters, always use LIKE for partial matching (case-insensitive search)
-                conditions.append(f"LOWER({field_name}) LIKE LOWER('%{value}%')")
+                conditions.append(f"LOWER({field_expression}) LIKE LOWER('%{value}%')")
             elif db_filter.filter_type == "number":
-                conditions.append(f"{field_name} {operator} {value}")
+                conditions.append(f"{field_expression} {operator} {value}")
             elif db_filter.filter_type == "date":
                 # Use database-specific date functions
                 if db_type.lower() == "clickhouse":
@@ -447,27 +450,27 @@ class ReportsService:
                 
                 if operator == "BETWEEN" and isinstance(value, list) and len(value) == 2:
                     # For timestamp fields, we need to compare dates properly
-                    condition = f"{date_func}({field_name}) BETWEEN {date_func}('{value[0]}') AND {date_func}('{value[1]}')"
+                    condition = f"{date_func}({field_expression}) BETWEEN {date_func}('{value[0]}') AND {date_func}('{value[1]}')"
                     print(f"DEBUG: Created BETWEEN condition: {condition}")
                     conditions.append(condition)
                 elif operator == ">=":
-                    condition = f"{date_func}({field_name}) >= {date_func}('{value}')"
+                    condition = f"{date_func}({field_expression}) >= {date_func}('{value}')"
                     print(f"DEBUG: Created >= date condition: {condition}")
                     conditions.append(condition)
                 elif operator == "<=":
-                    condition = f"{date_func}({field_name}) <= {date_func}('{value}')"
+                    condition = f"{date_func}({field_expression}) <= {date_func}('{value}')"
                     print(f"DEBUG: Created <= date condition: {condition}")
                     conditions.append(condition)
                 else:
-                    condition = f"{date_func}({field_name}) {operator} {date_func}('{value}')"
+                    condition = f"{date_func}({field_expression}) {operator} {date_func}('{value}')"
                     print(f"DEBUG: Created date condition: {condition}")
                     conditions.append(condition)
             elif db_filter.filter_type in ["dropdown", "multiselect"]:
                 if isinstance(value, list):
                     quoted_values = [f"'{v}'" for v in value]
-                    conditions.append(f"{field_name} IN ({','.join(quoted_values)})")
+                    conditions.append(f"{field_expression} IN ({','.join(quoted_values)})")
                 else:
-                    conditions.append(f"{field_name} = '{value}'")
+                    conditions.append(f"{field_expression} = '{value}'")
         
         print(f"DEBUG: Generated conditions: {conditions}")
         

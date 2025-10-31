@@ -88,6 +88,7 @@ class FilterConfigBase(BaseModel):
     type: FilterType
     dropdown_query: Optional[str] = Field(None, alias="dropdownQuery", description="SQL query for dropdown/multiselect options")
     required: bool = False
+    sql_expression: Optional[str] = Field(None, alias="sqlExpression", description="Custom SQL expression to use instead of field_name (e.g., DATE(field_name), LOWER(field_name))")
     
     class Config:
         populate_by_name = True  # Allow both field names and aliases
@@ -102,6 +103,7 @@ class FilterConfigUpdate(BaseModel):
     type: Optional[FilterType] = None
     dropdown_query: Optional[str] = Field(None, alias="dropdownQuery")
     required: Optional[bool] = None
+    sql_expression: Optional[str] = Field(None, alias="sqlExpression")
     
     class Config:
         populate_by_name = True  # Allow both field names and aliases

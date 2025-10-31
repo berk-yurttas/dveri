@@ -145,7 +145,7 @@ export function AverageTenureWidget({ widgetId }: AverageTenureWidgetProps) {
         if (firmaResponse.success && firmaResponse.data && firmaResponse.data.length > 0) {
           const transformedFirma = firmaResponse.data.map(row => ({
             Firma: row[0],
-            "Ortalama Çalışma Yılı": row[1]
+            "Ortalama Çalışma Yılı": parseFloat(row[1]) || 0
           }))
           setFirmaData(transformedFirma)
 
@@ -159,7 +159,7 @@ export function AverageTenureWidget({ widgetId }: AverageTenureWidgetProps) {
           const transformedDepartman = departmanResponse.data.map(row => ({
             Firma: row[0],
             Departman: row[1],
-            "Ortalama Çalışma Yılı": row[2]
+            "Ortalama Çalışma Yılı": parseFloat(row[2]) || 0
           }))
           setDepartmanData(transformedDepartman)
         }
@@ -169,7 +169,7 @@ export function AverageTenureWidget({ widgetId }: AverageTenureWidgetProps) {
           const transformedGorev = gorevResponse.data.map(row => ({
             Firma: row[0],
             Görev: row[1],
-            "Ortalama Çalışma Yılı": row[2]
+            "Ortalama Çalışma Yılı": parseFloat(row[2]) || 0
           }))
           setGorevData(transformedGorev)
         }

@@ -853,14 +853,58 @@ const NestedQueryBuilder = ({
       if (!selectMatch) return []
       
       const fieldsStr = selectMatch[1]
-      const fields = fieldsStr.split(',').map(field => {
+      
+      // Split by comma, but respect quoted strings
+      const fields: string[] = []
+      let currentField = ''
+      let inQuotes = false
+      let quoteChar = ''
+      
+      for (let i = 0; i < fieldsStr.length; i++) {
+        const char = fieldsStr[i]
+        
+        if ((char === '"' || char === "'" || char === '`') && !inQuotes) {
+          inQuotes = true
+          quoteChar = char
+          currentField += char
+        } else if (char === quoteChar && inQuotes) {
+          inQuotes = false
+          quoteChar = ''
+          currentField += char
+        } else if (char === ',' && !inQuotes) {
+          fields.push(currentField.trim())
+          currentField = ''
+        } else {
+          currentField += char
+        }
+      }
+      
+      if (currentField.trim()) {
+        fields.push(currentField.trim())
+      }
+      
+      // Now parse each field to extract the alias or field name
+      const parsedFields = fields.map(field => {
         field = field.trim()
-        const aliasMatch = field.match(/\s+as\s+([\w_]+)/i)
+        
+        // Handle aliases with AS keyword and quoted strings
+        const quotedAliasMatch = field.match(/\s+as\s+['"`]([^'"`]+)['"`]\s*$/i)
+        if (quotedAliasMatch) return quotedAliasMatch[1].trim()
+        
+        // Handle aliases with AS keyword (case insensitive) - support underscores
+        const aliasMatch = field.match(/\s+as\s+([\w_]+)\s*$/i)
         if (aliasMatch) return aliasMatch[1].trim()
+        
+        // Handle quoted field at the end (without AS)
+        const endQuotedMatch = field.match(/['"`]([^'"`]+)['"`]\s*$/i)
+        if (endQuotedMatch) return endQuotedMatch[1].trim()
+        
+        // Handle simple aliases (last word that's not a function)
         const parts = field.trim().split(/\s+/)
         if (parts.length > 1 && !parts[parts.length - 1].match(/[().]/) && !parts[parts.length - 1].match(/^(SELECT|FROM|WHERE|JOIN|ON|AND|OR)$/i)) {
           return parts[parts.length - 1]
         }
+        
         const dotMatch = field.match(/([\w_]+)\.([\w_]+)/)
         if (dotMatch) return dotMatch[2]
         const simpleMatch = field.match(/^([\w_]+)/)
@@ -868,7 +912,7 @@ const NestedQueryBuilder = ({
         return null
       }).filter((f): f is string => f !== null && !f.match(/^\*$|^(COUNT|SUM|AVG|MIN|MAX|DISTINCT)$/i))
       
-      return [...new Set(fields)]
+      return [...new Set(parsedFields)]
     } catch (error) {
       return []
     }
@@ -1227,8 +1271,38 @@ export default function AddReportPage() {
       if (!selectMatch) return []
 
       const fieldsStr = selectMatch[1]
-      const fields = fieldsStr
-        .split(',')
+      
+      // Split by comma, but respect quoted strings
+      const fields: string[] = []
+      let currentField = ''
+      let inQuotes = false
+      let quoteChar = ''
+      
+      for (let i = 0; i < fieldsStr.length; i++) {
+        const char = fieldsStr[i]
+        
+        if ((char === '"' || char === "'" || char === '`') && !inQuotes) {
+          inQuotes = true
+          quoteChar = char
+          currentField += char
+        } else if (char === quoteChar && inQuotes) {
+          inQuotes = false
+          quoteChar = ''
+          currentField += char
+        } else if (char === ',' && !inQuotes) {
+          fields.push(currentField.trim())
+          currentField = ''
+        } else {
+          currentField += char
+        }
+      }
+      
+      if (currentField.trim()) {
+        fields.push(currentField.trim())
+      }
+      
+      // Now parse each field to extract the alias or field name
+      const parsedFields = fields
         .map(field => {
           field = field.trim()
 
@@ -1236,22 +1310,22 @@ export default function AddReportPage() {
           if (!field) return null
 
           // Handle aliases with AS keyword and quoted strings (single, double, backtick)
-          const quotedAliasMatch = field.match(/\s+as\s+['"`]([^'"`]+)['"`]/i)
+          const quotedAliasMatch = field.match(/\s+as\s+['"`]([^'"`]+)['"`]\s*$/i)
           if (quotedAliasMatch) return quotedAliasMatch[1].trim()
 
           // Handle aliases with AS keyword (case insensitive) - support underscores
-          const aliasMatch = field.match(/\s+as\s+([\w_]+)/i)
+          const aliasMatch = field.match(/\s+as\s+([\w_]+)\s*$/i)
           if (aliasMatch) return aliasMatch[1].trim()
 
-          // Handle quoted aliases without AS keyword
-          const directQuotedMatch = field.match(/[\w_().]+\s+['"`]([^'"`]+)['"`]$/i)
-          if (directQuotedMatch) return directQuotedMatch[1].trim()
+          // Handle quoted field at the end (without AS)
+          const endQuotedMatch = field.match(/['"`]([^'"`]+)['"`]\s*$/i)
+          if (endQuotedMatch) return endQuotedMatch[1].trim()
 
           // Handle simple aliases (last word that's not a function) - support underscores
           const parts = field.trim().split(/\s+/)
           if (parts.length > 1) {
             const lastPart = parts[parts.length - 1]
-            // If last part doesn't contain parentheses or dots, it's likely an alias - support underscores
+            // If last part doesn't contain parentheses or dots and is not a SQL keyword, it's likely an alias
             if (!lastPart.match(/[().]/) && !lastPart.match(/^(SELECT|FROM|WHERE|JOIN|ON|AND|OR)$/i)) {
               return lastPart
             }
@@ -1268,7 +1342,8 @@ export default function AddReportPage() {
           return null
         })
         .filter((field): field is string => field !== null && !field.match(/^\*$|^(COUNT|SUM|AVG|MIN|MAX|DISTINCT)$/i))
-      return [...new Set(fields)] // Remove duplicates
+      
+      return [...new Set(parsedFields)] // Remove duplicates
     } catch (error) {
       console.error('Error parsing SQL:', error)
       return []
@@ -1379,17 +1454,20 @@ export default function AddReportPage() {
       console.log('Processing filter:', filter)
       let condition = ''
       
+      // Use sqlExpression if provided, otherwise use fieldName
+      const sqlField = filter.sqlExpression || filter.fieldName
+      
       switch (filter.type) {
         case 'text':
           const textValue = values[filter.fieldName]
           if (textValue) {
-            condition = `${filter.fieldName} LIKE '%${textValue}%'`
+            condition = `${sqlField} LIKE '%${textValue}%'`
           }
           break
         case 'number':
           const numValue = values[filter.fieldName]
           if (numValue) {
-            condition = `${filter.fieldName} = ${numValue}`
+            condition = `${sqlField} = ${numValue}`
           }
           break
           case 'date':
@@ -1422,22 +1500,22 @@ export default function AddReportPage() {
           if (startDate && endDate) {
             const utcStartDate = formatStartDate(startDate)
             const utcEndDate = formatEndDate(endDate)
-            condition = `${filter.fieldName} BETWEEN '${utcStartDate}' AND '${utcEndDate}'`
+            condition = `${sqlField} BETWEEN '${utcStartDate}' AND '${utcEndDate}'`
           } else if (startDate) {
             const utcStartDate = formatStartDate(startDate)
-            condition = `${filter.fieldName} >= '${utcStartDate}'`
+            condition = `${sqlField} >= '${utcStartDate}'`
           } else if (endDate) {
             const utcEndDate = formatEndDate(endDate)
-            condition = `${filter.fieldName} <= '${utcEndDate}'`
+            condition = `${sqlField} <= '${utcEndDate}'`
           }
           break
         case 'dropdown':
         case 'multiselect':
           const dropdownValue = values[filter.fieldName]
           if (Array.isArray(dropdownValue)) {
-            condition = `${filter.fieldName} IN (${dropdownValue.map(v => `'${v}'`).join(',')})`
+            condition = `${sqlField} IN (${dropdownValue.map(v => `'${v}'`).join(',')})`
           } else if (dropdownValue) {
-            condition = `${filter.fieldName} = '${dropdownValue}'`
+            condition = `${sqlField} = '${dropdownValue}'`
           }
           break
       }
@@ -2230,6 +2308,24 @@ export default function AddReportPage() {
                                     </Label>
                                   </div>
                                 </div>
+                              </div>
+
+                              <div className="mt-4 space-y-2">
+                                <Label className="flex items-center gap-2">
+                                  SQL İfadesi (İsteğe Bağlı)
+                                  <span className="text-xs text-slate-500 font-normal">
+                                    Alan adı yerine özel SQL ifadesi kullanın
+                                  </span>
+                                </Label>
+                                <Input
+                                  value={filter.sqlExpression || ''}
+                                  onChange={(e) => updateFilter(queryIndex, filterIndex, { sqlExpression: e.target.value })}
+                                  placeholder={`Örn: DATE(${filter.fieldName}), LOWER(${filter.fieldName}), ${filter.fieldName}::INTEGER`}
+                                  className="font-mono text-sm"
+                                />
+                                <p className="text-xs text-slate-500">
+                                  Boş bırakırsanız alan adı kullanılır. Örnek: DATE(created_at), LOWER(email), price::DECIMAL
+                                </p>
                               </div>
 
                               {(filter.type === 'dropdown' || filter.type === 'multiselect') && (

@@ -93,6 +93,7 @@ export interface FilterConfig {
   type: 'date' | 'dropdown' | 'multiselect' | 'number' | 'text'
   dropdownQuery?: string
   required: boolean
+  sqlExpression?: string  // Custom SQL expression to use instead of fieldName (e.g., "DATE(created_at)", "LOWER(email)")
 }
 
 export interface QueryConfig {
@@ -190,6 +191,7 @@ export interface FilterDetail {
   type: 'date' | 'dropdown' | 'multiselect' | 'number' | 'text'
   dropdownQuery: string | null
   required: boolean
+  sqlExpression?: string  // Custom SQL expression to use instead of fieldName
   query_id: number
   created_at: string
   updated_at: string | null

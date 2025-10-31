@@ -308,6 +308,7 @@ export default function ReportDetailPage() {
   const [nestedFilterPopovers, setNestedFilterPopovers] = useState<{[key: string]: boolean}>({})
   const [nestedFilterPositions, setNestedFilterPositions] = useState<{[key: string]: { top: number, left: number } }>({})
   const [nestedSorting, setNestedSorting] = useState<{[rowKey: string]: {column: string, direction: 'asc' | 'desc'} | null}>({})
+  const [nestedPagination, setNestedPagination] = useState<{[rowKey: string]: {currentPage: number, pageSize: number}}>({})
 
   // Debounce timeout refs for each filter
   const debounceTimeouts = useRef<{[key: string]: NodeJS.Timeout}>({})
@@ -915,6 +916,17 @@ export default function ReportDetailPage() {
       })
       return newSorting
     })
+
+    // Clear nested pagination
+    setNestedPagination(prev => {
+      const newPagination = { ...prev }
+      Object.keys(newPagination).forEach(key => {
+        if (key.startsWith(`${queryId}_`)) {
+          delete newPagination[key]
+        }
+      })
+      return newPagination
+    })
   }
 
   const handleFilterChange = (queryId: number, fieldName: string, value: any) => {
@@ -1489,6 +1501,35 @@ export default function ReportDetailPage() {
     
     const colorIndex = (level - 1) % bgColors.length
     
+    // Get pagination state for this nested table (default to 10 rows per page)
+    const paginationState = nestedPagination[rowKey] || { currentPage: 1, pageSize: 10 }
+    const { currentPage, pageSize } = paginationState
+    
+    // Get filtered rows
+    const filteredRows = getFilteredNestedRowsWithIndex(rowKey, nested)
+    const totalRows = filteredRows.length
+    const totalPages = Math.ceil(totalRows / pageSize)
+    
+    // Calculate pagination
+    const startIndex = (currentPage - 1) * pageSize
+    const endIndex = Math.min(startIndex + pageSize, totalRows)
+    const paginatedRows = filteredRows.slice(startIndex, endIndex)
+    
+    // Pagination handlers
+    const handlePageChange = (newPage: number) => {
+      setNestedPagination(prev => ({
+        ...prev,
+        [rowKey]: { ...paginationState, currentPage: newPage }
+      }))
+    }
+    
+    const handlePageSizeChange = (newPageSize: number) => {
+      setNestedPagination(prev => ({
+        ...prev,
+        [rowKey]: { currentPage: 1, pageSize: newPageSize }
+      }))
+    }
+    
     return (
       <div className={`${bgColors[colorIndex]} border-l-4 ${borderColors[colorIndex]} p-4`}>
         {nested?.loading ? (
@@ -1499,10 +1540,10 @@ export default function ReportDetailPage() {
         ) : nested?.data && nested.data.length > 0 ? (
           <div className="space-y-3">
             
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[500px] overflow-y-auto border border-gray-200 rounded">
               
               <table className="w-full border-collapse bg-white rounded shadow-sm">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className={`${headerBgColors[colorIndex]} border-b ${headerBorderColors[colorIndex]}`}>
                   {/* Add expand column if there are more nested queries */}
                   {nested.nestedQueries && nested.nestedQueries.length > 0 && (
@@ -1619,7 +1660,7 @@ export default function ReportDetailPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {getFilteredNestedRowsWithIndex(rowKey, nested).map(({ row: nestedRow, index: originalIndex }: any, nestedRowIndex: number) => {
+                {paginatedRows.map(({ row: nestedRow, index: originalIndex }: any, nestedRowIndex: number) => {
                   const nestedRowKey = `${rowKey}_${originalIndex}`
                   const isNestedExpanded = expandedRows[nestedRowKey]
                   const nestedNested = nestedData[nestedRowKey]
@@ -1678,6 +1719,110 @@ export default function ReportDetailPage() {
               </tbody>
             </table>
             </div>
+            
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="px-3 py-2 bg-white border border-gray-200 rounded flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  <div className="text-xs text-gray-600">
+                    {startIndex + 1}-{endIndex} / {totalRows}
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-gray-600">Sayfa:</span>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                      className="px-2 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    >
+                      <option value={10}>10</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage <= 1}
+                    className="p-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronLeft className="h-3 w-3" />
+                  </button>
+                  
+                  <div className="flex items-center gap-1">
+                    {(() => {
+                      const pages = []
+                      const maxVisiblePages = 5
+                      let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2))
+                      let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1)
+                      
+                      if (endPage - startPage + 1 < maxVisiblePages) {
+                        startPage = Math.max(1, endPage - maxVisiblePages + 1)
+                      }
+                      
+                      if (startPage > 1) {
+                        pages.push(
+                          <button
+                            key={1}
+                            onClick={() => handlePageChange(1)}
+                            className="px-2 py-1 rounded text-xs border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors"
+                          >
+                            1
+                          </button>
+                        )
+                        if (startPage > 2) {
+                          pages.push(<span key="ellipsis1" className="px-1 text-xs text-gray-500">...</span>)
+                        }
+                      }
+                      
+                      for (let i = startPage; i <= endPage; i++) {
+                        pages.push(
+                          <button
+                            key={i}
+                            onClick={() => handlePageChange(i)}
+                            className={`px-2 py-1 rounded text-xs border transition-colors ${
+                              i === currentPage
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                            }`}
+                          >
+                            {i}
+                          </button>
+                        )
+                      }
+                      
+                      if (endPage < totalPages) {
+                        if (endPage < totalPages - 1) {
+                          pages.push(<span key="ellipsis2" className="px-1 text-xs text-gray-500">...</span>)
+                        }
+                        pages.push(
+                          <button
+                            key={totalPages}
+                            onClick={() => handlePageChange(totalPages)}
+                            className="px-2 py-1 rounded text-xs border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors"
+                          >
+                            {totalPages}
+                          </button>
+                        )
+                      }
+                      
+                      return pages
+                    })()}
+                  </div>
+                  
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage >= totalPages}
+                    className="p-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronRight className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : nested && !nested.loading ? (
           <div className="text-center py-4 text-sm text-gray-500">

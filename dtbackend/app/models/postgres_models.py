@@ -161,6 +161,7 @@ class ReportQueryFilter(PostgreSQLBase):
     filter_type = Column(String(50), nullable=False)  # date, dropdown, multiselect, number, text
     dropdown_query = Column(Text)  # SQL query for dropdown/multiselect options
     required = Column(Boolean, default=False)
+    sql_expression = Column(Text)  # Custom SQL expression to use instead of field_name (e.g., DATE(field_name), LOWER(field_name))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

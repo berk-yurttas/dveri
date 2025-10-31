@@ -48,6 +48,7 @@ export default function SubPlatformPage() {
   const [dashboards, setDashboards] = useState<DashboardList[]>([]);
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
+  const [rawMachineData, setRawMachineData] = useState<any[]>([]); // Store raw machine data for verimlilik
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedFirma, setSelectedFirma] = useState<string | null>(null);
@@ -131,23 +132,47 @@ export default function SubPlatformPage() {
                   machinecode: row[1], // MachineCode
                   name: `${row[0]} - ${row[1]}`, // Combined name for display
                   displayName: String(row[1] || ''), // MachineCode only for filtered view
-                  day7: Number(row[2]) || 0,
-                  day30: Number(row[3]) || 0,
-                  day60: Number(row[4]) || 0,
-                  day90: Number(row[5]) || 0
+                  day7: parseFloat(row[2]) || 0,
+                  day30: parseFloat(row[3]) || 0,
+                  day60: parseFloat(row[4]) || 0,
+                  day90: parseFloat(row[5]) || 0
                 };
                 console.log('Transformed item:', item);
                 return item;
               });
               console.log('Final transformed data:', transformedData);
-              setChartData(transformedData);
+              
+              // Store raw machine data
+              setRawMachineData(transformedData);
+              
+              // Calculate average values per company for initial view
+              const firmaAverages = uniqueFirmas.map(firma => {
+                const firmaData = transformedData.filter((item: any) => item.firma === firma);
+                const avgDay7 = firmaData.reduce((sum: number, item: any) => sum + item.day7, 0) / firmaData.length;
+                const avgDay30 = firmaData.reduce((sum: number, item: any) => sum + item.day30, 0) / firmaData.length;
+                const avgDay60 = firmaData.reduce((sum: number, item: any) => sum + item.day60, 0) / firmaData.length;
+                const avgDay90 = firmaData.reduce((sum: number, item: any) => sum + item.day90, 0) / firmaData.length;
+                
+                return {
+                  firma: firma,
+                  name: firma,
+                  day7: avgDay7,
+                  day30: avgDay30,
+                  day60: avgDay60,
+                  day90: avgDay90
+                };
+              });
+              
+              setChartData(firmaAverages);
             } else {
               console.log('No data or invalid format:', chartResponse);
               setChartData([]);
+              setRawMachineData([]);
             }
           } catch (chartError) {
             console.error("Failed to fetch chart data:", chartError);
             setChartData([]);
+            setRawMachineData([]);
           }
         } else if (subPlatformCode === 'idari') {
           // Fetch real chart data for idari subplatform
@@ -201,6 +226,37 @@ export default function SubPlatformPage() {
     fetchData();
   }, [platformCode, subPlatformCode]);
 
+  // Update chart data when firma selection changes for verimlilik
+  useEffect(() => {
+    if (subPlatformCode === 'verimlilik' && rawMachineData.length > 0) {
+      if (selectedFirma) {
+        // Show machine-level data for selected firma
+        const firmaData = rawMachineData.filter(item => item.firma === selectedFirma);
+        setChartData(firmaData);
+      } else {
+        // Show average values per company
+        const uniqueFirmas = Array.from(new Set(rawMachineData.map((item: any) => item.firma))).sort() as string[];
+        const firmaAverages = uniqueFirmas.map(firma => {
+          const firmaData = rawMachineData.filter((item: any) => item.firma === firma);
+          const avgDay7 = firmaData.reduce((sum: number, item: any) => sum + item.day7, 0) / firmaData.length;
+          const avgDay30 = firmaData.reduce((sum: number, item: any) => sum + item.day30, 0) / firmaData.length;
+          const avgDay60 = firmaData.reduce((sum: number, item: any) => sum + item.day60, 0) / firmaData.length;
+          const avgDay90 = firmaData.reduce((sum: number, item: any) => sum + item.day90, 0) / firmaData.length;
+          
+          return {
+            firma: firma,
+            name: firma,
+            day7: avgDay7,
+            day30: avgDay30,
+            day60: avgDay60,
+            day90: avgDay90
+          };
+        });
+        setChartData(firmaAverages);
+      }
+    }
+  }, [selectedFirma, rawMachineData, subPlatformCode]);
+
   const handleCreateDashboard = () => {
     router.push(`/${platformCode}/dashboard/add?subplatform=${subPlatformCode}`);
   };
@@ -215,6 +271,14 @@ export default function SubPlatformPage() {
 
   const handleReportClick = (id: number) => {
     router.push(`/${platformCode}/reports/${id}?subplatform=${subPlatformCode}`);
+  };
+
+  // Handle bar click for verimlilik chart
+  const handleBarClick = (data: any) => {
+    if (subPlatformCode === 'verimlilik' && data && data.firma && !selectedFirma) {
+      // Only set filter if clicking on company average bars (when no filter is active)
+      setSelectedFirma(data.firma);
+    }
   };
 
   if (loading) {
@@ -330,7 +394,17 @@ export default function SubPlatformPage() {
               </div>
 
               <ResponsiveContainer width="100%" height={400}>
-                <BarChart key={selectedFirma || 'all'} data={selectedFirma ? chartData.filter(item => item.firma === selectedFirma) : chartData} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
+                <BarChart 
+                  key={selectedFirma || 'all'} 
+                  data={chartData} 
+                  margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
+                  onClick={(data) => {
+                    if (data && data.activePayload && data.activePayload[0]) {
+                      handleBarClick(data.activePayload[0].payload);
+                    }
+                  }}
+                  style={{ cursor: !selectedFirma ? 'pointer' : 'default' }}
+                >
                   <defs>
                     {[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19].map(i => (
                       <linearGradient key={i} id={`colorOee${i}`} x1="0" y1="0" x2="0" y2="1">
@@ -342,14 +416,24 @@ export default function SubPlatformPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey={selectedFirma ? "machinecode" : "name"} stroke="#6b7280" style={{ fontSize: '13px', fontWeight: 500 }} tickLine={false} angle={-45} textAnchor="end" height={80} />
                   <YAxis stroke="#6b7280" style={{ fontSize: '13px', fontWeight: 500 }} tickLine={false} label={{ value: 'OEE (%)', angle: -90, position: 'insideLeft' }} />
-                  <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px' }} cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }} formatter={(value: number) => `${value.toFixed(2)}%`} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px' }} 
+                    cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }} 
+                    formatter={(value: number) => `${value.toFixed(2)}%`}
+                    labelFormatter={(label: string, payload: any[]) => {
+                      if (!selectedFirma && payload && payload.length > 0) {
+                        return `${label} (Ortalama - Detay için tıklayın)`;
+                      }
+                      return label;
+                    }}
+                  />
                   <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
                   <Bar dataKey={selectedDayRange} name={
                     selectedDayRange === 'day7' ? '7 Gün' :
                     selectedDayRange === 'day30' ? '30 Gün' :
                     selectedDayRange === 'day60' ? '60 Gün' : '90 Gün'
                   } radius={[8, 8, 0, 0]} maxBarSize={60}>
-                    {(selectedFirma ? chartData.filter(item => item.firma === selectedFirma) : chartData).map((entry, index) => (
+                    {chartData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={`url(#colorOee${index % 20})`} />
                     ))}
                   </Bar>
