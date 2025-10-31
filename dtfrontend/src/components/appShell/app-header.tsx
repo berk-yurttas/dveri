@@ -44,7 +44,7 @@ export function AppHeader({ title, subtitle, customActions = [], onMobileMenuCli
   return (
     <header
       className={`fixed top-0 left-0 right-0 flex shrink-0 items-center justify-between px-6 overflow-hidden ${
-        isIvmePlatform ? 'h-[100px] mt-[30px] z-[999]' : 'z-40 h-16'
+        isIvmePlatform ? 'h-[64px] mt-[30px] z-[999]' : 'z-40 h-16'
       }`}
       style={{
         backgroundColor: isIvmePlatform ? '#fff' : headerColor,
@@ -81,7 +81,7 @@ export function AppHeader({ title, subtitle, customActions = [], onMobileMenuCli
       </div>
       )} {isIvmePlatform && (
         <div className="relative z-10 flex items-center left-20 pt-2">
-          <img src="/ssb-aselsan.png" alt="Aselsan Logo" className="h-25 w-25" />
+          <img src="/ssb-aselsan.png" alt="Aselsan Logo" className="h-16 w-16" />
         </div>
       )}
       {/* Center title between logo and actions */}

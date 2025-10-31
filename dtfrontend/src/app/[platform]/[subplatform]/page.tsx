@@ -57,6 +57,10 @@ export default function SubPlatformPage() {
   const [selectedDayRange, setSelectedDayRange] = useState<'day7' | 'day30' | 'day60' | 'day90'>('day7');
   const [showDayDropdown, setShowDayDropdown] = useState(false);
   
+  // Kapasite subplatform filters
+  const [selectedKapasitePeriod, setSelectedKapasitePeriod] = useState<'weekly' | 'monthly'>('monthly');
+  const [showKapasitePeriodDropdown, setShowKapasitePeriodDropdown] = useState(false);
+  
   // Idari subplatform filters
   const [selectedIdariDepartman, setSelectedIdariDepartman] = useState<string | null>(null);
   const [departmanOptions, setDepartmanOptions] = useState<string[]>([]);
@@ -96,13 +100,15 @@ export default function SubPlatformPage() {
         if (subPlatformCode === 'kapasite') {
           try {
             const chartResponse: any = await api.post('/reports/preview', {
-              sql_query: 'SELECT "Firma Adı", "Aylık Planlanan Doluluk Oranı" FROM mes_production.get_firma_makina_planlanan_doluluk'
+              sql_query: 'SELECT "Firma Adı", "Haftalık Planlanan Doluluk Oranı", "Aylık Planlanan Doluluk Oranı" FROM mes_production.get_firma_makina_planlanan_doluluk'
             });
 
             if (chartResponse && chartResponse.data && Array.isArray(chartResponse.data)) {
               const transformedData = chartResponse.data.map((row: any[]) => ({
                 name: row[0], // Firma Adı
-                value: parseFloat(row[1]) // Aylık Planlanan Doluluk Oranı
+                weekly: parseFloat(row[1]) || 0, // Haftalık Planlanan Doluluk Oranı
+                monthly: parseFloat(row[2]) || 0, // Aylık Planlanan Doluluk Oranı
+                value: selectedKapasitePeriod === 'weekly' ? (parseFloat(row[1]) || 0) : (parseFloat(row[2]) || 0)
               }));
               setChartData(transformedData);
             } else {
@@ -226,6 +232,18 @@ export default function SubPlatformPage() {
     fetchData();
   }, [platformCode, subPlatformCode]);
 
+  // Update chart data when period selection changes for kapasite
+  useEffect(() => {
+    if (subPlatformCode === 'kapasite' && chartData.length > 0) {
+      // Update the value field based on selected period
+      const updatedData = chartData.map(item => ({
+        ...item,
+        value: selectedKapasitePeriod === 'weekly' ? item.weekly : item.monthly
+      }));
+      setChartData(updatedData);
+    }
+  }, [selectedKapasitePeriod, subPlatformCode]);
+
   // Update chart data when firma selection changes for verimlilik
   useEffect(() => {
     if (subPlatformCode === 'verimlilik' && rawMachineData.length > 0) {
@@ -284,9 +302,28 @@ export default function SubPlatformPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-          <div className="text-lg text-gray-600">Yükleniyor...</div>
+        <div className="flex flex-col items-center gap-4">
+          <img 
+            src="/ivme-aselsan.png" 
+            alt="IVME ASELSAN" 
+            className="w-48 h-auto"
+            style={{
+              animation: 'scaleUpDownFade 1.5s ease-in-out infinite'
+            }}
+          />
+          <style jsx>{`
+            @keyframes scaleUpDownFade {
+              0%, 100% {
+                transform: scale(1);
+                opacity: 0.3;
+              }
+              50% {
+                transform: scale(1.1);
+                opacity: 1;
+              }
+            }
+          `}</style>
+          <div className="text-lg font-medium text-gray-700">Yükleniyor...</div>
         </div>
       </div>
     );
@@ -312,6 +349,41 @@ export default function SubPlatformPage() {
                   <div>
                     <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>Firma Bazlı Kapasite Değerleri</h2>
                   </div>
+                </div>
+                <div className="relative">
+                  <button 
+                    onClick={() => setShowKapasitePeriodDropdown(!showKapasitePeriodDropdown)} 
+                    className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[140px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
+                  >
+                    <span className="truncate">
+                      {selectedKapasitePeriod === 'weekly' ? 'Haftalık' : 'Aylık'}
+                    </span>
+                    <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {showKapasitePeriodDropdown && (
+                    <div className="absolute z-10 mt-2 w-40 bg-white border border-gray-300 rounded-lg shadow-lg right-0">
+                      <div 
+                        onClick={() => { 
+                          setSelectedKapasitePeriod('weekly'); 
+                          setShowKapasitePeriodDropdown(false); 
+                        }} 
+                        className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'weekly' ? 'bg-blue-100 font-medium' : ''}`}
+                      >
+                        Haftalık
+                      </div>
+                      <div 
+                        onClick={() => { 
+                          setSelectedKapasitePeriod('monthly'); 
+                          setShowKapasitePeriodDropdown(false); 
+                        }} 
+                        className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'monthly' ? 'bg-blue-100 font-medium' : ''}`}
+                      >
+                        Aylık
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

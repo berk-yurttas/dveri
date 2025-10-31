@@ -169,7 +169,9 @@ export function CapacityAnalysisWidget({ widgetId }: CapacityAnalysisWidgetProps
 
   // Prepare chart data
   const chartData = widgetData?.data?.map((item) => ({
-    name: `${item.firma} - ${item.eksensayisi}`,
+    name: item.eksensayisi === -1 
+      ? `${item.firma} - Manuel`
+      : `${item.firma} - ${item.eksensayisi} Eksen`,
     value: item.metric_value,
     firma: item.firma,
     eksensayisi: item.eksensayisi,

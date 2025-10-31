@@ -11,7 +11,7 @@ KablajDuruslarWidget.config = {
   name: "Kablaj Firma Duruşları",
   type: "kablaj_duruslar",
   color: "bg-amber-500",
-  description: "Kablaj firmalarının duruş analizi ve süre dağılımı",
+  description: "Kablaj firmalarının duruş analizi ve sayı dağılımı",
   size: { width: 4, height: 2, minHeight: 2 }
 }
 
@@ -369,7 +369,7 @@ export function KablajDuruslarWidget({ widgetId }: KablajDuruslarWidgetProps) {
             {totalDurus.toFixed(0)}
           </div>
           <div className="text-xs font-medium text-amber-800 text-center">
-            Toplam Duruş (dk)
+            Toplam Duruş Sayısı
           </div>
         </div>
 
@@ -379,7 +379,7 @@ export function KablajDuruslarWidget({ widgetId }: KablajDuruslarWidgetProps) {
             {avgDurus.toFixed(1)}
           </div>
           <div className="text-xs font-medium text-blue-800 text-center">
-            Ortalama (dk)
+            Ortalama
           </div>
         </div>
 
@@ -389,7 +389,7 @@ export function KablajDuruslarWidget({ widgetId }: KablajDuruslarWidgetProps) {
             {maxDurus.toFixed(0)}
           </div>
           <div className="text-xs font-medium text-red-800 text-center">
-            Maksimum (dk)
+            Maksimum
           </div>
         </div>
 
@@ -399,7 +399,7 @@ export function KablajDuruslarWidget({ widgetId }: KablajDuruslarWidgetProps) {
             {minDurus.toFixed(0)}
           </div>
           <div className="text-xs font-medium text-green-800 text-center">
-            Minimum (dk)
+            Minimum
           </div>
         </div>
       </div>
@@ -414,7 +414,7 @@ export function KablajDuruslarWidget({ widgetId }: KablajDuruslarWidgetProps) {
                   <th className="px-4 py-3 text-left font-semibold text-amber-900 border-b-2 border-amber-300">#</th>
                   <th className="px-4 py-3 text-left font-semibold text-amber-900 border-b-2 border-amber-300">Firma</th>
                   <th className="px-4 py-3 text-left font-semibold text-amber-900 border-b-2 border-amber-300">Duruş Açıklaması</th>
-                  <th className="px-4 py-3 text-right font-semibold text-amber-900 border-b-2 border-amber-300">Duruş Süresi</th>
+                  <th className="px-4 py-3 text-right font-semibold text-amber-900 border-b-2 border-amber-300">Duruş Sayısı</th>
                   <th className="px-4 py-3 text-right font-semibold text-amber-900 border-b-2 border-amber-300">Yüzde</th>
                 </tr>
               </thead>
@@ -432,7 +432,7 @@ export function KablajDuruslarWidget({ widgetId }: KablajDuruslarWidgetProps) {
                       </div>
                     </td>
                     <td className="px-4 py-3 border-b border-gray-200 text-right font-semibold text-amber-700">
-                      {item["Toplam Duruş"].toFixed(0)} dk
+                      {item["Toplam Duruş"].toFixed(0)}
                     </td>
                     <td className="px-4 py-3 border-b border-gray-200 text-right">
                       <div className="flex items-center justify-end">
@@ -480,7 +480,7 @@ export function KablajDuruslarWidget({ widgetId }: KablajDuruslarWidgetProps) {
                 stroke="#6b7280"
                 style={{ fontSize: '12px', fontWeight: 500 }}
                 tickLine={false}
-                label={{ value: 'Duruş Süresi (dk)', angle: -90, position: 'insideLeft', style: { fontSize: '12px' } }}
+                label={{ value: 'Duruş Sayısı', angle: -90, position: 'insideLeft', style: { fontSize: '12px' } }}
               />
               <Tooltip
                 contentStyle={{
@@ -492,10 +492,10 @@ export function KablajDuruslarWidget({ widgetId }: KablajDuruslarWidgetProps) {
                 }}
                 cursor={{ fill: 'rgba(251, 146, 60, 0.1)' }}
                 formatter={(value: number, name: string, props: any) => [
-                  `${value.toFixed(0)} dk`,
-                  'Duruş Süresi'
+                  `${value.toFixed(0)}`,
+                  'Duruş Sayısı'
                 ]}
-                labelFormatter={(label: string, payload: Payload<number, "Duruş Süresi">[]) => {
+                labelFormatter={(label: string, payload: Payload<number, "Duruş Sayısı">[]) => {
                   if (payload && payload.length > 0) {
                     const description = payload[0].payload.description
                     return `${label}${description ? ` - ${description}` : ''}`
@@ -505,7 +505,7 @@ export function KablajDuruslarWidget({ widgetId }: KablajDuruslarWidgetProps) {
               />
               <Bar
                 dataKey="value"
-                name="Duruş Süresi"
+                name="Duruş Sayısı"
                 radius={[8, 8, 0, 0]}
                 maxBarSize={60}
               >
@@ -533,7 +533,7 @@ export function KablajDuruslarWidget({ widgetId }: KablajDuruslarWidgetProps) {
                 ))}
               </Pie>
               <Tooltip
-                formatter={(value: number) => [`${value.toFixed(0)} dk`, 'Duruş Süresi']}
+                formatter={(value: number) => [`${value.toFixed(0)}`, 'Duruş Sayısı']}
               />
             </PieChart>
           </ResponsiveContainer>

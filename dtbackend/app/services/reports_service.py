@@ -429,6 +429,14 @@ class ReportsService:
                 
             # Use sql_expression if provided, otherwise use field_name
             field_expression = db_filter.sql_expression if db_filter.sql_expression else db_filter.field_name
+            
+            # Auto-quote field names that need quoting for PostgreSQL (unless already quoted or using sql_expression)
+            if not db_filter.sql_expression:
+                if not (field_expression.startswith('"') and field_expression.endswith('"')):
+                    # Check if field needs quoting (contains uppercase, spaces, or special chars)
+                    if not field_expression.islower() or ' ' in field_expression or not field_expression.replace('_', '').isalnum():
+                        field_expression = f'"{field_expression}"'
+            
             value = filter_value.value
             operator = filter_value.operator or "="
             
@@ -436,7 +444,11 @@ class ReportsService:
             
             if db_filter.filter_type == "text":
                 # For text filters, always use LIKE for partial matching (case-insensitive search)
-                conditions.append(f"LOWER({field_expression}) LIKE LOWER('%{value}%')")
+                # Use CAST for quoted identifiers to ensure LOWER works properly
+                if field_expression.startswith('"') and field_expression.endswith('"'):
+                    conditions.append(f"LOWER(CAST({field_expression} AS TEXT)) LIKE LOWER('%{value}%')")
+                else:
+                    conditions.append(f"LOWER({field_expression}) LIKE LOWER('%{value}%')")
             elif db_filter.filter_type == "number":
                 conditions.append(f"{field_expression} {operator} {value}")
             elif db_filter.filter_type == "date":
@@ -514,25 +526,19 @@ class ReportsService:
         # Validate sort_by column name (basic SQL injection prevention)
         sort_by = sort_by.strip()
 
-        # Check if column name is already quoted (contains spaces or special chars)
-        # If not quoted but contains special characters, quote it
-        needs_quoting = False
+        # Check for dangerous SQL keywords/characters first
+        dangerous_chars = [';', '--', '/*', '*/', 'DROP', 'DELETE', 'UPDATE', 'INSERT', 'TRUNCATE']
+        sort_by_upper = sort_by.upper()
+        for danger in dangerous_chars:
+            if danger in sort_by_upper:
+                raise ValueError(f"Invalid column name: {sort_by}. Contains potentially dangerous SQL.")
 
-        # Allow: simple names (id, username), qualified names (t.id), or already quoted names
-        # Pattern for simple/qualified column names
-        simple_pattern = r'^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$'
-
-        if not re.match(simple_pattern, sort_by):
-            # Column name doesn't match simple pattern, it needs to be quoted
-            # Check for dangerous SQL keywords/characters
-            dangerous_chars = [';', '--', '/*', '*/', 'DROP', 'DELETE', 'UPDATE', 'INSERT', 'TRUNCATE']
-            sort_by_upper = sort_by.upper()
-            for danger in dangerous_chars:
-                if danger in sort_by_upper:
-                    raise ValueError(f"Invalid column name: {sort_by}. Contains potentially dangerous SQL.")
-
-            # Quote the column name for databases that support it
-            sort_by = f'"{sort_by}"'
+        # Auto-quote field names that need quoting for PostgreSQL (unless already quoted)
+        if not (sort_by.startswith('"') and sort_by.endswith('"')):
+            # Check if field needs quoting (contains uppercase, spaces, or special chars)
+            if not sort_by.islower() or ' ' in sort_by or not sort_by.replace('_', '').replace('.', '').isalnum():
+                # Quote the identifier for PostgreSQL
+                sort_by = f'"{sort_by}"'
 
         # Remove existing ORDER BY clause (case insensitive)
         # This regex matches ORDER BY followed by any characters until the end or LIMIT

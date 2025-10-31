@@ -617,7 +617,7 @@ export default function PlatformHome() {
                   <div className="mt-3">
                     <div className="h-1 w-12 bg-red-600 mb-2"></div>
                     <h4 className="text-gray-900 font-semibold mb-1">Bu ay aramıza hangi firmalar katıldı?</h4>
-                    <p className="text-gray-600 text-sm">31.10.2025</p>
+                    <p className="text-gray-600 text-sm">15.11.2025</p>
                   </div>
                 </div>
 
@@ -652,7 +652,7 @@ export default function PlatformHome() {
                   <div className="mt-3">
                     <div className="h-1 w-12 bg-red-600 mb-2"></div>
                     <h4 className="text-gray-900 font-semibold mb-1">Bu ay firmaların durumlarındaki gelişmeler</h4>
-                    <p className="text-gray-600 text-sm">31.10.2025</p>
+                    <p className="text-gray-600 text-sm">15.11.2025</p>
                   </div>
                 </div>
 
@@ -687,7 +687,7 @@ export default function PlatformHome() {
                   <div className="mt-3">
                     <div className="h-1 w-12 bg-red-600 mb-2"></div>
                     <h4 className="text-gray-900 font-semibold mb-1">Bu ay hangi raporlar eklendi?</h4>
-                    <p className="text-gray-600 text-sm">31.10.2025</p>
+                    <p className="text-gray-600 text-sm">15.11.2025</p>
                   </div>
                 </div>
               </div>

@@ -28,7 +28,7 @@ interface WidgetData {
   data: MachineOeeData[]
   filters: {
     firma?: string
-    machinecode?: string
+    machinecodes?: string[]
   }
   total_records: number
 }
@@ -44,12 +44,12 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
 
   // Load filters from localStorage
   const getStoredFilters = () => {
-    if (typeof window === 'undefined') return { firma: null, machinecode: null }
+    if (typeof window === 'undefined') return { firma: null, machinecodes: [] }
     try {
       const stored = localStorage.getItem(`machine-oee-filters-${instanceId}`)
-      return stored ? JSON.parse(stored) : { firma: null, machinecode: null }
+      return stored ? JSON.parse(stored) : { firma: null, machinecodes: [] }
     } catch {
-      return { firma: null, machinecode: null }
+      return { firma: null, machinecodes: [] }
     }
   }
 
@@ -57,7 +57,7 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
 
   // State for filters
   const [selectedFirma, setSelectedFirma] = useState<string | null>(initialFilters.firma)
-  const [selectedMachine, setSelectedMachine] = useState<string | null>(initialFilters.machinecode)
+  const [selectedMachines, setSelectedMachines] = useState<string[]>(initialFilters.machinecodes || [])
   const [firmaOptions, setFirmaOptions] = useState<string[]>([])
   const [machineOptions, setMachineOptions] = useState<string[]>([])
   const [firmaSearch, setFirmaSearch] = useState('')
@@ -75,10 +75,10 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
     if (typeof window !== 'undefined') {
       localStorage.setItem(`machine-oee-filters-${instanceId}`, JSON.stringify({
         firma: selectedFirma,
-        machinecode: selectedMachine
+        machinecodes: selectedMachines
       }))
     }
-  }, [selectedFirma, selectedMachine, instanceId])
+  }, [selectedFirma, selectedMachines, instanceId])
 
   // Load all firma and machine options once on mount
   useEffect(() => {
@@ -110,7 +110,7 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
     const abortController = new AbortController()
 
     const loadWidgetData = async () => {
-      console.log(`MachineOeeWidget ${instanceId}: Loading data for firma=${selectedFirma || 'all'} machine=${selectedMachine || 'all'}`)
+      console.log(`MachineOeeWidget ${instanceId}: Loading data for firma=${selectedFirma || 'all'} machines=${selectedMachines.length > 0 ? selectedMachines.join(',') : 'all'}`)
 
       setLoading(true)
       setError(null)
@@ -122,8 +122,8 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
           filters.firma = selectedFirma
         }
 
-        if (selectedMachine) {
-          filters.machinecode = selectedMachine
+        if (selectedMachines.length > 0) {
+          filters.machinecodes = selectedMachines
         }
 
         const data = await api.post<WidgetData>('/data/widget', {
@@ -149,11 +149,12 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
     return () => {
       abortController.abort()
     }
-  }, [selectedFirma, selectedMachine, instanceId])
+  }, [selectedFirma, selectedMachines, instanceId])
 
   // Prepare chart data - transform from rows to columns for grouped bar chart
+  // Show only machine code on x-axis when machines are selected, otherwise show firma - machinecode
   const chartData = widgetData?.data?.map((item) => ({
-    name: `${item.firma} - ${item.machinecode}`,
+    name: selectedMachines.length > 0 ? item.machinecode : `${item.firma} - ${item.machinecode}`,
     firma: item.firma,
     machinecode: item.machinecode,
     '7 Gün': item.avg_oee_7_days,
@@ -219,7 +220,13 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
                 onClick={() => setShowMachineDropdown(!showMachineDropdown)}
                 className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white min-w-[120px] text-left flex items-center justify-between"
               >
-                <span className="truncate">{selectedMachine || 'Tüm Makineler'}</span>
+                <span className="truncate">
+                  {selectedMachines.length === 0 
+                    ? 'Tüm Makineler' 
+                    : selectedMachines.length === 1 
+                    ? selectedMachines[0] 
+                    : `${selectedMachines.length} Makine Seçili`}
+                </span>
                 <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
@@ -306,20 +313,26 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
             )}
           </div>
 
-          {/* Machine Dropdown */}
+          {/* Machine Dropdown - Multiselect */}
           <div className="relative">
             <button
               onClick={() => setShowMachineDropdown(!showMachineDropdown)}
               className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white min-w-[120px] text-left flex items-center justify-between"
             >
-              <span className="truncate">{selectedMachine || 'Tüm Makineler'}</span>
+              <span className="truncate">
+                {selectedMachines.length === 0 
+                  ? 'Tüm Makineler' 
+                  : selectedMachines.length === 1 
+                  ? selectedMachines[0] 
+                  : `${selectedMachines.length} Makine Seçili`}
+              </span>
               <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
             {showMachineDropdown && (
               <div className="absolute z-10 mt-1 w-48 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto right-0">
-                <div className="p-2 border-b border-gray-200">
+                <div className="p-2 border-b border-gray-200 sticky top-0 bg-white">
                   <input
                     type="text"
                     value={machineSearch}
@@ -330,25 +343,32 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
                 </div>
                 <div
                   onClick={() => {
-                    setSelectedMachine(null)
-                    setShowMachineDropdown(false)
+                    setSelectedMachines([])
                     setMachineSearch('')
                   }}
-                  className="px-3 py-2 text-xs hover:bg-purple-50 cursor-pointer"
+                  className="px-3 py-2 text-xs hover:bg-purple-50 cursor-pointer border-b border-gray-200 font-medium"
                 >
-                  Tüm Makineler
+                  ✕ Tümünü Temizle
                 </div>
                 {filteredMachineOptions.map((machine) => (
                   <div
                     key={machine}
                     onClick={() => {
-                      setSelectedMachine(machine)
-                      setShowMachineDropdown(false)
-                      setMachineSearch('')
+                      setSelectedMachines(prev => 
+                        prev.includes(machine) 
+                          ? prev.filter(m => m !== machine)
+                          : [...prev, machine]
+                      )
                     }}
-                    className={`px-3 py-2 text-xs hover:bg-purple-50 cursor-pointer ${selectedMachine === machine ? 'bg-purple-100 font-medium' : ''}`}
+                    className={`px-3 py-2 text-xs hover:bg-purple-50 cursor-pointer flex items-center ${selectedMachines.includes(machine) ? 'bg-purple-50' : ''}`}
                   >
-                    {machine}
+                    <input
+                      type="checkbox"
+                      checked={selectedMachines.includes(machine)}
+                      onChange={() => {}}
+                      className="mr-2 text-purple-500 focus:ring-purple-500"
+                    />
+                    <span>{machine}</span>
                   </div>
                 ))}
                 {filteredMachineOptions.length === 0 && (

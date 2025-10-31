@@ -11,12 +11,12 @@ class MachineOeeWidgetStrategy(WidgetStrategy):
 
         Expected filters:
         - firma: Company/Facility (optional)
-        - machinecode: Machine code (optional)
+        - machinecodes: List of machine codes (optional) - supports multiselect
         """
 
         # Extract filters
         firma = filters.get('firma', None) if filters else None
-        machinecode = filters.get('machinecode', None) if filters else None
+        machinecodes = filters.get('machinecodes', None) if filters else None
 
         # Build the query
         query = """
@@ -34,8 +34,11 @@ class MachineOeeWidgetStrategy(WidgetStrategy):
         if firma:
             query += f" AND \"NAME\" = '{firma}'"
 
-        if machinecode:
-            query += f" AND \"MachineCode\" = '{machinecode}'"
+        if machinecodes and isinstance(machinecodes, list) and len(machinecodes) > 0:
+            # Escape single quotes in machine codes and build IN clause
+            escaped_codes = [code.replace("'", "''") for code in machinecodes]
+            codes_str = "', '".join(escaped_codes)
+            query += f" AND \"MachineCode\" IN ('{codes_str}')"
 
         return query
 
@@ -43,7 +46,7 @@ class MachineOeeWidgetStrategy(WidgetStrategy):
         """Process machine OEE widget result"""
 
         firma = filters.get('firma', '') if filters else ''
-        machinecode = filters.get('machinecode', '') if filters else ''
+        machinecodes = filters.get('machinecodes', []) if filters else []
 
         if not result or len(result) == 0:
             return {
