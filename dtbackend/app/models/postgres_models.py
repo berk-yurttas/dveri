@@ -153,7 +153,7 @@ class ReportQuery(PostgreSQLBase):
 
 class ReportQueryFilter(PostgreSQLBase):
     __tablename__ = "report_query_filters"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     query_id = Column(Integer, ForeignKey("report_queries.id"), nullable=False)
     field_name = Column(String(255), nullable=False)
@@ -162,12 +162,13 @@ class ReportQueryFilter(PostgreSQLBase):
     dropdown_query = Column(Text)  # SQL query for dropdown/multiselect options
     required = Column(Boolean, default=False)
     sql_expression = Column(Text)  # Custom SQL expression to use instead of field_name (e.g., DATE(field_name), LOWER(field_name))
+    depends_on = Column(String(255))  # Field name of the filter this filter depends on (for cascading dropdowns)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
+
     # relationships
     query = relationship("ReportQuery", back_populates="filters")
-    
+
     # Property for Pydantic serialization
     @property
     def type(self):

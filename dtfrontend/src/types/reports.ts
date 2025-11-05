@@ -36,13 +36,19 @@ export interface SampleQueriesResponse {
   samples: SampleQuery[]
 }
 
-// Nested Query Configuration for Expandable Tables
+// Nested Query Configuration for Expandable Tables and Clickable Charts
 export interface NestedQueryConfig {
   id: string
   sql: string
   expandableFields: string[]
   filters?: FilterConfig[]  // Filters for this nested query
   nestedQueries?: NestedQueryConfig[]  // Recursive for multiple levels
+  // Visualization options for nested query (used in clickable charts)
+  visualizationType?: 'table' | 'bar' | 'line' | 'pie' | 'area'
+  xAxis?: string
+  yAxis?: string
+  labelField?: string
+  valueField?: string
 }
 
 // Visualization Configuration Types
@@ -76,8 +82,14 @@ export interface VisualizationConfig {
     // Histogram specific
     binCount?: number
 
-    // Expandable table specific
+    // Expandable table specific & Clickable chart specific
     nestedQueries?: NestedQueryConfig[]
+    // For expandable tables: multiple queries in the list for multi-level expansion
+    // For clickable charts: first query in the list is triggered on click
+
+    // Clickable chart specific (enables click-to-drill-down)
+    clickable?: boolean
+    // When clickable=true, the first query in nestedQueries is executed on click
 
     // Tooltip configuration
     tooltipFields?: string[]
@@ -94,6 +106,7 @@ export interface FilterConfig {
   dropdownQuery?: string
   required: boolean
   sqlExpression?: string  // Custom SQL expression to use instead of fieldName (e.g., "DATE(created_at)", "LOWER(email)")
+  dependsOn?: string | null  // Field name of the filter this filter depends on (for cascading dropdowns)
 }
 
 export interface QueryConfig {
@@ -192,6 +205,7 @@ export interface FilterDetail {
   dropdownQuery: string | null
   required: boolean
   sqlExpression?: string  // Custom SQL expression to use instead of fieldName
+  dependsOn?: string | null  // Field name of the filter this filter depends on (for cascading dropdowns)
   query_id: number
   created_at: string
   updated_at: string | null

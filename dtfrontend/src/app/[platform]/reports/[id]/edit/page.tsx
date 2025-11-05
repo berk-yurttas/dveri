@@ -726,14 +726,46 @@ const NestedQueryBuilder = ({
                         </div>
                         
                         {(filter.type === 'dropdown' || filter.type === 'multiselect') && (
-                          <div className="mt-2 space-y-1">
-                            <Label className="text-xs">Dropdown SQL</Label>
-                            <Textarea
-                              value={filter.dropdownQuery || ''}
-                              onChange={(e) => updateFilter(index, filterIndex, { dropdownQuery: e.target.value })}
-                              placeholder="SELECT value, label FROM options"
-                              className="min-h-[60px] font-mono text-xs"
-                            />
+                          <div className="mt-2 space-y-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Bağımlı Filtre (İsteğe Bağlı)</Label>
+                              <Select
+                                value={filter.dependsOn || ''}
+                                onValueChange={(value) => updateFilter(index, filterIndex, { dependsOn: value || undefined })}
+                                placeholder="Bağımlı filtre seçin"
+                              >
+                                <option value="">Bağımsız</option>
+                                {(nestedQuery.filters || [])
+                                  .filter((f, i) => i < filterIndex && (f.type === 'dropdown' || f.type === 'multiselect'))
+                                  .map((f) => (
+                                    <option key={f.id} value={f.fieldName}>
+                                      {f.displayName}
+                                    </option>
+                                  ))}
+                              </Select>
+                              {filter.dependsOn && (
+                                <p className="text-xs text-amber-600">
+                                  Bu filtrenin seçenekleri "{(nestedQuery.filters || []).find(f => f.fieldName === filter.dependsOn)?.displayName}" filtresine bağlıdır
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="space-y-1">
+                              <Label className="text-xs">Dropdown SQL</Label>
+                              <Textarea
+                                value={filter.dropdownQuery || ''}
+                                onChange={(e) => updateFilter(index, filterIndex, { dropdownQuery: e.target.value })}
+                                placeholder={filter.dependsOn
+                                  ? `SELECT value, label FROM options WHERE parent_field = {{${filter.dependsOn}}}`
+                                  : "SELECT value, label FROM options"}
+                                className="min-h-[60px] font-mono text-xs"
+                              />
+                              {filter.dependsOn && (
+                                <p className="text-xs text-purple-600">
+                                  Bağımlı değeri kullanmak için {'{{' + filter.dependsOn + '}}'} kullanın
+                                </p>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -878,9 +910,77 @@ export default function EditReportPage() {
   const [activeQueryForFilters, setActiveQueryForFilters] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [successModalOpen, setSuccessModalOpen] = useState(false)
+  const [dropdownOptions, setDropdownOptions] = useState<Record<string, Array<{value: any, label: string}>>>({})
+  const [loadingDropdownOptions, setLoadingDropdownOptions] = useState<Record<string, boolean>>({})
 
   // Helper function to generate unique IDs
   const generateId = () => Math.random().toString(36).substr(2, 9)
+
+  // Load dropdown options for a filter
+  const loadDropdownOptions = async (filter: FilterConfig, currentFilterValues: Record<string, any> = {}) => {
+    if (!filter.dropdownQuery) return
+
+    const filterKey = filter.fieldName
+    setLoadingDropdownOptions(prev => ({ ...prev, [filterKey]: true }))
+
+    try {
+      // Replace dependent filter placeholders in the dropdown query
+      let modifiedSql = filter.dropdownQuery
+
+      if (filter.dependsOn) {
+        const dependentValue = currentFilterValues[filter.dependsOn]
+        if (dependentValue) {
+          // Replace {{field_name}} with the actual value
+          const placeholder = `{{${filter.dependsOn}}}`
+          const replacement = Array.isArray(dependentValue)
+            ? `(${dependentValue.map(v => `'${v}'`).join(',')})`
+            : `'${dependentValue}'`
+          modifiedSql = modifiedSql.replace(new RegExp(placeholder, 'g'), replacement)
+        } else {
+          // If dependent value is not set, clear options
+          setDropdownOptions(prev => ({ ...prev, [filterKey]: [] }))
+          setLoadingDropdownOptions(prev => ({ ...prev, [filterKey]: false }))
+          return
+        }
+      }
+
+      const result = await reportsService.previewQuery({
+        sql_query: modifiedSql,
+        limit: 1000
+      })
+
+      if (result.success && result.data.length > 0) {
+        // Expecting two columns: value and label
+        const options = result.data.map(row => ({
+          value: row[0],
+          label: row[1] || String(row[0])
+        }))
+        setDropdownOptions(prev => ({ ...prev, [filterKey]: options }))
+      } else {
+        setDropdownOptions(prev => ({ ...prev, [filterKey]: [] }))
+      }
+    } catch (error) {
+      console.error('Error loading dropdown options:', error)
+      setDropdownOptions(prev => ({ ...prev, [filterKey]: [] }))
+    } finally {
+      setLoadingDropdownOptions(prev => ({ ...prev, [filterKey]: false }))
+    }
+  }
+
+  // Load dropdown options when filter dialog opens
+  useEffect(() => {
+    if (filterDialogOpen && activeQueryForFilters) {
+      const query = report.queries.find(q => q.id === activeQueryForFilters)
+      if (query) {
+        // Load options for all dropdown/multiselect filters
+        query.filters.forEach(filter => {
+          if ((filter.type === 'dropdown' || filter.type === 'multiselect') && filter.dropdownQuery) {
+            loadDropdownOptions(filter, filterValues)
+          }
+        })
+      }
+    }
+  }, [filterDialogOpen, activeQueryForFilters])
 
   // Load existing report data
   useEffect(() => {
@@ -907,7 +1007,8 @@ export default function EditReportPage() {
               type: filter.type,
               dropdownQuery: filter.dropdownQuery || undefined,
               required: filter.required,
-              sqlExpression: filter.sqlExpression || undefined
+              sqlExpression: filter.sqlExpression || undefined,
+              dependsOn: filter.dependsOn || undefined
             }))
           }))
         }
@@ -1056,7 +1157,9 @@ export default function EditReportPage() {
           showPercentage: true,
           innerRadius: 0,
           smooth: false,
-          showDots: true
+          showDots: true,
+          nestedQueries: [],
+          clickable: false
         }
       },
       filters: []
@@ -1345,51 +1448,46 @@ export default function EditReportPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30">
-      <div className="container mx-auto p-6 max-w-6xl">
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => {
-                  if (subplatform) {
-                    router.push(`/${platformCode}/reports/${reportId}?subplatform=${subplatform}`);
-                  } else {
-                    router.push(`/${platformCode}/reports/${reportId}`);
-                  }
-                }}
-                className="p-2 rounded-md hover:bg-gray-100 flex items-center justify-center transition-colors"
-                title="Rapor detayına geri dön"
-              >
-                <ArrowLeft className="h-5 w-5 text-gray-600" />
-              </button>
-              <div className="text-center">
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-3">
-                  Rapor Düzenle
-                </h1>
-                <p className="text-slate-600 text-lg">
-                  "{originalReport?.name}" raporunu düzenleyin
-                </p>
-              </div>
+      <div className="container mx-auto p-6 max-w-8xl">
+        <div className="mb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <button
+              onClick={() => {
+                if (subplatform) {
+                  router.push(`/${platformCode}/reports/${reportId}?subplatform=${subplatform}`);
+                } else {
+                  router.push(`/${platformCode}/reports/${reportId}`);
+                }
+              }}
+              className="p-1.5 rounded-md hover:bg-gray-100 flex items-center justify-center transition-colors"
+              title="Rapor detayına geri dön"
+            >
+              <ArrowLeft className="h-4 w-4 text-gray-600" />
+            </button>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800">
+                Rapor Düzenle
+              </h1>
+              <p className="text-slate-600 text-sm">
+                "{originalReport?.name}" raporunu düzenleyin
+              </p>
             </div>
           </div>
         </div>
 
-        <div className="grid gap-8">
+        <div className="grid gap-6">
           {/* Report Basic Info */}
-          <Card className="bg-white/80 backdrop-blur-sm shadow-lg border border-slate-200/50 hover:shadow-xl transition-all duration-300 py-0">
-            <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 border-b border-slate-200/50 py-6 px-4 pb-0">
-              <CardTitle className="flex items-center gap-3 text-slate-800 py-0">
-                <div className="p-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500">
-                  <Database className="w-5 h-5 text-white" />
-                </div>
+          <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300">
+            <CardHeader className="pb-3 border-b border-slate-300/50">
+              <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
+                <Database className="w-4 h-4 text-blue-600" />
                 Rapor Bilgileri
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6 p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <Label htmlFor="reportName" className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-red-400"></span>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="reportName" className="text-sm">
                     Rapor Adı *
                   </Label>
                   <Input
@@ -1397,39 +1495,38 @@ export default function EditReportPage() {
                     value={report.name}
                     onChange={(e) => setReport(prev => ({ ...prev, name: e.target.value }))}
                     placeholder="Örn: Aylık Satış Raporu"
+                    className="h-9"
                   />
                 </div>
-              </div>
-              <div className="space-y-3">
-                <Label htmlFor="reportDescription">Açıklama</Label>
-                <Textarea
-                  id="reportDescription"
-                  value={report.description}
-                  onChange={(e) => setReport(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="Bu raporun ne hakkında olduğunu açıklayın..."
-                  className="min-h-[100px]"
-                />
+                <div className="space-y-2">
+                  <Label htmlFor="reportDescription" className="text-sm">Açıklama</Label>
+                  <Input
+                    id="reportDescription"
+                    value={report.description}
+                    onChange={(e) => setReport(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="Bu raporun ne hakkında olduğunu açıklayın..."
+                    className="h-9"
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
 
           {/* Queries Section */}
-          <Card className="bg-white/80 backdrop-blur-sm shadow-lg border border-slate-200/50 hover:shadow-xl transition-all duration-300 py-0">
-            <CardHeader className="bg-gradient-to-r from-indigo-50 to-blue-50 border-b border-slate-200/50 py-6 px-4 pb-0">
+          <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300">
+            <CardHeader className="pb-3 pt-3 px-4 border-b border-slate-300/50">
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-3 text-slate-800">
-                  <div className="p-2 rounded-lg">
-                    <BarChart3 className="w-5 h-5 text-white" />
-                  </div>
+                <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
+                  <BarChart3 className="w-4 h-4 text-blue-600" />
                   Sorgu ve Görselleştirme ({report.queries.length})
                 </CardTitle>
-                <Button onClick={addNewQuery} size="sm" className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white shadow-md">
-                  <Plus className="w-4 h-4 mr-2" />
+                <Button onClick={addNewQuery} size="sm" className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white">
+                  <Plus className="w-3 h-3 mr-1" />
                   Yeni Sorgu
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="p-6">
+            <CardContent className="p-4">
               {report.queries.length === 0 ? (
                 <div className="text-center py-12">
                   <div className="mx-auto w-24 h-24 bg-gradient-to-r from-blue-100 to-purple-100 rounded-full flex items-center justify-center mb-6">
@@ -1447,35 +1544,37 @@ export default function EditReportPage() {
             ) : (
               <Tabs value={activeQueryIndex.toString()} onValueChange={(value) => setActiveQueryIndex(parseInt(value))}>
                 {/* Query Tabs */}
-                <TabsList className="grid w-full" style={{ gridTemplateColumns: `repeat(${report.queries.length}, minmax(0, 1fr))` }}>
+                <TabsList className="grid w-full bg-slate-100 p-1 rounded-lg" style={{ gridTemplateColumns: `repeat(${report.queries.length}, minmax(0, 1fr))` }}>
                   {report.queries.map((query, index) => (
-                    <TabsTrigger key={query.id} value={index.toString()} className="relative">
-                      {query.name}
+                    <div key={query.id} className="relative">
+                      <TabsTrigger value={index.toString()} className="w-full data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-blue-700 data-[state=active]:font-semibold data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900 transition-all">
+                        {query.name}
+                      </TabsTrigger>
                       {report.queries.length > 1 && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0 text-red-500 hover:bg-red-100"
+                        <button
+                          type="button"
+                          className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0 text-red-500 hover:bg-red-100 bg-white border border-red-200 shadow-sm z-10 flex items-center justify-center transition-colors"
                           onClick={(e) => {
                             e.stopPropagation()
                             removeQuery(index)
                           }}
                         >
                           <Trash2 className="w-3 h-3" />
-                        </Button>
+                        </button>
                       )}
-                    </TabsTrigger>
+                    </div>
                   ))}
                 </TabsList>
 
                 {/* Query Content */}
                 {report.queries.map((query, queryIndex) => (
                   <TabsContent key={query.id} value={queryIndex.toString()} className="space-y-6">
-                    {/* Query Configuration */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                      <div className="space-y-6">
+                    {/* Three Column Layout: Query | Visualization | Filters */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      {/* COLUMN 1: Query Name & SQL */}
+                      <div className="space-y-4">
                         <div className="space-y-3">
-                          <Label className="flex items-center gap-2">
+                          <Label className="flex items-center gap-2 text-sm">
                             <span className="w-2 h-2 rounded-full bg-blue-400"></span>
                             Sorgu Adı
                           </Label>
@@ -1483,11 +1582,12 @@ export default function EditReportPage() {
                             value={query.name}
                             onChange={(e) => updateQuery(queryIndex, { name: e.target.value })}
                             placeholder="Sorgu adını girin"
+                            className="h-9"
                           />
                         </div>
 
                         <div className="space-y-3">
-                          <Label className="flex items-center gap-2">
+                          <Label className="flex items-center gap-2 text-sm">
                             <span className="w-2 h-2 rounded-full bg-red-400"></span>
                             SQL Sorgusu *
                           </Label>
@@ -1495,16 +1595,37 @@ export default function EditReportPage() {
                             value={query.sql}
                             onChange={(e) => updateQuery(queryIndex, { sql: e.target.value })}
                             placeholder="SELECT column1, column2 FROM table_name WHERE condition"
-                            className="min-h-[200px] font-mono text-sm bg-slate-50/50"
+                            className="min-h-[400px] font-mono text-xs bg-slate-50/50"
                           />
-                          <div className="flex items-center gap-2 text-xs text-slate-500 bg-blue-50/50 px-3 py-2 rounded-lg">
+                          <div className="flex items-center gap-2 text-xs text-slate-500 bg-blue-50/50 px-2 py-1.5 rounded">
                             <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
-                            Filtre alanları SELECT kısmındaki alanlardan otomatik olarak alınacak
+                            Filtre alanları SELECT kısmından alınır
+                          </div>
+                        </div>
+
+                        {/* Available Fields */}
+                        <div className="space-y-2">
+                          <Label className="text-sm">Kullanılabilir Alanlar</Label>
+                          <div className="border border-slate-200 rounded-lg p-3 min-h-[80px] bg-slate-50/50">
+                            {availableFields.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {availableFields.map((field, index) => (
+                                  <Badge key={index} variant="secondary" className="text-xs">
+                                    {field}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center h-full">
+                                <p className="text-xs text-slate-500">SQL sorgusu girin</p>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
 
-                      <div className="space-y-6">
+                      {/* COLUMN 2: Visualization Configuration */}
+                      <div className="space-y-4">
                         <div className="space-y-4">
                           <div className="space-y-3">
                             <Label className="flex items-center gap-2">
@@ -1540,32 +1661,312 @@ export default function EditReportPage() {
                               <h4 className="font-semibold text-slate-700 text-sm">Grafik Yapılandırması</h4>
 
                               {(query.visualization.type === 'bar' || query.visualization.type === 'line' || query.visualization.type === 'area') && (
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="space-y-2">
-                                    <Label className="text-sm">X Ekseni</Label>
-                                    <Select
-                                      value={query.visualization.xAxis || ''}
-                                      onValueChange={(value) => updateVisualization(queryIndex, { xAxis: value })}
-                                      placeholder="X ekseni seçin"
-                                    >
-                                      {availableFields.map((field) => (
-                                        <option key={field} value={field}>{field}</option>
-                                      ))}
-                                    </Select>
+                                <>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-2">
+                                      <Label className="text-sm">X Ekseni</Label>
+                                      <Select
+                                        value={query.visualization.xAxis || ''}
+                                        onValueChange={(value) => updateVisualization(queryIndex, { xAxis: value })}
+                                        placeholder="X ekseni seçin"
+                                      >
+                                        {availableFields.map((field) => (
+                                          <option key={field} value={field}>{field}</option>
+                                        ))}
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label className="text-sm">Y Ekseni</Label>
+                                      <Select
+                                        value={query.visualization.yAxis || ''}
+                                        onValueChange={(value) => updateVisualization(queryIndex, { yAxis: value })}
+                                        placeholder="Y ekseni seçin"
+                                      >
+                                        {availableFields.map((field) => (
+                                          <option key={field} value={field}>{field}</option>
+                                        ))}
+                                      </Select>
+                                    </div>
                                   </div>
-                                  <div className="space-y-2">
-                                    <Label className="text-sm">Y Ekseni</Label>
-                                    <Select
-                                      value={query.visualization.yAxis || ''}
-                                      onValueChange={(value) => updateVisualization(queryIndex, { yAxis: value })}
-                                      placeholder="Y ekseni seçin"
-                                    >
-                                      {availableFields.map((field) => (
-                                        <option key={field} value={field}>{field}</option>
-                                      ))}
-                                    </Select>
-                                  </div>
-                                </div>
+
+                                  {/* Clickable Bar Configuration */}
+                                  {query.visualization.type === 'bar' && (
+                                    <div className="mt-3 space-y-3 p-3 bg-purple-50/50 rounded-lg border border-purple-200">
+                                      <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                          id={`clickable-${query.id}`}
+                                          checked={query.visualization.chartOptions?.clickable ?? false}
+                                          onCheckedChange={(checked) => {
+                                            if (!checked) {
+                                              // Clear nested queries when disabling
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  clickable: false,
+                                                  nestedQueries: []
+                                                }
+                                              })
+                                            } else {
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  clickable: true
+                                                }
+                                              })
+                                            }
+                                          }}
+                                        />
+                                        <Label htmlFor={`clickable-${query.id}`} className="text-sm font-semibold text-purple-900">
+                                          Tıklanabilir Barlar (Detay Sorgusu)
+                                        </Label>
+                                      </div>
+
+                                      {query.visualization.chartOptions?.clickable && (
+                                        <div className="space-y-3">
+                                          {!query.visualization.chartOptions?.nestedQueries || query.visualization.chartOptions.nestedQueries.length === 0 ? (
+                                            <div className="text-center py-4 border-2 border-dashed border-purple-300 rounded-lg">
+                                              <Button
+                                                onClick={() => {
+                                                  const newNestedQuery: NestedQueryConfig = {
+                                                    id: generateId(),
+                                                    sql: '',
+                                                    expandableFields: []
+                                                  }
+                                                  updateVisualization(queryIndex, {
+                                                    chartOptions: {
+                                                      ...query.visualization.chartOptions,
+                                                      nestedQueries: [newNestedQuery]
+                                                    }
+                                                  })
+                                                }}
+                                                size="sm"
+                                                className="bg-purple-500 hover:bg-purple-600 text-white"
+                                              >
+                                                <Plus className="w-3 h-3 mr-1" />
+                                                Detay Sorgusu Ekle
+                                              </Button>
+                                            </div>
+                                          ) : (
+                                            <div className="space-y-2 p-3 bg-white rounded border border-purple-300">
+                                              <div className="flex items-center justify-between">
+                                                <Label className="text-xs font-semibold text-purple-900">Detay Sorgusu</Label>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  onClick={() => {
+                                                    updateVisualization(queryIndex, {
+                                                      chartOptions: {
+                                                        ...query.visualization.chartOptions,
+                                                        nestedQueries: []
+                                                      }
+                                                    })
+                                                  }}
+                                                  className="h-5 text-red-500 hover:bg-red-50"
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
+                                                </Button>
+                                              </div>
+
+                                              <div className="space-y-2">
+                                                <Label className="text-xs">SQL Sorgusu</Label>
+                                                <Textarea
+                                                  value={query.visualization.chartOptions.nestedQueries[0]?.sql || ''}
+                                                  onChange={(e) => {
+                                                    const currentQueries = query.visualization.chartOptions?.nestedQueries || []
+                                                    if (currentQueries.length > 0) {
+                                                      const updated = [...currentQueries]
+                                                      updated[0] = { ...updated[0], sql: e.target.value }
+                                                      updateVisualization(queryIndex, {
+                                                        chartOptions: {
+                                                          ...query.visualization.chartOptions,
+                                                          nestedQueries: updated
+                                                        }
+                                                      })
+                                                    }
+                                                  }}
+                                                  placeholder="SELECT * FROM details WHERE id = {{field_name}}"
+                                                  className="min-h-[80px] font-mono text-xs bg-white"
+                                                />
+                                                <p className="text-xs text-purple-700">
+                                                  Tıklanan bardan alan enjekte etmek için {'{{field_name}}'} kullanın
+                                                </p>
+                                              </div>
+
+                                              <div className="space-y-2">
+                                                <Label className="text-xs">Enjekte Edilecek Alanlar</Label>
+                                                <div className="space-y-1 max-h-24 overflow-y-auto bg-slate-50 p-2 rounded border border-gray-200">
+                                                  {availableFields.length > 0 ? (
+                                                    availableFields.map((field) => (
+                                                      <div key={field} className="flex items-center space-x-2">
+                                                        <Checkbox
+                                                          id={`clickable-field-${query.id}-${field}`}
+                                                          checked={query.visualization.chartOptions?.nestedQueries?.[0]?.expandableFields?.includes(field) ?? false}
+                                                          onCheckedChange={(checked) => {
+                                                            const currentQueries = query.visualization.chartOptions?.nestedQueries || []
+                                                            if (currentQueries.length > 0) {
+                                                              const currentFields = currentQueries[0].expandableFields || []
+                                                              const newFields = checked
+                                                                ? [...currentFields, field]
+                                                                : currentFields.filter(f => f !== field)
+                                                              const updated = [...currentQueries]
+                                                              updated[0] = { ...updated[0], expandableFields: newFields }
+                                                              updateVisualization(queryIndex, {
+                                                                chartOptions: {
+                                                                  ...query.visualization.chartOptions,
+                                                                  nestedQueries: updated
+                                                                }
+                                                              })
+                                                            }
+                                                          }}
+                                                        />
+                                                        <Label htmlFor={`clickable-field-${query.id}-${field}`} className="text-xs">
+                                                          {field}
+                                                        </Label>
+                                                        <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-700">
+                                                          {'{{' + field + '}}'}
+                                                        </Badge>
+                                                      </div>
+                                                    ))
+                                                  ) : (
+                                                    <p className="text-xs text-gray-500 text-center py-1">Alan bulunamadı</p>
+                                                  )}
+                                                </div>
+                                              </div>
+
+                                              {/* Visualization Type for Nested Query */}
+                                              <div className="space-y-2">
+                                                <Label className="text-xs">Gösterim Tipi</Label>
+                                                <Select
+                                                  value={query.visualization.chartOptions?.nestedQueries?.[0]?.visualizationType || 'table'}
+                                                  onValueChange={(value) => {
+                                                    const currentQueries = query.visualization.chartOptions?.nestedQueries || []
+                                                    if (currentQueries.length > 0) {
+                                                      const updated = [...currentQueries]
+                                                      updated[0] = { ...updated[0], visualizationType: value as 'table' | 'bar' | 'line' | 'pie' | 'area' }
+                                                      updateVisualization(queryIndex, {
+                                                        chartOptions: {
+                                                          ...query.visualization.chartOptions,
+                                                          nestedQueries: updated
+                                                        }
+                                                      })
+                                                    }
+                                                  }}
+                                                  className="text-xs"
+                                                  placeholder="Gösterim tipi seçin"
+                                                >
+                                                  <option value="table">Tablo</option>
+                                                  <option value="bar">Bar Grafik</option>
+                                                  <option value="line">Çizgi Grafik</option>
+                                                  <option value="area">Alan Grafik</option>
+                                                  <option value="pie">Pasta Grafik</option>
+                                                </Select>
+                                              </div>
+
+                                              {/* Chart Axes Configuration (only show for chart types) */}
+                                              {query.visualization.chartOptions?.nestedQueries?.[0]?.visualizationType && 
+                                               query.visualization.chartOptions.nestedQueries[0].visualizationType !== 'table' && (
+                                                <div className="grid grid-cols-2 gap-2">
+                                                  {/* X Axis */}
+                                                  <div className="space-y-2">
+                                                    <Label className="text-xs">X Ekseni</Label>
+                                                    <Input
+                                                      value={query.visualization.chartOptions?.nestedQueries?.[0]?.xAxis || ''}
+                                                      onChange={(e) => {
+                                                        const currentQueries = query.visualization.chartOptions?.nestedQueries || []
+                                                        if (currentQueries.length > 0) {
+                                                          const updated = [...currentQueries]
+                                                          updated[0] = { ...updated[0], xAxis: e.target.value }
+                                                          updateVisualization(queryIndex, {
+                                                            chartOptions: {
+                                                              ...query.visualization.chartOptions,
+                                                              nestedQueries: updated
+                                                            }
+                                                          })
+                                                        }
+                                                      }}
+                                                      placeholder="Alan adı"
+                                                      className="text-xs h-8"
+                                                    />
+                                                  </div>
+
+                                                  {/* Y Axis or Value Field */}
+                                                  {query.visualization.chartOptions.nestedQueries[0].visualizationType !== 'pie' ? (
+                                                    <div className="space-y-2">
+                                                      <Label className="text-xs">Y Ekseni</Label>
+                                                      <Input
+                                                        value={query.visualization.chartOptions?.nestedQueries?.[0]?.yAxis || ''}
+                                                        onChange={(e) => {
+                                                          const currentQueries = query.visualization.chartOptions?.nestedQueries || []
+                                                          if (currentQueries.length > 0) {
+                                                            const updated = [...currentQueries]
+                                                            updated[0] = { ...updated[0], yAxis: e.target.value }
+                                                            updateVisualization(queryIndex, {
+                                                              chartOptions: {
+                                                                ...query.visualization.chartOptions,
+                                                                nestedQueries: updated
+                                                              }
+                                                            })
+                                                          }
+                                                        }}
+                                                        placeholder="Alan adı"
+                                                        className="text-xs h-8"
+                                                      />
+                                                    </div>
+                                                  ) : (
+                                                    <>
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Etiket Alanı</Label>
+                                                        <Input
+                                                          value={query.visualization.chartOptions?.nestedQueries?.[0]?.labelField || ''}
+                                                          onChange={(e) => {
+                                                            const currentQueries = query.visualization.chartOptions?.nestedQueries || []
+                                                            if (currentQueries.length > 0) {
+                                                              const updated = [...currentQueries]
+                                                              updated[0] = { ...updated[0], labelField: e.target.value }
+                                                              updateVisualization(queryIndex, {
+                                                                chartOptions: {
+                                                                  ...query.visualization.chartOptions,
+                                                                  nestedQueries: updated
+                                                                }
+                                                              })
+                                                            }
+                                                          }}
+                                                          placeholder="Alan adı"
+                                                          className="text-xs h-8"
+                                                        />
+                                                      </div>
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Değer Alanı</Label>
+                                                        <Input
+                                                          value={query.visualization.chartOptions?.nestedQueries?.[0]?.valueField || ''}
+                                                          onChange={(e) => {
+                                                            const currentQueries = query.visualization.chartOptions?.nestedQueries || []
+                                                            if (currentQueries.length > 0) {
+                                                              const updated = [...currentQueries]
+                                                              updated[0] = { ...updated[0], valueField: e.target.value }
+                                                              updateVisualization(queryIndex, {
+                                                                chartOptions: {
+                                                                  ...query.visualization.chartOptions,
+                                                                  nestedQueries: updated
+                                                                }
+                                                              })
+                                                            }
+                                                          }}
+                                                          placeholder="Alan adı"
+                                                          className="text-xs h-8"
+                                                        />
+                                                      </div>
+                                                    </>
+                                                  )}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </>
                               )}
 
                               {query.visualization.type === 'pie' && (
@@ -1781,193 +2182,180 @@ export default function EditReportPage() {
                             </div>
                           )}
                         </div>
-
-                        <div className="space-y-3">
-                          <Label className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-purple-400"></span>
-                            Kullanılabilir Alanlar
-                          </Label>
-                          <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 min-h-[120px] bg-gradient-to-br from-slate-50 to-blue-50/30">
-                            {availableFields.length > 0 ? (
-                              <div className="flex flex-wrap gap-2">
-                                {availableFields.map((field, index) => (
-                                  <Badge key={index} variant="secondary">
-                                    {field}
-                                  </Badge>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-center h-full">
-                                <div className="text-center">
-                                  <div className="w-8 h-8 mx-auto mb-2 bg-slate-200 rounded-full flex items-center justify-center">
-                                    <Database className="w-4 h-4 text-slate-400" />
-                                  </div>
-                                  <p className="text-sm text-slate-500">
-                                    SQL sorgusu girdikten sonra alanlar burada görünecek
-                                  </p>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
                       </div>
-                    </div>
 
-                    <Separator />
-
-                    {/* Filters Section */}
-                    <div className="space-y-6">
-                      <div className="flex items-center justify-between bg-gradient-to-r from-orange-50 to-pink-50 p-4 rounded-xl border border-orange-200/50">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-lg bg-gradient-to-r from-orange-500 to-pink-500">
-                            <Filter className="w-5 h-5 text-white" />
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-semibold text-slate-800">Filtreler</h3>
-                            <p className="text-sm text-slate-600">{query.filters.length} adet filtre tanımlı</p>
-                          </div>
+                      {/* COLUMN 3: Filters Section */}
+                      <div className="space-y-2">
+                        {/* Filters Section */}
+                        <div className="space-y-2">
+                      <div className="flex items-center justify-between bg-orange-50 px-2 py-1.5 rounded border border-orange-200/50">
+                        <div className="flex items-center gap-1.5">
+                          <Filter className="w-3 h-3 text-orange-600" />
+                          <h3 className="text-xs font-semibold text-slate-800">Filtreler</h3>
+                          {query.filters.length > 0 && (
+                            <Badge variant="secondary" className="bg-orange-100 text-orange-700 text-[10px] px-1.5 py-0">
+                              {query.filters.length}
+                            </Badge>
+                          )}
                         </div>
                         <Button
                           onClick={() => addFilter(queryIndex)}
                           size="sm"
                           disabled={availableFields.length === 0}
-                          className="bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 text-white shadow-md disabled:from-slate-300 disabled:to-slate-400"
+                          className="h-6 text-[10px] px-2 bg-orange-500 hover:bg-orange-600 text-white disabled:bg-slate-300"
                         >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Filtre Ekle
+                          <Plus className="w-2.5 h-2.5 mr-0.5" />
+                          Ekle
                         </Button>
                       </div>
 
                       {query.filters.length === 0 ? (
-                        <div className="text-center py-10 border-2 border-dashed border-slate-200 rounded-xl bg-gradient-to-br from-slate-50 to-orange-50/30">
-                          <div className="mx-auto w-16 h-16 bg-gradient-to-r from-orange-100 to-pink-100 rounded-full flex items-center justify-center mb-4">
-                            <Filter className="w-8 h-8 text-orange-500" />
-                          </div>
-                          <h4 className="font-semibold text-slate-700 mb-2">Henüz Filtre Yok</h4>
-                          <p className="text-slate-500 text-sm max-w-sm mx-auto">
-                            Bu sorgu için filtreleme seçenekleri ekleyin. Önce SQL sorgusu girmeniz gerekiyor.
-                          </p>
+                        <div className="text-center py-4 border border-dashed border-slate-200 rounded bg-slate-50/50">
+                          <Filter className="w-4 h-4 text-slate-400 mx-auto mb-1" />
+                          <p className="text-[10px] text-slate-500">SQL sorgusu girin</p>
                         </div>
                       ) : (
-                        <div className="space-y-6">
-                          {query.filters.map((filter, filterIndex) => (
-                            <Card key={filter.id} className="p-6 bg-white/70 backdrop-blur-sm border border-slate-200/50 shadow-sm hover:shadow-md transition-all duration-200">
-                              <div className="flex items-start justify-between mb-6">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 bg-gradient-to-r from-violet-400 to-purple-400 rounded-lg flex items-center justify-center">
-                                    <span className="text-white font-bold text-sm">{filterIndex + 1}</span>
-                                  </div>
-                                  <div>
-                                    <h4 className="font-semibold text-slate-800">Filtre {filterIndex + 1}</h4>
-                                    <p className="text-sm text-slate-500">{filter.displayName}</p>
-                                  </div>
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => removeFilter(queryIndex, filterIndex)}
-                                  className="text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </div>
-
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                <div className="space-y-2">
-                                  <Label>Alan Adı</Label>
-                                  <Select
-                                    value={filter.fieldName}
-                                    onValueChange={(value) => updateFilter(queryIndex, filterIndex, {
-                                      fieldName: value,
-                                      displayName: filter.displayName === filter.fieldName ? value : filter.displayName
-                                    })}
-                                    placeholder="Alan seçin"
-                                  >
-                                    {availableFields.map((field) => (
-                                      <option key={field} value={field}>{field}</option>
-                                    ))}
-                                  </Select>
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label>Görünen Ad</Label>
-                                  <Input
-                                    value={filter.displayName}
-                                    onChange={(e) => updateFilter(queryIndex, filterIndex, { displayName: e.target.value })}
-                                    placeholder="Kullanıcıya gösterilecek ad"
-                                  />
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label>Filtre Tipi</Label>
-                                  <Select
-                                    value={filter.type}
-                                    onValueChange={(value: any) => updateFilter(queryIndex, filterIndex, { type: value })}
-                                  >
-                                    {FILTER_TYPES.map((type) => (
-                                      <option key={type.value} value={type.value}>
-                                        {type.label}
-                                      </option>
-                                    ))}
-                                  </Select>
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label>Seçenekler</Label>
-                                  <div className="flex items-center space-x-2">
-                                    <Checkbox
-                                      id={`required-${filter.id}`}
-                                      checked={filter.required}
-                                      onCheckedChange={(checked) =>
-                                        updateFilter(queryIndex, filterIndex, { required: !!checked })
-                                      }
-                                    />
-                                    <Label htmlFor={`required-${filter.id}`} className="text-sm">
-                                      Zorunlu
-                                    </Label>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="mt-4 space-y-2">
-                                <Label className="flex items-center gap-2">
-                                  SQL İfadesi (İsteğe Bağlı)
-                                  <span className="text-xs text-slate-500 font-normal">
-                                    Alan adı yerine özel SQL ifadesi kullanın
-                                  </span>
-                                </Label>
-                                <Input
-                                  value={filter.sqlExpression || ''}
-                                  onChange={(e) => updateFilter(queryIndex, filterIndex, { sqlExpression: e.target.value })}
-                                  placeholder={`Örn: DATE(${filter.fieldName}), LOWER(${filter.fieldName}), ${filter.fieldName}::INTEGER`}
-                                  className="font-mono text-sm"
-                                />
-                                <p className="text-xs text-slate-500">
-                                  Boş bırakırsanız alan adı kullanılır. Örnek: DATE(created_at), LOWER(email), price::DECIMAL
-                                </p>
-                              </div>
-
-                              {(filter.type === 'dropdown' || filter.type === 'multiselect') && (
-                                <div className="mt-4 space-y-2">
-                                  <Label>Dropdown SQL Sorgusu</Label>
-                                  <Textarea
-                                    value={filter.dropdownQuery || ''}
-                                    onChange={(e) => updateFilter(queryIndex, filterIndex, { dropdownQuery: e.target.value })}
-                                    placeholder="SELECT value, label FROM options_table"
-                                    className="min-h-[80px] font-mono text-sm"
-                                  />
-                                  <p className="text-xs text-gray-500">
-                                    İlk sütun değer, ikinci sütun gösterilecek metin olmalı
-                                  </p>
-                                </div>
-                              )}
-                            </Card>
-                          ))}
+                        <div className="border border-slate-200 rounded overflow-hidden bg-white">
+                          <table className="w-full text-xs">
+                            <thead className="bg-slate-50 border-b border-slate-200">
+                              <tr>
+                                <th className="px-1.5 py-1 text-left text-[10px] font-semibold text-slate-700 w-6">#</th>
+                                <th className="px-1.5 py-1 text-left text-[10px] font-semibold text-slate-700">Alan</th>
+                                <th className="px-1.5 py-1 text-left text-[10px] font-semibold text-slate-700">Görünen</th>
+                                <th className="px-1.5 py-1 text-left text-[10px] font-semibold text-slate-700">Tip</th>
+                                <th className="px-1.5 py-1 text-center text-[10px] font-semibold text-slate-700 w-12">Zorunlu</th>
+                                <th className="px-1.5 py-1 text-center text-[10px] font-semibold text-slate-700 w-10">Sil</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {query.filters.map((filter, filterIndex) => (
+                                <React.Fragment key={filter.id}>
+                                  <tr className="hover:bg-slate-50/50 transition-colors">
+                                    <td className="px-1.5 py-1">
+                                      <div className="w-4 h-4 bg-gradient-to-r from-violet-400 to-purple-400 rounded flex items-center justify-center">
+                                        <span className="text-white font-semibold text-[9px]">{filterIndex + 1}</span>
+                                      </div>
+                                    </td>
+                                    <td className="px-1.5 py-1">
+                                      <Select
+                                        value={filter.fieldName}
+                                        onValueChange={(value) => updateFilter(queryIndex, filterIndex, {
+                                          fieldName: value,
+                                          displayName: filter.displayName === filter.fieldName ? value : filter.displayName
+                                        })}
+                                        className="h-6 text-[10px]"
+                                      >
+                                        {availableFields.map((field) => (
+                                          <option key={field} value={field}>{field}</option>
+                                        ))}
+                                      </Select>
+                                    </td>
+                                    <td className="px-1.5 py-1">
+                                      <Input
+                                        value={filter.displayName}
+                                        onChange={(e) => updateFilter(queryIndex, filterIndex, { displayName: e.target.value })}
+                                        placeholder="Ad"
+                                        className="h-6 text-[10px]"
+                                      />
+                                    </td>
+                                    <td className="px-1.5 py-1">
+                                      <Select
+                                        value={filter.type}
+                                        onValueChange={(value: any) => updateFilter(queryIndex, filterIndex, { type: value })}
+                                        className="h-6 text-[10px]"
+                                      >
+                                        {FILTER_TYPES.map((type) => (
+                                          <option key={type.value} value={type.value}>{type.label}</option>
+                                        ))}
+                                      </Select>
+                                    </td>
+                                    <td className="px-1.5 py-1 text-center">
+                                      <Checkbox
+                                        id={`required-${filter.id}`}
+                                        checked={filter.required}
+                                        onCheckedChange={(checked) => updateFilter(queryIndex, filterIndex, { required: !!checked })}
+                                        className="mx-auto w-3 h-3"
+                                      />
+                                    </td>
+                                    <td className="px-1.5 py-1 text-center">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => removeFilter(queryIndex, filterIndex)}
+                                        className="h-5 w-5 p-0 text-red-500 hover:bg-red-50 hover:text-red-600"
+                                      >
+                                        <Trash2 className="w-2.5 h-2.5" />
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                  {/* Advanced Options Row */}
+                                  <tr className="bg-slate-50/30">
+                                    <td className="px-1.5 py-1.5" colSpan={6}>
+                                      <div className="space-y-1.5 text-xs">
+                                        {/* SQL Expression */}
+                                        <div className="space-y-0.5">
+                                          <Label className="text-[10px] text-slate-600">SQL İfadesi</Label>
+                                          <Input
+                                            value={filter.sqlExpression || ''}
+                                            onChange={(e) => updateFilter(queryIndex, filterIndex, { sqlExpression: e.target.value })}
+                                            placeholder={`DATE(${filter.fieldName})`}
+                                            className="h-6 text-[10px] font-mono"
+                                          />
+                                        </div>
+                                        
+                                        {/* Dropdown Query */}
+                                        {(filter.type === 'dropdown' || filter.type === 'multiselect') && (
+                                          <>
+                                            <div className="space-y-0.5">
+                                              <Label className="text-[10px] text-slate-600">Dropdown SQL</Label>
+                                              <Textarea
+                                                value={filter.dropdownQuery || ''}
+                                                onChange={(e) => updateFilter(queryIndex, filterIndex, { dropdownQuery: e.target.value })}
+                                                placeholder="SELECT value, label FROM table WHERE parent = {{parent_filter}}"
+                                                className="min-h-[50px] text-[10px] font-mono"
+                                              />
+                                              <p className="text-[9px] text-slate-500 mt-0.5">
+                                                Bağımlı filtre değeri için {'{{field_name}}'} kullanın
+                                              </p>
+                                            </div>
+                                            <div className="space-y-0.5">
+                                              <Label className="text-[10px] text-slate-600">Bağımlı Filtre (İsteğe Bağlı)</Label>
+                                              <Select
+                                                value={filter.dependsOn || ''}
+                                                onValueChange={(value) => updateFilter(queryIndex, filterIndex, { dependsOn: value || undefined })}
+                                                className="h-6 text-[10px]"
+                                                placeholder="Seçin..."
+                                              >
+                                                <option value="">Bağımsız</option>
+                                                {query.filters
+                                                  .filter((f, idx) => idx < filterIndex && (f.type === 'dropdown' || f.type === 'multiselect'))
+                                                  .map((f) => (
+                                                    <option key={f.id} value={f.fieldName}>
+                                                      {f.displayName}
+                                                    </option>
+                                                  ))}
+                                              </Select>
+                                              <p className="text-[9px] text-slate-500 mt-0.5">
+                                                Bu filtrenin seçeneklerini başka bir filtreye bağlayın
+                                              </p>
+                                            </div>
+                                          </>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </React.Fragment>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
                       )}
+                        </div>
+                      </div>
+                    </div>
 
-                      {/* Query Preview Section */}
-                      <div className="mt-8 space-y-4">
+                    {/* Query Preview Section - Full Width */}
+                    <div className="space-y-4">
                         <div className="flex items-center justify-between bg-gradient-to-r from-cyan-50 to-blue-50 p-4 rounded-xl border border-cyan-200/50">
                           <div className="flex items-center gap-3">
                             <div className="p-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-500">
@@ -2079,7 +2467,6 @@ export default function EditReportPage() {
                             </CardContent>
                           </Card>
                         )}
-                      </div>
                     </div>
                   </TabsContent>
                 ))}
@@ -2164,15 +2551,49 @@ export default function EditReportPage() {
                   </div>
                 )}
                 {(filter.type === 'dropdown' || filter.type === 'multiselect') && (
-                  <Select
-                    value={filterValues[filter.fieldName] || ''}
-                    onValueChange={(value) => setFilterValues(prev => ({ ...prev, [filter.fieldName]: value }))}
-                    placeholder={`${filter.displayName} seçin`}
-                  >
-                    <option value="">Seçin...</option>
-                    <option value="option1">Seçenek 1</option>
-                    <option value="option2">Seçenek 2</option>
-                  </Select>
+                  <>
+                    {filter.dependsOn && !filterValues[filter.dependsOn] && (
+                      <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
+                        Önce "{report.queries.find(q => q.id === activeQueryForFilters)?.filters.find(f => f.fieldName === filter.dependsOn)?.displayName}" filtresini seçin
+                      </div>
+                    )}
+                    <Select
+                      value={filterValues[filter.fieldName] || ''}
+                      onValueChange={(value) => {
+                        setFilterValues(prev => {
+                          const newValues = { ...prev, [filter.fieldName]: value }
+
+                          // Reload dependent filters
+                          const currentQuery = report.queries.find(q => q.id === activeQueryForFilters)
+                          if (currentQuery) {
+                            currentQuery.filters.forEach(f => {
+                              if (f.dependsOn === filter.fieldName) {
+                                // Clear dependent filter value
+                                newValues[f.fieldName] = ''
+                                // Reload options
+                                loadDropdownOptions(f, newValues)
+                              }
+                            })
+                          }
+
+                          return newValues
+                        })
+                      }}
+                      placeholder={`${filter.displayName} seçin`}
+                      disabled={!!(filter.dependsOn && !filterValues[filter.dependsOn])}
+                    >
+                      <option value="">Seçin...</option>
+                      {loadingDropdownOptions[filter.fieldName] ? (
+                        <option disabled>Yükleniyor...</option>
+                      ) : (
+                        dropdownOptions[filter.fieldName]?.map(option => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))
+                      )}
+                    </Select>
+                  </>
                 )}
               </div>
             ))}

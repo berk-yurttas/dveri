@@ -71,7 +71,7 @@ async def preview_report_query(
         else:
             # ClickHouse and PostgreSQL use LIMIT
             if 'LIMIT' not in sanitized_query.upper():
-                sanitized_query = f"{sanitized_query} LIMIT {request.limit}"
+                sanitized_query = f"{sanitized_query}"
 
         # Record execution start time
         start_time = time.time()

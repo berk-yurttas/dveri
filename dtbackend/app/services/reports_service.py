@@ -57,7 +57,7 @@ class ReportsService:
             for filter_data in query_data.filters:
                 # Handle both enum and string types
                 filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
-                
+
                 db_filter = ReportQueryFilter(
                     query_id=db_query.id,
                     field_name=filter_data.field_name,
@@ -65,7 +65,8 @@ class ReportsService:
                     filter_type=filter_type_value,
                     dropdown_query=filter_data.dropdown_query,
                     required=filter_data.required,
-                    sql_expression=filter_data.sql_expression
+                    sql_expression=filter_data.sql_expression,
+                    depends_on=filter_data.depends_on
                 )
                 self.db.add(db_filter)
 
@@ -307,7 +308,7 @@ class ReportsService:
                 for filter_data in query_data.filters:
                     # Handle both enum and string types
                     filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
-                    
+
                     db_filter = ReportQueryFilter(
                         query_id=db_query.id,
                         field_name=filter_data.field_name,
@@ -315,7 +316,8 @@ class ReportsService:
                         filter_type=filter_type_value,
                         dropdown_query=filter_data.dropdown_query,
                         required=filter_data.required,
-                        sql_expression=filter_data.sql_expression
+                        sql_expression=filter_data.sql_expression,
+                        depends_on=filter_data.depends_on
                     )
                     self.db.add(db_filter)
 
@@ -441,16 +443,37 @@ class ReportsService:
             operator = filter_value.operator or "="
             
             print(f"DEBUG: Building condition for {field_expression} with value {value} and operator {operator}")
-            
+
             if db_filter.filter_type == "text":
-                # For text filters, always use LIKE for partial matching (case-insensitive search)
+                # For text filters, use different operators based on the filter condition
                 # Use CAST for quoted identifiers to ensure LOWER works properly
-                if field_expression.startswith('"') and field_expression.endswith('"'):
-                    conditions.append(f"LOWER(CAST({field_expression} AS TEXT)) LIKE LOWER('%{value}%')")
+                field_expr = f"LOWER(CAST({field_expression} AS TEXT))" if field_expression.startswith('"') and field_expression.endswith('"') else f"LOWER({field_expression})"
+                value_expr = f"LOWER('{value}')"
+
+                if operator == "CONTAINS":
+                    conditions.append(f"{field_expr} LIKE LOWER('%{value}%')")
+                elif operator == "NOT_CONTAINS":
+                    conditions.append(f"{field_expr} NOT LIKE LOWER('%{value}%')")
+                elif operator == "STARTS_WITH":
+                    conditions.append(f"{field_expr} LIKE LOWER('{value}%')")
+                elif operator == "ENDS_WITH":
+                    conditions.append(f"{field_expr} LIKE LOWER('%{value}')")
+                elif operator == "=":
+                    conditions.append(f"{field_expr} = {value_expr}")
+                elif operator == "NOT_EQUALS":
+                    conditions.append(f"{field_expr} != {value_expr}")
                 else:
-                    conditions.append(f"LOWER({field_expression}) LIKE LOWER('%{value}%')")
+                    # Default to CONTAINS for backward compatibility
+                    conditions.append(f"{field_expr} LIKE LOWER('%{value}%')")
             elif db_filter.filter_type == "number":
-                conditions.append(f"{field_expression} {operator} {value}")
+                # For number filters, support =, !=, >, <, >=, <=, NOT_EQUALS
+                if operator == "NOT_EQUALS":
+                    conditions.append(f"{field_expression} != {value}")
+                elif operator in ["=", "!=", ">", "<", ">=", "<="]:
+                    conditions.append(f"{field_expression} {operator} {value}")
+                else:
+                    # Default to equals for backward compatibility
+                    conditions.append(f"{field_expression} = {value}")
             elif db_filter.filter_type == "date":
                 # Use database-specific date functions
                 if db_type.lower() == "clickhouse":

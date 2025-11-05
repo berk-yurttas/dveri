@@ -267,7 +267,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     <>
       <AppShell
         title={title}
-        subtitle=""
+        subtitle="Mikroservisli İleri Raporlama ve Analiz Sistemi"
         navigationItems={navigationItems}
         currentPathname={pathname}
         onNavigationItemClick={handleNavigationClick}

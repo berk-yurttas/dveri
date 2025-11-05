@@ -51,6 +51,7 @@ import { Platform as PlatformType } from "@/types/platform";
 import { useUser } from "@/contexts/user-context";
 import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
+import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -244,11 +245,11 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
         {/* Welcome Section */}
-        <div className="mb-8">
-          <h1 className="text-2xl text-center font-bold text-gray-900 mb-2" style={{"color": "rgb(69,81,89)"}}>
+        <div className="mb-8 flex flex-col items-center justify-center w-full">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2" style={{"color": "rgb(69,81,89)"}}>
             Hoş Geldiniz{user?.name ? `, ${user.name}` : ''}
           </h1>
-          <p className="text-sm text-gray-600 text-center">Çalışmak istediğiniz platformu seçin</p>
+          <p className="text-sm text-gray-600">Çalışmak istediğiniz platformu seçin</p>
         </div>
 
         {/* Error Message */}
@@ -483,7 +484,7 @@ export default function Home() {
       </div>
 
       {/* Footer */}
-      <footer className="w-full border-t border-gray-100 py-8 mt-20 bg-white">
+      <footer className="w-full border-t border-gray-100 py-8 mb-[-20px] bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-center gap-2">
             <Cpu className="w-4 h-4 text-gray-400" />
@@ -575,6 +576,7 @@ export default function Home() {
         </div>
       )}
       </div>
+      <MirasAssistant />
     </div>
   );
 }

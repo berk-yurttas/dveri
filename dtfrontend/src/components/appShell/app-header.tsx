@@ -84,8 +84,8 @@ export function AppHeader({ title, subtitle, customActions = [], onMobileMenuCli
           <img src="/ssb-aselsan.png" alt="Aselsan Logo" className="h-16 w-16" />
         </div>
       )}
-      {/* Center title between logo and actions */}
-      <div className="flex-1 flex left-[43%] relative z-10">
+      {/* Center title and subtitle on screen */}
+      <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10">
         <div className="flex flex-col items-center">
           {title && !isIvmePlatform && <h1 className="text-xl font-semibold text-white text-center whitespace-nowrap">{title}</h1>}
           {subtitle && !isIvmePlatform && <h2 className="text-sm font-semibold text-white text-center whitespace-nowrap">{subtitle}</h2>}

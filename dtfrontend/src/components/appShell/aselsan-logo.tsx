@@ -28,16 +28,17 @@ export function AselsanLogo() {
       )}
       <div className="mx-3 h-12 w-px bg-white/30" aria-hidden="true" />
       {ahtapotLogo ? (
-        <Image
-          src={ahtapotLogo}
-          alt="Ahtapot"
-          width={100}
-          height={100}
-          className="h-12 w-auto brightness-0 invert"
-          style={{ cursor: "pointer" }}
-          onClick={() => router.push("/")}
-          priority
-        />
+        // <Image
+        //   src={ahtapotLogo}
+        //   alt="Ahtapot"
+        //   width={100}
+        //   height={100}
+        //   className="h-12 w-auto brightness-0 invert"
+        //   style={{ cursor: "pointer" }}
+        //   onClick={() => router.push("/")}
+        //   priority
+        // />
+        <img src={ahtapotLogo} alt="Ahtapot" className="h-12 w-auto brightness-0 invert" style={{ cursor: "pointer" }} onClick={() => router.push("/")} />
       ) : (
         <div className="h-10 w-11 flex items-center justify-center text-white font-bold text-xs">
           AHTAPOT

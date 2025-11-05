@@ -42,6 +42,10 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
   const instanceRef = useRef(widgetId || `machine-oee-${Math.random().toString(36).substr(2, 9)}`)
   const instanceId = instanceRef.current
 
+  // Refs for dropdown elements
+  const firmaDropdownRef = useRef<HTMLDivElement>(null)
+  const machineDropdownRef = useRef<HTMLDivElement>(null)
+
   // Load filters from localStorage
   const getStoredFilters = () => {
     if (typeof window === 'undefined') return { firma: null, machinecodes: [] }
@@ -69,6 +73,23 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
   const [widgetData, setWidgetData] = useState<WidgetData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Handle click outside to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (firmaDropdownRef.current && !firmaDropdownRef.current.contains(event.target as Node)) {
+        setShowFirmaDropdown(false)
+      }
+      if (machineDropdownRef.current && !machineDropdownRef.current.contains(event.target as Node)) {
+        setShowMachineDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
 
   // Save filters to localStorage whenever they change
   useEffect(() => {
@@ -104,6 +125,14 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
 
     loadOptions()
   }, [instanceId])
+
+  // Clear selected machines when firma changes
+  useEffect(() => {
+    if (selectedFirma && selectedMachines.length > 0) {
+      // Clear machines that don't belong to the newly selected firma
+      setSelectedMachines([])
+    }
+  }, [selectedFirma])
 
   // Load widget data
   useEffect(() => {
@@ -152,9 +181,9 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
   }, [selectedFirma, selectedMachines, instanceId])
 
   // Prepare chart data - transform from rows to columns for grouped bar chart
-  // Show only machine code on x-axis when machines are selected, otherwise show firma - machinecode
+  // Show only machine code on x-axis when company is selected, otherwise show firma - machinecode
   const chartData = widgetData?.data?.map((item) => ({
-    name: selectedMachines.length > 0 ? item.machinecode : `${item.firma} - ${item.machinecode}`,
+    name: selectedFirma ? item.machinecode : `${item.firma} - ${item.machinecode}`,
     firma: item.firma,
     machinecode: item.machinecode,
     '7 Gün': item.avg_oee_7_days,
@@ -168,7 +197,16 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
     firma.toLowerCase().includes(firmaSearch.toLowerCase())
   )
 
-  const filteredMachineOptions = machineOptions.filter(machine =>
+  // Filter machine options based on selected firma
+  const availableMachineOptions = selectedFirma && widgetData?.data
+    ? Array.from(new Set(
+        widgetData.data
+          .filter(item => item.firma === selectedFirma)
+          .map(item => item.machinecode)
+      )).sort()
+    : machineOptions
+
+  const filteredMachineOptions = availableMachineOptions.filter(machine =>
     machine.toLowerCase().includes(machineSearch.toLowerCase())
   )
 
@@ -262,7 +300,7 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
         </div>
         <div className="flex gap-2">
           {/* Firma Dropdown */}
-          <div className="relative">
+          <div className="relative" ref={firmaDropdownRef}>
             <button
               onClick={() => setShowFirmaDropdown(!showFirmaDropdown)}
               className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white min-w-[120px] text-left flex items-center justify-between"
@@ -314,7 +352,7 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
           </div>
 
           {/* Machine Dropdown - Multiselect */}
-          <div className="relative">
+          <div className="relative" ref={machineDropdownRef}>
             <button
               onClick={() => setShowMachineDropdown(!showMachineDropdown)}
               className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white min-w-[120px] text-left flex items-center justify-between"

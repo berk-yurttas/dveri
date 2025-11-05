@@ -44,17 +44,29 @@ class ChartOptions(BaseModel):
     # Histogram specific
     bin_count: Optional[int] = Field(10, alias="binCount")
     
-    # Expandable table specific
+    # Expandable table specific & Clickable chart specific
     nested_queries: Optional[List[Dict[str, Any]]] = Field([], alias="nestedQueries")
-    # nested_queries structure:
+    # nested_queries structure (used by both expandable tables and clickable charts):
+    # For expandable tables: multiple queries in the list for multi-level expansion
+    # For clickable charts: first query in the list is triggered on click
     # [
     #   {
     #     "id": "unique_id",
     #     "sql": "SELECT * FROM child WHERE parent_id = {{parent_id}}",
     #     "expandableFields": ["parent_id"],
-    #     "nestedQueries": [...]  // Can have more nested levels
+    #     "filters": [],  // Optional filters for nested query
+    #     "nestedQueries": [],  // Can have more nested levels (for expandable tables)
+    #     "visualizationType": "bar",  // Optional: table, bar, line, pie, area (for clickable charts)
+    #     "xAxis": "field_name",  // Optional: for chart visualizations
+    #     "yAxis": "value_field",  // Optional: for chart visualizations
+    #     "labelField": "label",  // Optional: for pie charts
+    #     "valueField": "value"  // Optional: for pie charts
     #   }
     # ]
+    
+    # Clickable chart specific (enables click-to-drill-down)
+    clickable: Optional[bool] = Field(False, alias="clickable")
+    # When clickable=true, the first query in nested_queries is executed on click
     
     # Tooltip configuration
     tooltip_fields: Optional[List[str]] = Field([], alias="tooltipFields")
@@ -89,7 +101,8 @@ class FilterConfigBase(BaseModel):
     dropdown_query: Optional[str] = Field(None, alias="dropdownQuery", description="SQL query for dropdown/multiselect options")
     required: bool = False
     sql_expression: Optional[str] = Field(None, alias="sqlExpression", description="Custom SQL expression to use instead of field_name (e.g., DATE(field_name), LOWER(field_name))")
-    
+    depends_on: Optional[str] = Field(None, alias="dependsOn", description="Field name of the filter this filter depends on (for cascading dropdowns)")
+
     class Config:
         populate_by_name = True  # Allow both field names and aliases
         from_attributes = True
@@ -104,7 +117,8 @@ class FilterConfigUpdate(BaseModel):
     dropdown_query: Optional[str] = Field(None, alias="dropdownQuery")
     required: Optional[bool] = None
     sql_expression: Optional[str] = Field(None, alias="sqlExpression")
-    
+    depends_on: Optional[str] = Field(None, alias="dependsOn")
+
     class Config:
         populate_by_name = True  # Allow both field names and aliases
         from_attributes = True
@@ -211,7 +225,7 @@ class ReportList(BaseModel):
 class FilterValue(BaseModel):
     field_name: str
     value: Any
-    operator: Optional[str] = "="  # =, >, <, >=, <=, LIKE, IN, BETWEEN
+    operator: Optional[str] = "="  # =, >, <, >=, <=, LIKE, IN, BETWEEN, CONTAINS, NOT_CONTAINS, STARTS_WITH, ENDS_WITH, NOT_EQUALS
 
 class ReportExecutionRequest(BaseModel):
     report_id: int
