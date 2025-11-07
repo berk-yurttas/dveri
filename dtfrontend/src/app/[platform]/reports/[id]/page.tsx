@@ -28,7 +28,10 @@ import {
   Settings,
   ArrowUp,
   ArrowDown,
-  Search
+  Search,
+  Layout,
+  Save,
+  XCircle
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
@@ -36,6 +39,9 @@ import html2canvas from 'html2canvas'
 import { reportsService } from '@/services/reports'
 import { DeleteModal } from '@/components/ui/delete-modal'
 import { api } from '@/lib/api'
+import { Responsive, WidthProvider, Layout as GridLayout } from 'react-grid-layout'
+import 'react-grid-layout/css/styles.css'
+import 'react-resizable/css/styles.css'
 
 // Note: Recharts imports kept for potential direct use in table/expandable visualizations if needed
 import { MirasAssistant } from '@/components/chatbot/miras-assistant'
@@ -49,7 +55,8 @@ import {
   BoxPlotVisualization,
   HistogramVisualization,
   TableVisualization,
-  ExpandableTableVisualization
+  ExpandableTableVisualization,
+  CardVisualization
 } from '@/components/visualizations'
 import { GlobalFilters } from '@/components/reports/GlobalFilters'
 
@@ -64,9 +71,12 @@ const VISUALIZATION_ICONS = {
   pareto: BarChart3,
   boxplot: BarChart3,
   histogram: BarChart3,
+  card: Database,
 }
 
 const DEFAULT_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#84CC16', '#F97316']
+
+const ResponsiveGridLayout = WidthProvider(Responsive)
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -98,6 +108,7 @@ interface ReportData {
   updated_at: string | null
   queries: QueryData[]
   globalFilters?: FilterData[]
+  layoutConfig?: any[]
 }
 
 interface QueryData {
@@ -105,7 +116,7 @@ interface QueryData {
   name: string
   sql: string
   visualization: {
-    type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram'
+    type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram' | 'card'
     xAxis?: string
     yAxis?: string
     labelField?: string
@@ -192,6 +203,9 @@ export default function ReportDetailPage() {
   const [nestedPagination, setNestedPagination] = useState<{[rowKey: string]: {currentPage: number, pageSize: number}}>({})
   const [filterOperators, setFilterOperators] = useState<{[key: string]: string}>({})
   const [operatorMenuOpen, setOperatorMenuOpen] = useState<{[key: string]: boolean}>({})
+  const [isLayoutEditMode, setIsLayoutEditMode] = useState(false)
+  const [gridLayout, setGridLayout] = useState<GridLayout[]>([])
+  const [isSavingLayout, setIsSavingLayout] = useState(false)
 
   // Debounce timeout refs for each filter
   const debounceTimeouts = useRef<{[key: string]: NodeJS.Timeout}>({})
@@ -200,6 +214,65 @@ export default function ReportDetailPage() {
   const currentReportIdRef = useRef<string | null>(null)
   const isLoadingRef = useRef(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Generate default layout for queries
+  const generateDefaultLayout = (queries: QueryData[]): GridLayout[] => {
+    return queries.map((query, index) => {
+      return {
+        i: query.id.toString(),
+        x: (index % 2) * 2, // Always 2 columns, alternating left/right
+        y: Math.floor(index / 2) * 4, // 4 rows per item (500px / 120px rowHeight ≈ 4.16)
+        w: 2, // Always 2 column width
+        h: 4, // 4 rows height (≈480px)
+        minW: 1,
+        minH: 2, // Minimum 2 rows (≈240px)
+      }
+    })
+  }
+
+  // Handle layout change
+  const handleLayoutChange = (newLayout: GridLayout[]) => {
+    setGridLayout(newLayout)
+  }
+
+  // Save layout
+  const handleSaveLayout = async () => {
+    if (!report) return
+
+    setIsSavingLayout(true)
+    try {
+      // Save layout to backend
+      await reportsService.updateReport(report.id.toString(), {
+        layoutConfig: gridLayout
+      })
+      // Also keep in localStorage as backup
+      localStorage.setItem(`report_layout_${report.id}`, JSON.stringify(gridLayout))
+      setIsLayoutEditMode(false)
+    } catch (error) {
+      console.error('Error saving layout:', error)
+    } finally {
+      setIsSavingLayout(false)
+    }
+  }
+
+  // Cancel layout editing
+  const handleCancelLayoutEdit = () => {
+    // Restore original layout
+    // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
+    if (report) {
+      if (report.layoutConfig && report.layoutConfig.length > 0) {
+        setGridLayout(report.layoutConfig)
+      } else {
+        const savedLayout = localStorage.getItem(`report_layout_${report.id}`)
+        if (savedLayout) {
+          setGridLayout(JSON.parse(savedLayout))
+        } else {
+          setGridLayout(generateDefaultLayout(report.queries))
+        }
+      }
+    }
+    setIsLayoutEditMode(false)
+  }
 
   // Fetch report details using the reports service
   const fetchReportDetails = async () => {
@@ -891,6 +964,19 @@ export default function ReportDetailPage() {
 
         // Execute all queries with initial filters
         await executeAllQueries(reportData, initialFilters)
+
+        // Initialize grid layout
+        // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
+        if (reportData.layoutConfig && reportData.layoutConfig.length > 0) {
+          setGridLayout(reportData.layoutConfig)
+        } else {
+          const savedLayout = localStorage.getItem(`report_layout_${reportData.id}`)
+          if (savedLayout) {
+            setGridLayout(JSON.parse(savedLayout))
+          } else {
+            setGridLayout(generateDefaultLayout(reportData.queries))
+          }
+        }
 
       } catch (err) {
         if (currentReportIdRef.current === reportId) {
@@ -2038,6 +2124,9 @@ export default function ReportDetailPage() {
       case 'histogram':
         return <HistogramVisualization query={query} result={result} colors={colors} />
 
+      case 'card':
+        return <CardVisualization query={query} result={result} colors={colors} />
+
       default:
         return (
           <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
@@ -2136,30 +2225,69 @@ export default function ReportDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => report && executeAllQueries(report, filters)}
-              className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-blue-700 transition-colors"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Raporu Yenile
-            </button>
-            <button
-              onClick={exportToExcel}
-              disabled={isExporting || Object.keys(queryResults).length === 0 || Object.values(queryResults).every(q => !q.result)}
-              className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              {isExporting ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Dışa Aktarılıyor...
-                </>
-              ) : (
-                <>
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  Excel'e Aktar
-                </>
-              )}
-            </button>
+            {!isLayoutEditMode ? (
+              <>
+                <button
+                  onClick={() => setIsLayoutEditMode(true)}
+                  className="flex items-center gap-2 bg-purple-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-purple-700 transition-colors"
+                >
+                  <Layout className="h-3.5 w-3.5" />
+                  Düzeni Güncelle
+                </button>
+                <button
+                  onClick={() => report && executeAllQueries(report, filters)}
+                  className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Raporu Yenile
+                </button>
+                <button
+                  onClick={exportToExcel}
+                  disabled={isExporting || Object.keys(queryResults).length === 0 || Object.values(queryResults).every(q => !q.result)}
+                  className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isExporting ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Dışa Aktarılıyor...
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                      Excel'e Aktar
+                    </>
+                  )}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleSaveLayout}
+                  disabled={isSavingLayout}
+                  className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isSavingLayout ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Kaydediliyor...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-3.5 w-3.5" />
+                      Kaydet
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleCancelLayoutEdit}
+                  disabled={isSavingLayout}
+                  className="flex items-center gap-2 bg-gray-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-gray-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                  İptal
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -2205,26 +2333,48 @@ export default function ReportDetailPage() {
       )}
 
       {/* Queries */}
-      <div className={`grid grid-cols-1 ${
-        report.queries.length === 1 &&
-        (report.queries[0].visualization.type === 'table' || report.queries[0].visualization.type === 'expandable')
-          ? ''
-          : 'lg:grid-cols-2'
-      } gap-4`}>
+      {isLayoutEditMode && (
+        <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-2">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-800">
+              <p className="font-semibold">Düzen Düzenleme Modu</p>
+              <p className="mt-1">Widget'ları sürükleyerek taşıyabilir ve kenarlarından çekerek boyutlandırabilirsiniz. Sayfa 4 sütunlu bir ızgaraya sahiptir.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ResponsiveGridLayout
+        className="layout"
+        layouts={{ lg: gridLayout }}
+        breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+        cols={{ lg: 4, md: 4, sm: 2, xs: 1, xxs: 1 }}
+        rowHeight={120}
+        isDraggable={isLayoutEditMode}
+        isResizable={isLayoutEditMode}
+        onLayoutChange={handleLayoutChange}
+        draggableHandle=".drag-handle"
+        compactType="vertical"
+        preventCollision={false}
+      >
         {report.queries.map((query) => {
           const Icon = VISUALIZATION_ICONS[query.visualization.type] || Table
           const queryState = queryResults[query.id]
 
           return (
-            <div key={query.id} className="bg-white rounded-lg shadow-md border border-gray-200" data-query-id={query.id}>
-              <div className="pb-2 px-4 pt-4">
+            <div key={query.id.toString()} className={`bg-white rounded-lg shadow-md border ${isLayoutEditMode ? 'border-blue-400 border-2' : 'border-gray-200'} h-full flex flex-col`} data-query-id={query.id}>
+              <div className={`pb-2 px-4 pt-4 flex-shrink-0 ${isLayoutEditMode ? 'drag-handle cursor-move bg-blue-50' : ''}`}>
                 <div className="flex items-center gap-2">
                   <Icon className="h-4 w-4 text-blue-600" />
                   <span className="text-base font-semibold">{query.name}</span>
+                  {isLayoutEditMode && (
+                    <span className="ml-auto text-xs text-blue-600 font-medium">Sürükle</span>
+                  )}
                 </div>
               </div>
 
-              <div className="space-y-3 px-4 pb-4 relative">
+              <div className="space-y-3 px-4 pb-4 relative flex-1">
                 {/* Loading Overlay */}
                 {queryState?.loading && (
                   <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
@@ -2251,7 +2401,6 @@ export default function ReportDetailPage() {
                 {queryState?.result && (
                   <div>
                     {/* Show filters above charts (but not for tables) */}
-                    {query.visualization.type !== 'table' && query.visualization.type !== 'expandable' && renderQueryFilters(query)}
                     {renderVisualization(query, queryState.result)}
                   </div>
                 )}
@@ -2266,7 +2415,7 @@ export default function ReportDetailPage() {
             </div>
           )
         })}
-      </div>
+      </ResponsiveGridLayout>
 
       {/* Delete Confirmation Modal */}
       <DeleteModal

@@ -15,6 +15,7 @@ class VisualizationType(str, Enum):
     PARETO = "pareto"
     BOXPLOT = "boxplot"
     HISTOGRAM = "histogram"
+    CARD = "card"
 
 class FilterType(str, Enum):
     DATE = "date"
@@ -179,6 +180,7 @@ class ReportBase(BaseModel):
     is_public: bool = False
     tags: Optional[List[str]] = []
     global_filters: Optional[List[FilterConfigCreate]] = Field([], alias="globalFilters", description="Global filters that apply to all queries in the report")
+    layout_config: Optional[List[Dict[str, Any]]] = Field([], alias="layoutConfig", description="Grid layout configuration for queries")
 
     class Config:
         populate_by_name = True  # Allow both field names and aliases
@@ -193,6 +195,7 @@ class ReportUpdate(BaseModel):
     is_public: Optional[bool] = None
     tags: Optional[List[str]] = None
     global_filters: Optional[List[FilterConfigCreate]] = Field(None, alias="globalFilters")
+    layout_config: Optional[List[Dict[str, Any]]] = Field(None, alias="layoutConfig")
 
     class Config:
         populate_by_name = True
@@ -205,6 +208,7 @@ class ReportFullUpdate(BaseModel):
     tags: Optional[List[str]] = None
     queries: Optional[List[QueryConfigCreate]] = None
     global_filters: Optional[List[FilterConfigCreate]] = Field(None, alias="globalFilters")
+    layout_config: Optional[List[Dict[str, Any]]] = Field(None, alias="layoutConfig")
 
     class Config:
         populate_by_name = True

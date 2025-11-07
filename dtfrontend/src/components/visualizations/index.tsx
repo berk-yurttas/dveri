@@ -9,6 +9,7 @@ export { BoxPlotVisualization } from './BoxPlotVisualization'
 export { HistogramVisualization } from './HistogramVisualization'
 export { TableVisualization } from './TableVisualization'
 export { ExpandableTableVisualization } from './ExpandableTableVisualization'
+export { CardVisualization } from './CardVisualization'
 
 // Export types
 export type { VisualizationProps, QueryData, QueryResult, FilterData } from './types'

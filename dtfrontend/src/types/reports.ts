@@ -53,7 +53,7 @@ export interface NestedQueryConfig {
 
 // Visualization Configuration Types
 export interface VisualizationConfig {
-  type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram'
+  type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram' | 'card'
   xAxis?: string
   yAxis?: string
   labelField?: string
@@ -137,6 +137,7 @@ export interface SavedReport extends ReportConfig {
   updated_at: string
   created_by: string
   is_public: boolean
+  layoutConfig?: any[]  // Grid layout configuration
 }
 
 // Report execution types

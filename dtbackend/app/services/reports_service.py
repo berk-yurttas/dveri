@@ -250,6 +250,8 @@ class ReportsService:
             db_report.is_public = report_data.is_public
         if report_data.tags is not None:
             db_report.tags = report_data.tags
+        if report_data.layout_config is not None:
+            db_report.layout_config = report_data.layout_config
 
         await self.db.commit()
         
@@ -286,6 +288,8 @@ class ReportsService:
             db_report.is_public = report_data.is_public
         if report_data.tags is not None:
             db_report.tags = report_data.tags
+        if report_data.layout_config is not None:
+            db_report.layout_config = report_data.layout_config
 
         # Update global filters if provided
         if report_data.global_filters is not None:

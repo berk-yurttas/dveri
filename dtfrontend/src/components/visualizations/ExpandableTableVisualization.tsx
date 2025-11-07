@@ -1403,9 +1403,10 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
   }
 
   return (
-    <div className="overflow-x-auto shadow-xl min-h-[400px] overflow-y-auto relative">
-      <table className="w-full border-collapse relative">
-        <thead className="relative">
+    <div className="shadow-xl relative flex flex-col h-full">
+      <div className="overflow-auto flex-1">
+        <table className="w-full border-collapse relative">
+          <thead className="sticky top-0 z-10 relative">
           <tr className="bg-gray-50 border-b border-gray-200">
             <th className="px-3 py-1.5 text-left font-semibold text-gray-800 text-xs w-10">
               {/* Expand/Collapse column */}
@@ -1547,9 +1548,10 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
           })}
         </tbody>
       </table>
+      </div>
 
       {/* Pagination Controls for Expandable Table */}
-      <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2">
+      <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="text-xs text-gray-600">
             {((currentPage - 1) * pageSize + 1)}-{Math.min(currentPage * pageSize, totalRows)} / {totalRows}

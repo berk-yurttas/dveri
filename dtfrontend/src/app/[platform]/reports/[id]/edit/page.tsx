@@ -26,6 +26,7 @@ const VISUALIZATION_OPTIONS = [
   { value: 'pareto', label: 'Pareto Grafiği', icon: BarChart3 },
   { value: 'boxplot', label: 'Box Plot', icon: BarChart3 },
   { value: 'histogram', label: 'Histogram', icon: BarChart3 },
+  { value: 'card', label: 'Kart Görünümü', icon: Database },
 ] as const
 
 const FILTER_TYPES = [
@@ -385,6 +386,62 @@ const ChartPreview = ({
                 {renderNestedQueryInfo(visualization.chartOptions.nestedQueries)}
               </div>
             )}
+          </div>
+        )
+
+      case 'card':
+        // Card visualization preview
+        const cardData = chartData[0] || {}
+        const primaryField = visualization.valueField || columns[0]
+        const secondaryField = visualization.labelField || columns[1]
+        const primaryValue = cardData[primaryField]
+        const secondaryValue = secondaryField ? cardData[secondaryField] : null
+
+        const formatNumber = (value: any): string => {
+          if (value === null || value === undefined) return '-'
+          if (typeof value === 'number') {
+            return value.toLocaleString('tr-TR', { maximumFractionDigits: 2 })
+          }
+          return String(value)
+        }
+
+        const bgColor = colors[0]
+
+        return (
+          <div className="flex items-center justify-center w-full h-full min-h-[300px]">
+            <div
+              className="relative rounded-2xl shadow-lg p-8 flex flex-col items-center justify-center min-w-[300px] min-h-[200px]"
+              style={{
+                backgroundColor: bgColor,
+                background: `linear-gradient(135deg, ${bgColor} 0%, ${bgColor}dd 100%)`
+              }}
+            >
+              <div className="text-center mb-4">
+                <div
+                  className="font-bold text-white drop-shadow-lg"
+                  style={{ fontSize: '3.5rem' }}
+                >
+                  {formatNumber(primaryValue)}
+                </div>
+              </div>
+              {secondaryValue !== null && (
+                <div className="text-center">
+                  <div
+                    className="text-white/90 font-medium"
+                    style={{ fontSize: '1.25rem' }}
+                  >
+                    {formatNumber(secondaryValue)}
+                  </div>
+                </div>
+              )}
+              {visualization.title && (
+                <div className="absolute top-4 left-4 right-4">
+                  <div className="text-white/70 text-sm font-semibold uppercase tracking-wider">
+                    {visualization.title}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )
 
@@ -2141,6 +2198,35 @@ export default function EditReportPage() {
                                       value={query.visualization.valueField || ''}
                                       onValueChange={(value) => updateVisualization(queryIndex, { valueField: value })}
                                       placeholder="Değer alanı seçin"
+                                    >
+                                      {availableFields.map((field) => (
+                                        <option key={field} value={field}>{field}</option>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                </div>
+                              )}
+
+                              {query.visualization.type === 'card' && (
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="space-y-2">
+                                    <Label className="text-sm">Ana Değer Alanı (Büyük)</Label>
+                                    <Select
+                                      value={query.visualization.valueField || ''}
+                                      onValueChange={(value) => updateVisualization(queryIndex, { valueField: value })}
+                                      placeholder="Ana değer alanı seçin"
+                                    >
+                                      {availableFields.map((field) => (
+                                        <option key={field} value={field}>{field}</option>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label className="text-sm">Alt Metin Alanı (Küçük)</Label>
+                                    <Select
+                                      value={query.visualization.labelField || ''}
+                                      onValueChange={(value) => updateVisualization(queryIndex, { labelField: value })}
+                                      placeholder="Alt metin alanı seçin"
                                     >
                                       {availableFields.map((field) => (
                                         <option key={field} value={field}>{field}</option>
