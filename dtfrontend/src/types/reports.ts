@@ -122,7 +122,8 @@ export interface ReportConfig {
   description: string
   tags: string[]
   queries: QueryConfig[]
-  }
+  globalFilters?: FilterConfig[]  // Filters that apply to all queries in the report
+}
 
 // Future report save/load types
 export interface SaveReportRequest {

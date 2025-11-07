@@ -51,6 +51,7 @@ import {
   TableVisualization,
   ExpandableTableVisualization
 } from '@/components/visualizations'
+import { GlobalFilters } from '@/components/reports/GlobalFilters'
 
 const VISUALIZATION_ICONS = {
   table: Table,
@@ -96,6 +97,7 @@ interface ReportData {
   created_at: string
   updated_at: string | null
   queries: QueryData[]
+  globalFilters?: FilterData[]
 }
 
 interface QueryData {
@@ -219,7 +221,8 @@ export default function ReportDetailPage() {
     try {
       // If this filter depends on another filter, check if the parent has a value
       if (filter.dependsOn) {
-        const parentKey = `${query.id}_${filter.dependsOn}`
+        // For global filters (query.id === 0), use global_ prefix
+        const parentKey = query.id === 0 ? `global_${filter.dependsOn}` : `${query.id}_${filter.dependsOn}`
         const parentValue = currentFilterValues ? currentFilterValues[parentKey] : filters[parentKey]
 
         // If parent doesn't have a value, clear this filter's options
@@ -268,11 +271,43 @@ export default function ReportDetailPage() {
         }
       } else {
         // No dependency, load options normally from the API
-        const response = await reportsService.getFilterOptions(reportId, query.id, filter.fieldName)
-        setDropdownOptions(prev => ({
-          ...prev,
-          [key]: response.options
-        }))
+        // For global filters (query.id === 0), use preview query instead
+        if (query.id === 0 && filter.dropdownQuery) {
+          // Global filter - execute the dropdown query directly
+          const result = await reportsService.previewQuery({
+            sql_query: filter.dropdownQuery,
+            limit: 1000
+          })
+
+          if (result.success && result.data.length > 0) {
+            const options = result.data.map(row => ({
+              value: row[0],
+              label: row[1] || String(row[0])
+            }))
+
+            // Deduplicate options based on value
+            const uniqueOptions = Array.from(
+              new Map(options.map(item => [item.value, item])).values()
+            )
+
+            setDropdownOptions(prev => ({
+              ...prev,
+              [key]: uniqueOptions
+            }))
+          } else {
+            setDropdownOptions(prev => ({
+              ...prev,
+              [key]: []
+            }))
+          }
+        } else {
+          // Query-specific filter - use the API endpoint
+          const response = await reportsService.getFilterOptions(reportId, query.id, filter.fieldName)
+          setDropdownOptions(prev => ({
+            ...prev,
+            [key]: response.options
+          }))
+        }
       }
     } catch (err) {
       console.error(`Failed to load dropdown options for ${filter.fieldName}:`, err)
@@ -297,6 +332,62 @@ export default function ReportDetailPage() {
           pageSize: pageSize
         }
       }))
+
+      // Prepare global filters first
+      const globalFilters = (report?.globalFilters || [])
+        .map(filter => {
+          if (filter.type === 'date') {
+            const startKey = `global_${filter.fieldName}_start`
+            const endKey = `global_${filter.fieldName}_end`
+            const startValue = customFilters[startKey]
+            const endValue = customFilters[endKey]
+
+            if (startValue && endValue) {
+              return {
+                field_name: filter.fieldName,
+                value: [startValue, endValue],
+                operator: 'BETWEEN'
+              }
+            } else if (startValue) {
+              return {
+                field_name: filter.fieldName,
+                value: startValue,
+                operator: '>='
+              }
+            } else if (endValue) {
+              return {
+                field_name: filter.fieldName,
+                value: endValue,
+                operator: '<='
+              }
+            }
+            return null
+          } else {
+            const key = `global_${filter.fieldName}`
+            const value = customFilters[key]
+
+            if (filter.type === 'multiselect') {
+              if (Array.isArray(value) && value.length > 0) {
+                return {
+                  field_name: filter.fieldName,
+                  value: value,
+                  operator: 'IN'
+                }
+              }
+            } else if (value && value !== '') {
+              const operatorKey = `global_${filter.fieldName}_operator`
+              const operator = customFilters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
+
+              return {
+                field_name: filter.fieldName,
+                value: value,
+                operator: operator
+              }
+            }
+            return null
+          }
+        })
+        .filter(Boolean)
 
       // Prepare filters for this query using custom filters
       const queryFilters = query.filters
@@ -364,10 +455,13 @@ export default function ReportDetailPage() {
         })
         .filter(Boolean)
 
+      // Merge global filters with query filters
+      const allFilters = [...globalFilters, ...queryFilters]
+
       const request = {
         report_id: reportId,
         query_id: query.id,
-        filters: queryFilters,
+        filters: allFilters,
         limit: (query.visualization.type === 'table' || query.visualization.type === 'expandable') ? pageSize : 1000,
         ...((query.visualization.type === 'table' || query.visualization.type === 'expandable') && {
           page_size: pageSize,
@@ -432,6 +526,62 @@ export default function ReportDetailPage() {
         }
       }))
 
+      // Prepare global filters first
+      const globalFilters = (report?.globalFilters || [])
+        .map(filter => {
+          if (filter.type === 'date') {
+            const startKey = `global_${filter.fieldName}_start`
+            const endKey = `global_${filter.fieldName}_end`
+            const startValue = customFilters[startKey]
+            const endValue = customFilters[endKey]
+
+            if (startValue && endValue) {
+              return {
+                field_name: filter.fieldName,
+                value: [startValue, endValue],
+                operator: 'BETWEEN'
+              }
+            } else if (startValue) {
+              return {
+                field_name: filter.fieldName,
+                value: startValue,
+                operator: '>='
+              }
+            } else if (endValue) {
+              return {
+                field_name: filter.fieldName,
+                value: endValue,
+                operator: '<='
+              }
+            }
+            return null
+          } else {
+            const key = `global_${filter.fieldName}`
+            const value = customFilters[key]
+
+            if (filter.type === 'multiselect') {
+              if (Array.isArray(value) && value.length > 0) {
+                return {
+                  field_name: filter.fieldName,
+                  value: value,
+                  operator: 'IN'
+                }
+              }
+            } else if (value && value !== '') {
+              const operatorKey = `global_${filter.fieldName}_operator`
+              const operator = customFilters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
+
+              return {
+                field_name: filter.fieldName,
+                value: value,
+                operator: operator
+              }
+            }
+            return null
+          }
+        })
+        .filter(Boolean)
+
       // Prepare filters for this query using custom filters
       const queryFilters = query.filters
         .map(filter => {
@@ -498,10 +648,13 @@ export default function ReportDetailPage() {
         })
         .filter(Boolean)
 
+      // Merge global filters with query filters
+      const allFilters = [...globalFilters, ...queryFilters]
+
       const request = {
         report_id: reportId,
         query_id: query.id,
-        filters: queryFilters,
+        filters: allFilters,
         limit: (query.visualization.type === 'table' || query.visualization.type === 'expandable') ? pageSize : 1000,
         ...((query.visualization.type === 'table' || query.visualization.type === 'expandable') && {
           page_size: pageSize,
@@ -666,6 +819,30 @@ export default function ReportDetailPage() {
         const initialFilters: FilterState = {}
         const dropdownPromises: Promise<void>[] = []
 
+        // Initialize global filters first (with report.id as the key prefix)
+        if (reportData.globalFilters) {
+          for (const filter of reportData.globalFilters) {
+            if (filter.type === 'date') {
+              initialFilters[`global_${filter.fieldName}_start`] = ''
+              initialFilters[`global_${filter.fieldName}_end`] = ''
+            } else if (filter.type === 'multiselect') {
+              initialFilters[`global_${filter.fieldName}`] = []
+            } else {
+              initialFilters[`global_${filter.fieldName}`] = ''
+            }
+
+            // For global filters, we need to load dropdown options differently
+            // Create a pseudo-query object to reuse the existing loadDropdownOptions function
+            if (filter.type === 'dropdown' || filter.type === 'multiselect') {
+              const pseudoQuery = {
+                id: 0, // Use 0 for global filters
+                filters: reportData.globalFilters
+              } as any
+              dropdownPromises.push(loadDropdownOptions(pseudoQuery, filter))
+            }
+          }
+        }
+
         for (const query of reportData.queries) {
           for (const filter of query.filters) {
             if (filter.type === 'date') {
@@ -823,7 +1000,9 @@ export default function ReportDetailPage() {
   }
 
   const handleFilterChange = (queryId: number, fieldName: string, value: any) => {
-    const key = `${queryId}_${fieldName}`
+    // For global filters, fieldName already includes 'global_' prefix, so use it directly
+    // For query filters, construct the key as usual
+    const key = fieldName.startsWith('global_') ? fieldName : `${queryId}_${fieldName}`
     console.log(`Setting filter ${key} = ${value}`)
     setFilters(prev => {
       const newFilters = {
@@ -834,10 +1013,34 @@ export default function ReportDetailPage() {
       // After updating the filter, check if any other filters depend on this one
       // and reload their options
       if (report) {
+        // Handle global filters
+        if (queryId === 0 && report.globalFilters) {
+          // Extract the actual field name from the key (remove 'global_' prefix)
+          const actualFieldName = fieldName.replace('global_', '').replace('_start', '').replace('_end', '').replace('_operator', '')
+          const dependentFilters = report.globalFilters.filter(f => f.dependsOn === actualFieldName)
+
+          // Clear dependent filter values and reload their options
+          dependentFilters.forEach(depFilter => {
+            const depKey = `global_${depFilter.fieldName}`
+            // Clear the dependent filter value
+            if (depFilter.type === 'multiselect') {
+              newFilters[depKey] = []
+            } else {
+              newFilters[depKey] = ''
+            }
+            // Reload options for dependent filter
+            const pseudoQuery = { id: 0, filters: report.globalFilters } as any
+            loadDropdownOptions(pseudoQuery, depFilter, newFilters)
+          })
+        }
+
+        // Handle query filters
         const query = report.queries.find(q => q.id === queryId)
         if (query) {
+          // Extract the actual field name (remove suffixes and prefixes)
+          const actualFieldName = fieldName.replace('_start', '').replace('_end', '').replace('_operator', '')
           // Find all filters that depend on this field
-          const dependentFilters = query.filters.filter(f => f.dependsOn === fieldName)
+          const dependentFilters = query.filters.filter(f => f.dependsOn === actualFieldName)
 
           // Clear dependent filter values and reload their options
           dependentFilters.forEach(depFilter => {
@@ -1138,8 +1341,8 @@ export default function ReportDetailPage() {
     if (query.filters.length === 0) return null
 
     return (
-      <div className="mb-3">
-        <div className="bg-white p-3 rounded border border-gray-200 shadow-sm">
+      <div className="mb-2">
+        <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
           <div className="flex flex-wrap items-end gap-2">
             {query.filters.map((filter) => (
               <div key={filter.id} className={`flex-shrink-0 ${filter.type === 'date' ? 'w-72' : 'w-48'}`}>
@@ -1880,14 +2083,14 @@ export default function ReportDetailPage() {
   }
 
   return (
-    <div className="container min-w-full py-8 space-y-6">
+    <div className="container min-w-full space-y-3">
       {/* Report Header */}
-      <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 px-8 py-6 space-y-4 rounded-lg shadow-lg shadow-slate-200">
+      <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 px-6 py-3 space-y-2 rounded-lg shadow-md">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold">{report.name}</h1>
+                <h1 className="text-2xl font-bold">{report.name}</h1>
                 <div className="relative" ref={dropdownRef}>
                   <button 
                     className="h-8 w-8 p-0 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-700"
@@ -1929,30 +2132,30 @@ export default function ReportDetailPage() {
                   )}
                 </div>
               </div>
-              <p className="text-gray-600 mt-2">{report.description}</p>
+              <p className="text-gray-600 text-sm mt-1">{report.description}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => report && executeAllQueries(report, filters)}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+              className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-blue-700 transition-colors"
             >
-              <RefreshCw className="h-4 w-4" />
+              <RefreshCw className="h-3.5 w-3.5" />
               Raporu Yenile
             </button>
-            <button 
+            <button
               onClick={exportToExcel}
               disabled={isExporting || Object.keys(queryResults).length === 0 || Object.values(queryResults).every(q => !q.result)}
-              className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               {isExporting ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   Dışa Aktarılıyor...
                 </>
               ) : (
                 <>
-                  <FileSpreadsheet className="h-4 w-4" />
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
                   Excel'e Aktar
                 </>
               )}
@@ -1960,7 +2163,7 @@ export default function ReportDetailPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4 text-xs text-gray-500" style={{ marginTop: '10px' }}>
+        <div className="flex items-center gap-3 text-xs text-gray-500">
           <div className="flex items-center gap-1">
             <Calendar className="h-3 w-3" />
             {new Date(report.created_at).toLocaleDateString()}
@@ -1972,24 +2175,34 @@ export default function ReportDetailPage() {
             </div>
           )}
           {report.is_public && (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
               Public
             </span>
           )}
+          {report.tags && report.tags.length > 0 && report.tags.map((tag, index) => (
+            <span key={index} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white border border-gray-300 text-gray-700">
+              {tag}
+            </span>
+          ))}
         </div>
-
-        {report.tags && report.tags.length > 0 && (
-          <div className="flex items-center gap-2">
-            {report.tags.map((tag, index) => (
-              <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white border border-gray-300 text-gray-700">
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
-      <div className="border-t border-gray-200" />
+      {/* Global Filters */}
+      {report.globalFilters && report.globalFilters.length > 0 && (
+        <GlobalFilters
+          globalFilters={report.globalFilters}
+          filters={filters}
+          dropdownOptions={dropdownOptions}
+          searchTerms={searchTerms}
+          dropdownOpen={dropdownOpen}
+          operatorMenuOpen={operatorMenuOpen}
+          onFilterChange={handleFilterChange}
+          setSearchTerms={setSearchTerms}
+          setDropdownOpen={setDropdownOpen}
+          setOperatorMenuOpen={setOperatorMenuOpen}
+          onApplyFilters={() => report && executeAllQueries(report, filters)}
+        />
+      )}
 
       {/* Queries */}
       <div className={`grid grid-cols-1 ${
@@ -1997,21 +2210,21 @@ export default function ReportDetailPage() {
         (report.queries[0].visualization.type === 'table' || report.queries[0].visualization.type === 'expandable')
           ? ''
           : 'lg:grid-cols-2'
-      } gap-6`}>
+      } gap-4`}>
         {report.queries.map((query) => {
           const Icon = VISUALIZATION_ICONS[query.visualization.type] || Table
           const queryState = queryResults[query.id]
-          
+
           return (
             <div key={query.id} className="bg-white rounded-lg shadow-md border border-gray-200" data-query-id={query.id}>
-              <div className="pb-4 px-6 pt-6">
-                <div className="flex items-center gap-3">
-                  <Icon className="h-5 w-5 text-blue-600" />
-                  <span className="text-lg font-semibold">{query.name}</span>
+              <div className="pb-2 px-4 pt-4">
+                <div className="flex items-center gap-2">
+                  <Icon className="h-4 w-4 text-blue-600" />
+                  <span className="text-base font-semibold">{query.name}</span>
                 </div>
               </div>
 
-              <div className="space-y-4 px-6 pb-6 relative">
+              <div className="space-y-3 px-4 pb-4 relative">
                 {/* Loading Overlay */}
                 {queryState?.loading && (
                   <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">

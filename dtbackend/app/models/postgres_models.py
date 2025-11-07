@@ -112,7 +112,7 @@ class DashboardUser(PostgreSQLBase):
 
 class Report(PostgreSQLBase):
     __tablename__ = "reports"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     platform_id = Column(Integer, ForeignKey("platforms.id"), nullable=True, index=True)  # Platform/App association
     name = Column(String(255), nullable=False, index=True)
@@ -120,9 +120,10 @@ class Report(PostgreSQLBase):
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     is_public = Column(Boolean, default=False)
     tags = Column(ARRAY(String), default=[])
+    global_filters = Column(JSONB, default=[])  # Global filters that apply to all queries
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
+
     # Relationships
     platform = relationship("Platform", back_populates="reports")  # Platform relationship
     owner = relationship("User", back_populates="owned_reports")

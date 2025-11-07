@@ -178,6 +178,11 @@ class ReportBase(BaseModel):
     description: Optional[str] = Field(None, max_length=1000, description="Report description")
     is_public: bool = False
     tags: Optional[List[str]] = []
+    global_filters: Optional[List[FilterConfigCreate]] = Field([], alias="globalFilters", description="Global filters that apply to all queries in the report")
+
+    class Config:
+        populate_by_name = True  # Allow both field names and aliases
+        from_attributes = True
 
 class ReportCreate(ReportBase):
     queries: List[QueryConfigCreate] = Field(..., min_items=1, description="At least one query is required")
@@ -187,6 +192,11 @@ class ReportUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     is_public: Optional[bool] = None
     tags: Optional[List[str]] = None
+    global_filters: Optional[List[FilterConfigCreate]] = Field(None, alias="globalFilters")
+
+    class Config:
+        populate_by_name = True
+        from_attributes = True
 
 class ReportFullUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
@@ -194,6 +204,11 @@ class ReportFullUpdate(BaseModel):
     is_public: Optional[bool] = None
     tags: Optional[List[str]] = None
     queries: Optional[List[QueryConfigCreate]] = None
+    global_filters: Optional[List[FilterConfigCreate]] = Field(None, alias="globalFilters")
+
+    class Config:
+        populate_by_name = True
+        from_attributes = True
 
 class Report(ReportBase):
     id: int

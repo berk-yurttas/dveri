@@ -1254,7 +1254,8 @@ export default function AddReportPage() {
     name: '',
     description: '',
     queries: [],
-    tags: []
+    tags: [],
+    globalFilters: []
   })
 
   const [activeQueryIndex, setActiveQueryIndex] = useState<number>(0)
@@ -1494,6 +1495,34 @@ export default function AddReportPage() {
     const query = report.queries[queryIndex]
     const updatedFilters = query.filters.filter((_, i) => i !== filterIndex)
     updateQuery(queryIndex, { filters: updatedFilters })
+  }
+
+  // Global Filter Management
+  const addGlobalFilter = () => {
+    const newFilter: FilterConfig = {
+      id: generateId(),
+      fieldName: 'field_name',
+      displayName: 'Global Filter',
+      type: 'text',
+      required: false
+    }
+
+    setReport(prev => ({
+      ...prev,
+      globalFilters: [...(prev.globalFilters || []), newFilter]
+    }))
+  }
+
+  const updateGlobalFilter = (filterIndex: number, updates: Partial<FilterConfig>) => {
+    const updatedFilters = (report.globalFilters || []).map((filter, i) =>
+      i === filterIndex ? { ...filter, ...updates } : filter
+    )
+    setReport(prev => ({ ...prev, globalFilters: updatedFilters }))
+  }
+
+  const removeGlobalFilter = (filterIndex: number) => {
+    const updatedFilters = (report.globalFilters || []).filter((_, i) => i !== filterIndex)
+    setReport(prev => ({ ...prev, globalFilters: updatedFilters }))
   }
 
   // Load dropdown options for a filter
@@ -1794,6 +1823,128 @@ export default function AddReportPage() {
                   />
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Global Filters Section */}
+          <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300">
+            <CardHeader className="pb-3 pt-3 px-4 border-b border-slate-200/50">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
+                  <Filter className="w-4 h-4 text-orange-600" />
+                  Global Filtreler ({(report.globalFilters || []).length})
+                </CardTitle>
+                <Button onClick={addGlobalFilter} size="sm" className="h-8 text-xs bg-orange-600 hover:bg-orange-700 text-white">
+                  <Plus className="w-3 h-3 mr-1" />
+                  Filtre Ekle
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              {(!report.globalFilters || report.globalFilters.length === 0) ? (
+                <div className="text-center py-8 border-2 border-dashed border-slate-200 rounded-lg bg-slate-50/50">
+                  <Filter className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                  <p className="text-slate-600 font-medium mb-2">Henüz Global Filtre Yok</p>
+                  <p className="text-slate-500 text-sm mb-4 max-w-md mx-auto">
+                    Global filtreler, raporun tüm sorgularına otomatik olarak uygulanır
+                  </p>
+                  <Button onClick={addGlobalFilter} size="sm" className="bg-orange-500 hover:bg-orange-600 text-white">
+                    <Plus className="w-4 h-4 mr-2" />
+                    İlk Filtreyi Ekle
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {report.globalFilters.map((filter, filterIndex) => (
+                    <div key={`add_global_filter_${filterIndex}_${filter.fieldName || filterIndex}`} className="p-4 bg-orange-50/50 border border-orange-200 rounded-lg">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <Filter className="w-4 h-4 text-orange-600" />
+                          <span className="text-sm font-semibold text-slate-700">Global Filtre {filterIndex + 1}</span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeGlobalFilter(filterIndex)}
+                          className="text-red-500 hover:bg-red-50 hover:text-red-600 h-7 px-2"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <Label className="text-xs">Alan Adı</Label>
+                          <Input
+                            value={filter.fieldName}
+                            onChange={(e) => updateGlobalFilter(filterIndex, { fieldName: e.target.value })}
+                            placeholder="field_name"
+                            className="h-9 text-xs"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-xs">Görünen Ad</Label>
+                          <Input
+                            value={filter.displayName}
+                            onChange={(e) => updateGlobalFilter(filterIndex, { displayName: e.target.value })}
+                            placeholder="Görünen ad"
+                            className="h-9 text-xs"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-xs">Filtre Tipi</Label>
+                          <Select
+                            value={filter.type}
+                            onValueChange={(value: any) => updateGlobalFilter(filterIndex, { type: value })}
+                          >
+                            <option value="text">Metin</option>
+                            <option value="number">Sayı</option>
+                            <option value="date">Tarih</option>
+                            <option value="dropdown">Tekli Seçim</option>
+                            <option value="multiselect">Çoklu Seçim</option>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-xs">Zorunlu</Label>
+                          <Checkbox
+                            id={`global-filter-required-${filter.id}`}
+                            checked={filter.required}
+                            onCheckedChange={(checked) => updateGlobalFilter(filterIndex, { required: !!checked })}
+                          />
+                        </div>
+                      </div>
+
+                      {(filter.type === 'dropdown' || filter.type === 'multiselect') && (
+                        <div className="mt-3 space-y-2">
+                          <Label className="text-xs">Dropdown SQL</Label>
+                          <Textarea
+                            value={filter.dropdownQuery || ''}
+                            onChange={(e) => updateGlobalFilter(filterIndex, { dropdownQuery: e.target.value })}
+                            placeholder="SELECT value, label FROM options"
+                            className="min-h-[60px] font-mono text-xs"
+                          />
+                        </div>
+                      )}
+
+                      <div className="mt-3 space-y-2">
+                        <Label className="text-xs">SQL İfadesi (İsteğe Bağlı)</Label>
+                        <Input
+                          value={filter.sqlExpression || ''}
+                          onChange={(e) => updateGlobalFilter(filterIndex, { sqlExpression: e.target.value })}
+                          placeholder="DATE(field_name) veya LOWER(field_name)"
+                          className="h-9 text-xs font-mono"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Alan adı yerine özel bir SQL ifadesi kullanmak için
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 

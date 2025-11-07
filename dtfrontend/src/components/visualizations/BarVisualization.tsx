@@ -20,13 +20,17 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
   const chartData = data.map(row => {
     const item: any = {}
     columns.forEach((col, index) => {
-      item[col] = row[index]
+      const value = row[index]
+      // Convert numeric strings to numbers for proper chart rendering
+      item[col] = typeof value === 'string' && !isNaN(Number(value)) && value.trim() !== ''
+        ? Number(value)
+        : value
     })
     return item
   })
 
-  const isClickable = visualization.chartOptions?.clickable && 
-                      visualization.chartOptions?.nestedQueries && 
+  const isClickable = visualization.chartOptions?.clickable &&
+                      visualization.chartOptions?.nestedQueries &&
                       visualization.chartOptions.nestedQueries.length > 0
 
   // Handle bar click
@@ -92,7 +96,11 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
     const nestedChartData = nestedData.data.map((row: any[]) => {
       const item: any = {}
       nestedData.columns.forEach((col: string, index: number) => {
-        item[col] = row[index]
+        const value = row[index]
+        // Convert numeric strings to numbers for proper chart rendering
+        item[col] = typeof value === 'string' && !isNaN(Number(value)) && value.trim() !== ''
+          ? Number(value)
+          : value
       })
       return item
     })
@@ -141,7 +149,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
           <BarChart data={nestedChartData} margin={{ top: 20, right: 0, left: 0, bottom: 5 }}>
             <defs>
               {colors.map((color, i) => {
-                const darkColor = color.replace(/[0-9A-Fa-f]{2}/, (match) => 
+                const darkColor = color.replace(/[0-9A-Fa-f]{2}/, (match) =>
                   Math.max(0, parseInt(match, 16) - 40).toString(16).padStart(2, '0')
                 )
                 return (
@@ -153,26 +161,26 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               })}
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis 
-              dataKey={xAxisField} 
-              stroke="#6b7280" 
-              style={{ fontSize: '13px', fontWeight: 500 }} 
-              tickLine={false} 
+            <XAxis
+              dataKey={xAxisField}
+              stroke="#6b7280"
+              style={{ fontSize: '13px', fontWeight: 500 }}
+              tickLine={false}
             />
-            <YAxis 
-              stroke="#6b7280" 
-              style={{ fontSize: '13px', fontWeight: 500 }} 
+            <YAxis
+              stroke="#6b7280"
+              style={{ fontSize: '13px', fontWeight: 500 }}
               tickLine={false}
               label={{ value: yAxisField, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
             />
-            <Tooltip 
-              contentStyle={{ 
-                backgroundColor: 'white', 
-                border: '1px solid #e5e7eb', 
-                borderRadius: '12px', 
-                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', 
-                padding: '12px' 
-              }} 
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: '12px',
+                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                padding: '12px'
+              }}
               cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
             />
             <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
@@ -187,26 +195,26 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
         return (
           <LineChart data={nestedChartData} margin={{ top: 20, right: 0, left: 0, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis 
-              dataKey={xAxisField} 
-              stroke="#6b7280" 
-              style={{ fontSize: '13px', fontWeight: 500 }} 
-              tickLine={false} 
+            <XAxis
+              dataKey={xAxisField}
+              stroke="#6b7280"
+              style={{ fontSize: '13px', fontWeight: 500 }}
+              tickLine={false}
             />
-            <YAxis 
-              stroke="#6b7280" 
-              style={{ fontSize: '13px', fontWeight: 500 }} 
+            <YAxis
+              stroke="#6b7280"
+              style={{ fontSize: '13px', fontWeight: 500 }}
               tickLine={false}
               label={{ value: yAxisField, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
             />
-            <Tooltip 
-              contentStyle={{ 
-                backgroundColor: 'white', 
-                border: '1px solid #e5e7eb', 
-                borderRadius: '12px', 
-                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', 
-                padding: '12px' 
-              }} 
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: '12px',
+                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                padding: '12px'
+              }}
               cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
             />
             <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
@@ -223,26 +231,26 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis 
-              dataKey={xAxisField} 
-              stroke="#6b7280" 
-              style={{ fontSize: '13px', fontWeight: 500 }} 
-              tickLine={false} 
+            <XAxis
+              dataKey={xAxisField}
+              stroke="#6b7280"
+              style={{ fontSize: '13px', fontWeight: 500 }}
+              tickLine={false}
             />
-            <YAxis 
-              stroke="#6b7280" 
-              style={{ fontSize: '13px', fontWeight: 500 }} 
+            <YAxis
+              stroke="#6b7280"
+              style={{ fontSize: '13px', fontWeight: 500 }}
               tickLine={false}
               label={{ value: yAxisField, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
             />
-            <Tooltip 
-              contentStyle={{ 
-                backgroundColor: 'white', 
-                border: '1px solid #e5e7eb', 
-                borderRadius: '12px', 
-                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', 
-                padding: '12px' 
-              }} 
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: '12px',
+                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                padding: '12px'
+              }}
               cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
             />
             <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
@@ -254,7 +262,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
           <PieChart>
             <defs>
               {colors.map((color, i) => {
-                const darkColor = color.replace(/[0-9A-Fa-f]{2}/, (match) => 
+                const darkColor = color.replace(/[0-9A-Fa-f]{2}/, (match) =>
                   Math.max(0, parseInt(match, 16) - 40).toString(16).padStart(2, '0')
                 )
                 return (
@@ -278,14 +286,14 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 <Cell key={`cell-${index}`} fill={`url(#pieGradient${index % colors.length})`} />
               ))}
             </Pie>
-            <Tooltip 
-              contentStyle={{ 
-                backgroundColor: 'white', 
-                border: '1px solid #e5e7eb', 
-                borderRadius: '12px', 
-                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', 
-                padding: '12px' 
-              }} 
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: '12px',
+                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                padding: '12px'
+              }}
             />
             <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
           </PieChart>
@@ -352,7 +360,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
         <defs>
           {colors.map((color, i) => {
             // Create gradient for each color
-            const darkColor = color.replace(/[0-9A-Fa-f]{2}/, (match) => 
+            const darkColor = color.replace(/[0-9A-Fa-f]{2}/, (match) =>
               Math.max(0, parseInt(match, 16) - 40).toString(16).padStart(2, '0')
             )
             return (
@@ -364,31 +372,35 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
           })}
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-        <XAxis 
-          dataKey={visualization.xAxis || columns[0]} 
-          stroke="#6b7280" 
-          style={{ fontSize: '13px', fontWeight: 500 }} 
-          tickLine={false} 
+        <XAxis
+          dataKey={visualization.xAxis || columns[0]}
+          stroke="#6b7280"
+          style={{ fontSize: '13px', fontWeight: 500 }}
+          tickLine={false}
+          padding={{ left: 30, right: 30 }}
+          angle={-45}
+          textAnchor="end"
+          height={70}
         />
-        <YAxis 
-          stroke="#6b7280" 
-          style={{ fontSize: '13px', fontWeight: 500 }} 
+        <YAxis
+          stroke="#6b7280"
+          style={{ fontSize: '13px', fontWeight: 500 }}
           tickLine={false}
           label={{ value: visualization.yAxis || columns[1], angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
         />
-        <Tooltip 
-          contentStyle={{ 
-            backgroundColor: 'white', 
-            border: '1px solid #e5e7eb', 
-            borderRadius: '12px', 
-            boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', 
-            padding: '12px' 
-          }} 
+        <Tooltip
+          contentStyle={{
+            backgroundColor: 'white',
+            border: '1px solid #e5e7eb',
+            borderRadius: '12px',
+            boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+            padding: '12px'
+          }}
           cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
         />
         {visualization.showLegend && <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />}
-        <Bar 
-          dataKey={visualization.yAxis || columns[1]} 
+        <Bar
+          dataKey={visualization.yAxis || columns[1]}
           fill={colors[0]}
           name={visualization.yAxis || columns[1]}
           onClick={isClickable ? handleBarClick : undefined}
@@ -397,8 +409,8 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
           maxBarSize={60}
         >
           {chartData.map((entry, index) => (
-            <Cell 
-              key={`cell-${index}`} 
+            <Cell
+              key={`cell-${index}`}
               fill={`url(#colorGradient${index % colors.length})`}
             />
           ))}

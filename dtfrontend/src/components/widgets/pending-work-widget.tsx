@@ -213,9 +213,9 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
           setMekanikData(transformed)
         }
 
-        // Extract unique firma options from both datasets
-        const kablajFirmas = kablajResponse.data?.map(row => row[0]) || []
-        const mekanikFirmas = mekanikResponse.data?.map(row => row[0]) || []
+        // Extract unique firma options from both datasets, filtering out null/undefined
+        const kablajFirmas = kablajResponse.data?.map(row => row[0]).filter(Boolean) || []
+        const mekanikFirmas = mekanikResponse.data?.map(row => row[0]).filter(Boolean) || []
         const allFirmas = Array.from(new Set([...kablajFirmas, ...mekanikFirmas])).sort()
         setFirmaOptions(allFirmas)
 
@@ -327,7 +327,7 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
 
   // Filter options based on search
   const filteredFirmaOptions = firmaOptions.filter(firma =>
-    firma.toLowerCase().includes(firmaSearch.toLowerCase())
+    firma && firma.toLowerCase().includes(firmaSearch.toLowerCase())
   )
 
   // Show loading state

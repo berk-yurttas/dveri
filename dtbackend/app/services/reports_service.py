@@ -29,6 +29,21 @@ class ReportsService:
         if not user:
             raise ValueError("User not found")
 
+        # Serialize global filters to JSON
+        global_filters_json = []
+        if report_data.global_filters:
+            for filter_data in report_data.global_filters:
+                filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
+                global_filters_json.append({
+                    'fieldName': filter_data.field_name,
+                    'displayName': filter_data.display_name,
+                    'type': filter_type_value,
+                    'dropdownQuery': filter_data.dropdown_query,
+                    'required': filter_data.required,
+                    'sqlExpression': filter_data.sql_expression,
+                    'dependsOn': filter_data.depends_on
+                })
+
         # Create the main report
         db_report = Report(
             name=report_data.name,
@@ -36,6 +51,7 @@ class ReportsService:
             owner_id=user.id,
             is_public=report_data.is_public,
             tags=report_data.tags or [],
+            global_filters=global_filters_json,
             platform_id=platform.id if platform else None
         )
         self.db.add(db_report)
@@ -270,6 +286,22 @@ class ReportsService:
             db_report.is_public = report_data.is_public
         if report_data.tags is not None:
             db_report.tags = report_data.tags
+
+        # Update global filters if provided
+        if report_data.global_filters is not None:
+            global_filters_json = []
+            for filter_data in report_data.global_filters:
+                filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
+                global_filters_json.append({
+                    'fieldName': filter_data.field_name,
+                    'displayName': filter_data.display_name,
+                    'type': filter_type_value,
+                    'dropdownQuery': filter_data.dropdown_query,
+                    'required': filter_data.required,
+                    'sqlExpression': filter_data.sql_expression,
+                    'dependsOn': filter_data.depends_on
+                })
+            db_report.global_filters = global_filters_json
 
         # Update queries if provided
         if report_data.queries is not None:
@@ -575,9 +607,9 @@ class ReportsService:
 
         return new_sql
 
-    def execute_query(self, query: ReportQuery, filter_values: List[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Optional[Platform] = None) -> QueryExecutionResult:
+    def execute_query(self, query: ReportQuery, filter_values: List[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Optional[Platform] = None, global_filters: List[Dict[str, Any]] = None) -> QueryExecutionResult:
         """Execute a single query with optional filters
-        
+
         Args:
             query: ReportQuery to execute
             filter_values: Optional filter values
@@ -588,6 +620,7 @@ class ReportsService:
             sort_direction: Sort direction ('asc' or 'desc')
             visualization_type: Type of visualization
             platform: Platform instance for database connection (optional, falls back to clickhouse_client)
+            global_filters: Global filters from the report that apply to all queries
         """
         # Determine database type
         if platform:
@@ -601,9 +634,26 @@ class ReportsService:
         try:
             # Get the base SQL
             sql = query.sql
-            
+
+            # Merge global filters with query-specific filters
+            all_filters = list(query.filters)
+            if global_filters:
+                # Convert global filters dict to ReportQueryFilter objects for processing
+                for gf in global_filters:
+                    # Create a pseudo-filter object that matches ReportQueryFilter structure
+                    filter_obj = type('obj', (object,), {
+                        'field_name': gf.get('fieldName'),
+                        'display_name': gf.get('displayName'),
+                        'filter_type': gf.get('type'),
+                        'dropdown_query': gf.get('dropdownQuery'),
+                        'required': gf.get('required', False),
+                        'sql_expression': gf.get('sqlExpression'),
+                        'depends_on': gf.get('dependsOn')
+                    })()
+                    all_filters.append(filter_obj)
+
             # Always apply filters (even if empty) to handle {{dynamic_filters}} placeholder
-            sql = self.apply_filters_to_query(sql, query.filters, filter_values or [], db_type)
+            sql = self.apply_filters_to_query(sql, all_filters, filter_values or [], db_type)
             
             # Apply sorting if provided
             if sort_by and sort_direction:
@@ -844,6 +894,13 @@ class ReportsService:
         if not platform and not self.clickhouse_client:
             raise ValueError("No database connection available for this report")
 
+        # Merge global filters with request filters
+        # Global filters apply to all queries, request filters are user-provided values
+        merged_filters = list(request.filters) if request.filters else []
+
+        # If report has global filters defined, they should already be part of the SQL
+        # The filter values in the request will apply to both global and query-specific filters
+
         start_time = time.time()
         results = []
 
@@ -853,24 +910,26 @@ class ReportsService:
                 query = next((q for q in report.queries if q.id == request.query_id), None)
                 if not query:
                     raise ValueError("Query not found in report")
-                
+
                 result = self.execute_query(
-                    query, request.filters, request.limit, 
-                    request.page_size, request.page_limit, 
-                    request.sort_by, request.sort_direction, 
+                    query, merged_filters, request.limit,
+                    request.page_size, request.page_limit,
+                    request.sort_by, request.sort_direction,
                     query.visualization_config.get('type', 'table'),
-                    platform=platform
+                    platform=platform,
+                    global_filters=report.global_filters or []
                 )
                 results.append(result)
             else:
                 # Execute all queries
                 for query in report.queries:
                     result = self.execute_query(
-                        query, request.filters, request.limit, 
-                        request.page_size, request.page_limit, 
-                        request.sort_by, request.sort_direction, 
+                        query, merged_filters, request.limit,
+                        request.page_size, request.page_limit,
+                        request.sort_by, request.sort_direction,
                         query.visualization_config.get('type', 'table'),
-                        platform=platform
+                        platform=platform,
+                        global_filters=report.global_filters or []
                     )
                     results.append(result)
 

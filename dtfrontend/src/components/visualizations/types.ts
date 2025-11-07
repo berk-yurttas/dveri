@@ -25,10 +25,10 @@ export interface QueryData {
 export interface FilterData {
   id: number
   fieldName: string
-  dependsOn?: string | null
   displayName: string
   type: 'date' | 'dropdown' | 'multiselect' | 'number' | 'text'
   dropdownQuery: string | null
+  dependsOn: string | null
   required: boolean
   query_id: number
   created_at: string
