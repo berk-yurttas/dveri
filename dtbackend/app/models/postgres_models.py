@@ -190,3 +190,21 @@ class UserPlatform(PostgreSQLBase):
     # Relationships
     user = relationship("User", back_populates="user_platforms")
     platform = relationship("Platform", back_populates="user_platforms")
+
+
+class Announcement(PostgreSQLBase):
+    """Announcement model for displaying news and updates"""
+    __tablename__ = "announcements"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(Text, nullable=False)
+    month_title = Column(Text, nullable=True)  # e.g., "Kasım", "Aralık"
+    content_summary = Column(Text, nullable=True)
+    content_detail = Column(Text, nullable=True)
+    content_image = Column(Text, nullable=True)  # Store as base64 string or URL
+    creation_date = Column(DateTime(timezone=True), server_default=func.now())
+    expire_date = Column(DateTime(timezone=True), nullable=True)
+    platform_id = Column(Integer, ForeignKey("platforms.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    # Relationships
+    platform = relationship("Platform", backref="announcements")

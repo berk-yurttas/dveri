@@ -46,8 +46,10 @@ import {
 } from "lucide-react";
 import { dashboardService } from "@/services/dashboard";
 import { platformService } from "@/services/platform";
+import { announcementService } from "@/services/announcement";
 import { DashboardList } from "@/types/dashboard";
 import { Platform as PlatformType } from "@/types/platform";
+import { Announcement } from "@/types/announcement";
 import { useUser } from "@/contexts/user-context";
 import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
@@ -130,6 +132,8 @@ export default function Home() {
     user.role.includes('deriniz:admin');
   const [platforms, setPlatforms] = useState<PlatformType[]>([]);
   const [dashboards, setDashboards] = useState<DashboardList[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [currentAnnouncementIndex, setCurrentAnnouncementIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
@@ -165,6 +169,19 @@ export default function Home() {
     setShowTooltip(false);
   };
 
+  // Carousel navigation for announcements
+  const handleNextAnnouncement = () => {
+    setCurrentAnnouncementIndex((prev) => 
+      prev + 3 >= announcements.length ? 0 : prev + 3
+    );
+  };
+
+  const handlePrevAnnouncement = () => {
+    setCurrentAnnouncementIndex((prev) => 
+      prev - 3 < 0 ? Math.max(0, announcements.length - 3) : prev - 3
+    );
+  };
+
   useEffect(() => {
     // Clear platform when visiting root home page
     // This ensures dashboards/reports from all platforms are shown
@@ -177,12 +194,14 @@ export default function Home() {
     
     const fetchData = async () => {
       try {
-        const [platformData, dashboardData] = await Promise.all([
+        const [platformData, dashboardData, announcementData] = await Promise.all([
           platformService.getPlatforms(0, 100, false), // Get active platforms only
           dashboardService.getDashboards(),
+          announcementService.getAnnouncements(0, 10, null, true), // Get general announcements (platform_id = null)
         ]);
         setPlatforms(platformData);
         setDashboards(dashboardData);
+        setAnnouncements(announcementData);
       } catch (error) {
         console.error("Failed to fetch data:", error);
         setError("Veriler yüklenemedi");
@@ -349,139 +368,93 @@ export default function Home() {
       </div>
 
       {/* Full-width Duyurular Section */}
-      <div className="w-full py-12 mb-8 relative overflow-hidden">
+      {announcements.length > 0 && (
+        <div className="w-full py-12 mb-8 relative overflow-hidden">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+            <div className="mb-8">
+              <h3 className="text-2xl font-bold mb-2" style={{"color": "rgb(69,81,89)"}}>Duyurular</h3>
+              <div className="w-[100px] h-[5px] bg-red-600"></div>
+            </div>
 
+            {/* Carousel Container */}
+            <div className="relative flex justify-center">
+              {/* Navigation Arrows - Only show if more than 3 items */}
+              {announcements.length > 3 && (
+                <>
+                  <button 
+                    onClick={handlePrevAnnouncement}
+                    className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-red-600 hover:bg-red-700 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+                  <button 
+                    onClick={handleNextAnnouncement}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-red-600 hover:bg-red-700 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </>
+              )}
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <div className="mb-8">
-            <h3 className="text-2xl font-bold mb-2" style={{"color": "rgb(69,81,89)"}}>Duyurular</h3>
-            <div className="w-[100px] h-[5px] bg-red-600"></div>
-          </div>
+              {/* Carousel Cards */}
+              <div className="flex gap-6 justify-center items-center max-w-4xl mx-auto">
+                {announcements.slice(currentAnnouncementIndex, currentAnnouncementIndex + 3).map((announcement) => (
+                  <div key={announcement.id} className="flex-shrink-0 w-80">
+                    <div className="relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl">
+                      {/* Glow Effect */}
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-30 blur-xl"></div>
 
-          {/* Carousel Container */}
-          <div className="relative flex justify-center">
-            {/* Navigation Arrows */}
-            <button className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-red-600 hover:bg-red-700 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <button className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-red-600 hover:bg-red-700 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
+                      {/* Image Background */}
+                      {announcement.content_image && (
+                        <div 
+                          className="absolute inset-0 bg-cover bg-center opacity-30"
+                          style={{ backgroundImage: `url(${announcement.content_image})` }}
+                        />
+                      )}
 
-            {/* Carousel Cards */}
-            <div className="flex gap-6 justify-center items-center max-w-4xl mx-auto">
-              {/* Card 1 */}
-              <div className="flex-shrink-0 w-80">
-                <div className="relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl">
-                  {/* Glow Effect */}
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-30 blur-xl"></div>
+                      {/* Logo */}
+                      <div className="absolute top-4 right-4 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
+                        <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
+                          <div className="w-4 h-4 bg-white rounded-full"></div>
+                        </div>
+                      </div>
 
-                  {/* Logo */}
-                  <div className="absolute top-4 right-4 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
-                    <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                      <div className="w-4 h-4 bg-white rounded-full"></div>
+                      {/* Date/Month Banner */}
+                      {announcement.month_title && (
+                        <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
+                          <span className="text-sm font-bold uppercase">{announcement.month_title}</span>
+                        </div>
+                      )}
+
+                      {/* Main Title */}
+                      <div className={`absolute ${announcement.month_title ? 'bottom-4' : 'top-1/2 -translate-y-1/2'} left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4`}>
+                        <div className="text-white font-bold text-lg leading-tight">
+                          {announcement.title.split('\n').map((line, i) => (
+                            <div key={i}>{line}</div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Description */}
+                    <div className="mt-3">
+                      <div className="h-1 w-12 bg-red-600 mb-2"></div>
+                      <h4 className="text-gray-900 font-semibold mb-1">{announcement.content_summary || announcement.title}</h4>
+                      <p className="text-gray-600 text-sm">
+                        {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
+                      </p>
                     </div>
                   </div>
-
-                  {/* Date Banner */}
-                  <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                    <span className="text-sm font-bold uppercase">27 EKİM - 31 EKİM HAFTASI</span>
-                  </div>
-
-                  {/* Main Title */}
-                  <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
-                    <div className="text-white font-bold text-lg leading-tight">
-                      <div>MIRAS'TA</div>
-                      <div>BU HAFTA NELER OLDU?</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card Description */}
-                <div className="mt-3">
-                  <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                  <h4 className="text-gray-900 font-semibold mb-1">Miras'ta bu hafta neler oldu?</h4>
-                  <p className="text-gray-600 text-sm">29.10.2025</p>
-                </div>
-              </div>
-
-              {/* Card 2 */}
-              <div className="flex-shrink-0 w-80">
-                <div className="relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl">
-                  {/* Glow Effect */}
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-30 blur-xl"></div>
-
-                  {/* Logo */}
-                  <div className="absolute top-4 right-4 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
-                    <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                      <div className="w-4 h-4 bg-white rounded-full"></div>
-                    </div>
-                  </div>
-
-                  {/* Date Banner */}
-                  <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                    <span className="text-sm font-bold uppercase">EKİM AYI</span>
-                  </div>
-
-                  {/* Main Title */}
-                  <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
-                    <div className="text-white font-bold text-lg leading-tight">
-                      <div>ROM'da</div>
-                      <div>BU AY NELER OLDU?</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card Description */}
-                <div className="mt-3">
-                  <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                  <h4 className="text-gray-900 font-semibold mb-1">ROM'da bu ay neler oldu?</h4>
-                  <p className="text-gray-600 text-sm">15.11.2025</p>
-                </div>
-              </div>
-
-              {/* Card 3 */}
-              <div className="flex-shrink-0 w-80">
-                <div className="relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl">
-                  {/* Glow Effect */}
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-30 blur-xl"></div>
-
-                  {/* Logo */}
-                  <div className="absolute top-4 right-4 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
-                    <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                      <div className="w-4 h-4 bg-white rounded-full"></div>
-                    </div>
-                  </div>
-
-                  {/* Date Banner */}
-                  <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                    <span className="text-sm font-bold uppercase">EKİM AYI</span>
-                  </div>
-
-                  {/* Main Title */}
-                  <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
-                    <div className="text-white font-bold text-lg leading-tight">
-                      <div>REHİS'de bu ay Dijital Dönüşüm Müdürlükleri ile</div>
-                      <div>NELER YAPILDI?</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card Description */}
-                <div className="mt-3">
-                  <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                  <h4 className="text-gray-900 font-semibold mb-1">REHİS'de bu ay neler yapıldı?</h4>
-                  <p className="text-gray-600 text-sm">15.11.2025</p>
-                </div>
+                ))}
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Footer */}
       <footer className="w-full border-t border-gray-100 py-8 mb-[-20px] bg-white">
