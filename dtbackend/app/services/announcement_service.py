@@ -64,7 +64,9 @@ class AnnouncementService:
         skip: int = 0,
         limit: int = 100,
         platform_id: Optional[int] = None,
-        active_only: bool = True
+        active_only: bool = True,
+        all_platforms: bool = False,
+        include_general: bool = True
     ) -> List[Announcement]:
         """
         Get list of announcements with optional filtering
@@ -75,6 +77,8 @@ class AnnouncementService:
             limit: Maximum number of records to return
             platform_id: Filter by platform ID (None for general announcements)
             active_only: If True, only return announcements that are currently active
+            all_platforms: If True, return announcements from all platforms (for admin)
+            include_general: If True, include general announcements with platform-specific ones
             
         Returns:
             List of announcements
@@ -82,15 +86,22 @@ class AnnouncementService:
         query = select(Announcement).options(selectinload(Announcement.platform))
         
         # Filter by platform
-        # Note: We always apply platform filter to prevent showing all announcements
-        if platform_id is not None:
-            # Get announcements for specific platform or general announcements
-            query = query.where(
-                or_(
-                    Announcement.platform_id == platform_id,
-                    Announcement.platform_id.is_(None)
+        if all_platforms:
+            # Admin mode: Don't filter by platform, show all announcements
+            pass
+        elif platform_id is not None:
+            # Get announcements for specific platform
+            if include_general:
+                # Include general announcements (for frontend display)
+                query = query.where(
+                    or_(
+                        Announcement.platform_id == platform_id,
+                        Announcement.platform_id.is_(None)
+                    )
                 )
-            )
+            else:
+                # Only specific platform (for admin management)
+                query = query.where(Announcement.platform_id == platform_id)
         else:
             # For main page (platform_id=None): Only show general announcements
             query = query.where(Announcement.platform_id.is_(None))
@@ -108,8 +119,8 @@ class AnnouncementService:
                 )
             )
         
-        # Order by creation_date descending
-        query = query.order_by(Announcement.creation_date.desc())
+        # Order by creation_date descending, then by id descending (for consistent ordering)
+        query = query.order_by(Announcement.creation_date.desc(), Announcement.id.desc())
         
         # Pagination
         query = query.offset(skip).limit(limit)
@@ -212,7 +223,8 @@ class AnnouncementService:
     async def get_announcement_count(
         db: AsyncSession,
         platform_id: Optional[int] = None,
-        active_only: bool = True
+        active_only: bool = True,
+        all_platforms: bool = False
     ) -> int:
         """
         Get count of announcements
@@ -221,6 +233,7 @@ class AnnouncementService:
             db: Database session
             platform_id: Filter by platform ID
             active_only: If True, only count active announcements
+            all_platforms: If True, count announcements from all platforms
             
         Returns:
             Number of announcements
@@ -228,7 +241,10 @@ class AnnouncementService:
         query = select(func.count(Announcement.id))
         
         # Filter by platform
-        if platform_id is not None:
+        if all_platforms:
+            # Admin mode: Don't filter by platform
+            pass
+        elif platform_id is not None:
             query = query.where(
                 or_(
                     Announcement.platform_id == platform_id,

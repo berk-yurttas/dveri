@@ -15,6 +15,7 @@ import { announcementService } from "@/services/announcement";
 import { platformService } from "@/services/platform";
 import { Platform } from "@/types/platform";
 import { Announcement, AnnouncementUpdate } from "@/types/announcement";
+import RichTextEditor from "@/components/RichTextEditor";
 
 export default function EditAnnouncementPage() {
   const router = useRouter();
@@ -38,6 +39,17 @@ export default function EditAnnouncementPage() {
     platform_id: null,
   });
 
+  // Convert ISO date to local datetime string format
+  const convertToLocalDateTimeString = (isoString: string) => {
+    const date = new Date(isoString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
   useEffect(() => {
     fetchPlatforms();
     fetchAnnouncement();
@@ -58,9 +70,9 @@ export default function EditAnnouncementPage() {
       const data = await announcementService.getAnnouncementById(announcementId);
       setAnnouncement(data);
       
-      // Convert dates to datetime-local format
-      const creationDate = data.creation_date ? new Date(data.creation_date).toISOString().slice(0, 16) : "";
-      const expireDate = data.expire_date ? new Date(data.expire_date).toISOString().slice(0, 16) : "";
+      // Convert dates to datetime-local format (using local timezone)
+      const creationDate = data.creation_date ? convertToLocalDateTimeString(data.creation_date) : "";
+      const expireDate = data.expire_date ? convertToLocalDateTimeString(data.expire_date) : "";
       
       setFormData({
         title: data.title,
@@ -91,6 +103,13 @@ export default function EditAnnouncementPage() {
     }
   };
 
+  // Add Turkey timezone to datetime string for backend
+  const addTimezoneToDateTimeString = (dateTimeString: string | null | undefined): string | null => {
+    if (!dateTimeString) return null;
+    // Add Turkey timezone (+03:00) and seconds to the datetime string
+    return `${dateTimeString}:00+03:00`;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -103,15 +122,15 @@ export default function EditAnnouncementPage() {
     setError(null);
 
     try {
-      // Clean up form data
+      // Clean up form data and add timezone
       const submitData: AnnouncementUpdate = {
         title: formData.title,
         month_title: formData.month_title || null,
         content_summary: formData.content_summary || null,
         content_detail: formData.content_detail || null,
         content_image: formData.content_image || null,
-        creation_date: formData.creation_date || null,
-        expire_date: formData.expire_date || null,
+        creation_date: addTimezoneToDateTimeString(formData.creation_date),
+        expire_date: addTimezoneToDateTimeString(formData.expire_date),
         platform_id: formData.platform_id === 0 ? null : formData.platform_id,
       };
 
@@ -189,7 +208,7 @@ export default function EditAnnouncementPage() {
                 id="title"
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                 placeholder="Duyuru başlığı"
                 required
               />
@@ -205,7 +224,7 @@ export default function EditAnnouncementPage() {
                 id="month_title"
                 value={formData.month_title || ""}
                 onChange={(e) => setFormData({ ...formData, month_title: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                 placeholder="Örn: Kasım, Aralık"
               />
             </div>
@@ -223,7 +242,7 @@ export default function EditAnnouncementPage() {
                     ...formData, 
                     platform_id: e.target.value === "0" ? null : parseInt(e.target.value)
                   })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none text-gray-900"
                 >
                   <option value="0">Genel Duyuru (Tüm Platformlar)</option>
                   {platforms.map((platform) => (
@@ -253,7 +272,7 @@ export default function EditAnnouncementPage() {
                 value={formData.content_summary || ""}
                 onChange={(e) => setFormData({ ...formData, content_summary: e.target.value })}
                 rows={3}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                 placeholder="Duyuru özeti"
               />
             </div>
@@ -262,13 +281,11 @@ export default function EditAnnouncementPage() {
             <div>
               <label htmlFor="content_detail" className="block text-sm font-medium text-gray-700 mb-2">
                 Detaylı İçerik
+                <span className="text-xs text-gray-500 ml-2">(Zengin metin editörü - kalın, italik, resim, link ekleyebilirsiniz)</span>
               </label>
-              <textarea
-                id="content_detail"
+              <RichTextEditor
                 value={formData.content_detail || ""}
-                onChange={(e) => setFormData({ ...formData, content_detail: e.target.value })}
-                rows={6}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={(value) => setFormData({ ...formData, content_detail: value })}
                 placeholder="Duyurunun detaylı içeriği"
               />
             </div>
@@ -321,7 +338,7 @@ export default function EditAnnouncementPage() {
                     id="creation_date"
                     value={formData.creation_date || ""}
                     onChange={(e) => setFormData({ ...formData, creation_date: e.target.value })}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                   />
                 </div>
                 <p className="mt-1 text-sm text-gray-500">
@@ -340,7 +357,7 @@ export default function EditAnnouncementPage() {
                     id="expire_date"
                     value={formData.expire_date || ""}
                     onChange={(e) => setFormData({ ...formData, expire_date: e.target.value })}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                   />
                 </div>
                 <p className="mt-1 text-sm text-gray-500">

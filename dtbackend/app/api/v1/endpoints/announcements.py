@@ -23,12 +23,14 @@ from app.core.auth import check_authenticated
 router = APIRouter()
 
 
-@router.get("/", response_model=List[AnnouncementList])
+@router.get("/", response_model=List[AnnouncementSchema])
 async def get_announcements(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return"),
     platform_id: Optional[int] = Query(None, description="Filter by platform ID (null for general announcements)"),
     active_only: bool = Query(True, description="Only return currently active announcements"),
+    all_platforms: bool = Query(False, description="Return announcements from all platforms (for admin)"),
+    include_general: bool = Query(True, description="Include general announcements with platform-specific ones"),
     db: AsyncSession = Depends(get_postgres_db),
     current_user: User = Depends(check_authenticated)
 ):
@@ -39,13 +41,17 @@ async def get_announcements(
     - **limit**: Maximum number of records to return
     - **platform_id**: Filter by platform ID (null for general announcements)
     - **active_only**: Only return announcements that are currently active (based on creation_date and expire_date)
+    - **all_platforms**: Return announcements from all platforms (for admin panel)
+    - **include_general**: Include general announcements with platform-specific ones (default True for frontend)
     """
     announcements = await AnnouncementService.get_announcements(
         db=db,
         skip=skip,
         limit=limit,
         platform_id=platform_id,
-        active_only=active_only
+        active_only=active_only,
+        all_platforms=all_platforms,
+        include_general=include_general
     )
     return announcements
 
@@ -54,6 +60,7 @@ async def get_announcements(
 async def get_announcement_count(
     platform_id: Optional[int] = Query(None, description="Filter by platform ID"),
     active_only: bool = Query(True, description="Only count active announcements"),
+    all_platforms: bool = Query(False, description="Count announcements from all platforms"),
     db: AsyncSession = Depends(get_postgres_db),
     current_user: User = Depends(check_authenticated)
 ):
@@ -63,7 +70,8 @@ async def get_announcement_count(
     count = await AnnouncementService.get_announcement_count(
         db=db,
         platform_id=platform_id,
-        active_only=active_only
+        active_only=active_only,
+        all_platforms=all_platforms
     )
     return {"total": count, "platform_id": platform_id, "active_only": active_only}
 

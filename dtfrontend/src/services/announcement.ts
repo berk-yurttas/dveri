@@ -7,12 +7,16 @@ export const announcementService = {
     skip: number = 0,
     limit: number = 100,
     platformId?: number | null,
-    activeOnly: boolean = true
+    activeOnly: boolean = true,
+    allPlatforms: boolean = false,
+    includeGeneral: boolean = true
   ): Promise<Announcement[]> {
     const params = new URLSearchParams({
       skip: skip.toString(),
       limit: limit.toString(),
       active_only: activeOnly.toString(),
+      all_platforms: allPlatforms.toString(),
+      include_general: includeGeneral.toString(),
     });
 
     if (platformId !== undefined && platformId !== null) {

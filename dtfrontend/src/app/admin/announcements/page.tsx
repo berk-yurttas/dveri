@@ -19,6 +19,7 @@ import { platformService } from "@/services/platform";
 import { Announcement } from "@/types/announcement";
 import { Platform } from "@/types/platform";
 import { DeleteModal } from "@/components/ui/delete-modal";
+import AdminSidebar from "@/components/AdminSidebar";
 
 export default function AdminAnnouncementsPage() {
   const router = useRouter();
@@ -55,8 +56,28 @@ export default function AdminAnnouncementsPage() {
     try {
       setLoading(true);
       setError(null);
-      const platformId = filterPlatformId === "all" ? undefined : filterPlatformId === "general" ? null : parseInt(filterPlatformId);
-      const data = await announcementService.getAnnouncements(0, 100, platformId, !includeExpired);
+      
+      // Determine filter parameters
+      const isAllPlatforms = filterPlatformId === "all";
+      const isGeneralOnly = filterPlatformId === "general";
+      const isSpecificPlatform = !isAllPlatforms && !isGeneralOnly;
+      
+      const platformId = isAllPlatforms 
+        ? undefined 
+        : isGeneralOnly
+          ? null 
+          : parseInt(filterPlatformId);
+      
+      // Fetch announcements
+      const data = await announcementService.getAnnouncements(
+        0, 
+        100, 
+        platformId, 
+        !includeExpired,
+        isAllPlatforms,  // all_platforms=true when "Tüm Duyurular" is selected
+        !isSpecificPlatform  // include_general=false when specific platform is selected (admin mode)
+      );
+      
       setAnnouncements(data);
     } catch (err) {
       console.error("Failed to fetch announcements:", err);
@@ -118,22 +139,27 @@ export default function AdminAnnouncementsPage() {
 
   if (loading && announcements.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-          <div className="text-lg text-gray-600">Duyurular yükleniyor...</div>
+      <div className="flex min-h-screen">
+        <AdminSidebar />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+            <div className="text-lg text-gray-600">Duyurular yükleniyor...</div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="flex min-h-screen bg-gray-50">
+      <AdminSidebar />
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Duyuru Yönetimi</h1>
-          <p className="text-gray-600">Sistemdeki tüm duyuruları görüntüleyin ve yönetin</p>
+          <p className="text-gray-700">Sistemdeki tüm duyuruları görüntüleyin ve yönetin</p>
         </div>
 
         {/* Success Message */}
@@ -165,7 +191,7 @@ export default function AdminAnnouncementsPage() {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder:text-gray-500"
                   />
                 </div>
               </div>
@@ -183,7 +209,7 @@ export default function AdminAnnouncementsPage() {
               <select
                 value={filterPlatformId}
                 onChange={(e) => setFilterPlatformId(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
               >
                 <option value="all">Tüm Duyurular</option>
                 <option value="general">Genel Duyurular</option>
@@ -194,7 +220,7 @@ export default function AdminAnnouncementsPage() {
                 ))}
               </select>
 
-              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <label className="flex items-center gap-2 text-sm text-gray-900 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={includeExpired}
@@ -326,21 +352,22 @@ export default function AdminAnnouncementsPage() {
             Toplam {filteredAnnouncements.length} duyuru gösteriliyor
           </div>
         )}
-      </div>
 
-      {/* Delete Modal */}
-      <DeleteModal
-        isOpen={deleteModalOpen}
-        onClose={() => {
-          setDeleteModalOpen(false);
-          setAnnouncementToDelete(null);
-        }}
-        onConfirm={handleDeleteConfirm}
-        title="Duyuruyu Sil"
-        description="Bu duyuruyu silmek istediğinizden emin misiniz?"
-        itemName={announcementToDelete?.title}
-        isDeleting={isDeleting}
-      />
+        {/* Delete Modal */}
+        <DeleteModal
+          isOpen={deleteModalOpen}
+          onClose={() => {
+            setDeleteModalOpen(false);
+            setAnnouncementToDelete(null);
+          }}
+          onConfirm={handleDeleteConfirm}
+          title="Duyuruyu Sil"
+          description="Bu duyuruyu silmek istediğinizden emin misiniz?"
+          itemName={announcementToDelete?.title}
+          isDeleting={isDeleting}
+        />
+      </div>
+      </div>
     </div>
   );
 }

@@ -39,7 +39,8 @@ import {
   EyeOff,
   Edit,
   Trash2,
-  User
+  User,
+  X
 } from "lucide-react";
 import { dashboardService } from "@/services/dashboard";
 import { reportsService } from "@/services/reports";
@@ -51,6 +52,7 @@ import { useUser } from "@/contexts/user-context";
 import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
+import DOMPurify from 'dompurify';
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -101,9 +103,12 @@ export default function PlatformHome() {
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [currentAnnouncementIndex, setCurrentAnnouncementIndex] = useState(0);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
+  const [hoveredAnnouncement, setHoveredAnnouncement] = useState<number | null>(null);
   const [showIotApps, setShowIotApps] = useState(false);
   const isIvmePlatform = platformData?.code === 'ivme';
   const isRomiotPlatform = platformCode === 'romiot';
@@ -136,15 +141,39 @@ export default function PlatformHome() {
 
   // Carousel navigation for announcements
   const handleNextAnnouncement = () => {
-    setCurrentAnnouncementIndex((prev) => 
-      prev + 3 >= announcements.length ? 0 : prev + 3
-    );
+    setCurrentAnnouncementIndex((prev) => {
+      const nextIndex = prev + 3;
+      // Don't go beyond the last set of announcements
+      return nextIndex < announcements.length ? nextIndex : prev;
+    });
   };
 
   const handlePrevAnnouncement = () => {
-    setCurrentAnnouncementIndex((prev) => 
-      prev - 3 < 0 ? Math.max(0, announcements.length - 3) : prev - 3
-    );
+    setCurrentAnnouncementIndex((prev) => {
+      const prevIndex = prev - 3;
+      // Don't go below 0
+      return prevIndex >= 0 ? prevIndex : prev;
+    });
+  };
+
+  // Check if navigation buttons should be disabled
+  const isFirstPage = currentAnnouncementIndex === 0;
+  const isLastPage = currentAnnouncementIndex + 3 >= announcements.length;
+
+  // Handle announcement card click
+  const handleAnnouncementClick = (announcement: Announcement) => {
+    console.log("🔔 Clicked announcement:", {
+      id: announcement.id,
+      title: announcement.title,
+      hasImage: !!announcement.content_image,
+      imageLength: announcement.content_image?.length,
+      hasDetail: !!announcement.content_detail,
+      detailContent: announcement.content_detail,
+      hasSummary: !!announcement.content_summary,
+      summaryContent: announcement.content_summary
+    });
+    setSelectedAnnouncement(announcement);
+    setShowAnnouncementModal(true);
   };
 
   // Use useLayoutEffect to set platform BEFORE any effects run (including API calls)
@@ -177,6 +206,20 @@ export default function PlatformHome() {
         // Fetch announcements if platform data is available
         if (platformData?.id) {
           const announcementData = await announcementService.getAnnouncements(0, 10, platformData.id, true);
+          
+          // Debug: Log announcement data
+          console.log("📢 Fetched announcements for platform:", platformData.id, announcementData);
+          announcementData.forEach((ann, idx) => {
+            console.log(`Announcement ${idx + 1}:`, {
+              id: ann.id,
+              title: ann.title,
+              hasImage: !!ann.content_image,
+              imagePrefix: ann.content_image?.substring(0, 30),
+              hasDetail: !!ann.content_detail,
+              detailLength: ann.content_detail?.length
+            });
+          });
+          
           setAnnouncements(announcementData);
         }
       } catch (error) {
@@ -586,93 +629,129 @@ export default function PlatformHome() {
       </div>
 
       {/* Full-width Duyurular Section */}
-      {announcements.length > 0 && (
-        <div className="w-full py-12 mb-8">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="mb-8">
-              <h3 className="text-2xl font-bold mb-2" style={{"color": "rgb(69,81,89)"}}>Duyurular</h3>
-              <div className="w-[100px] h-[5px] bg-red-600"></div>
-            </div>
-            
-            {/* Carousel Container */}
-            <div className="relative flex justify-center">
-              {/* Navigation Arrows - Only show if more than 3 items */}
-              {announcements.length > 3 && (
-                <>
-                  <button 
-                    onClick={handlePrevAnnouncement}
-                    className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-red-600 hover:bg-red-700 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                    </svg>
-                  </button>
-                  <button 
-                    onClick={handleNextAnnouncement}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-red-600 hover:bg-red-700 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                </>
-              )}
+      <div className="w-full py-12 mb-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-8">
+            <h3 className="text-2xl font-bold mb-2" style={{"color": "rgb(69,81,89)"}}>Duyurular</h3>
+            <div className="w-[100px] h-[5px] bg-red-600"></div>
+          </div>
+          
+          {announcements.length > 0 ? (
+            <>
+              {/* Carousel Container */}
+              <div className="relative flex justify-center">
+                {/* Navigation Arrows - Only show if more than 3 items */}
+                {announcements.length > 3 && (
+                  <>
+                    <button 
+                      onClick={handlePrevAnnouncement}
+                      disabled={isFirstPage}
+                      className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${
+                        isFirstPage 
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                          : 'bg-red-600 hover:bg-red-700 text-white'
+                      }`}
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <button 
+                      onClick={handleNextAnnouncement}
+                      disabled={isLastPage}
+                      className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${
+                        isLastPage 
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                          : 'bg-red-600 hover:bg-red-700 text-white'
+                      }`}
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </>
+                )}
 
               {/* Carousel Cards */}
               <div className="flex gap-6 justify-center items-center max-w-4xl mx-auto">
-                {announcements.slice(currentAnnouncementIndex, currentAnnouncementIndex + 3).map((announcement) => (
-                  <div key={announcement.id} className="flex-shrink-0 w-80">
-                    <div className="relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl">
-                      {/* Glow Effect */}
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-30 blur-xl"></div>
-                      
-                      {/* Image Background */}
+                {announcements.slice(currentAnnouncementIndex, currentAnnouncementIndex + 3).map((announcement) => {
+                  const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
+                  return (
+                  <div 
+                    key={announcement.id} 
+                    className="flex-shrink-0 w-80 cursor-pointer transition-transform hover:scale-105"
+                    onClick={() => handleAnnouncementClick(announcement)}
+                    onMouseEnter={() => setHoveredAnnouncement(announcement.id)}
+                    onMouseLeave={() => setHoveredAnnouncement(null)}
+                  >
+                    <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${
+                      isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
+                    }`}>
+                      {/* Image Area - Top section with proper aspect ratio */}
                       {announcement.content_image && (
-                        <div 
-                          className="absolute inset-0 bg-cover bg-center opacity-30"
-                          style={{ backgroundImage: `url(${announcement.content_image})` }}
-                        />
-                      )}
-                      
-                      {/* Logo */}
-                      <div className="absolute top-4 right-4 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
-                        <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                          <div className="w-4 h-4 bg-white rounded-full"></div>
-                        </div>
-                      </div>
-
-                      {/* Date/Month Banner */}
-                      {announcement.month_title && (
-                        <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                          <span className="text-sm font-bold uppercase">{announcement.month_title}</span>
+                        <div className="absolute top-4 left-0 right-0 h-36 flex items-center justify-center p-3">
+                          <img 
+                            src={announcement.content_image} 
+                            alt={announcement.title}
+                            className="max-h-full max-w-full object-contain"
+                          />
                         </div>
                       )}
 
-                      {/* Main Title */}
-                      <div className={`absolute ${announcement.month_title ? 'bottom-4' : 'top-1/2 -translate-y-1/2'} left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4`}>
-                        <div className="text-white font-bold text-lg leading-tight">
+                      {/* Glow Effect */}
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-20 blur-xl"></div>
+
+                      {/* Main Title - Lower position for better image visibility */}
+                      <div className="absolute bottom-16 left-4 right-4 z-10">
+                        <div className="text-white font-bold text-xl leading-tight text-center">
                           {announcement.title.split('\n').map((line, i) => (
                             <div key={i}>{line}</div>
                           ))}
                         </div>
+                      </div>
+
+                      {/* Month Badge - Bottom Left, Small */}
+                      {announcement.month_title && (
+                        <div className="absolute bottom-3 left-3 bg-red-600 text-white px-3 py-1 rounded-md shadow-lg z-10">
+                          <span className="text-xs font-semibold uppercase">{announcement.month_title}</span>
+                        </div>
+                      )}
+
+                      {/* Click Indicator */}
+                      <div className="absolute bottom-3 right-3 bg-white/20 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs z-10">
+                        Detaylar →
                       </div>
                     </div>
                     
                     {/* Card Description */}
                     <div className="mt-3">
                       <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                      <h4 className="text-gray-900 font-semibold mb-1">{announcement.content_summary || announcement.title}</h4>
+                      <h4 className="text-gray-900 font-semibold mb-1 line-clamp-2">{announcement.content_summary || announcement.title}</h4>
                       <p className="text-gray-600 text-sm">
                         {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
                       </p>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
-          </div>
+            </>
+          ) : (
+            <div className="text-center py-12">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
+                <MessageSquare className="h-8 w-8 text-gray-400" />
+              </div>
+              <h4 className="text-lg font-medium text-gray-900 mb-2">
+                Şu anda aktif duyuru bulunmamaktadır
+              </h4>
+              <p className="text-gray-500 text-sm">
+                Yeni duyurular eklendiğinde burada görünecektir
+              </p>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Continue Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 scale-90">
@@ -894,6 +973,104 @@ export default function PlatformHome() {
         </div>
         )}
       </div>
+
+      {/* Announcement Detail Modal */}
+      {showAnnouncementModal && selectedAnnouncement && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-fade-in">
+            {/* Modal Header */}
+            <div className="relative">
+              {selectedAnnouncement.content_image && (
+                <div className="w-full h-[500px] bg-gradient-to-br from-blue-900 to-blue-800 relative overflow-hidden">
+                  <div className="flex items-center justify-center p-4 h-full w-full">
+                    <img 
+                      src={selectedAnnouncement.content_image} 
+                      alt={selectedAnnouncement.title}
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  {selectedAnnouncement.month_title && (
+                    <div className="absolute bottom-4 left-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg z-10">
+                      <span className="text-sm font-bold uppercase">{selectedAnnouncement.month_title}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Close Button */}
+              <button
+                onClick={() => setShowAnnouncementModal(false)}
+                className="absolute top-4 right-4 p-2 bg-white/90 hover:bg-white rounded-full shadow-lg transition-colors z-10"
+              >
+                <X className="h-5 w-5 text-gray-700" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-12rem)]">
+              {/* Title */}
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                {selectedAnnouncement.title}
+              </h2>
+
+              {/* Date */}
+              <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
+                <Calendar className="h-4 w-4" />
+                <span>{new Date(selectedAnnouncement.creation_date).toLocaleDateString('tr-TR', { 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}</span>
+              </div>
+
+              {/* Summary */}
+              {selectedAnnouncement.content_summary && (
+                <div className="mb-4 p-4 bg-blue-50 border-l-4 border-blue-600 rounded-r-lg">
+                  <p className="text-gray-700 font-medium">{selectedAnnouncement.content_summary}</p>
+                </div>
+              )}
+
+              {/* Divider */}
+              {selectedAnnouncement.content_detail && (
+                <div className="border-t border-gray-200 my-4"></div>
+              )}
+
+              {/* Detail Content - Main content of the announcement */}
+              {selectedAnnouncement.content_detail && (
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Detaylı İçerik</h3>
+                  <div className="prose prose-sm max-w-none bg-gray-50 p-4 rounded-lg">
+                    <div 
+                      className="text-gray-700 leading-relaxed"
+                      dangerouslySetInnerHTML={{ 
+                        __html: DOMPurify.sanitize(selectedAnnouncement.content_detail) 
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* No Detail Message */}
+              {!selectedAnnouncement.content_detail && !selectedAnnouncement.content_summary && (
+                <div className="text-center py-8 text-gray-500">
+                  <MessageSquare className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                  <p>Bu duyuru için detaylı açıklama bulunmamaktadır.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+              <button
+                onClick={() => setShowAnnouncementModal(false)}
+                className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
