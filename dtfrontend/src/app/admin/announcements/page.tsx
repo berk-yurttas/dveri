@@ -233,92 +233,144 @@ export default function AdminAnnouncementsPage() {
           </div>
         </div>
 
-        {/* Announcements Grid */}
+        {/* Announcements Table */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           {filteredAnnouncements.length > 0 ? (
-            <div className="divide-y divide-gray-200">
-              {filteredAnnouncements.map((announcement) => (
-                <div key={announcement.id} className="p-6 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold text-gray-900">
+            <div className="overflow-x-auto">
+              <table className="w-full table-fixed">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[16%]">
+                      Başlık
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">
+                      Ay Etiketi
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[18%]">
+                      Özet
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[13%]">
+                      Platform
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[12%]">
+                      Oluşturulma Tarihi
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[12%]">
+                      Yayından Kalkma Tarihi
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-[11%]">
+                      Durum
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-[8%]">
+                      İşlemler
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {filteredAnnouncements.map((announcement) => (
+                    <tr key={announcement.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-3 py-4">
+                        <div className="font-medium text-gray-900 text-sm truncate" title={announcement.title}>
                           {announcement.title}
-                        </h3>
-                        {isScheduled(announcement.creation_date) && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                            <Calendar className="h-3 w-3" />
-                            Zamanlanmış
-                          </span>
-                        )}
-                        {isExpired(announcement.expire_date) && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                            <XCircle className="h-3 w-3" />
-                            Süresi Geçmiş
-                          </span>
-                        )}
-                      </div>
-
-                      {announcement.month_title && (
-                        <div className="mb-2">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        </div>
+                      </td>
+                      <td className="px-3 py-4">
+                        {announcement.month_title ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             {announcement.month_title}
                           </span>
+                        ) : (
+                          <span className="text-sm text-gray-500">-</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-4">
+                        <div className="text-sm text-gray-600 truncate" title={announcement.content_summary || ""}>
+                          {announcement.content_summary || "-"}
                         </div>
-                      )}
-
-                      {announcement.content_summary && (
-                        <p className="text-sm text-gray-600 mb-3">
-                          {announcement.content_summary}
-                        </p>
-                      )}
-
-                      <div className="flex items-center gap-4 text-sm text-gray-500">
-                        <div className="flex items-center gap-1">
+                      </td>
+                      <td className="px-3 py-4">
+                        <div className="flex items-center gap-1.5">
                           {announcement.platform_id ? (
                             <>
-                              <MessageSquare className="h-4 w-4" />
-                              {getPlatformName(announcement.platform_id)}
+                              <MessageSquare className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                              <span className="text-sm text-gray-900 truncate">
+                                {getPlatformName(announcement.platform_id)}
+                              </span>
                             </>
                           ) : (
                             <>
-                              <Globe className="h-4 w-4" />
-                              Genel Duyuru
+                              <Globe className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                              <span className="text-sm text-gray-900 truncate">
+                                Genel Duyuru
+                              </span>
                             </>
                           )}
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-4 w-4" />
-                          {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
+                      </td>
+                      <td className="px-3 py-4">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                          <span className="text-sm text-gray-900">
+                            {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
+                          </span>
                         </div>
-                        {announcement.expire_date && (
-                          <div className="flex items-center gap-1">
-                            <XCircle className="h-4 w-4" />
-                            {new Date(announcement.expire_date).toLocaleDateString('tr-TR')}
+                      </td>
+                      <td className="px-3 py-4">
+                        {announcement.expire_date ? (
+                          <div className="flex items-center gap-1.5">
+                            <XCircle className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                            <span className="text-sm text-gray-900">
+                              {new Date(announcement.expire_date).toLocaleDateString('tr-TR')}
+                            </span>
                           </div>
+                        ) : (
+                          <span className="text-sm text-gray-500">-</span>
                         )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => router.push(`/admin/announcements/${announcement.id}/edit`)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Düzenle"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteClick(announcement)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Sil"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                      </td>
+                      <td className="px-3 py-4 text-center">
+                        <div className="flex flex-col gap-1 items-center">
+                          {isScheduled(announcement.creation_date) && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                              <Calendar className="h-3 w-3" />
+                              Zamanlanmış
+                            </span>
+                          )}
+                          {isExpired(announcement.expire_date) && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                              <XCircle className="h-3 w-3" />
+                              Süresi Geçmiş
+                            </span>
+                          )}
+                          {!isScheduled(announcement.creation_date) && !isExpired(announcement.expire_date) && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              <CheckCircle className="h-3 w-3" />
+                              Aktif
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-4 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => router.push(`/admin/announcements/${announcement.id}/edit`)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Düzenle"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClick(announcement)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Sil"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : (
             <div className="text-center py-12">

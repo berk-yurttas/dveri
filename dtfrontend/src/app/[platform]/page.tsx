@@ -895,7 +895,7 @@ export default function PlatformHome() {
                 )}
 
               {/* Carousel Cards */}
-              <div className="flex gap-6 justify-center items-center max-w-4xl mx-auto">
+              <div className="flex gap-6 justify-center items-start max-w-4xl mx-auto">
                 {announcements.slice(currentAnnouncementIndex, currentAnnouncementIndex + 3).map((announcement) => {
                   const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
                   return (
@@ -911,12 +911,14 @@ export default function PlatformHome() {
                     }`}>
                       {/* Image Area - Top section with proper aspect ratio */}
                       {announcement.content_image && (
-                        <div className="absolute top-4 left-0 right-0 h-36 flex items-center justify-center p-3">
+                        <div className="absolute top-0 left-0 right-0 bottom-0">
                           <img 
                             src={announcement.content_image} 
                             alt={announcement.title}
-                            className="max-h-full max-w-full object-contain"
+                            className="w-full h-full object-fill"
                           />
+                          {/* Gradient overlay for text readability */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
                         </div>
                       )}
 
@@ -925,7 +927,7 @@ export default function PlatformHome() {
 
                       {/* Main Title - Lower position for better image visibility */}
                       <div className="absolute bottom-16 left-4 right-4 z-10">
-                        <div className="text-white font-bold text-xl leading-tight text-center">
+                        <div className="text-white font-bold text-xl leading-tight text-left">
                           {announcement.title.split('\n').map((line, i) => (
                             <div key={i}>{line}</div>
                           ))}
@@ -977,19 +979,23 @@ export default function PlatformHome() {
 
       {/* Announcement Detail Modal */}
       {showAnnouncementModal && selectedAnnouncement && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-fade-in">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => setShowAnnouncementModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-fade-in"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Modal Header */}
             <div className="relative">
               {selectedAnnouncement.content_image && (
                 <div className="w-full h-[500px] bg-gradient-to-br from-blue-900 to-blue-800 relative overflow-hidden">
-                  <div className="flex items-center justify-center p-4 h-full w-full">
-                    <img 
-                      src={selectedAnnouncement.content_image} 
-                      alt={selectedAnnouncement.title}
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
+                  <img 
+                    src={selectedAnnouncement.content_image} 
+                    alt={selectedAnnouncement.title}
+                    className="w-full h-full object-fill"
+                  />
                   {selectedAnnouncement.month_title && (
                     <div className="absolute bottom-4 left-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg z-10">
                       <span className="text-sm font-bold uppercase">{selectedAnnouncement.month_title}</span>
@@ -1040,9 +1046,9 @@ export default function PlatformHome() {
               {selectedAnnouncement.content_detail && (
                 <div className="mb-4">
                   <h3 className="text-lg font-semibold text-gray-900 mb-3">Detaylı İçerik</h3>
-                  <div className="prose prose-sm max-w-none bg-gray-50 p-4 rounded-lg">
+                  <div className="bg-gray-50 p-4 rounded-lg">
                     <div 
-                      className="text-gray-700 leading-relaxed"
+                      className="text-gray-700 leading-relaxed [&>p]:mb-4 [&>p:last-child]:mb-0 [&>p:empty]:min-h-[1em]"
                       dangerouslySetInnerHTML={{ 
                         __html: DOMPurify.sanitize(selectedAnnouncement.content_detail) 
                       }}
