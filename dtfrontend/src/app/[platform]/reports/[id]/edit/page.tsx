@@ -14,6 +14,7 @@ import { BarChart, Bar, LineChart as RechartsLineChart, Line, PieChart as Rechar
 
 // Import types from the types file
 import { QueryConfig, FilterConfig, ReportConfig, VisualizationConfig, NestedQueryConfig } from '@/types/reports'
+import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 
 const VISUALIZATION_OPTIONS = [
   { value: 'table', label: 'Tablo', icon: Table },
@@ -405,7 +406,7 @@ const ChartPreview = ({
           return String(value)
         }
 
-        const bgColor = colors[0]
+        const bgColor = visualization.chartOptions?.backgroundColor || colors[0]
 
         return (
           <div className="flex items-center justify-center w-full h-full min-h-[300px]">
@@ -950,12 +951,13 @@ export default function EditReportPage() {
   const reportId = params.id as string
   const searchParams = useSearchParams()
   const subplatform = searchParams.get('subplatform')
-  const [report, setReport] = useState<ReportConfig>({
+  const [report, setReport] = useState<ReportConfig & { layoutConfig?: any[] }>({
     name: '',
     description: '',
     queries: [],
     tags: [],
-    globalFilters: []
+    globalFilters: [],
+    layoutConfig: []
   })
 
   const [originalReport, setOriginalReport] = useState<SavedReport | null>(null)
@@ -982,25 +984,8 @@ export default function EditReportPage() {
     setLoadingDropdownOptions(prev => ({ ...prev, [filterKey]: true }))
 
     try {
-      // Replace dependent filter placeholders in the dropdown query
-      let modifiedSql = filter.dropdownQuery
-
-      if (filter.dependsOn) {
-        const dependentValue = currentFilterValues[filter.dependsOn]
-        if (dependentValue) {
-          // Replace {{field_name}} with the actual value
-          const placeholder = `{{${filter.dependsOn}}}`
-          const replacement = Array.isArray(dependentValue)
-            ? `(${dependentValue.map(v => `'${v}'`).join(',')})`
-            : `'${dependentValue}'`
-          modifiedSql = modifiedSql.replace(new RegExp(placeholder, 'g'), replacement)
-        } else {
-          // If dependent value is not set, clear options
-          setDropdownOptions(prev => ({ ...prev, [filterKey]: [] }))
-          setLoadingDropdownOptions(prev => ({ ...prev, [filterKey]: false }))
-          return
-        }
-      }
+      const dependentValue = filter.dependsOn ? currentFilterValues[filter.dependsOn] : undefined
+      const modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn || '', dependentValue)
 
       const result = await reportsService.previewQuery({
         sql_query: modifiedSql,
@@ -1048,12 +1033,13 @@ export default function EditReportPage() {
         const reportData = await reportsService.getReportById(reportId)
         setOriginalReport(reportData)
         
-        // Convert SavedReport to ReportConfig format
-        const convertedReport: ReportConfig = {
+        // Convert SavedReport to ReportConfig format, preserving layoutConfig
+        const convertedReport: ReportConfig & { layoutConfig?: any[] } = {
           name: reportData.name,
           description: reportData.description,
           tags: reportData.tags,
           globalFilters: (reportData as any).globalFilters || [],
+          layoutConfig: reportData.layoutConfig || [],  // Preserve the layout configuration
           queries: reportData.queries.map((query, index) => ({
             id: query.id?.toString() || generateId(),
             name: query.name,
@@ -1071,7 +1057,7 @@ export default function EditReportPage() {
             }))
           }))
         }
-        
+
         setReport(convertedReport)
       } catch (err: any) {
         console.error("Error loading report:", err)
@@ -1218,15 +1204,33 @@ export default function EditReportPage() {
           smooth: false,
           showDots: true,
           nestedQueries: [],
-          clickable: false
+          clickable: false,
+          backgroundColor: '#3B82F6'
         }
       },
       filters: []
     }
-    setReport(prev => ({
-      ...prev,
-      queries: [...prev.queries, newQuery]
-    }))
+
+    setReport(prev => {
+      const newQueries = [...prev.queries, newQuery]
+
+      // Add a default layout entry for the new query
+      const newLayoutEntry = {
+        i: newQuery.id,
+        x: (prev.queries.length % 2) * 2, // Alternate left/right (2 columns each)
+        y: Math.floor(prev.queries.length / 2) * 4, // Stack vertically
+        w: 2, // 2 columns width
+        h: 4, // 4 rows height
+        minW: 1,
+        minH: 2
+      }
+
+      return {
+        ...prev,
+        queries: newQueries,
+        layoutConfig: [...(prev.layoutConfig || []), newLayoutEntry]
+      }
+    })
     setActiveQueryIndex(report.queries.length)
   }
 
@@ -1251,10 +1255,21 @@ export default function EditReportPage() {
   }
 
   const removeQuery = (index: number) => {
-    setReport(prev => ({
-      ...prev,
-      queries: prev.queries.filter((_, i) => i !== index)
-    }))
+    setReport(prev => {
+      const queryToRemove = prev.queries[index]
+      const newQueries = prev.queries.filter((_, i) => i !== index)
+
+      // Also remove the layout entry for this query
+      const newLayoutConfig = (prev.layoutConfig || []).filter(
+        (layout: any) => layout.i !== queryToRemove.id
+      )
+
+      return {
+        ...prev,
+        queries: newQueries,
+        layoutConfig: newLayoutConfig
+      }
+    })
     if (activeQueryIndex >= index && activeQueryIndex > 0) {
       setActiveQueryIndex(activeQueryIndex - 1)
     }
@@ -1496,9 +1511,12 @@ export default function EditReportPage() {
     }
 
     try {
+      // Don't send layoutConfig to preserve it unchanged
+      const { layoutConfig, ...reportWithoutLayout } = report
+
       // Send the updated report to the backend using the full update endpoint
-      console.log('Updating report:', report)
-      const updatedReport = await reportsService.updateReportFull(reportId, report)
+      console.log('Updating report:', reportWithoutLayout)
+      const updatedReport = await reportsService.updateReportFull(reportId, reportWithoutLayout)
       console.log('Report updated successfully:', updatedReport)
 
       // Clear the cache for this report to ensure fresh data on redirect
@@ -1602,16 +1620,10 @@ export default function EditReportPage() {
           {/* Global Filters Section */}
           <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300">
             <CardHeader className="pb-3 pt-3 px-4 border-b border-slate-300/50">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
-                  <Filter className="w-4 h-4 text-orange-600" />
-                  Global Filtreler ({(report.globalFilters || []).length})
-                </CardTitle>
-                <Button onClick={addGlobalFilter} size="sm" className="h-8 text-xs bg-orange-600 hover:bg-orange-700 text-white">
-                  <Plus className="w-3 h-3 mr-1" />
-                  Filtre Ekle
-                </Button>
-              </div>
+              <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
+                <Filter className="w-4 h-4 text-orange-600" />
+                Global Filtreler ({(report.globalFilters || []).length})
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-4">
               {(!report.globalFilters || report.globalFilters.length === 0) ? (
@@ -1629,7 +1641,7 @@ export default function EditReportPage() {
               ) : (
                 <div className="space-y-3">
                   {report.globalFilters.map((filter, filterIndex) => (
-                    <div key={`edit_global_filter_${filterIndex}_${filter.fieldName || filterIndex}`} className="p-4 bg-orange-50/50 border border-orange-200 rounded-lg">
+                    <div key={filter.id || `edit_global_filter_${filterIndex}`} className="p-4 bg-orange-50/50 border border-orange-200 rounded-lg">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <Filter className="w-4 h-4 text-orange-600" />
@@ -1716,6 +1728,10 @@ export default function EditReportPage() {
                       </div>
                     </div>
                   ))}
+                  <Button onClick={addGlobalFilter} size="sm" className="w-full h-8 text-xs bg-orange-600 hover:bg-orange-700 text-white">
+                    <Plus className="w-3 h-3 mr-1" />
+                    Filtre Ekle
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -2233,6 +2249,47 @@ export default function EditReportPage() {
                                       ))}
                                     </Select>
                                   </div>
+                                  <div className="space-y-2 col-span-2">
+                                    <Label className="text-sm">Kart Arkaplan Rengi</Label>
+                                    <div className="flex items-center gap-3">
+                                      <input
+                                        type="color"
+                                        value={query.visualization.chartOptions?.backgroundColor || query.visualization.colors?.[0] || '#3B82F6'}
+                                        onChange={(e) => {
+                                          const color = e.target.value
+                                          updateVisualization(queryIndex, {
+                                            colors: [
+                                              color,
+                                              ...(query.visualization.colors?.slice(1) || [])
+                                            ],
+                                            chartOptions: {
+                                              ...query.visualization.chartOptions,
+                                              backgroundColor: color
+                                            }
+                                          })
+                                        }}
+                                        className="h-10 w-16 border-2 border-slate-200 rounded-lg bg-white/50 cursor-pointer"
+                                      />
+                                      <Input
+                                        value={query.visualization.chartOptions?.backgroundColor || query.visualization.colors?.[0] || '#3B82F6'}
+                                        onChange={(e) => {
+                                          const color = e.target.value
+                                          updateVisualization(queryIndex, {
+                                            colors: [
+                                              color,
+                                              ...(query.visualization.colors?.slice(1) || [])
+                                            ],
+                                            chartOptions: {
+                                              ...query.visualization.chartOptions,
+                                              backgroundColor: color
+                                            }
+                                          })
+                                        }}
+                                        placeholder="#3B82F6"
+                                        className="text-xs h-10"
+                                      />
+                                    </div>
+                                  </div>
                                 </div>
                               )}
 
@@ -2426,25 +2483,14 @@ export default function EditReportPage() {
                       <div className="space-y-2">
                         {/* Filters Section */}
                         <div className="space-y-2">
-                      <div className="flex items-center justify-between bg-orange-50 px-2 py-1.5 rounded border border-orange-200/50">
-                        <div className="flex items-center gap-1.5">
-                          <Filter className="w-3 h-3 text-orange-600" />
-                          <h3 className="text-xs font-semibold text-slate-800">Filtreler</h3>
-                          {query.filters.length > 0 && (
-                            <Badge variant="secondary" className="bg-orange-100 text-orange-700 text-[10px] px-1.5 py-0">
-                              {query.filters.length}
-                            </Badge>
-                          )}
-                        </div>
-                        <Button
-                          onClick={() => addFilter(queryIndex)}
-                          size="sm"
-                          disabled={availableFields.length === 0}
-                          className="h-6 text-[10px] px-2 bg-orange-500 hover:bg-orange-600 text-white disabled:bg-slate-300"
-                        >
-                          <Plus className="w-2.5 h-2.5 mr-0.5" />
-                          Ekle
-                        </Button>
+                      <div className="flex items-center gap-1.5 bg-orange-50 px-2 py-1.5 rounded border border-orange-200/50">
+                        <Filter className="w-3 h-3 text-orange-600" />
+                        <h3 className="text-xs font-semibold text-slate-800">Filtreler</h3>
+                        {query.filters.length > 0 && (
+                          <Badge variant="secondary" className="bg-orange-100 text-orange-700 text-[10px] px-1.5 py-0">
+                            {query.filters.length}
+                          </Badge>
+                        )}
                       </div>
 
                       {query.filters.length === 0 ? (
@@ -2586,6 +2632,17 @@ export default function EditReportPage() {
                               ))}
                             </tbody>
                           </table>
+                          <div className="p-2 border-t border-slate-200">
+                            <Button
+                              onClick={() => addFilter(queryIndex)}
+                              size="sm"
+                              disabled={availableFields.length === 0}
+                              className="w-full h-7 text-[10px] bg-orange-500 hover:bg-orange-600 text-white disabled:bg-slate-300"
+                            >
+                              <Plus className="w-2.5 h-2.5 mr-0.5" />
+                              Filtre Ekle
+                            </Button>
+                          </div>
                         </div>
                       )}
                         </div>
@@ -2792,33 +2849,14 @@ export default function EditReportPage() {
                   <>
                     {filter.dependsOn && !filterValues[filter.dependsOn] && (
                       <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
-                        Önce "{report.queries.find(q => q.id === activeQueryForFilters)?.filters.find(f => f.fieldName === filter.dependsOn)?.displayName}" filtresini seçin
+                        Üst filtre seçilmedi; tüm seçenekler listeleniyor
                       </div>
                     )}
                     <Select
                       value={filterValues[filter.fieldName] || ''}
-                      onValueChange={(value) => {
-                        setFilterValues(prev => {
-                          const newValues = { ...prev, [filter.fieldName]: value }
-
-                          // Reload dependent filters
-                          const currentQuery = report.queries.find(q => q.id === activeQueryForFilters)
-                          if (currentQuery) {
-                            currentQuery.filters.forEach(f => {
-                              if (f.dependsOn === filter.fieldName) {
-                                // Clear dependent filter value
-                                newValues[f.fieldName] = ''
-                                // Reload options
-                                loadDropdownOptions(f, newValues)
-                              }
-                            })
-                          }
-
-                          return newValues
-                        })
-                      }}
+                      onValueChange={(value) => setFilterValues(prev => ({ ...prev, [filter.fieldName]: value }))}
                       placeholder={`${filter.displayName} seçin`}
-                      disabled={!!(filter.dependsOn && !filterValues[filter.dependsOn])}
+                      disabled={filter.dependsOn && !!filterValues[filter.dependsOn] || false}
                     >
                       <option value="">Seçin...</option>
                       {loadingDropdownOptions[filter.fieldName] ? (

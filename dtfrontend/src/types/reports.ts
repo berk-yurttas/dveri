@@ -94,6 +94,9 @@ export interface VisualizationConfig {
     // Tooltip configuration
     tooltipFields?: string[]
     fieldDisplayNames?: Record<string, string>
+
+    // Card specific
+    backgroundColor?: string
   }
 }
 

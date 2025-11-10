@@ -62,7 +62,7 @@ async def preview_report_query(
         
         # Determine database type
         db_type = platform.db_type.lower() if platform else "clickhouse"
-        
+        print(sanitized_query)
         # Add LIMIT to the query if not present (database-specific)
         if db_type == "mssql":
             # MSSQL uses TOP instead of LIMIT
@@ -106,7 +106,7 @@ async def preview_report_query(
                 password=db_config.get("password")
             )
             cursor = conn.cursor()
-            
+
             try:
                 cursor.execute(sanitized_query)
                 columns = [desc[0] for desc in cursor.description] if cursor.description else []
@@ -411,7 +411,8 @@ async def update_report(
 ):
     """Update report metadata only"""
     service = ReportsService(db)
-    report = await service.update_report(report_id, report_data, current_user.username)
+    is_admin = any((role or "").lower() == "miras:admin" for role in (current_user.role or []))
+    report = await service.update_report(report_id, report_data, current_user.username, is_admin=is_admin)
     
     if not report:
         raise HTTPException(status_code=404, detail="Report not found or access denied")
@@ -428,7 +429,8 @@ async def update_report_full(
 ):
     """Update report with queries and filters"""
     service = ReportsService(db)
-    report = await service.update_report_full(report_id, report_data, current_user.username)
+    is_admin = any((role or "").lower() == "miras:admin" for role in (current_user.role or []))
+    report = await service.update_report_full(report_id, report_data, current_user.username, is_admin=is_admin)
     
     if not report:
         raise HTTPException(status_code=404, detail="Report not found or access denied")

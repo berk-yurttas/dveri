@@ -59,6 +59,7 @@ import {
   CardVisualization
 } from '@/components/visualizations'
 import { GlobalFilters } from '@/components/reports/GlobalFilters'
+import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 
 const VISUALIZATION_ICONS = {
   table: Table,
@@ -292,30 +293,12 @@ export default function ReportDetailPage() {
     const key = `${query.id}_${filter.fieldName}`
 
     try {
-      // If this filter depends on another filter, check if the parent has a value
       if (filter.dependsOn) {
-        // For global filters (query.id === 0), use global_ prefix
         const parentKey = query.id === 0 ? `global_${filter.dependsOn}` : `${query.id}_${filter.dependsOn}`
         const parentValue = currentFilterValues ? currentFilterValues[parentKey] : filters[parentKey]
 
-        // If parent doesn't have a value, clear this filter's options
-        if (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0)) {
-          setDropdownOptions(prev => ({
-            ...prev,
-            [key]: []
-          }))
-          return
-        }
+        const modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn, parentValue)
 
-        // Replace {{field_name}} placeholders with parent value
-        let modifiedSql = filter.dropdownQuery
-        const placeholder = `{{${filter.dependsOn}}}`
-        const replacement = Array.isArray(parentValue)
-          ? `(${parentValue.map((v: any) => `'${v}'`).join(',')})`
-          : `'${parentValue}'`
-        modifiedSql = modifiedSql.replace(new RegExp(placeholder, 'g'), replacement)
-
-        // Execute the modified query
         const result = await reportsService.previewQuery({
           sql_query: modifiedSql,
           limit: 1000
@@ -327,7 +310,6 @@ export default function ReportDetailPage() {
             label: row[1] || String(row[0])
           }))
 
-          // Deduplicate options based on value
           const uniqueOptions = options.filter((option, index, self) =>
             index === self.findIndex((o) => o.value === option.value)
           )
@@ -968,7 +950,25 @@ export default function ReportDetailPage() {
         // Initialize grid layout
         // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
         if (reportData.layoutConfig && reportData.layoutConfig.length > 0) {
-          setGridLayout(reportData.layoutConfig)
+          // Validate and fix layout config - ensure all entries have valid query IDs
+          const validQueryIds = new Set(reportData.queries.map(q => q.id.toString()))
+          const validatedLayout = reportData.layoutConfig
+            .filter((layout: any) => validQueryIds.has(layout.i.toString()))
+            .map((layout: any) => ({
+              ...layout,
+              // Ensure minimum dimensions to prevent invisible widgets
+              w: Math.max(layout.w || 2, 1),
+              h: Math.max(layout.h || 4, 2),
+              minW: 1,
+              minH: 2
+            }))
+
+          // If we have valid layout for all queries, use it, otherwise regenerate
+          if (validatedLayout.length === reportData.queries.length) {
+            setGridLayout(validatedLayout)
+          } else {
+            setGridLayout(generateDefaultLayout(reportData.queries))
+          }
         } else {
           const savedLayout = localStorage.getItem(`report_layout_${reportData.id}`)
           if (savedLayout) {
@@ -1488,30 +1488,27 @@ export default function ReportDetailPage() {
                   const isOpen = dropdownOpen[filterKey] || false
 
                   // Check if this filter is disabled due to missing parent value
-                  const isDisabled = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
+                  const isParentMissing = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
 
                   return (
                     <div className="relative filter-dropdown-container">
-                      {isDisabled && (
+                      {isParentMissing && (
                         <div className="absolute -top-5 left-0 text-[10px] text-amber-600">
-                          Önce "{query.filters.find(f => f.fieldName === filter.dependsOn)?.displayName}" seçin
+                          Üst filtre seçilmedi; tüm seçenekler listeleniyor
                         </div>
                       )}
                       <button
                         type="button"
                         onClick={() => {
-                          if (!isDisabled) {
-                            setOperatorMenuOpen({}) // Close operator menus
-                            setDropdownOpen(prev => {
-                              const isCurrentlyOpen = prev[filterKey]
-                              // Close all other dropdowns
-                              return { [filterKey]: !isCurrentlyOpen }
-                            })
-                          }
+                          setOperatorMenuOpen({}) // Close operator menus
+                          setDropdownOpen(prev => {
+                            const isCurrentlyOpen = prev[filterKey]
+                            // Close all other dropdowns
+                            return { [filterKey]: !isCurrentlyOpen }
+                          })
                         }}
-                        disabled={isDisabled || false}
                         className={`w-full px-2 py-1 pr-12 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-xs bg-white text-left flex items-center justify-between ${
-                          isDisabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'hover:bg-gray-50'
+                          'hover:bg-gray-50'
                         }`}
                       >
                         <span className={`truncate ${selectedValue ? 'text-gray-900' : 'text-gray-500'}`}>
@@ -1616,30 +1613,27 @@ export default function ReportDetailPage() {
                   const selectedCount = currentValues.length
 
                   // Check if this filter is disabled due to missing parent value
-                  const isDisabled = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
+                  const isParentMissing = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
 
                   return (
                     <div className="relative filter-dropdown-container">
-                      {isDisabled && (
+                      {isParentMissing && (
                         <div className="absolute -top-5 left-0 text-[10px] text-amber-600">
-                          Önce "{query.filters.find(f => f.fieldName === filter.dependsOn)?.displayName}" seçin
+                          Üst filtre seçilmedi; tüm seçenekler listeleniyor
                         </div>
                       )}
                       <button
                         type="button"
                         onClick={() => {
-                          if (!isDisabled) {
-                            setOperatorMenuOpen({}) // Close operator menus
-                            setDropdownOpen(prev => {
-                              const isCurrentlyOpen = prev[filterKey]
-                              // Close all other dropdowns
-                              return { [filterKey]: !isCurrentlyOpen }
-                            })
-                          }
+                          setOperatorMenuOpen({}) // Close operator menus
+                          setDropdownOpen(prev => {
+                            const isCurrentlyOpen = prev[filterKey]
+                            // Close all other dropdowns
+                            return { [filterKey]: !isCurrentlyOpen }
+                          })
                         }}
-                        disabled={isDisabled || false}
                         className={`w-full px-2 py-1 pr-12 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-xs bg-white text-left flex items-center justify-between ${
-                          isDisabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'hover:bg-gray-50'
+                          'hover:bg-gray-50'
                         }`}
                       >
                         <span className={`truncate ${selectedCount > 0 ? 'text-gray-900' : 'text-gray-500'}`}>
@@ -1916,7 +1910,9 @@ export default function ReportDetailPage() {
             if (columnIndex !== -1) {
               const value = rowData[columnIndex]
               const placeholder = `{{${field}}}`
-              processedQuery = processedQuery.replace(new RegExp(placeholder, 'g'), `'${value}'`)
+              // Escape single quotes in the value to prevent SQL injection and syntax errors
+              const escapedValue = String(value).replace(/'/g, "''")
+              processedQuery = processedQuery.replace(new RegExp(placeholder, 'g'), `'${escapedValue}'`)
             }
           })
           // Do not apply filters server-side; we will filter on client
@@ -1986,7 +1982,7 @@ export default function ReportDetailPage() {
     }
   }
 
-  const renderVisualization = (query: QueryData, result: QueryResult) => {
+  const renderVisualization = (query: QueryData, result: QueryResult, scale: number = 1) => {
     const { visualization } = query
     const { data, columns } = result
 
@@ -2097,35 +2093,36 @@ export default function ReportDetailPage() {
             setNestedSorting={setNestedSorting}
             setNestedPagination={setNestedPagination}
             onRowExpand={(query, rowIndex, rowData, nestedQueries, level, parentRowKey) => handleRowExpand(query, rowIndex, rowData, nestedQueries, level, parentRowKey)}
+            scale={scale}
           />
         )
 
       case 'bar':
-        return <BarVisualization query={query} result={result} colors={colors} />
+        return <BarVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'line':
-        return <LineVisualization query={query} result={result} colors={colors} />
+        return <LineVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'pie':
-        return <PieVisualization query={query} result={result} colors={colors} />
+        return <PieVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'area':
-        return <AreaVisualization query={query} result={result} colors={colors} />
+        return <AreaVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'scatter':
-        return <ScatterVisualization query={query} result={result} colors={colors} />
+        return <ScatterVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'boxplot':
-        return <BoxPlotVisualization query={query} result={result} colors={colors} />
+        return <BoxPlotVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'pareto':
-        return <ParetoVisualization query={query} result={result} colors={colors} />
+        return <ParetoVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'histogram':
-        return <HistogramVisualization query={query} result={result} colors={colors} />
+        return <HistogramVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'card':
-        return <CardVisualization query={query} result={result} colors={colors} />
+        return <CardVisualization query={query} result={result} colors={colors} scale={scale} />
 
       default:
         return (
@@ -2362,6 +2359,11 @@ export default function ReportDetailPage() {
           const Icon = VISUALIZATION_ICONS[query.visualization.type] || Table
           const queryState = queryResults[query.id]
 
+          // Calculate scale based on grid layout height
+          const layoutItem = gridLayout.find((item: any) => item.i === query.id.toString())
+          const gridItemHeight = layoutItem ? layoutItem.h * 120 : 480 // h * rowHeight
+          const scale = isLayoutEditMode ? Math.min(gridItemHeight / 500, 1) : 1
+
           return (
             <div key={query.id.toString()} className={`bg-white rounded-lg shadow-md border ${isLayoutEditMode ? 'border-blue-400 border-2' : 'border-gray-200'} h-full flex flex-col`} data-query-id={query.id}>
               <div className={`pb-2 px-4 pt-4 flex-shrink-0 ${isLayoutEditMode ? 'drag-handle cursor-move bg-blue-50' : ''}`}>
@@ -2374,7 +2376,7 @@ export default function ReportDetailPage() {
                 </div>
               </div>
 
-              <div className="space-y-3 px-4 pb-4 relative flex-1">
+              <div className="space-y-3 px-4 pb-4 relative flex-1 overflow-hidden">
                 {/* Loading Overlay */}
                 {queryState?.loading && (
                   <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
@@ -2399,9 +2401,9 @@ export default function ReportDetailPage() {
 
                 {/* Results */}
                 {queryState?.result && (
-                  <div>
+                  <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                     {/* Show filters above charts (but not for tables) */}
-                    {renderVisualization(query, queryState.result)}
+                    {renderVisualization(query, queryState.result, scale)}
                   </div>
                 )}
 

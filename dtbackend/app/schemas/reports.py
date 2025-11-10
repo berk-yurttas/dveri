@@ -109,7 +109,7 @@ class FilterConfigBase(BaseModel):
         from_attributes = True
 
 class FilterConfigCreate(FilterConfigBase):
-    pass
+    id: Optional[int] = None  # Optional ID for updating existing filters
 
 class FilterConfigUpdate(BaseModel):
     field_name: Optional[str] = Field(None, alias="fieldName")
@@ -151,6 +151,7 @@ class QueryConfigBase(BaseModel):
         from_attributes = True
 
 class QueryConfigCreate(QueryConfigBase):
+    id: Optional[int] = None  # Optional ID for updating existing queries
     filters: Optional[List[FilterConfigCreate]] = []
 
 class QueryConfigUpdate(BaseModel):

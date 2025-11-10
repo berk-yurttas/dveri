@@ -3,7 +3,7 @@ import { VisualizationProps } from './types'
 
 const DEFAULT_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#84CC16', '#F97316']
 
-export const CardVisualization: React.FC<VisualizationProps> = ({ query, result, colors = DEFAULT_COLORS }) => {
+export const CardVisualization: React.FC<VisualizationProps> = ({ query, result, colors = DEFAULT_COLORS, scale = 1 }) => {
   const { visualization } = query
   const { data, columns } = result
 
@@ -51,12 +51,14 @@ export const CardVisualization: React.FC<VisualizationProps> = ({ query, result,
   const bgColor = visualization.chartOptions?.backgroundColor || colors[0]
 
   return (
-    <div className="flex items-center justify-center w-full h-full min-h-[300px]">
+    <div style={{ width: '100%', height: '100%', minHeight: '200px' }}>
       <div
-        className="relative rounded-2xl shadow-lg p-8 flex flex-col items-center justify-center min-w-[300px] min-h-[200px] transition-all duration-300 hover:shadow-xl"
+        className="relative rounded-2xl shadow-lg p-8 flex flex-col items-center justify-center transition-all duration-300 hover:shadow-xl"
         style={{
           backgroundColor: bgColor,
-          background: `linear-gradient(135deg, ${bgColor} 0%, ${bgColor}dd 100%)`
+          background: `linear-gradient(135deg, ${bgColor} 0%, ${bgColor}dd 100%)`,
+          width: '100%',
+          height: '100%'
         }}
       >
         {/* Main Value */}

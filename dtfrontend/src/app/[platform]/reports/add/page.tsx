@@ -13,6 +13,7 @@ import { BarChart, Bar, LineChart as RechartsLineChart, Line, PieChart as Rechar
 
 // Import types from the types file
 import { QueryConfig, FilterConfig, ReportConfig, VisualizationConfig, NestedQueryConfig } from '@/types/reports'
+import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 
 const VISUALIZATION_OPTIONS = [
   { value: 'table', label: 'Tablo', icon: Table },
@@ -763,7 +764,7 @@ const ChartPreview = ({
           return String(value)
         }
 
-        const bgColor = colors[0]
+        const bgColor = visualization.chartOptions?.backgroundColor || colors[0]
 
         return (
           <div className="flex items-center justify-center w-full h-full min-h-[300px]">
@@ -1476,7 +1477,8 @@ export default function AddReportPage() {
           smooth: false,
           showDots: true,
           nestedQueries: [],
-          clickable: false
+          clickable: false,
+          backgroundColor: '#3B82F6'
         }
       },
       filters: []
@@ -1590,25 +1592,8 @@ export default function AddReportPage() {
     setLoadingDropdownOptions(prev => ({ ...prev, [filterKey]: true }))
 
     try {
-      // Replace dependent filter placeholders in the dropdown query
-      let modifiedSql = filter.dropdownQuery
-
-      if (filter.dependsOn) {
-        const dependentValue = currentFilterValues[filter.dependsOn]
-        if (dependentValue) {
-          // Replace {{field_name}} with the actual value
-          const placeholder = `{{${filter.dependsOn}}}`
-          const replacement = Array.isArray(dependentValue)
-            ? `(${dependentValue.map(v => `'${v}'`).join(',')})`
-            : `'${dependentValue}'`
-          modifiedSql = modifiedSql.replace(new RegExp(placeholder, 'g'), replacement)
-        } else {
-          // If dependent value is not set, clear options
-          setDropdownOptions(prev => ({ ...prev, [filterKey]: [] }))
-          setLoadingDropdownOptions(prev => ({ ...prev, [filterKey]: false }))
-          return
-        }
-      }
+      const dependentValue = filter.dependsOn ? currentFilterValues[filter.dependsOn] : undefined
+      const modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn || '', dependentValue)
 
       const result = await reportsService.previewQuery({
         sql_query: modifiedSql,
@@ -1886,16 +1871,10 @@ export default function AddReportPage() {
           {/* Global Filters Section */}
           <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300">
             <CardHeader className="pb-3 pt-3 px-4 border-b border-slate-200/50">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
-                  <Filter className="w-4 h-4 text-orange-600" />
-                  Global Filtreler ({(report.globalFilters || []).length})
-                </CardTitle>
-                <Button onClick={addGlobalFilter} size="sm" className="h-8 text-xs bg-orange-600 hover:bg-orange-700 text-white">
-                  <Plus className="w-3 h-3 mr-1" />
-                  Filtre Ekle
-                </Button>
-              </div>
+              <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
+                <Filter className="w-4 h-4 text-orange-600" />
+                Global Filtreler ({(report.globalFilters || []).length})
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-4">
               {(!report.globalFilters || report.globalFilters.length === 0) ? (
@@ -1913,7 +1892,7 @@ export default function AddReportPage() {
               ) : (
                 <div className="space-y-3">
                   {report.globalFilters.map((filter, filterIndex) => (
-                    <div key={`add_global_filter_${filterIndex}_${filter.fieldName || filterIndex}`} className="p-4 bg-orange-50/50 border border-orange-200 rounded-lg">
+                    <div key={filter.id || `add_global_filter_${filterIndex}`} className="p-4 bg-orange-50/50 border border-orange-200 rounded-lg">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <Filter className="w-4 h-4 text-orange-600" />
@@ -2000,6 +1979,10 @@ export default function AddReportPage() {
                       </div>
                     </div>
                   ))}
+                  <Button onClick={addGlobalFilter} size="sm" className="w-full h-8 text-xs bg-orange-600 hover:bg-orange-700 text-white">
+                    <Plus className="w-3 h-3 mr-1" />
+                    Filtre Ekle
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -2518,6 +2501,47 @@ export default function AddReportPage() {
                                       ))}
                                     </Select>
                                   </div>
+                                  <div className="space-y-2 col-span-2">
+                                    <Label className="text-sm">Kart Arkaplan Rengi</Label>
+                                    <div className="flex items-center gap-3">
+                                      <input
+                                        type="color"
+                                        value={query.visualization.chartOptions?.backgroundColor || query.visualization.colors?.[0] || '#3B82F6'}
+                                        onChange={(e) => {
+                                          const color = e.target.value
+                                          updateVisualization(queryIndex, {
+                                            colors: [
+                                              color,
+                                              ...(query.visualization.colors?.slice(1) || [])
+                                            ],
+                                            chartOptions: {
+                                              ...query.visualization.chartOptions,
+                                              backgroundColor: color
+                                            }
+                                          })
+                                        }}
+                                        className="h-10 w-16 border-2 border-slate-200 rounded-lg bg-white/50 cursor-pointer"
+                                      />
+                                      <Input
+                                        value={query.visualization.chartOptions?.backgroundColor || query.visualization.colors?.[0] || '#3B82F6'}
+                                        onChange={(e) => {
+                                          const color = e.target.value
+                                          updateVisualization(queryIndex, {
+                                            colors: [
+                                              color,
+                                              ...(query.visualization.colors?.slice(1) || [])
+                                            ],
+                                            chartOptions: {
+                                              ...query.visualization.chartOptions,
+                                              backgroundColor: color
+                                            }
+                                          })
+                                        }}
+                                        placeholder="#3B82F6"
+                                        className="text-xs h-10"
+                                      />
+                                    </div>
+                                  </div>
                                 </div>
                               )}
 
@@ -2806,25 +2830,14 @@ export default function AddReportPage() {
                       <div className="space-y-2">
                         {/* Filters Section - Compact Design */}
                         <div className="space-y-2">
-                      <div className="flex items-center justify-between bg-orange-50 px-2 py-1.5 rounded border border-orange-200/50">
-                        <div className="flex items-center gap-1.5">
-                          <Filter className="w-3 h-3 text-orange-600" />
-                          <h3 className="text-xs font-semibold text-slate-800">Filtreler</h3>
-                          {query.filters.length > 0 && (
-                            <Badge variant="secondary" className="bg-orange-100 text-orange-700 text-[10px] px-1.5 py-0">
-                              {query.filters.length}
-                            </Badge>
-                          )}
-                        </div>
-                        <Button
-                          onClick={() => addFilter(queryIndex)}
-                          size="sm"
-                          disabled={availableFields.length === 0}
-                          className="h-6 text-[10px] px-2 bg-orange-500 hover:bg-orange-600 text-white disabled:bg-slate-300"
-                        >
-                          <Plus className="w-2.5 h-2.5 mr-0.5" />
-                          Ekle
-                        </Button>
+                      <div className="flex items-center gap-1.5 bg-orange-50 px-2 py-1.5 rounded border border-orange-200/50">
+                        <Filter className="w-3 h-3 text-orange-600" />
+                        <h3 className="text-xs font-semibold text-slate-800">Filtreler</h3>
+                        {query.filters.length > 0 && (
+                          <Badge variant="secondary" className="bg-orange-100 text-orange-700 text-[10px] px-1.5 py-0">
+                            {query.filters.length}
+                          </Badge>
+                        )}
                       </div>
 
                       {query.filters.length === 0 ? (
@@ -2966,6 +2979,17 @@ export default function AddReportPage() {
                               ))}
                             </tbody>
                           </table>
+                          <div className="p-2 border-t border-slate-200">
+                            <Button
+                              onClick={() => addFilter(queryIndex)}
+                              size="sm"
+                              disabled={availableFields.length === 0}
+                              className="w-full h-7 text-[10px] bg-orange-500 hover:bg-orange-600 text-white disabled:bg-slate-300"
+                            >
+                              <Plus className="w-2.5 h-2.5 mr-0.5" />
+                              Filtre Ekle
+                            </Button>
+                          </div>
                         </div>
                       )}
                         </div>
@@ -3171,7 +3195,7 @@ export default function AddReportPage() {
                   <>
                     {filter.dependsOn && !filterValues[filter.dependsOn] && (
                       <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
-                        Önce "{report.queries.find(q => q.id === activeQueryForFilters)?.filters.find(f => f.fieldName === filter.dependsOn)?.displayName}" filtresini seçin
+                        Üst filtre seçilmedi; tüm seçenekler listeleniyor
                       </div>
                     )}
                     <Select

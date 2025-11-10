@@ -226,15 +226,17 @@ class ReportsService:
 
         return reports
 
-    async def update_report(self, report_id: int, report_data: ReportUpdate, username: str) -> Optional[Report]:
+    async def update_report(self, report_id: int, report_data: ReportUpdate, username: str, is_admin: bool = False) -> Optional[Report]:
         user = await UserService.get_user_by_username(self.db, username)
         if not user:
             raise ValueError("User not found")
 
         """Update a report with queries and filters (only if user owns it)"""
-        stmt = select(Report).where(
-            and_(Report.id == report_id, Report.owner_id == user.id)
-        )
+        filters = [Report.id == report_id]
+        if not is_admin:
+            filters.append(Report.owner_id == user.id)
+
+        stmt = select(Report).where(and_(*filters))
         result = await self.db.execute(stmt)
         db_report = result.scalar_one_or_none()
         
@@ -262,17 +264,19 @@ class ReportsService:
         result = await self.db.execute(stmt)
         return result.scalar_one()
 
-    async def update_report_full(self, report_id: int, report_data: ReportFullUpdate, username: str) -> Optional[Report]:
+    async def update_report_full(self, report_id: int, report_data: ReportFullUpdate, username: str, is_admin: bool = False) -> Optional[Report]:
         user = await UserService.get_user_by_username(self.db, username)
         if not user:
             raise ValueError("User not found")
 
         """Update a report with queries and filters (only if user owns it)"""
+        filters = [Report.id == report_id]
+        if not is_admin:
+            filters.append(Report.owner_id == user.id)
+
         stmt = select(Report).options(
             selectinload(Report.queries).selectinload(ReportQuery.filters)
-        ).where(
-            and_(Report.id == report_id, Report.owner_id == user.id)
-        )
+        ).where(and_(*filters))
         result = await self.db.execute(stmt)
         db_report = result.scalar_one_or_none()
         
@@ -309,27 +313,31 @@ class ReportsService:
 
         # Update queries if provided
         if report_data.queries is not None:
-            # Delete existing filters first using direct SQL
-            # Get all query IDs for this report
-            query_ids = [q.id for q in db_report.queries]
-            
-            if query_ids:
+            # Store old query IDs from the database
+            old_db_query_ids = [q.id for q in db_report.queries]
+
+            if old_db_query_ids:
                 # Delete all filters for these queries
                 filter_delete_stmt = delete(ReportQueryFilter).where(
-                    ReportQueryFilter.query_id.in_(query_ids)
+                    ReportQueryFilter.query_id.in_(old_db_query_ids)
                 )
                 await self.db.execute(filter_delete_stmt)
-                
+
                 # Delete all queries for this report
                 query_delete_stmt = delete(ReportQuery).where(
                     ReportQuery.report_id == db_report.id
                 )
                 await self.db.execute(query_delete_stmt)
-                
+
                 await self.db.flush()
 
-            # Create new queries
-            for query_data in report_data.queries:
+            # Create new queries and track incoming-ID-to-new-ID mapping
+            # The incoming query IDs are what the frontend uses (and what's in layoutConfig)
+            old_to_new_map = {}
+            for idx, query_data in enumerate(report_data.queries):
+                # Store the incoming ID (from frontend) before creating new query
+                incoming_query_id = str(query_data.id) if query_data.id else None
+
                 db_query = ReportQuery(
                     report_id=db_report.id,
                     name=query_data.name,
@@ -338,7 +346,11 @@ class ReportsService:
                     order_index=query_data.order_index or 0
                 )
                 self.db.add(db_query)
-                await self.db.flush()  # Get the query ID
+                await self.db.flush()  # Get the new query ID from database
+
+                # Map incoming ID (used in layoutConfig) to new database ID
+                if incoming_query_id:
+                    old_to_new_map[incoming_query_id] = str(db_query.id)
 
                 # Create filters for this query
                 for filter_data in query_data.filters:
@@ -356,6 +368,21 @@ class ReportsService:
                         depends_on=filter_data.depends_on
                     )
                     self.db.add(db_filter)
+
+            # Update layout_config to use new query IDs
+            if db_report.layout_config and old_to_new_map:
+                # Update layout config with new IDs
+                updated_layout = []
+                for layout_item in db_report.layout_config:
+                    old_id = str(layout_item.get('i', ''))
+                    if old_id in old_to_new_map:
+                        # Create a new dict to avoid mutating the original
+                        new_layout_item = dict(layout_item)
+                        new_layout_item['i'] = old_to_new_map[old_id]
+                        updated_layout.append(new_layout_item)
+                    # If old_id not found in map, skip this layout item (query was removed)
+
+                db_report.layout_config = updated_layout
 
         await self.db.commit()
         

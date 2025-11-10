@@ -50,5 +50,6 @@ export interface VisualizationProps {
   query: QueryData
   result: QueryResult
   colors?: string[]
+  scale?: number
 }
 
