@@ -1072,7 +1072,7 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
           </div>
         ) : nested?.data && nested.data.length > 0 ? (
           <div className="space-y-3">
-            <div className="overflow-x-auto max-h-[500px] overflow-y-auto border border-gray-200 rounded">
+            <div className="border border-gray-200 rounded">
               <table className="w-full border-collapse bg-white rounded shadow-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className={`${headerBgColors[colorIndex]} border-b ${headerBorderColors[colorIndex]}`}>

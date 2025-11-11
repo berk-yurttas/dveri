@@ -794,21 +794,18 @@ export default function ReportDetailPage() {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element
 
-      // Check if clicking on an input field (text, number, date)
-      const isInputField = target.tagName === 'INPUT' && (target as HTMLInputElement).type !== 'checkbox'
-
-      // Close dropdown filters and operator menus when clicking outside or on an input field
+      // Close dropdown filters and operator menus when clicking outside
       const isInsideDropdown = target.closest('.filter-dropdown-container')
-      const isInsideDropdownMenu = target.closest('.absolute.z-50')
+      const isInsideDropdownMenu = target.closest('.dropdown-menu')
 
-      if (!isInsideDropdown && !isInsideDropdownMenu) {
-        setDropdownOpen({})
-        setOperatorMenuOpen({})
-      } else if (isInputField) {
-        // Close all dropdowns when clicking on any input field
-        setDropdownOpen({})
-        setOperatorMenuOpen({})
+      // If click is inside dropdown container or menu, don't close anything
+      if (isInsideDropdown || isInsideDropdownMenu) {
+        return
       }
+
+      // Only close if clicking completely outside
+      setDropdownOpen({})
+      setOperatorMenuOpen({})
 
       // Close table filter popovers when clicking outside any filter area
       const isInsideAnyTableFilter = target.closest('th.relative') || target.closest('.absolute.top-full') || target.closest('.nested-filter-popover')
@@ -1427,14 +1424,14 @@ export default function ReportDetailPage() {
     if (query.filters.length === 0) return null
 
     return (
-      <div className="mb-2">
-        <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-          <div className="flex flex-wrap items-end gap-2">
+      <div className="mb-1 mt-1">
+        <div className="bg-gray-50 px-2 py-1 rounded border border-gray-200">
+          <div className="flex flex-wrap items-end gap-1.5">
             {query.filters.map((filter) => (
-              <div key={filter.id} className={`flex-shrink-0 ${filter.type === 'date' ? 'w-72' : 'w-48'}`}>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{filter.displayName}</label>
+              <div key={filter.id} className={`flex-shrink-0 ${filter.type === 'date' ? 'w-64' : 'w-40'}`}>
+                <label className="block text-[10px] font-medium text-gray-600 mb-0.5">{filter.displayName}</label>
               {filter.type === 'date' ? (
-                <div className="relative flex items-center gap-1 w-full">
+                <div className="relative flex items-center gap-0.5 w-full">
                   <input
                     type="date"
                     value={filters[`${query.id}_${filter.fieldName}_start`] || ''}
@@ -1445,10 +1442,10 @@ export default function ReportDetailPage() {
                     onClick={(e) => {
                       e.currentTarget.showPicker?.()
                     }}
-                    className="flex-1 px-2 py-1 pr-6 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                    className="flex-1 px-1.5 py-0.5 pr-5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
                     title="Başlangıç"
                   />
-                  <span className="text-gray-500 text-xs font-medium">-</span>
+                  <span className="text-gray-500 text-[10px]">-</span>
                   <input
                     type="date"
                     value={filters[`${query.id}_${filter.fieldName}_end`] || ''}
@@ -1459,7 +1456,7 @@ export default function ReportDetailPage() {
                     onClick={(e) => {
                       e.currentTarget.showPicker?.()
                     }}
-                    className="flex-1 px-2 py-1 pr-6 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                    className="flex-1 px-1.5 py-0.5 pr-4 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
                     title="Bitiş"
                   />
                   {(filters[`${query.id}_${filter.fieldName}_start`] || filters[`${query.id}_${filter.fieldName}_end`]) && (
@@ -1468,10 +1465,10 @@ export default function ReportDetailPage() {
                         handleFilterChange(query.id, `${filter.fieldName}_start`, '')
                         handleFilterChange(query.id, `${filter.fieldName}_end`, '')
                       }}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded z-10"
+                      className="absolute right-0.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded z-10"
                       title="Temizle"
                     >
-                      <X className="h-3 w-3" />
+                      <X className="h-2.5 w-2.5" />
                     </button>
                   )}
                 </div>
@@ -1493,8 +1490,8 @@ export default function ReportDetailPage() {
                   return (
                     <div className="relative filter-dropdown-container">
                       {isParentMissing && (
-                        <div className="absolute -top-5 left-0 text-[10px] text-amber-600">
-                          Üst filtre seçilmedi; tüm seçenekler listeleniyor
+                        <div className="absolute -top-4 left-0 text-[9px] text-amber-600">
+                          Üst filtre seçilmedi
                         </div>
                       )}
                       <button
@@ -1507,7 +1504,7 @@ export default function ReportDetailPage() {
                             return { [filterKey]: !isCurrentlyOpen }
                           })
                         }}
-                        className={`w-full px-2 py-1 pr-12 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-xs bg-white text-left flex items-center justify-between ${
+                        className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${
                           'hover:bg-gray-50'
                         }`}
                       >
@@ -1538,30 +1535,30 @@ export default function ReportDetailPage() {
                               }
                             })
                           }}
-                          className="absolute right-6 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
+                          className="absolute right-5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
                         >
-                          <X className="h-3 w-3" />
+                          <X className="h-2.5 w-2.5" />
                         </button>
                       )}
-                      <ChevronDown className="h-3 w-3 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <ChevronDown className="h-2.5 w-2.5 text-gray-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       {isOpen && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded shadow-lg">
-                          <div className="p-1.5 border-b border-gray-200">
+                        <div className="dropdown-menu absolute z-50 w-full mt-0.5 bg-white border border-gray-300 rounded shadow-lg">
+                          <div className="p-1 border-b border-gray-200">
                             <div className="relative">
-                              <Search className="absolute left-2 top-1.5 h-3 w-3 text-gray-400" />
+                              <Search className="absolute left-1.5 top-1 h-2.5 w-2.5 text-gray-400" />
                               <input
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerms(prev => ({ ...prev, [filterKey]: e.target.value }))}
                                 placeholder="Ara..."
-                                className="w-full pl-7 pr-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
                                 onClick={(e) => e.stopPropagation()}
                               />
                             </div>
                           </div>
-                          <div className="max-h-48 overflow-y-auto">
+                          <div className="max-h-40 overflow-y-auto">
                             {filteredOptions.length === 0 ? (
-                              <div className="px-2 py-1.5 text-xs text-gray-500">Sonuç bulunamadı</div>
+                              <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
                             ) : (
                               filteredOptions.map((option, index) => (
                                 <div
@@ -1586,7 +1583,7 @@ export default function ReportDetailPage() {
                                       }
                                     })
                                   }}
-                                  className={`px-3 py-2 text-xs cursor-pointer hover:bg-orange-50 ${
+                                  className={`px-2 py-1 text-[10px] cursor-pointer hover:bg-orange-50 ${
                                     option.value === selectedValue ? 'bg-orange-100 font-medium' : 'text-gray-900'
                                   }`}
                                 >
@@ -1618,8 +1615,8 @@ export default function ReportDetailPage() {
                   return (
                     <div className="relative filter-dropdown-container">
                       {isParentMissing && (
-                        <div className="absolute -top-5 left-0 text-[10px] text-amber-600">
-                          Üst filtre seçilmedi; tüm seçenekler listeleniyor
+                        <div className="absolute -top-4 left-0 text-[9px] text-amber-600">
+                          Üst filtre seçilmedi
                         </div>
                       )}
                       <button
@@ -1632,7 +1629,7 @@ export default function ReportDetailPage() {
                             return { [filterKey]: !isCurrentlyOpen }
                           })
                         }}
-                        className={`w-full px-2 py-1 pr-12 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-xs bg-white text-left flex items-center justify-between ${
+                        className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${
                           'hover:bg-gray-50'
                         }`}
                       >
@@ -1663,30 +1660,30 @@ export default function ReportDetailPage() {
                               }
                             })
                           }}
-                          className="absolute right-6 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
+                          className="absolute right-5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
                         >
-                          <X className="h-3 w-3" />
+                          <X className="h-2.5 w-2.5" />
                         </button>
                       )}
-                      <ChevronDown className="h-3 w-3 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <ChevronDown className="h-2.5 w-2.5 text-gray-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       {isOpen && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded shadow-lg">
-                          <div className="p-1.5 border-b border-gray-200">
+                        <div className="dropdown-menu absolute z-50 w-full mt-0.5 bg-white border border-gray-300 rounded shadow-lg">
+                          <div className="p-1 border-b border-gray-200">
                             <div className="relative">
-                              <Search className="absolute left-2 top-1.5 h-3 w-3 text-gray-400" />
+                              <Search className="absolute left-1.5 top-1 h-2.5 w-2.5 text-gray-400" />
                               <input
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerms(prev => ({ ...prev, [filterKey]: e.target.value }))}
                                 placeholder="Ara..."
-                                className="w-full pl-7 pr-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
                                 onClick={(e) => e.stopPropagation()}
                               />
                             </div>
                           </div>
-                          <div className="max-h-48 overflow-y-auto">
+                          <div className="max-h-40 overflow-y-auto">
                             {filteredOptions.length === 0 ? (
-                              <div className="px-2 py-1.5 text-xs text-gray-500">Sonuç bulunamadı</div>
+                              <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
                             ) : (
                               filteredOptions.map((option, index) => {
                                 const isChecked = currentValues.includes(option.value)
@@ -1716,13 +1713,13 @@ export default function ReportDetailPage() {
                                         }
                                       })
                                     }}
-                                    className="px-3 py-2 text-xs cursor-pointer hover:bg-orange-50 flex items-center space-x-1.5"
+                                    className="px-2 py-1 text-[10px] cursor-pointer hover:bg-orange-50 flex items-center space-x-1"
                                   >
                                     <input
                                       type="checkbox"
                                       checked={isChecked}
                                       onChange={() => {}}
-                                      className="h-3 w-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded pointer-events-none"
+                                      className="h-2.5 w-2.5 text-orange-600 focus:ring-orange-500 border-gray-300 rounded pointer-events-none"
                                     />
                                     <span>{option.label}</span>
                                   </div>
@@ -1758,7 +1755,7 @@ export default function ReportDetailPage() {
                             const newValue = e.target.value
                             handleFilterChange(query.id, filter.fieldName, newValue)
                           }}
-                          className="w-full px-7 py-1 pr-6 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent text-xs"
+                          className="w-full h-[20px] px-7 py-1 pr-6 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent text-xs"
                           placeholder="Filtrele"
                         />
                         {/* Operator Icon Button on Input */}
@@ -1828,7 +1825,7 @@ export default function ReportDetailPage() {
                   const pageSize = queryState?.pageSize || 50
                   executeQueryWithFilters(query, report!.id, filters, 1, pageSize)
                 }}
-                className="h-[28px] px-3 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                className="h-[20px] px-3 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
               >
                 <RefreshCw className="h-3 w-3" />
                 Uygula
@@ -2403,6 +2400,7 @@ export default function ReportDetailPage() {
                 {queryState?.result && (
                   <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                     {/* Show filters above charts (but not for tables) */}
+                    {query.visualization.type !== 'table' && query.visualization.type !== 'expandable' && renderQueryFilters(query)}
                     {renderVisualization(query, queryState.result, scale)}
                   </div>
                 )}

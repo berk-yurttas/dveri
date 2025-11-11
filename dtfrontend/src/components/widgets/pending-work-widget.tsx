@@ -146,7 +146,8 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
 
   // State for filters
   const [selectedFirmas, setSelectedFirmas] = useState<string[]>(initialFilters.selectedFirmas)
-  const [firmaOptions, setFirmaOptions] = useState<string[]>([])
+  const [kablajFirmaOptions, setKablajFirmaOptions] = useState<string[]>([])
+  const [mekanikFirmaOptions, setMekanikFirmaOptions] = useState<string[]>([])
   const [firmaSearch, setFirmaSearch] = useState('')
   const [showFirmaDropdown, setShowFirmaDropdown] = useState(false)
   
@@ -175,6 +176,17 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
       }))
     }
   }, [selectedFirmas, selectedDataType, startDate, endDate, viewMode, instanceId])
+
+  // Clear selected firmas when switching data type if they don't exist in new dataset
+  useEffect(() => {
+    const currentOptions = selectedDataType === 'kablaj' ? kablajFirmaOptions : mekanikFirmaOptions
+    if (currentOptions.length > 0 && selectedFirmas.length > 0) {
+      const validFirmas = selectedFirmas.filter(firma => currentOptions.includes(firma))
+      if (validFirmas.length !== selectedFirmas.length) {
+        setSelectedFirmas(validFirmas)
+      }
+    }
+  }, [selectedDataType, kablajFirmaOptions, mekanikFirmaOptions])
 
   // Load all data once on mount
   useEffect(() => {
@@ -216,8 +228,8 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
         // Extract unique firma options from both datasets, filtering out null/undefined
         const kablajFirmas = kablajResponse.data?.map(row => row[0]).filter(Boolean) || []
         const mekanikFirmas = mekanikResponse.data?.map(row => row[0]).filter(Boolean) || []
-        const allFirmas = Array.from(new Set([...kablajFirmas, ...mekanikFirmas])).sort()
-        setFirmaOptions(allFirmas)
+        setKablajFirmaOptions(Array.from(new Set(kablajFirmas)).sort())
+        setMekanikFirmaOptions(Array.from(new Set(mekanikFirmas)).sort())
 
       } catch (err) {
         console.error(`Error loading data for ${instanceId}:`, err)
@@ -325,8 +337,11 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
     totalNotStart = notStarts.reduce((a, b) => a + b, 0)
   }
 
+  // Get current firma options based on selected data type
+  const currentFirmaOptions = selectedDataType === 'kablaj' ? kablajFirmaOptions : mekanikFirmaOptions
+
   // Filter options based on search
-  const filteredFirmaOptions = firmaOptions.filter(firma =>
+  const filteredFirmaOptions = currentFirmaOptions.filter(firma =>
     firma && firma.toLowerCase().includes(firmaSearch.toLowerCase())
   )
 

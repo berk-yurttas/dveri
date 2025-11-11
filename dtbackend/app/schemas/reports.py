@@ -73,6 +73,11 @@ class ChartOptions(BaseModel):
     tooltip_fields: Optional[List[str]] = Field([], alias="tooltipFields")
     field_display_names: Optional[Dict[str, str]] = Field({}, alias="fieldDisplayNames")
     
+
+    # line visual for bar chart
+    line_y_axis: Optional[str] = Field(None, alias="lineYAxis")
+    show_line_overlay: Optional[bool] = Field(False, alias="showLineOverlay")
+
     class Config:
         populate_by_name = True  # Allow both field names and aliases
         from_attributes = True

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts'
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts'
 import { api } from "@/lib/api"
 
 // Widget configuration
@@ -10,27 +10,30 @@ MachineOeeWidget.config = {
   name: "Makine OEE Analizi",
   type: "machine_oee",
   color: "bg-purple-500",
-  description: "Firma ve makine koduna göre OEE analizi (7, 30, 60, 90 günlük)",
+  description: "Firma ve makine koduna göre tarih bazlı OEE analizi",
   size: { width: 4, height: 2 }
 }
 
 // TypeScript interfaces
 interface MachineOeeData {
+  "Firma Adı": string
+  "Makina Kodu": string
+  "Üretim Tarihi": string
+  "OEE": number
+}
+
+interface AggregatedOeeData {
+  name: string
   firma: string
   machinecode: string
-  avg_oee_7_days: number
-  avg_oee_30_days: number
-  avg_oee_60_days: number
-  avg_oee_90_days: number
+  avgOee: number
 }
 
 interface WidgetData {
-  data: MachineOeeData[]
-  filters: {
-    firma?: string
-    machinecodes?: string[]
-  }
-  total_records: number
+  success: boolean
+  data: any[]
+  columns: string[]
+  total_rows: number
 }
 
 interface MachineOeeWidgetProps {
@@ -46,14 +49,33 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
   const firmaDropdownRef = useRef<HTMLDivElement>(null)
   const machineDropdownRef = useRef<HTMLDivElement>(null)
 
+  // Calculate default date range (last 30 days)
+  const getDefaultDateRange = () => {
+    const end = new Date()
+    const start = new Date()
+    start.setDate(start.getDate() - 30)
+    return {
+      start: start.toISOString().split('T')[0],
+      end: end.toISOString().split('T')[0]
+    }
+  }
+
   // Load filters from localStorage
   const getStoredFilters = () => {
-    if (typeof window === 'undefined') return { firma: null, machinecodes: [] }
+    if (typeof window === 'undefined') {
+      const defaultDates = getDefaultDateRange()
+      return { firma: null, machinecode: null, startDate: defaultDates.start, endDate: defaultDates.end }
+    }
     try {
       const stored = localStorage.getItem(`machine-oee-filters-${instanceId}`)
-      return stored ? JSON.parse(stored) : { firma: null, machinecodes: [] }
+      if (stored) {
+        return JSON.parse(stored)
+      }
+      const defaultDates = getDefaultDateRange()
+      return { firma: null, machinecode: null, startDate: defaultDates.start, endDate: defaultDates.end }
     } catch {
-      return { firma: null, machinecodes: [] }
+      const defaultDates = getDefaultDateRange()
+      return { firma: null, machinecode: null, startDate: defaultDates.start, endDate: defaultDates.end }
     }
   }
 
@@ -61,7 +83,9 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
 
   // State for filters
   const [selectedFirma, setSelectedFirma] = useState<string | null>(initialFilters.firma)
-  const [selectedMachines, setSelectedMachines] = useState<string[]>(initialFilters.machinecodes || [])
+  const [selectedMachine, setSelectedMachine] = useState<string | null>(initialFilters.machinecode)
+  const [startDate, setStartDate] = useState<string>(initialFilters.startDate)
+  const [endDate, setEndDate] = useState<string>(initialFilters.endDate)
   const [firmaOptions, setFirmaOptions] = useState<string[]>([])
   const [machineOptions, setMachineOptions] = useState<string[]>([])
   const [firmaSearch, setFirmaSearch] = useState('')
@@ -70,7 +94,8 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
   const [showMachineDropdown, setShowMachineDropdown] = useState(false)
 
   // State for widget data and loading
-  const [widgetData, setWidgetData] = useState<WidgetData | null>(null)
+  const [widgetData, setWidgetData] = useState<MachineOeeData[]>([])
+  const [allData, setAllData] = useState<MachineOeeData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -96,25 +121,33 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
     if (typeof window !== 'undefined') {
       localStorage.setItem(`machine-oee-filters-${instanceId}`, JSON.stringify({
         firma: selectedFirma,
-        machinecodes: selectedMachines
+        machinecode: selectedMachine,
+        startDate,
+        endDate
       }))
     }
-  }, [selectedFirma, selectedMachines, instanceId])
+  }, [selectedFirma, selectedMachine, startDate, endDate, instanceId])
 
   // Load all firma and machine options once on mount
   useEffect(() => {
     const loadOptions = async () => {
       try {
-        // Fetch all data without filters to get all options
-        const data = await api.post<WidgetData>('/data/widget', {
-          widget_type: 'machine_oee',
-          filters: {}
+        // Fetch all data to get all options
+        const response = await api.post<WidgetData>('/reports/preview', {
+          sql_query: 'SELECT "Firma Adı", "Makina Kodu", "Üretim Tarihi", "OEE" FROM mes_production.tarih_bazli_oee ORDER BY "Üretim Tarihi" DESC'
         })
 
-        // Extract unique firma and machine options from full response
-        if (data.data && data.data.length > 0) {
-          const uniqueFirmas = Array.from(new Set(data.data.map(item => item.firma))).sort()
-          const uniqueMachines = Array.from(new Set(data.data.map(item => item.machinecode))).sort()
+        if (response.success && response.data && response.data.length > 0) {
+          const transformed: MachineOeeData[] = response.data.map(row => ({
+            "Firma Adı": row[0],
+            "Makina Kodu": row[1],
+            "Üretim Tarihi": row[2],
+            "OEE": parseFloat(row[3]) || 0
+          }))
+
+          setAllData(transformed)
+          const uniqueFirmas = Array.from(new Set(transformed.map(item => item["Firma Adı"]))).sort()
+          const uniqueMachines = Array.from(new Set(transformed.map(item => item["Makina Kodu"]))).sort()
           setFirmaOptions(uniqueFirmas)
           setMachineOptions(uniqueMachines)
         }
@@ -126,71 +159,108 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
     loadOptions()
   }, [instanceId])
 
-  // Clear selected machines when firma changes
+  // Clear selected machine when firma changes
   useEffect(() => {
-    if (selectedFirma && selectedMachines.length > 0) {
-      // Clear machines that don't belong to the newly selected firma
-      setSelectedMachines([])
+    if (selectedFirma) {
+      setSelectedMachine(null)
     }
   }, [selectedFirma])
 
   // Load widget data
   useEffect(() => {
-    const abortController = new AbortController()
-
     const loadWidgetData = async () => {
-      console.log(`MachineOeeWidget ${instanceId}: Loading data for firma=${selectedFirma || 'all'} machines=${selectedMachines.length > 0 ? selectedMachines.join(',') : 'all'}`)
-
       setLoading(true)
       setError(null)
 
       try {
-        const filters: any = {}
+        let whereClauses: string[] = []
+
+        if (startDate && endDate) {
+          whereClauses.push(`"Üretim Tarihi" BETWEEN '${startDate}' AND '${endDate}'`)
+        }
 
         if (selectedFirma) {
-          filters.firma = selectedFirma
+          whereClauses.push(`"Firma Adı" = '${selectedFirma}'`)
         }
 
-        if (selectedMachines.length > 0) {
-          filters.machinecodes = selectedMachines
+        if (selectedMachine) {
+          whereClauses.push(`"Makina Kodu" = '${selectedMachine}'`)
         }
 
-        const data = await api.post<WidgetData>('/data/widget', {
-          widget_type: 'machine_oee',
-          filters: filters
-        }, { signal: abortController.signal })
+        const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
 
-        setWidgetData(data)
+        const response = await api.post<WidgetData>('/reports/preview', {
+          sql_query: `SELECT "Firma Adı", "Makina Kodu", "Üretim Tarihi", "OEE" FROM mes_production.tarih_bazli_oee ${whereClause} ORDER BY "Üretim Tarihi" DESC`
+        })
+
+        if (response.success && response.data && response.data.length > 0) {
+          const transformed: MachineOeeData[] = response.data.map(row => ({
+            "Firma Adı": row[0],
+            "Makina Kodu": row[1],
+            "Üretim Tarihi": row[2],
+            "OEE": parseFloat(row[3]) || 0
+          }))
+
+          setWidgetData(transformed)
+        } else {
+          setWidgetData([])
+        }
       } catch (err: any) {
-        if (err?.status !== 0 && err?.message !== 'Request was cancelled') {
-          setError('Veri yüklenirken hata oluştu')
-          console.error(`Error loading widget data for ${instanceId}:`, err)
-        }
+        setError('Veri yüklenirken hata oluştu')
+        console.error(`Error loading widget data for ${instanceId}:`, err)
       } finally {
-        if (!abortController.signal.aborted) {
-          setLoading(false)
-        }
+        setLoading(false)
       }
     }
 
     loadWidgetData()
+  }, [selectedFirma, selectedMachine, startDate, endDate, instanceId])
 
-    return () => {
-      abortController.abort()
-    }
-  }, [selectedFirma, selectedMachines, instanceId])
+  // Prepare chart data based on filters
+  const isDetailedView = selectedFirma && selectedMachine
 
-  // Prepare chart data - transform from rows to columns for grouped bar chart
-  // Show only machine code on x-axis when company is selected, otherwise show firma - machinecode
-  const chartData = widgetData?.data?.map((item) => ({
-    name: selectedFirma ? item.machinecode : `${item.firma} - ${item.machinecode}`,
-    firma: item.firma,
-    machinecode: item.machinecode,
-    '7 Gün': item.avg_oee_7_days,
-    '30 Gün': item.avg_oee_30_days,
-    '60 Gün': item.avg_oee_60_days,
-    '90 Gün': item.avg_oee_90_days
-  })) || []
+  let chartData: any[] = []
+  let avgOee = 0
+  let maxOee = 0
+  let minOee = 0
+
+  if (isDetailedView) {
+    // Time-series view: show OEE over time for specific firma and machine
+    chartData = widgetData.map(item => ({
+      date: item["Üretim Tarihi"],
+      OEE: (item["OEE"] * 100).toFixed(2)
+    })).reverse() // Reverse to show chronological order
+
+    const oeeValues = widgetData.map(item => item["OEE"] * 100)
+    avgOee = oeeValues.length > 0 ? oeeValues.reduce((sum, val) => sum + val, 0) / oeeValues.length : 0
+    maxOee = oeeValues.length > 0 ? Math.max(...oeeValues) : 0
+    minOee = oeeValues.length > 0 ? Math.min(...oeeValues) : 0
+  } else {
+    // Aggregated view: show average OEE per firma/machine combination
+    const aggregated = new Map<string, { sum: number, count: number, firma: string, machine: string }>()
+
+    widgetData.forEach(item => {
+      const key = `${item["Firma Adı"]}-${item["Makina Kodu"]}`
+      if (!aggregated.has(key)) {
+        aggregated.set(key, { sum: 0, count: 0, firma: item["Firma Adı"], machine: item["Makina Kodu"] })
+      }
+      const agg = aggregated.get(key)!
+      agg.sum += item["OEE"]
+      agg.count += 1
+    })
+
+    chartData = Array.from(aggregated.entries()).map(([key, value]) => ({
+      name: selectedFirma ? value.machine : key,
+      firma: value.firma,
+      machine: value.machine,
+      OEE: ((value.sum / value.count) * 100).toFixed(2)
+    }))
+
+    const oeeValues = chartData.map(item => parseFloat(item.OEE))
+    avgOee = oeeValues.length > 0 ? oeeValues.reduce((sum, val) => sum + val, 0) / oeeValues.length : 0
+    maxOee = oeeValues.length > 0 ? Math.max(...oeeValues) : 0
+    minOee = oeeValues.length > 0 ? Math.min(...oeeValues) : 0
+  }
 
   // Filter options based on search
   const filteredFirmaOptions = firmaOptions.filter(firma =>
@@ -198,11 +268,11 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
   )
 
   // Filter machine options based on selected firma
-  const availableMachineOptions = selectedFirma && widgetData?.data
+  const availableMachineOptions = selectedFirma && allData.length > 0
     ? Array.from(new Set(
-        widgetData.data
-          .filter(item => item.firma === selectedFirma)
-          .map(item => item.machinecode)
+        allData
+          .filter(item => item["Firma Adı"] === selectedFirma)
+          .map(item => item["Makina Kodu"])
       )).sort()
     : machineOptions
 
@@ -236,41 +306,11 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
   }
 
   // Show no data state
-  if (!widgetData || !widgetData.data || widgetData.data.length === 0) {
+  if (!widgetData || widgetData.length === 0) {
     return (
       <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-700">Makine OEE Analizi</h3>
-          <div className="flex gap-2">
-            <div className="relative">
-              <button
-                onClick={() => setShowFirmaDropdown(!showFirmaDropdown)}
-                className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white min-w-[120px] text-left flex items-center justify-between"
-              >
-                <span className="truncate">{selectedFirma || 'Tüm Firmalar'}</span>
-                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-            </div>
-            <div className="relative">
-              <button
-                onClick={() => setShowMachineDropdown(!showMachineDropdown)}
-                className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white min-w-[120px] text-left flex items-center justify-between"
-              >
-                <span className="truncate">
-                  {selectedMachines.length === 0 
-                    ? 'Tüm Makineler' 
-                    : selectedMachines.length === 1 
-                    ? selectedMachines[0] 
-                    : `${selectedMachines.length} Makine Seçili`}
-                </span>
-                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-            </div>
-          </div>
         </div>
         <div className="flex-1 flex items-center justify-center">
           <p className="text-sm text-gray-500">Veri bulunamadı</p>
@@ -279,26 +319,31 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
     )
   }
 
-  // Calculate statistics
-  const allOeeValues = widgetData.data.flatMap(item => [
-    item.avg_oee_7_days,
-    item.avg_oee_30_days,
-    item.avg_oee_60_days,
-    item.avg_oee_90_days
-  ])
-  const avgOee = allOeeValues.length > 0 ? allOeeValues.reduce((sum, val) => sum + val, 0) / allOeeValues.length : 0
-  const maxOee = allOeeValues.length > 0 ? Math.max(...allOeeValues) : 0
-  const minOee = allOeeValues.length > 0 ? Math.min(...allOeeValues) : 0
-
   return (
     <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 flex flex-col">
       {/* Header with filters */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex flex-col">
           <h3 className="text-sm font-semibold text-gray-700">Makine OEE Analizi</h3>
-          <p className="text-xs text-gray-500 mt-1">Ortalama OEE (%)</p>
+          <p className="text-xs text-gray-500 mt-1">
+            {isDetailedView ? 'Günlük OEE Trendi' : 'Ortalama OEE (%)'}
+          </p>
         </div>
         <div className="flex gap-2">
+          {/* Date Range Filters */}
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+          />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+          />
+
           {/* Firma Dropdown */}
           <div className="relative" ref={firmaDropdownRef}>
             <button
@@ -351,26 +396,20 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
             )}
           </div>
 
-          {/* Machine Dropdown - Multiselect */}
+          {/* Machine Dropdown */}
           <div className="relative" ref={machineDropdownRef}>
             <button
               onClick={() => setShowMachineDropdown(!showMachineDropdown)}
               className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white min-w-[120px] text-left flex items-center justify-between"
             >
-              <span className="truncate">
-                {selectedMachines.length === 0 
-                  ? 'Tüm Makineler' 
-                  : selectedMachines.length === 1 
-                  ? selectedMachines[0] 
-                  : `${selectedMachines.length} Makine Seçili`}
-              </span>
+              <span className="truncate">{selectedMachine || 'Tüm Makineler'}</span>
               <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
             {showMachineDropdown && (
               <div className="absolute z-10 mt-1 w-48 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto right-0">
-                <div className="p-2 border-b border-gray-200 sticky top-0 bg-white">
+                <div className="p-2 border-b border-gray-200">
                   <input
                     type="text"
                     value={machineSearch}
@@ -381,32 +420,25 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
                 </div>
                 <div
                   onClick={() => {
-                    setSelectedMachines([])
+                    setSelectedMachine(null)
+                    setShowMachineDropdown(false)
                     setMachineSearch('')
                   }}
-                  className="px-3 py-2 text-xs hover:bg-purple-50 cursor-pointer border-b border-gray-200 font-medium"
+                  className="px-3 py-2 text-xs hover:bg-purple-50 cursor-pointer"
                 >
-                  ✕ Tümünü Temizle
+                  Tüm Makineler
                 </div>
                 {filteredMachineOptions.map((machine) => (
                   <div
                     key={machine}
                     onClick={() => {
-                      setSelectedMachines(prev => 
-                        prev.includes(machine) 
-                          ? prev.filter(m => m !== machine)
-                          : [...prev, machine]
-                      )
+                      setSelectedMachine(machine)
+                      setShowMachineDropdown(false)
+                      setMachineSearch('')
                     }}
-                    className={`px-3 py-2 text-xs hover:bg-purple-50 cursor-pointer flex items-center ${selectedMachines.includes(machine) ? 'bg-purple-50' : ''}`}
+                    className={`px-3 py-2 text-xs hover:bg-purple-50 cursor-pointer ${selectedMachine === machine ? 'bg-purple-100 font-medium' : ''}`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={selectedMachines.includes(machine)}
-                      onChange={() => {}}
-                      className="mr-2 text-purple-500 focus:ring-purple-500"
-                    />
-                    <span>{machine}</span>
+                    {machine}
                   </div>
                 ))}
                 {filteredMachineOptions.length === 0 && (
@@ -423,7 +455,7 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
         {/* Total Records */}
         <div className="bg-purple-50 p-2 rounded-lg flex flex-col items-center justify-center">
           <div className="text-lg font-bold text-purple-600">
-            {widgetData.total_records}
+            {widgetData.length}
           </div>
           <div className="text-xs font-medium text-purple-800 text-center">
             Toplam Kayıt
@@ -464,84 +496,101 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
       {/* Chart */}
       <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={chartData}
-            margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
-          >
-            <defs>
-              <linearGradient id="colorOee7" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.9}/>
-                <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.9}/>
-              </linearGradient>
-              <linearGradient id="colorOee30" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.9}/>
-                <stop offset="100%" stopColor="#6d28d9" stopOpacity={0.9}/>
-              </linearGradient>
-              <linearGradient id="colorOee60" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#10b981" stopOpacity={0.9}/>
-                <stop offset="100%" stopColor="#059669" stopOpacity={0.9}/>
-              </linearGradient>
-              <linearGradient id="colorOee90" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.9}/>
-                <stop offset="100%" stopColor="#d97706" stopOpacity={0.9}/>
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis
-              dataKey="name"
-              angle={-45}
-              textAnchor="end"
-              height={80}
-              stroke="#6b7280"
-              style={{ fontSize: '13px', fontWeight: 500 }}
-              tickLine={false}
-            />
-            <YAxis
-              stroke="#6b7280"
-              style={{ fontSize: '13px', fontWeight: 500 }}
-              tickLine={false}
-              label={{ value: 'OEE (%)', angle: -90, position: 'insideLeft' }}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: 'white',
-                border: '1px solid #e5e7eb',
-                borderRadius: '12px',
-                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
-                padding: '12px'
-              }}
-              cursor={{ fill: 'rgba(139, 92, 246, 0.1)' }}
-              formatter={(value: number) => `${value.toFixed(2)}%`}
-            />
-            <Legend
-              wrapperStyle={{ paddingTop: '20px' }}
-              iconType="circle"
-            />
-            <Bar
-              dataKey="7 Gün"
-              fill="url(#colorOee7)"
-              radius={[8, 8, 0, 0]}
-              maxBarSize={40}
-            />
-            <Bar
-              dataKey="30 Gün"
-              fill="url(#colorOee30)"
-              radius={[8, 8, 0, 0]}
-              maxBarSize={40}
-            />
-            <Bar
-              dataKey="60 Gün"
-              fill="url(#colorOee60)"
-              radius={[8, 8, 0, 0]}
-              maxBarSize={40}
-            />
-            <Bar
-              dataKey="90 Gün"
-              fill="url(#colorOee90)"
-              radius={[8, 8, 0, 0]}
-              maxBarSize={40}
-            />
-          </BarChart>
+          {isDetailedView ? (
+            // Line chart for time series when firma and machine are selected
+            <LineChart
+              data={chartData}
+              margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+            >
+              <defs>
+                <linearGradient id="colorOee" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.8}/>
+                  <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.1}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis
+                dataKey="date"
+                angle={-45}
+                textAnchor="end"
+                height={80}
+                stroke="#6b7280"
+                style={{ fontSize: '11px', fontWeight: 500 }}
+                tickLine={false}
+              />
+              <YAxis
+                stroke="#6b7280"
+                style={{ fontSize: '13px', fontWeight: 500 }}
+                tickLine={false}
+                label={{ value: 'OEE (%)', angle: -90, position: 'insideLeft' }}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: 'white',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '12px',
+                  boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                  padding: '12px'
+                }}
+                formatter={(value: number) => `${parseFloat(value.toString()).toFixed(2)}%`}
+              />
+              <Line
+                type="monotone"
+                dataKey="OEE"
+                stroke="#8b5cf6"
+                strokeWidth={3}
+                dot={{ r: 4, fill: '#8b5cf6' }}
+                activeDot={{ r: 6 }}
+                fill="url(#colorOee)"
+              />
+            </LineChart>
+          ) : (
+            // Bar chart for aggregated view
+            <BarChart
+              data={chartData}
+              margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+            >
+              <defs>
+                <linearGradient id="colorOeeBar" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.9}/>
+                  <stop offset="100%" stopColor="#6d28d9" stopOpacity={0.9}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis
+                dataKey="name"
+                angle={-45}
+                textAnchor="end"
+                height={80}
+                stroke="#6b7280"
+                style={{ fontSize: '13px', fontWeight: 500 }}
+                tickLine={false}
+              />
+              <YAxis
+                stroke="#6b7280"
+                style={{ fontSize: '13px', fontWeight: 500 }}
+                tickLine={false}
+                label={{ value: 'OEE (%)', angle: -90, position: 'insideLeft' }}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: 'white',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '12px',
+                  boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                  padding: '12px'
+                }}
+                cursor={{ fill: 'rgba(139, 92, 246, 0.1)' }}
+                formatter={(value: number) => `${parseFloat(value.toString()).toFixed(2)}%`}
+              />
+              <Bar
+                dataKey="OEE"
+                fill="url(#colorOeeBar)"
+                radius={[8, 8, 0, 0]}
+                maxBarSize={40}
+              />
+            </BarChart>
+          )}
         </ResponsiveContainer>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LineChart, Line, PieChart, Pie, AreaChart, Area } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LineChart, Line, PieChart, Pie, AreaChart, Area, ComposedChart } from 'recharts'
 import { VisualizationProps } from './types'
 import { Button } from '@/components/appShell/ui/button'
 import { ArrowLeft, Loader2 } from 'lucide-react'
@@ -29,9 +29,62 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
     return item
   })
 
+  // Calculate dynamic XAxis height based on longest label
+  const calculateXAxisHeight = () => {
+    const xAxisField = visualization.xAxis || columns[0]
+    const xAxisValue = chartData.map(item => item[xAxisField])
+    const maxLabelLength = Math.max(...xAxisValue.map(item => String(item).length), 0)
+
+    // Calculate number of lines needed for longest label (20 chars per line)
+    const charsPerLine = 20
+    const maxLines = Math.ceil(maxLabelLength / charsPerLine)
+
+    // Base height + extra per line (with -45° angle, each line needs ~15px vertical space)
+    const calculatedHeight = Math.max(70, Math.min(250, 30 + (maxLines - 1) * 15))
+    return calculatedHeight
+  }
+
+  // Custom tick to render multiline labels
+  const CustomXAxisTick = ({ x, y, payload }: any) => {
+    const str = String(payload.value)
+    const charsPerLine = 30
+    const lines: string[] = []
+
+    // Split into multiple lines
+    for (let i = 0; i < str.length; i += charsPerLine) {
+      lines.push(str.substring(i, i + charsPerLine))
+    }
+
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text
+          x={0}
+          y={0}
+          dy={0}
+          textAnchor="end"
+          fill="#6b7280"
+          fontSize="10px"
+          fontWeight={400}
+          transform="rotate(-45)"
+        >
+          {lines.map((line, index) => (
+            <tspan key={index} x={0} dy={index === 0 ? 0 : 12}>
+              {line}
+            </tspan>
+          ))}
+        </text>
+      </g>
+    )
+  }
+
+  const xAxisHeight = calculateXAxisHeight()
+  const bottomMargin = Math.max(5, xAxisHeight - 60) // Adjust bottom margin based on height
+
   const isClickable = visualization.chartOptions?.clickable &&
                       visualization.chartOptions?.nestedQueries &&
                       visualization.chartOptions.nestedQueries.length > 0
+
+  const showLineOverlay = visualization.chartOptions?.showLineOverlay && visualization.chartOptions?.lineYAxis
 
   // Handle bar click
   const handleBarClick = async (data: any) => {
@@ -354,11 +407,97 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
   }
 
   // Show main bar chart
-  return (
-    <div style={{ width: '100%', height: '100%', minHeight: '300px' }}>
-          <ResponsiveContainer width="100%" height={400 * scale}>
-      <BarChart data={chartData} margin={{ top: 20 * scale, right: 10 * scale, left: 0, bottom: 5 * scale }}>
+  if (showLineOverlay) {
+    return (
+      <div style={{ width: '100%', height: '100%', minHeight: '200px' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData} margin={{ top: 20, right: 50, left: 0, bottom: bottomMargin }}>
+            <defs>
+              {colors.map((color, i) => {
+                const darkColor = color.replace(/[0-9A-Fa-f]{2}/, (match) =>
+                  Math.max(0, parseInt(match, 16) - 40).toString(16).padStart(2, '0')
+                )
+                return (
+                  <linearGradient key={i} id={`colorGradient${i}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={color} stopOpacity={0.9}/>
+                    <stop offset="100%" stopColor={darkColor} stopOpacity={0.9}/>
+                  </linearGradient>
+                )
+              })}
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <XAxis
+              dataKey={visualization.xAxis || columns[0]}
+              stroke="#6b7280"
+              tickLine={false}
+              padding={{ left: 30, right: 30 }}
+              height={xAxisHeight}
+              interval={0}
+              tick={<CustomXAxisTick />}
+            />
+            <YAxis
+              yAxisId="left"
+              stroke="#6b7280"
+              style={{ fontSize: '13px', fontWeight: 500 }}
+              tickLine={false}
+              label={{ value: visualization.yAxis || columns[1], angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
+            />
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              stroke="#6b7280"
+              style={{ fontSize: '13px', fontWeight: 500 }}
+              tickLine={false}
+              label={{ value: visualization.chartOptions.lineYAxis, angle: 90, position: 'insideRight', style: { textAnchor: 'middle' } }}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: '12px',
+                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                padding: '12px'
+              }}
+              cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+            />
+            <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
+            <Bar
+              yAxisId="left"
+              dataKey={visualization.yAxis || columns[1]}
+              fill={colors[0]}
+              name={visualization.yAxis || columns[1]}
+              onClick={isClickable ? handleBarClick : undefined}
+              cursor={isClickable ? 'pointer' : 'default'}
+              radius={[8, 8, 0, 0]}
+              maxBarSize={60}
+            >
+              {chartData.map((entry, index) => (
+                <Cell
+                  key={`cell-${index}`}
+                  fill={`url(#colorGradient${index % colors.length})`}
+                />
+              ))}
+            </Bar>
+            <Line
+              yAxisId="right"
+              type="monotone"
+              dataKey={visualization.chartOptions.lineYAxis}
+              stroke={colors[1] || '#10B981'}
+              strokeWidth={3}
+              dot={{ r: 4, fill: colors[1] || '#10B981' }}
+              activeDot={{ r: 6 }}
+              name={visualization.chartOptions.lineYAxis}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    )
+  }
 
+  return (
+    <div style={{ width: '100%', height: '100%', minHeight: '200px' }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: bottomMargin }}>
           <defs>
             {colors.map((color, i) => {
               // Create gradient for each color
@@ -377,12 +516,11 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
           <XAxis
             dataKey={visualization.xAxis || columns[0]}
             stroke="#6b7280"
-            style={{ fontSize: '10px', fontWeight: 400 }}
             tickLine={false}
             padding={{ left: 30, right: 30 }}
-            angle={-20}
-            textAnchor="end"
-            height={70}
+            height={xAxisHeight}
+            interval={0}
+            tick={<CustomXAxisTick />}
           />
           <YAxis
             stroke="#6b7280"

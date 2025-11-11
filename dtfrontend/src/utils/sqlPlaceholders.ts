@@ -43,9 +43,10 @@ export function removePlaceholderCondition(baseSql: string, placeholderField: st
 
   const patterns: Array<{ regex: RegExp; replacement: string }> = [
     // column = {{placeholder}} or column = '{{placeholder}}'
+    // Matches quoted strings or unquoted identifiers (with spaces, dots, brackets)
     {
       regex: new RegExp(
-        `([\\w."\\[\\]]+)\\s*=\\s*['"]?{{${placeholderField}}}['"]?`,
+        `(["'][^"']+["']|[\\w.\\[\\]]+(?:\\s+[\\w.\\[\\]]+)*)\\s*=\\s*['"]?{{${placeholderField}}}['"]?`,
         'gi'
       ),
       replacement: '1=1'
@@ -53,20 +54,23 @@ export function removePlaceholderCondition(baseSql: string, placeholderField: st
     // column IN ({{placeholder}})
     {
       regex: new RegExp(
-        `([\\w."\\[\\]]+)\\s+IN\\s*\\(\\s*{{${placeholderField}}}\\s*\\)`,
+        `(["'][^"']+["']|[\\w.\\[\\]]+(?:\\s+[\\w.\\[\\]]+)*)\\s+IN\\s*\\(\\s*{{${placeholderField}}}\\s*\\)`,
         'gi'
       ),
       replacement: '1=1'
     },
     // column IN {{placeholder}}
     {
-      regex: new RegExp(`([\\w."\\[\\]]+)\\s+IN\\s+{{${placeholderField}}}`, 'gi'),
+      regex: new RegExp(
+        `(["'][^"']+["']|[\\w.\\[\\]]+(?:\\s+[\\w.\\[\\]]+)*)\\s+IN\\s+{{${placeholderField}}}`,
+        'gi'
+      ),
       replacement: '1=1'
     },
     // column LIKE {{placeholder}} / '{{placeholder}}'
     {
       regex: new RegExp(
-        `([\\w."\\[\\]]+)\\s+LIKE\\s*['"]?{{${placeholderField}}}['"]?`,
+        `(["'][^"']+["']|[\\w.\\[\\]]+(?:\\s+[\\w.\\[\\]]+)*)\\s+LIKE\\s*['"]?{{${placeholderField}}}['"]?`,
         'gi'
       ),
       replacement: '1=1'

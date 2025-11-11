@@ -212,6 +212,58 @@ const ChartPreview = ({
   const renderChart = () => {
     switch (visualization.type) {
       case 'bar':
+        const showLineOverlay = visualization.chartOptions?.showLineOverlay && visualization.chartOptions?.lineYAxis
+
+        if (showLineOverlay) {
+          return (
+            <ResponsiveContainer width="100%" height={400}>
+              <ComposedChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis
+                  dataKey={visualization.xAxis || columns[0]}
+                  tick={{ fontSize: 12 }}
+                  stroke="#64748b"
+                />
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 12 }}
+                  stroke="#64748b"
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 12 }}
+                  stroke="#64748b"
+                />
+                <Tooltip
+                  content={(visualization.chartOptions?.tooltipFields?.length ?? 0) > 0 ? <CustomTooltip /> : undefined}
+                  contentStyle={(visualization.chartOptions?.tooltipFields?.length ?? 0) === 0 ? {
+                    backgroundColor: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '12px'
+                  } : undefined}
+                />
+                {visualization.showLegend && <Legend />}
+                <Bar
+                  yAxisId="left"
+                  dataKey={visualization.yAxis || columns[1]}
+                  fill={colors[0]}
+                  radius={[4, 4, 0, 0]}
+                />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey={visualization.chartOptions.lineYAxis}
+                  stroke={colors[1] || '#10B981'}
+                  strokeWidth={3}
+                  dot={{ r: 4 }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )
+        }
+
         return (
           <ResponsiveContainer width="100%" height={400}>
             <BarChart data={chartData}>
@@ -1514,9 +1566,33 @@ export default function EditReportPage() {
       // Don't send layoutConfig to preserve it unchanged
       const { layoutConfig, ...reportWithoutLayout } = report
 
+      // Clean filter IDs (remove non-integer IDs as they're client-side only)
+      const cleanedReport = {
+        ...reportWithoutLayout,
+        queries: reportWithoutLayout.queries.map((query: any) => ({
+          ...query,
+          filters: query.filters.map((filter: any) => {
+            const { id, ...filterWithoutId } = filter
+            // Only include id if it's a valid integer (existing filter from backend)
+            if (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) {
+              return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
+            }
+            return filterWithoutId
+          })
+        })),
+        globalFilters: reportWithoutLayout.globalFilters?.map((filter: any) => {
+          const { id, ...filterWithoutId } = filter
+          // Only include id if it's a valid integer (existing filter from backend)
+          if (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) {
+            return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
+          }
+          return filterWithoutId
+        }) || []
+      }
+
       // Send the updated report to the backend using the full update endpoint
-      console.log('Updating report:', reportWithoutLayout)
-      const updatedReport = await reportsService.updateReportFull(reportId, reportWithoutLayout)
+      console.log('Updating report:', cleanedReport)
+      const updatedReport = await reportsService.updateReportFull(reportId, cleanedReport)
       console.log('Report updated successfully:', updatedReport)
 
       // Clear the cache for this report to ensure fresh data on redirect
@@ -1913,6 +1989,53 @@ export default function EditReportPage() {
                                       </Select>
                                     </div>
                                   </div>
+
+                                  {/* Line Overlay for Bar Charts */}
+                                  {query.visualization.type === 'bar' && (
+                                    <div className="mt-3 space-y-3 p-3 bg-cyan-50/50 rounded-lg border border-cyan-200">
+                                      <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                          id={`line-overlay-${query.id}`}
+                                          checked={query.visualization.chartOptions?.showLineOverlay ?? false}
+                                          onCheckedChange={(checked) => {
+                                            updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                showLineOverlay: checked,
+                                                lineYAxis: checked ? query.visualization.chartOptions?.lineYAxis : undefined
+                                              }
+                                            })
+                                          }}
+                                        />
+                                        <Label htmlFor={`line-overlay-${query.id}`} className="text-sm font-semibold text-cyan-900">
+                                          Çizgi Grafik Ekle (Sağ Y Ekseni)
+                                        </Label>
+                                      </div>
+
+                                      {query.visualization.chartOptions?.showLineOverlay && (
+                                        <div className="space-y-2">
+                                          <Label className="text-sm">Çizgi Y Ekseni Alanı</Label>
+                                          <Select
+                                            value={query.visualization.chartOptions?.lineYAxis || ''}
+                                            onValueChange={(value) => updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                lineYAxis: value
+                                              }
+                                            })}
+                                            placeholder="Çizgi için Y ekseni seçin"
+                                          >
+                                            {availableFields.map((field) => (
+                                              <option key={field} value={field}>{field}</option>
+                                            ))}
+                                          </Select>
+                                          <p className="text-xs text-cyan-700">
+                                            Çizgi grafik sağ Y ekseninde gösterilecek
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
 
                                   {/* Clickable Bar Configuration */}
                                   {query.visualization.type === 'bar' && (
@@ -2632,19 +2755,19 @@ export default function EditReportPage() {
                               ))}
                             </tbody>
                           </table>
-                          <div className="p-2 border-t border-slate-200">
-                            <Button
-                              onClick={() => addFilter(queryIndex)}
-                              size="sm"
-                              disabled={availableFields.length === 0}
-                              className="w-full h-7 text-[10px] bg-orange-500 hover:bg-orange-600 text-white disabled:bg-slate-300"
-                            >
-                              <Plus className="w-2.5 h-2.5 mr-0.5" />
-                              Filtre Ekle
-                            </Button>
-                          </div>
                         </div>
                       )}
+                      <div className="p-2">
+                        <Button
+                          onClick={() => addFilter(queryIndex)}
+                          size="sm"
+                          disabled={availableFields.length === 0}
+                          className="w-full h-7 text-[10px] bg-orange-500 hover:bg-orange-600 text-white disabled:bg-slate-300"
+                        >
+                          <Plus className="w-2.5 h-2.5 mr-0.5" />
+                          Filtre Ekle
+                        </Button>
+                      </div>
                         </div>
                       </div>
                     </div>
