@@ -25,6 +25,7 @@ import {
   Undo,
   Redo
 } from 'lucide-react'
+import { announcementService } from '@/services/announcement'
 
 interface RichTextEditorProps {
   value: string
@@ -76,19 +77,24 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     }
   }
 
-  const addImageBase64 = () => {
+  const addImageFromFile = async () => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = 'image/*'
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0]
       if (file) {
-        const reader = new FileReader()
-        reader.onload = (readerEvent) => {
-          const base64 = readerEvent.target?.result as string
-          editor.chain().focus().setImage({ src: base64 }).run()
+        try {
+          // PocketBase'e yükle ve URL al
+          const imageUrl = await announcementService.uploadImage(file)
+          
+          // URL'i editöre ekle (artık base64 değil!)
+          editor.chain().focus().setImage({ src: imageUrl }).run()
+          
+        } catch (error) {
+          console.error('Failed to upload image:', error)
+          alert('Resim yüklenirken bir hata oluştu')
         }
-        reader.readAsDataURL(file)
       }
     }
     input.click()
@@ -241,7 +247,7 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
         {/* Media */}
         <button
           type="button"
-          onClick={addImageBase64}
+          onClick={addImageFromFile}
           className="p-2 rounded hover:bg-gray-200 transition-colors"
           title="Resim Yükle"
         >

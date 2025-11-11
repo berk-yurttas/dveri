@@ -147,6 +147,7 @@ export default function Home() {
   const [underConstructionPlatform, setUnderConstructionPlatform] = useState<string>("");
   const [showNavigationModal, setShowNavigationModal] = useState(false);
   const [navigatingPlatform, setNavigatingPlatform] = useState<{ name: string; logo: string; code: string } | null>(null);
+  const [showAllAnnouncementsModal, setShowAllAnnouncementsModal] = useState(false);
 
   const handleDerinizHover = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -192,8 +193,10 @@ export default function Home() {
   };
 
   // Check if navigation buttons should be disabled
+  const announcementsPerPage = 3;
   const isFirstPage = currentAnnouncementIndex === 0;
-  const isLastPage = currentAnnouncementIndex + 3 >= announcements.length;
+  const isLastPage =
+    currentAnnouncementIndex + announcementsPerPage >= announcements.length;
 
   // Handle announcement card click
   const handleAnnouncementClick = (announcement: Announcement) => {
@@ -209,6 +212,14 @@ export default function Home() {
     });
     setSelectedAnnouncement(announcement);
     setShowAnnouncementModal(true);
+  };
+
+  const handleViewAllAnnouncements = () => {
+    setShowAllAnnouncementsModal(true);
+  };
+
+  const closeAllAnnouncementsModal = () => {
+    setShowAllAnnouncementsModal(false);
   };
 
   useEffect(() => {
@@ -455,7 +466,7 @@ export default function Home() {
                 )}
 
               {/* Carousel Cards */}
-              <div className="flex gap-6 justify-center items-center max-w-4xl mx-auto">
+              <div className="flex gap-6 justify-center items-start max-w-4xl mx-auto">
                 {announcements.slice(currentAnnouncementIndex, currentAnnouncementIndex + 3).map((announcement) => {
                   const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
                   return (
@@ -469,14 +480,16 @@ export default function Home() {
                     <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${
                       isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
                     }`}>
-                      {/* Image Area - Top section with proper aspect ratio */}
+                      {/* Image Area - Full background with gradient overlay */}
                       {announcement.content_image && (
-                        <div className="absolute top-4 left-0 right-0 h-36 flex items-center justify-center p-3">
+                        <div className="absolute top-0 left-0 right-0 bottom-0">
                           <img 
                             src={announcement.content_image} 
                             alt={announcement.title}
-                            className="max-h-full max-w-full object-contain"
+                            className="w-full h-full object-fill"
                           />
+                          {/* Gradient overlay for text readability */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
                         </div>
                       )}
 
@@ -485,7 +498,7 @@ export default function Home() {
 
                       {/* Main Title - Lower position for better image visibility */}
                       <div className="absolute bottom-16 left-4 right-4 z-10">
-                        <div className="text-white font-bold text-xl leading-tight text-center">
+                        <div className="text-white font-bold text-xl leading-tight text-left">
                           {announcement.title.split('\n').map((line, i) => (
                             <div key={i}>{line}</div>
                           ))}
@@ -518,6 +531,19 @@ export default function Home() {
                 })}
               </div>
             </div>
+
+            {/* Tümünü Gör Button */}
+            {announcements.length > 3 && (
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={handleViewAllAnnouncements}
+                  className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium shadow-lg hover:shadow-xl"
+                >
+                  <Eye className="h-5 w-5" />
+                  Tüm Duyuruları Gör ({announcements.length})
+                </button>
+              </div>
+            )}
             </>
           ) : (
             <div className="text-center py-12">
@@ -549,19 +575,24 @@ export default function Home() {
 
       {/* Announcement Detail Modal */}
       {showAnnouncementModal && selectedAnnouncement && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-fade-in">
+        <div 
+          className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => setShowAnnouncementModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto animate-fade-in [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-gray-400"
+            onClick={(e) => e.stopPropagation()}
+            style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent' }}
+          >
             {/* Modal Header */}
             <div className="relative">
               {selectedAnnouncement.content_image && (
                 <div className="w-full h-[500px] bg-gradient-to-br from-blue-900 to-blue-800 relative overflow-hidden">
-                  <div className="flex items-center justify-center p-4 h-full w-full">
-                    <img 
-                      src={selectedAnnouncement.content_image} 
-                      alt={selectedAnnouncement.title}
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
+                  <img 
+                    src={selectedAnnouncement.content_image} 
+                    alt={selectedAnnouncement.title}
+                    className="w-full h-full object-fill"
+                  />
                   {selectedAnnouncement.month_title && (
                     <div className="absolute bottom-4 left-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg z-10">
                       <span className="text-sm font-bold uppercase">{selectedAnnouncement.month_title}</span>
@@ -580,7 +611,7 @@ export default function Home() {
             </div>
 
             {/* Modal Content */}
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-12rem)]">
+            <div className="p-6">
               {/* Title */}
               <h2 className="text-2xl font-bold text-gray-900 mb-2">
                 {selectedAnnouncement.title}
@@ -612,9 +643,9 @@ export default function Home() {
               {selectedAnnouncement.content_detail && (
                 <div className="mb-4">
                   <h3 className="text-lg font-semibold text-gray-900 mb-3">Detaylı İçerik</h3>
-                  <div className="prose prose-sm max-w-none bg-gray-50 p-4 rounded-lg">
+                  <div className="bg-gray-50 p-4 rounded-lg">
                     <div 
-                      className="text-gray-700 leading-relaxed"
+                      className="text-gray-700 leading-relaxed [&>p]:mb-4 [&>p:last-child]:mb-0 [&>p:empty]:min-h-[1em]"
                       dangerouslySetInnerHTML={{ 
                         __html: DOMPurify.sanitize(selectedAnnouncement.content_detail) 
                       }}
@@ -720,6 +751,105 @@ export default function Home() {
                 className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
               >
                 Tamam
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* All Announcements Modal */}
+      {showAllAnnouncementsModal && announcements.length > 0 && (
+        <div 
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setShowAllAnnouncementsModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] animate-fade-in overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <MessageSquare className="h-6 w-6 text-white" />
+                <h3 className="text-xl font-bold text-white">Tüm Duyurular</h3>
+                <span className="px-3 py-1 bg-white/20 rounded-full text-sm text-white font-medium">
+                  {announcements.length}
+                </span>
+              </div>
+              <button
+                onClick={closeAllAnnouncementsModal}
+                className="p-2 hover:bg-white/20 rounded-full transition-colors"
+              >
+                <X className="h-5 w-5 text-white" />
+              </button>
+            </div>
+
+            {/* Modal Body - Grid */}
+            <div className="p-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-h-[65vh] overflow-y-auto px-2 md:px-4 lg:px-6 py-4">
+                {announcements.map((announcement) => {
+                  const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
+                  return (
+                    <div 
+                      key={announcement.id} 
+                      className="cursor-pointer transition-transform hover:scale-105"
+                      onClick={() => handleAnnouncementClick(announcement)}
+                      onMouseEnter={() => setHoveredAnnouncement(announcement.id)}
+                      onMouseLeave={() => setHoveredAnnouncement(null)}
+                    >
+                      <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${
+                        isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
+                      }`}>
+                        {announcement.content_image && (
+                          <div className="absolute top-0 left-0 right-0 bottom-0">
+                            <img 
+                              src={announcement.content_image} 
+                              alt={announcement.title}
+                              className="w-full h-full object-fill"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+                          </div>
+                        )}
+
+                        <div className="absolute bottom-16 left-4 right-4 z-10">
+                          <div className="text-white font-bold text-xl leading-tight text-left">
+                            {announcement.title.split('\n').map((line, i) => (
+                              <div key={i}>{line}</div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {announcement.month_title && (
+                          <div className="absolute bottom-3 left-3 bg-red-600 text-white px-3 py-1 rounded-md shadow-lg z-10">
+                            <span className="text-xs font-semibold uppercase">{announcement.month_title}</span>
+                          </div>
+                        )}
+
+                        <div className="absolute bottom-3 right-3 bg-white/20 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs z-10">
+                          Detaylar →
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="h-1 w-12 bg-red-600 mb-2"></div>
+                        <h4 className="text-gray-900 font-semibold mb-1 line-clamp-2">{announcement.content_summary || announcement.title}</h4>
+                        <p className="text-gray-600 text-sm">
+                          {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 rounded-b-2xl flex justify-end">
+              <button
+                onClick={closeAllAnnouncementsModal}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Kapat
               </button>
             </div>
           </div>

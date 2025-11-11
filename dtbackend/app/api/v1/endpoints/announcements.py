@@ -5,10 +5,12 @@ CRUD operations for managing announcements.
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
+import httpx
 
 from app.core.database import get_postgres_db
+from app.core.config import settings
 from app.models.postgres_models import User
 from app.schemas.announcement import (
     Announcement as AnnouncementSchema,
@@ -159,4 +161,83 @@ async def delete_announcement(
     if not deleted:
         raise HTTPException(status_code=404, detail="Announcement not found")
     return None
+
+
+@router.post("/upload-image")
+async def upload_announcement_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(check_authenticated)
+):
+    """
+    Upload an image to PocketBase files collection and return the URL
+    
+    - **file**: Image file to upload
+    
+    Returns:
+        - **url**: Full URL to access the uploaded image
+        - **record_id**: PocketBase record ID
+        - **filename**: Uploaded filename
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # 1. Admin authentication (if credentials provided)
+            auth_token = None
+            if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:
+                try:
+                    auth_response = await client.post(
+                        f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
+                        json={
+                            "identity": settings.POCKETBASE_ADMIN_EMAIL,
+                            "password": settings.POCKETBASE_ADMIN_PASSWORD
+                        }
+                    )
+                    if auth_response.status_code == 200:
+                        auth_token = auth_response.json().get("token")
+                except Exception as auth_error:
+                    print(f"PocketBase auth warning: {auth_error}")
+            
+            # 2. Upload file to PocketBase
+            file_content = await file.read()
+            
+            # Prepare file for upload (document field in files collection)
+            files = {
+                "document": (file.filename, file_content, file.content_type or "image/jpeg")
+            }
+            
+            headers = {}
+            if auth_token:
+                headers["Authorization"] = auth_token
+            
+            # Upload to PocketBase files collection
+            upload_response = await client.post(
+                f"{settings.POCKETBASE_URL}/api/collections/files/records",
+                files=files,
+                headers=headers
+            )
+            
+            if upload_response.status_code in [200, 201]:
+                data = upload_response.json()
+                
+                # Construct file URL: /api/files/{collectionName}/{recordId}/{filename}
+                file_url = f"{settings.POCKETBASE_URL}/api/files/files/{data['id']}/{data['document']}"
+                
+                return {
+                    "url": file_url,
+                    "record_id": data['id'],
+                    "filename": data['document']
+                }
+            else:
+                error_detail = upload_response.text
+                raise HTTPException(
+                    status_code=upload_response.status_code,
+                    detail=f"PocketBase upload failed: {error_detail}"
+                )
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error uploading image: {str(e)}"
+        )
 

@@ -92,14 +92,24 @@ export default function EditAnnouncementPage() {
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, content_image: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+      try {
+        setSaving(true);
+        
+        // PocketBase'e yükle ve URL al
+        const imageUrl = await announcementService.uploadImage(file);
+        
+        // URL'i state'e kaydet (artık base64 değil!)
+        setFormData({ ...formData, content_image: imageUrl });
+        
+      } catch (err) {
+        console.error("Failed to upload image:", err);
+        setError("Görsel yüklenirken bir hata oluştu");
+      } finally {
+        setSaving(false);
+      }
     }
   };
 
