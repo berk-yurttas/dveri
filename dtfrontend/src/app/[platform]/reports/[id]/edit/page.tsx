@@ -254,7 +254,7 @@ const ChartPreview = ({
                 <Line
                   yAxisId="right"
                   type="monotone"
-                  dataKey={visualization.chartOptions.lineYAxis}
+                  dataKey={visualization.chartOptions?.lineYAxis}
                   stroke={colors[1] || '#10B981'}
                   strokeWidth={3}
                   dot={{ r: 4 }}

@@ -67,6 +67,8 @@ export interface VisualizationConfig {
     stacked?: boolean
     showGrid?: boolean
     showDataLabels?: boolean
+    lineYAxis?: string
+    showLineOverlay?: boolean
 
     // Pie specific
     showPercentage?: boolean
