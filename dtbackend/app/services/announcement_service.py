@@ -4,18 +4,23 @@ Announcement Service
 Handles all announcement-related business logic including CRUD operations.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Set
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException
 from datetime import datetime
+from urllib.parse import urlparse
+import re
+
+import httpx
 
 from app.models.postgres_models import Announcement, Platform
 from app.schemas.announcement import (
     AnnouncementCreate, 
     AnnouncementUpdate
 )
+from app.core.config import settings
 
 
 class AnnouncementService:
@@ -174,6 +179,10 @@ class AnnouncementService:
         if not announcement:
             return None
         
+        # Preserve old media references for cleanup after update
+        old_content_image = announcement.content_image
+        old_content_detail = announcement.content_detail
+
         # Validate platform if provided
         update_data = announcement_data.model_dump(exclude_unset=True)
         if 'platform_id' in update_data and update_data['platform_id'] is not None:
@@ -192,6 +201,25 @@ class AnnouncementService:
         
         await db.commit()
         await db.refresh(announcement)
+
+        try:
+            old_urls: Set[str] = set()
+            new_urls: Set[str] = set()
+
+            if old_content_image:
+                old_urls.add(old_content_image)
+            if announcement.content_image:
+                new_urls.add(announcement.content_image)
+
+            old_urls.update(AnnouncementService._extract_pocketbase_file_urls(old_content_detail or ""))
+            new_urls.update(AnnouncementService._extract_pocketbase_file_urls(announcement.content_detail or ""))
+
+            urls_to_delete = old_urls - new_urls
+            for url in urls_to_delete:
+                await AnnouncementService._delete_pocketbase_file(url)
+        except Exception:
+            # Do not block update if cleanup fails
+            pass
         
         return announcement
     
@@ -213,11 +241,103 @@ class AnnouncementService:
         announcement = await AnnouncementService.get_announcement_by_id(db, announcement_id)
         if not announcement:
             return False
-        
+
+        pocketbase_urls: Set[str] = set()
+        if announcement.content_image:
+            pocketbase_urls.add(announcement.content_image)
+
+        if announcement.content_detail:
+            pocketbase_urls.update(
+                AnnouncementService._extract_pocketbase_file_urls(announcement.content_detail)
+            )
+
+        for file_url in pocketbase_urls:
+            await AnnouncementService._delete_pocketbase_file(file_url)
+
         await db.delete(announcement)
         await db.commit()
         
         return True
+
+    @staticmethod
+    def _extract_pocketbase_file_urls(content: str) -> Set[str]:
+        """
+        Extract PocketBase file URLs from rich text/HTML content.
+        """
+        if not content:
+            return set()
+
+        urls: Set[str] = set()
+
+        # Match src attributes (e.g., <img src="...">)
+        for match in re.findall(r'src\s*=\s*["\']([^"\']+)["\']', content, flags=re.IGNORECASE):
+            urls.add(match)
+
+        # Also capture data-url attributes (commonly used by editors)
+        for match in re.findall(r'data-url\s*=\s*["\']([^"\']+)["\']', content, flags=re.IGNORECASE):
+            urls.add(match)
+
+        return urls
+
+    @staticmethod
+    async def _delete_pocketbase_file(file_url: Optional[str]) -> None:
+        """
+        Delete announcement image from PocketBase if it was stored there.
+        Silently ignores any errors to avoid blocking announcement deletion.
+        """
+        if not file_url:
+            return
+
+        try:
+            parsed_url = urlparse(file_url)
+            path_parts = [part for part in parsed_url.path.split("/") if part]
+
+            # Expected path: /api/files/files/{record_id}/{filename}
+            if len(path_parts) < 5:
+                return
+
+            if path_parts[0] != "api" or path_parts[1] != "files" or path_parts[2] != "files":
+                return
+
+            # Validate PocketBase base URL
+            pocketbase_base = urlparse(settings.POCKETBASE_URL)
+            if pocketbase_base.netloc and pocketbase_base.netloc != parsed_url.netloc:
+                return
+
+            record_id = path_parts[3]
+
+            if not record_id:
+                return
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                auth_token = None
+
+                if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:
+                    try:
+                        auth_response = await client.post(
+                            f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
+                            json={
+                                "identity": settings.POCKETBASE_ADMIN_EMAIL,
+                                "password": settings.POCKETBASE_ADMIN_PASSWORD
+                            }
+                        )
+                        if auth_response.status_code == 200:
+                            auth_token = auth_response.json().get("token")
+                    except Exception:
+                        # Ignore authentication errors
+                        return
+
+                headers = {}
+                if auth_token:
+                    headers["Authorization"] = auth_token
+
+                await client.delete(
+                    f"{settings.POCKETBASE_URL}/api/collections/files/records/{record_id}",
+                    headers=headers
+                )
+        except Exception:
+            # Swallow all errors to avoid breaking announcement deletion
+            return
     
     @staticmethod
     async def get_announcement_count(

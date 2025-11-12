@@ -63,12 +63,21 @@ export default function AddAnnouncementPage() {
     if (file) {
       try {
         setLoading(true);
-        
-        // PocketBase'e yükle ve URL al
-        const imageUrl = await announcementService.uploadImage(file);
-        
-        // URL'i state'e kaydet (artık base64 değil!)
-        setFormData({ ...formData, content_image: imageUrl });
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = reader.result as string;
+          if (base64) {
+            setFormData((prev) => ({
+              ...prev,
+              content_image: base64,
+            }));
+          }
+        };
+        reader.onerror = () => {
+          console.error("Failed to read cover image file");
+          setError("Kapak görseli işlenemedi");
+        };
+        reader.readAsDataURL(file);
         
       } catch (err) {
         console.error("Failed to upload image:", err);
@@ -86,6 +95,66 @@ export default function AddAnnouncementPage() {
     return `${dateTimeString}:00+03:00`;
   };
 
+  const dataUrlToFile = (dataUrl: string, defaultName: string) => {
+    const arr = dataUrl.split(',');
+    if (arr.length < 2) {
+      throw new Error('Invalid data URL');
+    }
+    const mimeMatch = arr[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+    const byteString = atob(arr[1]);
+    const bytes = new Uint8Array(byteString.length);
+    for (let i = 0; i < byteString.length; i++) {
+      bytes[i] = byteString.charCodeAt(i);
+    }
+    const extension = mime.split('/')[1] || 'png';
+    const filename = `${defaultName}.${extension}`;
+    return new File([bytes], filename, { type: mime });
+  };
+
+  const uploadEmbeddedImages = async (html: string | null | undefined): Promise<string | null> => {
+    if (!html) return null;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const images = Array.from(doc.querySelectorAll('img'));
+
+    if (images.length === 0) {
+      return html;
+    }
+
+    const uploadedMap = new Map<string, string>();
+
+    for (const img of images) {
+      const src = img.getAttribute('src') || '';
+      if (!src.startsWith('data:')) {
+        continue;
+      }
+
+      if (!uploadedMap.has(src)) {
+        const uniqueId =
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+        const file = dataUrlToFile(
+          src,
+          `announcement-content-${uniqueId}`
+        );
+        const uploadedUrl = await announcementService.uploadImage(file);
+        uploadedMap.set(src, uploadedUrl);
+      }
+
+      const uploadedSrc = uploadedMap.get(src);
+      if (uploadedSrc) {
+        img.setAttribute('src', uploadedSrc);
+        img.removeAttribute('data-url');
+      }
+    }
+
+    return doc.body.innerHTML;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -98,13 +167,49 @@ export default function AddAnnouncementPage() {
     setError(null);
 
     try {
+      const processedContentDetail = await uploadEmbeddedImages(formData.content_detail);
+
+      if (
+        processedContentDetail !== null &&
+        processedContentDetail !== undefined &&
+        processedContentDetail !== formData.content_detail
+      ) {
+        setFormData((prev) => ({
+          ...prev,
+          content_detail: processedContentDetail,
+        }));
+      }
+
+      let coverImageUrl: string | null = null;
+      if (formData.content_image) {
+        if (formData.content_image.startsWith("data:")) {
+          const uniqueId =
+            typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const file = dataUrlToFile(formData.content_image, `announcement-cover-${uniqueId}`);
+          coverImageUrl = await announcementService.uploadImage(file);
+          setFormData((prev) => {
+            if (prev.content_image === coverImageUrl) {
+              return prev;
+            }
+            return {
+              ...prev,
+              content_image: coverImageUrl ?? prev.content_image,
+            };
+          });
+        } else {
+          coverImageUrl = formData.content_image;
+        }
+      }
+
       // Clean up form data and add timezone
       const submitData: AnnouncementCreate = {
         title: formData.title,
         month_title: formData.month_title || null,
         content_summary: formData.content_summary || null,
-        content_detail: formData.content_detail || null,
-        content_image: formData.content_image || null,
+        content_detail: processedContentDetail ?? null,
+        content_image: coverImageUrl,
         creation_date: addTimezoneToDateTimeString(formData.creation_date),
         expire_date: addTimezoneToDateTimeString(formData.expire_date),
         platform_id: formData.platform_id === 0 ? null : formData.platform_id,
@@ -186,7 +291,7 @@ export default function AddAnnouncementPage() {
                   })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none text-gray-900"
                 >
-                  <option value="0">Genel Duyuru (Tüm Platformlar)</option>
+                  <option value="0">Genel Duyuru</option>
                   {platforms.map((platform) => (
                     <option key={platform.id} value={platform.id}>
                       {platform.display_name}
@@ -199,9 +304,6 @@ export default function AddAnnouncementPage() {
                   <MessageSquare className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
                 )}
               </div>
-              <p className="mt-1 text-sm text-gray-500">
-                Genel duyuru seçilirse, tüm platformlarda ve ana sayfada görünür
-              </p>
             </div>
 
             {/* Content Summary */}
@@ -223,7 +325,6 @@ export default function AddAnnouncementPage() {
             <div>
               <label htmlFor="content_detail" className="block text-sm font-medium text-gray-700 mb-2">
                 Detaylı İçerik
-                <span className="text-xs text-gray-500 ml-2">(Zengin metin editörü - kalın, italik, resim, link ekleyebilirsiniz)</span>
               </label>
               <RichTextEditor
                 value={formData.content_detail || ""}
@@ -235,7 +336,7 @@ export default function AddAnnouncementPage() {
             {/* Image Upload */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Görsel
+                Duyuru Görseli
               </label>
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg cursor-pointer transition-colors">
@@ -265,9 +366,6 @@ export default function AddAnnouncementPage() {
                   </div>
                 )}
               </div>
-              <p className="mt-1 text-sm text-gray-500">
-                Görseli base64 formatında kaydeder
-              </p>
             </div>
 
             {/* Dates */}
@@ -286,14 +384,11 @@ export default function AddAnnouncementPage() {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                   />
                 </div>
-                <p className="mt-1 text-sm text-gray-500">
-                  Gelecek bir tarih seçerseniz, o tarihe kadar duyuru görünmez
-                </p>
               </div>
 
               <div>
                 <label htmlFor="expire_date" className="block text-sm font-medium text-gray-700 mb-2">
-                  Bitiş Tarihi
+                  Yayından Kalkma Tarihi
                 </label>
                 <div className="relative">
                   <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
@@ -305,9 +400,6 @@ export default function AddAnnouncementPage() {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                   />
                 </div>
-                <p className="mt-1 text-sm text-gray-500">
-                  Boş bırakırsanız duyuru süresiz olarak yayında kalır
-                </p>
               </div>
             </div>
           </div>

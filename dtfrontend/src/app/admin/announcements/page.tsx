@@ -253,7 +253,7 @@ export default function AdminAnnouncementsPage() {
                       Platform
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[12%]">
-                      Oluşturulma Tarihi
+                      Yayınlanma Tarihi
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[12%]">
                       Yayından Kalkma Tarihi

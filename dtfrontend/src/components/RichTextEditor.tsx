@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
@@ -25,7 +26,6 @@ import {
   Undo,
   Redo
 } from 'lucide-react'
-import { announcementService } from '@/services/announcement'
 
 interface RichTextEditorProps {
   value: string
@@ -66,6 +66,14 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     },
   })
 
+  useEffect(() => {
+    if (!editor) return
+    const currentHtml = editor.getHTML()
+    if (value !== currentHtml) {
+      editor.commands.setContent(value || '', false)
+    }
+  }, [editor, value])
+
   if (!editor) {
     return null
   }
@@ -84,17 +92,18 @@ export default function RichTextEditor({ value, onChange, placeholder }: RichTex
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0]
       if (file) {
-        try {
-          // PocketBase'e yükle ve URL al
-          const imageUrl = await announcementService.uploadImage(file)
-          
-          // URL'i editöre ekle (artık base64 değil!)
-          editor.chain().focus().setImage({ src: imageUrl }).run()
-          
-        } catch (error) {
-          console.error('Failed to upload image:', error)
-          alert('Resim yüklenirken bir hata oluştu')
+        const reader = new FileReader()
+        reader.onload = () => {
+          const base64 = reader.result as string
+          if (base64) {
+            editor.chain().focus().setImage({ src: base64 }).run()
+          }
         }
+        reader.onerror = () => {
+          console.error('Failed to read file for editor image upload')
+          alert('Resim işlenirken bir hata oluştu')
+        }
+        reader.readAsDataURL(file)
       }
     }
     input.click()
