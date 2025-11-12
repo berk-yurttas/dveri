@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     COOKIE_DOMAIN: str = Field(default_factory=lambda: os.getenv("COOKIE_DOMAIN", "localhost"))
     CORS_ORIGIN: str = Field(default_factory=lambda: os.getenv("CORS_ORIGIN", "http://localhost:3000"))
     
+    # PocketBase Configuration
+    POCKETBASE_URL: str = Field(default_factory=lambda: os.getenv("POCKETBASE_URL", "http://localhost:8090"))
+    POCKETBASE_ADMIN_EMAIL: str = Field(default_factory=lambda: os.getenv("furkancilesiz57@gmail.com", ""))
+    POCKETBASE_ADMIN_PASSWORD: str = Field(default_factory=lambda: os.getenv("12345678", ""))
+    
     @property
     def postgres_database_url(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
