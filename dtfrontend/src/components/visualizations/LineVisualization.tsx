@@ -4,7 +4,7 @@ import { VisualizationProps } from './types'
 
 const DEFAULT_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#84CC16', '#F97316']
 
-export const LineVisualization: React.FC<VisualizationProps> = ({ query, result, colors = DEFAULT_COLORS }) => {
+export const LineVisualization: React.FC<VisualizationProps> = ({ query, result, colors = DEFAULT_COLORS, scale = 1 }) => {
   const { visualization } = query
   const { data, columns } = result
 
@@ -18,8 +18,8 @@ export const LineVisualization: React.FC<VisualizationProps> = ({ query, result,
   })
 
   return (
-    <ResponsiveContainer width="100%" height={450}>
-      <LineChart data={chartData} margin={{ top: 20, right: 30, left: 10, bottom: 80 }}>
+    <ResponsiveContainer width="100%" height={450 * scale}>
+      <LineChart data={chartData} margin={{ top: 20 * scale, right: 30 * scale, left: 10 * scale, bottom: 80 * scale }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis
           dataKey={visualization.xAxis || columns[0]}
@@ -28,7 +28,7 @@ export const LineVisualization: React.FC<VisualizationProps> = ({ query, result,
           tickLine={false}
           interval={0}
           padding={{ left: 30, right: 30 }}
-          angle={-45}
+          angle={-25}
           textAnchor="end"
           height={70}
         />
@@ -48,7 +48,6 @@ export const LineVisualization: React.FC<VisualizationProps> = ({ query, result,
           }}
           cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
         />
-        {visualization.showLegend && <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />}
         <Line
           type="monotone"
           dataKey={visualization.yAxis || columns[1]}

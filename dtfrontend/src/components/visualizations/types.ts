@@ -4,7 +4,7 @@ export interface QueryData {
   name: string
   sql: string
   visualization: {
-    type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram'
+    type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram' | 'card'
     xAxis?: string
     yAxis?: string
     labelField?: string
@@ -50,5 +50,6 @@ export interface VisualizationProps {
   query: QueryData
   result: QueryResult
   colors?: string[]
+  scale?: number
 }
 

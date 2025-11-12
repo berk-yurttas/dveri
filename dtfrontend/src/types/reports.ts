@@ -53,7 +53,7 @@ export interface NestedQueryConfig {
 
 // Visualization Configuration Types
 export interface VisualizationConfig {
-  type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram'
+  type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram' | 'card'
   xAxis?: string
   yAxis?: string
   labelField?: string
@@ -67,6 +67,8 @@ export interface VisualizationConfig {
     stacked?: boolean
     showGrid?: boolean
     showDataLabels?: boolean
+    lineYAxis?: string
+    showLineOverlay?: boolean
 
     // Pie specific
     showPercentage?: boolean
@@ -94,6 +96,9 @@ export interface VisualizationConfig {
     // Tooltip configuration
     tooltipFields?: string[]
     fieldDisplayNames?: Record<string, string>
+
+    // Card specific
+    backgroundColor?: string
   }
 }
 
@@ -137,6 +142,7 @@ export interface SavedReport extends ReportConfig {
   updated_at: string
   created_by: string
   is_public: boolean
+  layoutConfig?: any[]  // Grid layout configuration
 }
 
 // Report execution types

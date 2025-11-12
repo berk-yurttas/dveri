@@ -28,7 +28,10 @@ import {
   Settings,
   ArrowUp,
   ArrowDown,
-  Search
+  Search,
+  Layout,
+  Save,
+  XCircle
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
@@ -36,6 +39,9 @@ import html2canvas from 'html2canvas'
 import { reportsService } from '@/services/reports'
 import { DeleteModal } from '@/components/ui/delete-modal'
 import { api } from '@/lib/api'
+import { Responsive, WidthProvider, Layout as GridLayout } from 'react-grid-layout'
+import 'react-grid-layout/css/styles.css'
+import 'react-resizable/css/styles.css'
 
 // Note: Recharts imports kept for potential direct use in table/expandable visualizations if needed
 import { MirasAssistant } from '@/components/chatbot/miras-assistant'
@@ -49,9 +55,11 @@ import {
   BoxPlotVisualization,
   HistogramVisualization,
   TableVisualization,
-  ExpandableTableVisualization
+  ExpandableTableVisualization,
+  CardVisualization
 } from '@/components/visualizations'
 import { GlobalFilters } from '@/components/reports/GlobalFilters'
+import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 
 const VISUALIZATION_ICONS = {
   table: Table,
@@ -64,9 +72,12 @@ const VISUALIZATION_ICONS = {
   pareto: BarChart3,
   boxplot: BarChart3,
   histogram: BarChart3,
+  card: Database,
 }
 
 const DEFAULT_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#84CC16', '#F97316']
+
+const ResponsiveGridLayout = WidthProvider(Responsive)
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -98,6 +109,7 @@ interface ReportData {
   updated_at: string | null
   queries: QueryData[]
   globalFilters?: FilterData[]
+  layoutConfig?: any[]
 }
 
 interface QueryData {
@@ -105,7 +117,7 @@ interface QueryData {
   name: string
   sql: string
   visualization: {
-    type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram'
+    type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram' | 'card'
     xAxis?: string
     yAxis?: string
     labelField?: string
@@ -192,6 +204,9 @@ export default function ReportDetailPage() {
   const [nestedPagination, setNestedPagination] = useState<{[rowKey: string]: {currentPage: number, pageSize: number}}>({})
   const [filterOperators, setFilterOperators] = useState<{[key: string]: string}>({})
   const [operatorMenuOpen, setOperatorMenuOpen] = useState<{[key: string]: boolean}>({})
+  const [isLayoutEditMode, setIsLayoutEditMode] = useState(false)
+  const [gridLayout, setGridLayout] = useState<GridLayout[]>([])
+  const [isSavingLayout, setIsSavingLayout] = useState(false)
 
   // Debounce timeout refs for each filter
   const debounceTimeouts = useRef<{[key: string]: NodeJS.Timeout}>({})
@@ -200,6 +215,65 @@ export default function ReportDetailPage() {
   const currentReportIdRef = useRef<string | null>(null)
   const isLoadingRef = useRef(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Generate default layout for queries
+  const generateDefaultLayout = (queries: QueryData[]): GridLayout[] => {
+    return queries.map((query, index) => {
+      return {
+        i: query.id.toString(),
+        x: (index % 2) * 2, // Always 2 columns, alternating left/right
+        y: Math.floor(index / 2) * 4, // 4 rows per item (500px / 120px rowHeight ≈ 4.16)
+        w: 2, // Always 2 column width
+        h: 4, // 4 rows height (≈480px)
+        minW: 1,
+        minH: 2, // Minimum 2 rows (≈240px)
+      }
+    })
+  }
+
+  // Handle layout change
+  const handleLayoutChange = (newLayout: GridLayout[]) => {
+    setGridLayout(newLayout)
+  }
+
+  // Save layout
+  const handleSaveLayout = async () => {
+    if (!report) return
+
+    setIsSavingLayout(true)
+    try {
+      // Save layout to backend
+      await reportsService.updateReport(report.id.toString(), {
+        layoutConfig: gridLayout
+      })
+      // Also keep in localStorage as backup
+      localStorage.setItem(`report_layout_${report.id}`, JSON.stringify(gridLayout))
+      setIsLayoutEditMode(false)
+    } catch (error) {
+      console.error('Error saving layout:', error)
+    } finally {
+      setIsSavingLayout(false)
+    }
+  }
+
+  // Cancel layout editing
+  const handleCancelLayoutEdit = () => {
+    // Restore original layout
+    // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
+    if (report) {
+      if (report.layoutConfig && report.layoutConfig.length > 0) {
+        setGridLayout(report.layoutConfig)
+      } else {
+        const savedLayout = localStorage.getItem(`report_layout_${report.id}`)
+        if (savedLayout) {
+          setGridLayout(JSON.parse(savedLayout))
+        } else {
+          setGridLayout(generateDefaultLayout(report.queries))
+        }
+      }
+    }
+    setIsLayoutEditMode(false)
+  }
 
   // Fetch report details using the reports service
   const fetchReportDetails = async () => {
@@ -219,30 +293,12 @@ export default function ReportDetailPage() {
     const key = `${query.id}_${filter.fieldName}`
 
     try {
-      // If this filter depends on another filter, check if the parent has a value
       if (filter.dependsOn) {
-        // For global filters (query.id === 0), use global_ prefix
         const parentKey = query.id === 0 ? `global_${filter.dependsOn}` : `${query.id}_${filter.dependsOn}`
         const parentValue = currentFilterValues ? currentFilterValues[parentKey] : filters[parentKey]
 
-        // If parent doesn't have a value, clear this filter's options
-        if (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0)) {
-          setDropdownOptions(prev => ({
-            ...prev,
-            [key]: []
-          }))
-          return
-        }
+        const modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn, parentValue)
 
-        // Replace {{field_name}} placeholders with parent value
-        let modifiedSql = filter.dropdownQuery
-        const placeholder = `{{${filter.dependsOn}}}`
-        const replacement = Array.isArray(parentValue)
-          ? `(${parentValue.map((v: any) => `'${v}'`).join(',')})`
-          : `'${parentValue}'`
-        modifiedSql = modifiedSql.replace(new RegExp(placeholder, 'g'), replacement)
-
-        // Execute the modified query
         const result = await reportsService.previewQuery({
           sql_query: modifiedSql,
           limit: 1000
@@ -254,7 +310,6 @@ export default function ReportDetailPage() {
             label: row[1] || String(row[0])
           }))
 
-          // Deduplicate options based on value
           const uniqueOptions = options.filter((option, index, self) =>
             index === self.findIndex((o) => o.value === option.value)
           )
@@ -739,21 +794,18 @@ export default function ReportDetailPage() {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element
 
-      // Check if clicking on an input field (text, number, date)
-      const isInputField = target.tagName === 'INPUT' && (target as HTMLInputElement).type !== 'checkbox'
-
-      // Close dropdown filters and operator menus when clicking outside or on an input field
+      // Close dropdown filters and operator menus when clicking outside
       const isInsideDropdown = target.closest('.filter-dropdown-container')
-      const isInsideDropdownMenu = target.closest('.absolute.z-50')
+      const isInsideDropdownMenu = target.closest('.dropdown-menu')
 
-      if (!isInsideDropdown && !isInsideDropdownMenu) {
-        setDropdownOpen({})
-        setOperatorMenuOpen({})
-      } else if (isInputField) {
-        // Close all dropdowns when clicking on any input field
-        setDropdownOpen({})
-        setOperatorMenuOpen({})
+      // If click is inside dropdown container or menu, don't close anything
+      if (isInsideDropdown || isInsideDropdownMenu) {
+        return
       }
+
+      // Only close if clicking completely outside
+      setDropdownOpen({})
+      setOperatorMenuOpen({})
 
       // Close table filter popovers when clicking outside any filter area
       const isInsideAnyTableFilter = target.closest('th.relative') || target.closest('.absolute.top-full') || target.closest('.nested-filter-popover')
@@ -891,6 +943,37 @@ export default function ReportDetailPage() {
 
         // Execute all queries with initial filters
         await executeAllQueries(reportData, initialFilters)
+
+        // Initialize grid layout
+        // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
+        if (reportData.layoutConfig && reportData.layoutConfig.length > 0) {
+          // Validate and fix layout config - ensure all entries have valid query IDs
+          const validQueryIds = new Set(reportData.queries.map(q => q.id.toString()))
+          const validatedLayout = reportData.layoutConfig
+            .filter((layout: any) => validQueryIds.has(layout.i.toString()))
+            .map((layout: any) => ({
+              ...layout,
+              // Ensure minimum dimensions to prevent invisible widgets
+              w: Math.max(layout.w || 2, 1),
+              h: Math.max(layout.h || 4, 2),
+              minW: 1,
+              minH: 2
+            }))
+
+          // If we have valid layout for all queries, use it, otherwise regenerate
+          if (validatedLayout.length === reportData.queries.length) {
+            setGridLayout(validatedLayout)
+          } else {
+            setGridLayout(generateDefaultLayout(reportData.queries))
+          }
+        } else {
+          const savedLayout = localStorage.getItem(`report_layout_${reportData.id}`)
+          if (savedLayout) {
+            setGridLayout(JSON.parse(savedLayout))
+          } else {
+            setGridLayout(generateDefaultLayout(reportData.queries))
+          }
+        }
 
       } catch (err) {
         if (currentReportIdRef.current === reportId) {
@@ -1341,14 +1424,14 @@ export default function ReportDetailPage() {
     if (query.filters.length === 0) return null
 
     return (
-      <div className="mb-2">
-        <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-          <div className="flex flex-wrap items-end gap-2">
+      <div className="mb-1 mt-1">
+        <div className="bg-gray-50 px-2 py-1 rounded border border-gray-200">
+          <div className="flex flex-wrap items-end gap-1.5">
             {query.filters.map((filter) => (
-              <div key={filter.id} className={`flex-shrink-0 ${filter.type === 'date' ? 'w-72' : 'w-48'}`}>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{filter.displayName}</label>
+              <div key={filter.id} className={`flex-shrink-0 ${filter.type === 'date' ? 'w-64' : 'w-40'}`}>
+                <label className="block text-[10px] font-medium text-gray-600 mb-0.5">{filter.displayName}</label>
               {filter.type === 'date' ? (
-                <div className="relative flex items-center gap-1 w-full">
+                <div className="relative flex items-center gap-0.5 w-full">
                   <input
                     type="date"
                     value={filters[`${query.id}_${filter.fieldName}_start`] || ''}
@@ -1359,10 +1442,10 @@ export default function ReportDetailPage() {
                     onClick={(e) => {
                       e.currentTarget.showPicker?.()
                     }}
-                    className="flex-1 px-2 py-1 pr-6 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                    className="flex-1 px-1.5 py-0.5 pr-5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
                     title="Başlangıç"
                   />
-                  <span className="text-gray-500 text-xs font-medium">-</span>
+                  <span className="text-gray-500 text-[10px]">-</span>
                   <input
                     type="date"
                     value={filters[`${query.id}_${filter.fieldName}_end`] || ''}
@@ -1373,7 +1456,7 @@ export default function ReportDetailPage() {
                     onClick={(e) => {
                       e.currentTarget.showPicker?.()
                     }}
-                    className="flex-1 px-2 py-1 pr-6 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                    className="flex-1 px-1.5 py-0.5 pr-4 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
                     title="Bitiş"
                   />
                   {(filters[`${query.id}_${filter.fieldName}_start`] || filters[`${query.id}_${filter.fieldName}_end`]) && (
@@ -1382,10 +1465,10 @@ export default function ReportDetailPage() {
                         handleFilterChange(query.id, `${filter.fieldName}_start`, '')
                         handleFilterChange(query.id, `${filter.fieldName}_end`, '')
                       }}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded z-10"
+                      className="absolute right-0.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded z-10"
                       title="Temizle"
                     >
-                      <X className="h-3 w-3" />
+                      <X className="h-2.5 w-2.5" />
                     </button>
                   )}
                 </div>
@@ -1402,30 +1485,27 @@ export default function ReportDetailPage() {
                   const isOpen = dropdownOpen[filterKey] || false
 
                   // Check if this filter is disabled due to missing parent value
-                  const isDisabled = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
+                  const isParentMissing = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
 
                   return (
                     <div className="relative filter-dropdown-container">
-                      {isDisabled && (
-                        <div className="absolute -top-5 left-0 text-[10px] text-amber-600">
-                          Önce "{query.filters.find(f => f.fieldName === filter.dependsOn)?.displayName}" seçin
+                      {isParentMissing && (
+                        <div className="absolute -top-4 left-0 text-[9px] text-amber-600">
+                          Üst filtre seçilmedi
                         </div>
                       )}
                       <button
                         type="button"
                         onClick={() => {
-                          if (!isDisabled) {
-                            setOperatorMenuOpen({}) // Close operator menus
-                            setDropdownOpen(prev => {
-                              const isCurrentlyOpen = prev[filterKey]
-                              // Close all other dropdowns
-                              return { [filterKey]: !isCurrentlyOpen }
-                            })
-                          }
+                          setOperatorMenuOpen({}) // Close operator menus
+                          setDropdownOpen(prev => {
+                            const isCurrentlyOpen = prev[filterKey]
+                            // Close all other dropdowns
+                            return { [filterKey]: !isCurrentlyOpen }
+                          })
                         }}
-                        disabled={isDisabled || false}
-                        className={`w-full px-2 py-1 pr-12 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-xs bg-white text-left flex items-center justify-between ${
-                          isDisabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'hover:bg-gray-50'
+                        className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${
+                          'hover:bg-gray-50'
                         }`}
                       >
                         <span className={`truncate ${selectedValue ? 'text-gray-900' : 'text-gray-500'}`}>
@@ -1455,30 +1535,30 @@ export default function ReportDetailPage() {
                               }
                             })
                           }}
-                          className="absolute right-6 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
+                          className="absolute right-5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
                         >
-                          <X className="h-3 w-3" />
+                          <X className="h-2.5 w-2.5" />
                         </button>
                       )}
-                      <ChevronDown className="h-3 w-3 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <ChevronDown className="h-2.5 w-2.5 text-gray-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       {isOpen && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded shadow-lg">
-                          <div className="p-1.5 border-b border-gray-200">
+                        <div className="dropdown-menu absolute z-50 w-full mt-0.5 bg-white border border-gray-300 rounded shadow-lg">
+                          <div className="p-1 border-b border-gray-200">
                             <div className="relative">
-                              <Search className="absolute left-2 top-1.5 h-3 w-3 text-gray-400" />
+                              <Search className="absolute left-1.5 top-1 h-2.5 w-2.5 text-gray-400" />
                               <input
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerms(prev => ({ ...prev, [filterKey]: e.target.value }))}
                                 placeholder="Ara..."
-                                className="w-full pl-7 pr-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
                                 onClick={(e) => e.stopPropagation()}
                               />
                             </div>
                           </div>
-                          <div className="max-h-48 overflow-y-auto">
+                          <div className="max-h-40 overflow-y-auto">
                             {filteredOptions.length === 0 ? (
-                              <div className="px-2 py-1.5 text-xs text-gray-500">Sonuç bulunamadı</div>
+                              <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
                             ) : (
                               filteredOptions.map((option, index) => (
                                 <div
@@ -1503,7 +1583,7 @@ export default function ReportDetailPage() {
                                       }
                                     })
                                   }}
-                                  className={`px-3 py-2 text-xs cursor-pointer hover:bg-orange-50 ${
+                                  className={`px-2 py-1 text-[10px] cursor-pointer hover:bg-orange-50 ${
                                     option.value === selectedValue ? 'bg-orange-100 font-medium' : 'text-gray-900'
                                   }`}
                                 >
@@ -1530,30 +1610,27 @@ export default function ReportDetailPage() {
                   const selectedCount = currentValues.length
 
                   // Check if this filter is disabled due to missing parent value
-                  const isDisabled = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
+                  const isParentMissing = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
 
                   return (
                     <div className="relative filter-dropdown-container">
-                      {isDisabled && (
-                        <div className="absolute -top-5 left-0 text-[10px] text-amber-600">
-                          Önce "{query.filters.find(f => f.fieldName === filter.dependsOn)?.displayName}" seçin
+                      {isParentMissing && (
+                        <div className="absolute -top-4 left-0 text-[9px] text-amber-600">
+                          Üst filtre seçilmedi
                         </div>
                       )}
                       <button
                         type="button"
                         onClick={() => {
-                          if (!isDisabled) {
-                            setOperatorMenuOpen({}) // Close operator menus
-                            setDropdownOpen(prev => {
-                              const isCurrentlyOpen = prev[filterKey]
-                              // Close all other dropdowns
-                              return { [filterKey]: !isCurrentlyOpen }
-                            })
-                          }
+                          setOperatorMenuOpen({}) // Close operator menus
+                          setDropdownOpen(prev => {
+                            const isCurrentlyOpen = prev[filterKey]
+                            // Close all other dropdowns
+                            return { [filterKey]: !isCurrentlyOpen }
+                          })
                         }}
-                        disabled={isDisabled || false}
-                        className={`w-full px-2 py-1 pr-12 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-xs bg-white text-left flex items-center justify-between ${
-                          isDisabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'hover:bg-gray-50'
+                        className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${
+                          'hover:bg-gray-50'
                         }`}
                       >
                         <span className={`truncate ${selectedCount > 0 ? 'text-gray-900' : 'text-gray-500'}`}>
@@ -1583,30 +1660,30 @@ export default function ReportDetailPage() {
                               }
                             })
                           }}
-                          className="absolute right-6 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
+                          className="absolute right-5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
                         >
-                          <X className="h-3 w-3" />
+                          <X className="h-2.5 w-2.5" />
                         </button>
                       )}
-                      <ChevronDown className="h-3 w-3 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <ChevronDown className="h-2.5 w-2.5 text-gray-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       {isOpen && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded shadow-lg">
-                          <div className="p-1.5 border-b border-gray-200">
+                        <div className="dropdown-menu absolute z-50 w-full mt-0.5 bg-white border border-gray-300 rounded shadow-lg">
+                          <div className="p-1 border-b border-gray-200">
                             <div className="relative">
-                              <Search className="absolute left-2 top-1.5 h-3 w-3 text-gray-400" />
+                              <Search className="absolute left-1.5 top-1 h-2.5 w-2.5 text-gray-400" />
                               <input
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerms(prev => ({ ...prev, [filterKey]: e.target.value }))}
                                 placeholder="Ara..."
-                                className="w-full pl-7 pr-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
                                 onClick={(e) => e.stopPropagation()}
                               />
                             </div>
                           </div>
-                          <div className="max-h-48 overflow-y-auto">
+                          <div className="max-h-40 overflow-y-auto">
                             {filteredOptions.length === 0 ? (
-                              <div className="px-2 py-1.5 text-xs text-gray-500">Sonuç bulunamadı</div>
+                              <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
                             ) : (
                               filteredOptions.map((option, index) => {
                                 const isChecked = currentValues.includes(option.value)
@@ -1636,13 +1713,13 @@ export default function ReportDetailPage() {
                                         }
                                       })
                                     }}
-                                    className="px-3 py-2 text-xs cursor-pointer hover:bg-orange-50 flex items-center space-x-1.5"
+                                    className="px-2 py-1 text-[10px] cursor-pointer hover:bg-orange-50 flex items-center space-x-1"
                                   >
                                     <input
                                       type="checkbox"
                                       checked={isChecked}
                                       onChange={() => {}}
-                                      className="h-3 w-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded pointer-events-none"
+                                      className="h-2.5 w-2.5 text-orange-600 focus:ring-orange-500 border-gray-300 rounded pointer-events-none"
                                     />
                                     <span>{option.label}</span>
                                   </div>
@@ -1678,7 +1755,7 @@ export default function ReportDetailPage() {
                             const newValue = e.target.value
                             handleFilterChange(query.id, filter.fieldName, newValue)
                           }}
-                          className="w-full px-7 py-1 pr-6 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent text-xs"
+                          className="w-full h-[20px] px-7 py-1 pr-6 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent text-xs"
                           placeholder="Filtrele"
                         />
                         {/* Operator Icon Button on Input */}
@@ -1748,7 +1825,7 @@ export default function ReportDetailPage() {
                   const pageSize = queryState?.pageSize || 50
                   executeQueryWithFilters(query, report!.id, filters, 1, pageSize)
                 }}
-                className="h-[28px] px-3 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                className="h-[20px] px-3 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
               >
                 <RefreshCw className="h-3 w-3" />
                 Uygula
@@ -1830,7 +1907,9 @@ export default function ReportDetailPage() {
             if (columnIndex !== -1) {
               const value = rowData[columnIndex]
               const placeholder = `{{${field}}}`
-              processedQuery = processedQuery.replace(new RegExp(placeholder, 'g'), `'${value}'`)
+              // Escape single quotes in the value to prevent SQL injection and syntax errors
+              const escapedValue = String(value).replace(/'/g, "''")
+              processedQuery = processedQuery.replace(new RegExp(placeholder, 'g'), `'${escapedValue}'`)
             }
           })
           // Do not apply filters server-side; we will filter on client
@@ -1900,7 +1979,7 @@ export default function ReportDetailPage() {
     }
   }
 
-  const renderVisualization = (query: QueryData, result: QueryResult) => {
+  const renderVisualization = (query: QueryData, result: QueryResult, scale: number = 1) => {
     const { visualization } = query
     const { data, columns } = result
 
@@ -2011,32 +2090,36 @@ export default function ReportDetailPage() {
             setNestedSorting={setNestedSorting}
             setNestedPagination={setNestedPagination}
             onRowExpand={(query, rowIndex, rowData, nestedQueries, level, parentRowKey) => handleRowExpand(query, rowIndex, rowData, nestedQueries, level, parentRowKey)}
+            scale={scale}
           />
         )
 
       case 'bar':
-        return <BarVisualization query={query} result={result} colors={colors} />
+        return <BarVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'line':
-        return <LineVisualization query={query} result={result} colors={colors} />
+        return <LineVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'pie':
-        return <PieVisualization query={query} result={result} colors={colors} />
+        return <PieVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'area':
-        return <AreaVisualization query={query} result={result} colors={colors} />
+        return <AreaVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'scatter':
-        return <ScatterVisualization query={query} result={result} colors={colors} />
+        return <ScatterVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'boxplot':
-        return <BoxPlotVisualization query={query} result={result} colors={colors} />
+        return <BoxPlotVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'pareto':
-        return <ParetoVisualization query={query} result={result} colors={colors} />
+        return <ParetoVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'histogram':
-        return <HistogramVisualization query={query} result={result} colors={colors} />
+        return <HistogramVisualization query={query} result={result} colors={colors} scale={scale} />
+
+      case 'card':
+        return <CardVisualization query={query} result={result} colors={colors} scale={scale} />
 
       default:
         return (
@@ -2136,30 +2219,69 @@ export default function ReportDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => report && executeAllQueries(report, filters)}
-              className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-blue-700 transition-colors"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Raporu Yenile
-            </button>
-            <button
-              onClick={exportToExcel}
-              disabled={isExporting || Object.keys(queryResults).length === 0 || Object.values(queryResults).every(q => !q.result)}
-              className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              {isExporting ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Dışa Aktarılıyor...
-                </>
-              ) : (
-                <>
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  Excel'e Aktar
-                </>
-              )}
-            </button>
+            {!isLayoutEditMode ? (
+              <>
+                <button
+                  onClick={() => setIsLayoutEditMode(true)}
+                  className="flex items-center gap-2 bg-purple-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-purple-700 transition-colors"
+                >
+                  <Layout className="h-3.5 w-3.5" />
+                  Düzeni Güncelle
+                </button>
+                <button
+                  onClick={() => report && executeAllQueries(report, filters)}
+                  className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Raporu Yenile
+                </button>
+                <button
+                  onClick={exportToExcel}
+                  disabled={isExporting || Object.keys(queryResults).length === 0 || Object.values(queryResults).every(q => !q.result)}
+                  className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isExporting ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Dışa Aktarılıyor...
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                      Excel'e Aktar
+                    </>
+                  )}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleSaveLayout}
+                  disabled={isSavingLayout}
+                  className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isSavingLayout ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Kaydediliyor...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-3.5 w-3.5" />
+                      Kaydet
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleCancelLayoutEdit}
+                  disabled={isSavingLayout}
+                  className="flex items-center gap-2 bg-gray-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-gray-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                  İptal
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -2205,26 +2327,53 @@ export default function ReportDetailPage() {
       )}
 
       {/* Queries */}
-      <div className={`grid grid-cols-1 ${
-        report.queries.length === 1 &&
-        (report.queries[0].visualization.type === 'table' || report.queries[0].visualization.type === 'expandable')
-          ? ''
-          : 'lg:grid-cols-2'
-      } gap-4`}>
+      {isLayoutEditMode && (
+        <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-2">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-800">
+              <p className="font-semibold">Düzen Düzenleme Modu</p>
+              <p className="mt-1">Widget'ları sürükleyerek taşıyabilir ve kenarlarından çekerek boyutlandırabilirsiniz. Sayfa 4 sütunlu bir ızgaraya sahiptir.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ResponsiveGridLayout
+        className="layout"
+        layouts={{ lg: gridLayout }}
+        breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+        cols={{ lg: 4, md: 4, sm: 2, xs: 1, xxs: 1 }}
+        rowHeight={120}
+        isDraggable={isLayoutEditMode}
+        isResizable={isLayoutEditMode}
+        onLayoutChange={handleLayoutChange}
+        draggableHandle=".drag-handle"
+        compactType="vertical"
+        preventCollision={false}
+      >
         {report.queries.map((query) => {
           const Icon = VISUALIZATION_ICONS[query.visualization.type] || Table
           const queryState = queryResults[query.id]
 
+          // Calculate scale based on grid layout height
+          const layoutItem = gridLayout.find((item: any) => item.i === query.id.toString())
+          const gridItemHeight = layoutItem ? layoutItem.h * 120 : 480 // h * rowHeight
+          const scale = isLayoutEditMode ? Math.min(gridItemHeight / 500, 1) : 1
+
           return (
-            <div key={query.id} className="bg-white rounded-lg shadow-md border border-gray-200" data-query-id={query.id}>
-              <div className="pb-2 px-4 pt-4">
+            <div key={query.id.toString()} className={`bg-white rounded-lg shadow-md border ${isLayoutEditMode ? 'border-blue-400 border-2' : 'border-gray-200'} h-full flex flex-col`} data-query-id={query.id}>
+              <div className={`pb-2 px-4 pt-4 flex-shrink-0 ${isLayoutEditMode ? 'drag-handle cursor-move bg-blue-50' : ''}`}>
                 <div className="flex items-center gap-2">
                   <Icon className="h-4 w-4 text-blue-600" />
                   <span className="text-base font-semibold">{query.name}</span>
+                  {isLayoutEditMode && (
+                    <span className="ml-auto text-xs text-blue-600 font-medium">Sürükle</span>
+                  )}
                 </div>
               </div>
 
-              <div className="space-y-3 px-4 pb-4 relative">
+              <div className="space-y-3 px-4 pb-4 relative flex-1 overflow-hidden">
                 {/* Loading Overlay */}
                 {queryState?.loading && (
                   <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
@@ -2249,10 +2398,10 @@ export default function ReportDetailPage() {
 
                 {/* Results */}
                 {queryState?.result && (
-                  <div>
+                  <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                     {/* Show filters above charts (but not for tables) */}
                     {query.visualization.type !== 'table' && query.visualization.type !== 'expandable' && renderQueryFilters(query)}
-                    {renderVisualization(query, queryState.result)}
+                    {renderVisualization(query, queryState.result, scale)}
                   </div>
                 )}
 
@@ -2266,7 +2415,7 @@ export default function ReportDetailPage() {
             </div>
           )
         })}
-      </div>
+      </ResponsiveGridLayout>
 
       {/* Delete Confirmation Modal */}
       <DeleteModal

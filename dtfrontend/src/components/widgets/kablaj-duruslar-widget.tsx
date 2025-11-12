@@ -87,7 +87,7 @@ export function KablajDuruslarWidget({ widgetId }: KablajDuruslarWidgetProps) {
     const loadFirmaOptions = async () => {
       try {
         const response = await api.post<WidgetData>('/reports/preview', {
-          sql_query: 'SELECT "NAME", "DESCRIPTION", "Toplam Duruş" FROM mes_production.kablaj_firma_duruslar ORDER BY "Toplam Duruş" DESC'
+          sql_query: 'SELECT "NAME", "DESCRIPTION", "Toplam Duruş" FROM mes_production.kablaj_firma_duruslar UNION SELECT "NAME", "DESCRIPTION", "Toplam Duruş"::bigint FROM mes_production.cdk_hesa_mege_duruslar ORDER BY "Toplam Duruş" DESC'
         })
 
         if (response.success && response.data && response.data.length > 0) {

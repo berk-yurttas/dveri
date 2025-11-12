@@ -47,10 +47,7 @@ const TableFilterInput = React.memo<{
   const [localEndDate, setLocalEndDate] = React.useState<string>(filters[`${filterKey}_end`] || '')
   const [searchTerm, setSearchTerm] = React.useState('')
   
-  // Check if filter depends on another filter
-  const parentFilter = filter.dependsOn ? allFilters.find((f: any) => f.fieldName === filter.dependsOn) : null
-  const parentValue = parentFilter ? filters[`${queryId}_${parentFilter.fieldName}`] : null
-  const isDisabled = filter.dependsOn && (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0))
+  // Dependent filters always show options; parent values are handled upstream when fetching options
   
   // Get dropdown options
   const options = dropdownOptions[filterKey] || []
@@ -217,18 +214,14 @@ const TableFilterInput = React.memo<{
       {filter.type === 'dropdown' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-      {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
-          <div className={`max-h-48 overflow-y-auto border border-gray-300 rounded ${isDisabled ? 'opacity-50' : ''}`}>
+
+          <div className="max-h-48 overflow-y-auto border border-gray-300 rounded">
             <div
               onClick={(e) => {
                 e.stopPropagation()
-                if (!isDisabled) setLocalValue('')
+                setLocalValue('')
               }}
-              className={`px-3 py-2 text-xs hover:bg-orange-50 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${localValue === '' ? 'bg-orange-100 font-medium' : ''}`}
+              className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === '' ? 'bg-orange-100 font-medium' : ''}`}
             >
               Tümü
             </div>
@@ -237,14 +230,14 @@ const TableFilterInput = React.memo<{
                 key={idx}
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (!isDisabled) setLocalValue(option.value)
+                  setLocalValue(option.value)
                 }}
-                className={`px-3 py-2 text-xs hover:bg-orange-50 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${localValue === option.value ? 'bg-orange-100 font-medium' : ''}`}
+                className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === option.value ? 'bg-orange-100 font-medium' : ''}`}
               >
                 {option.label}
               </div>
             ))}
-            {options.length === 0 && !isDisabled && (
+            {options.length === 0 && (
               <div className="px-3 py-2 text-xs text-gray-500">Seçenekler yükleniyor...</div>
             )}
           </div>
@@ -254,60 +247,54 @@ const TableFilterInput = React.memo<{
       {filter.type === 'multiselect' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-          {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
+
           <div className="space-y-2">
-      <input
-        type="text"
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               onClick={(e) => e.stopPropagation()}
-        placeholder="Ara..."
-        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
-        disabled={isDisabled}
+              placeholder="Ara..."
+              className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
               autoFocus
-      />
-      <div className={`max-h-48 overflow-y-auto border border-gray-300 rounded p-2 space-y-1 ${isDisabled ? 'opacity-50' : ''}`}>
-        {filteredOptions.length === 0 ? (
-          <div className="px-2 py-1 text-xs text-gray-500">
-            {options.length === 0 ? (isDisabled ? 'Üst filtreyi seçin' : 'Seçenekler yükleniyor...') : 'Sonuç bulunamadı'}
-          </div>
-        ) : (
-          filteredOptions.map((option: any, idx: number) => {
+            />
+            <div className="max-h-48 overflow-y-auto border border-gray-300 rounded p-2 space-y-1">
+              {filteredOptions.length === 0 ? (
+                <div className="px-2 py-1 text-xs text-gray-500">
+                  {options.length === 0 ? 'Seçenekler yükleniyor...' : 'Sonuç bulunamadı'}
+                </div>
+              ) : (
+                filteredOptions.map((option: any, idx: number) => {
                   const selectedValues = localValue ? localValue.split(',').map((v: string) => v.trim()) : []
                   const isChecked = selectedValues.includes(option.value)
 
-            return (
-                    <label 
-                      key={idx} 
+                  return (
+                    <label
+                      key={idx}
                       className="flex items-center gap-2 hover:bg-orange-50 p-1 rounded cursor-pointer"
                       onClick={(e) => e.stopPropagation()}
                     >
-                <input
-                  type="checkbox"
-                  checked={isChecked}
-                  disabled={isDisabled}
-                  onChange={(e) => {
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
                           e.stopPropagation()
                           if (e.target.checked) {
                             const newValues = [...selectedValues, option.value]
                             setLocalValue(newValues.join(', '))
-                    } else {
+                          } else {
                             const newValues = selectedValues.filter((v: string) => v !== option.value)
                             setLocalValue(newValues.join(', '))
-                    }
-                  }}
+                          }
+                        }}
                         onClick={(e) => e.stopPropagation()}
-                  className="w-3 h-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                />
-                <span className="text-xs">{option.label}</span>
-              </label>
-            )
-          })
-        )}
+                        className="w-3 h-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+                      />
+                      <span className="text-xs">{option.label}</span>
+                    </label>
+                  )
+                })
+              )}
             </div>
           </div>
         </div>
@@ -380,11 +367,18 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
   const { columns, data } = result
 
   return (
-    <div className="overflow-x-auto shadow-xl min-h-[400px] overflow-y-auto relative">
-      <table className="w-full border-collapse relative">
-        <thead className="relative">
-          <tr className="bg-gray-50 border-b border-gray-200">
-            {columns.map((col, index) => {
+    <div style={{
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: '200px'
+    }}>
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        <table className="w-full border-collapse relative">
+          <thead className="sticky top-0 z-10 relative">
+            <tr className="bg-gray-50 border-b border-gray-200">
+              {columns.map((col, index) => {
               // Find if there's a filter for this column
               const filter = query.filters.find(f => f.fieldName === col)
               const isSorted = sorting?.column === col
@@ -510,9 +504,10 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
           ))}
         </tbody>
       </table>
+      </div>
 
       {/* Pagination Controls */}
-      <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2">
+      <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="text-xs text-gray-600">
             {((currentPage - 1) * pageSize + 1)}-{Math.min(currentPage * pageSize, totalRows)} / {totalRows}

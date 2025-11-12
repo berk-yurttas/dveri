@@ -121,6 +121,7 @@ class Report(PostgreSQLBase):
     is_public = Column(Boolean, default=False)
     tags = Column(ARRAY(String), default=[])
     global_filters = Column(JSONB, default=[])  # Global filters that apply to all queries
+    layout_config = Column(JSONB, default=[])  # Grid layout configuration for queries
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

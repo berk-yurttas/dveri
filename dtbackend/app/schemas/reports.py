@@ -15,6 +15,7 @@ class VisualizationType(str, Enum):
     PARETO = "pareto"
     BOXPLOT = "boxplot"
     HISTOGRAM = "histogram"
+    CARD = "card"
 
 class FilterType(str, Enum):
     DATE = "date"
@@ -72,6 +73,11 @@ class ChartOptions(BaseModel):
     tooltip_fields: Optional[List[str]] = Field([], alias="tooltipFields")
     field_display_names: Optional[Dict[str, str]] = Field({}, alias="fieldDisplayNames")
     
+
+    # line visual for bar chart
+    line_y_axis: Optional[str] = Field(None, alias="lineYAxis")
+    show_line_overlay: Optional[bool] = Field(False, alias="showLineOverlay")
+
     class Config:
         populate_by_name = True  # Allow both field names and aliases
         from_attributes = True
@@ -108,7 +114,7 @@ class FilterConfigBase(BaseModel):
         from_attributes = True
 
 class FilterConfigCreate(FilterConfigBase):
-    pass
+    id: Optional[int] = None  # Optional ID for updating existing filters
 
 class FilterConfigUpdate(BaseModel):
     field_name: Optional[str] = Field(None, alias="fieldName")
@@ -150,6 +156,7 @@ class QueryConfigBase(BaseModel):
         from_attributes = True
 
 class QueryConfigCreate(QueryConfigBase):
+    id: Optional[int] = None  # Optional ID for updating existing queries
     filters: Optional[List[FilterConfigCreate]] = []
 
 class QueryConfigUpdate(BaseModel):
@@ -179,6 +186,7 @@ class ReportBase(BaseModel):
     is_public: bool = False
     tags: Optional[List[str]] = []
     global_filters: Optional[List[FilterConfigCreate]] = Field([], alias="globalFilters", description="Global filters that apply to all queries in the report")
+    layout_config: Optional[List[Dict[str, Any]]] = Field([], alias="layoutConfig", description="Grid layout configuration for queries")
 
     class Config:
         populate_by_name = True  # Allow both field names and aliases
@@ -193,6 +201,7 @@ class ReportUpdate(BaseModel):
     is_public: Optional[bool] = None
     tags: Optional[List[str]] = None
     global_filters: Optional[List[FilterConfigCreate]] = Field(None, alias="globalFilters")
+    layout_config: Optional[List[Dict[str, Any]]] = Field(None, alias="layoutConfig")
 
     class Config:
         populate_by_name = True
@@ -205,6 +214,7 @@ class ReportFullUpdate(BaseModel):
     tags: Optional[List[str]] = None
     queries: Optional[List[QueryConfigCreate]] = None
     global_filters: Optional[List[FilterConfigCreate]] = Field(None, alias="globalFilters")
+    layout_config: Optional[List[Dict[str, Any]]] = Field(None, alias="layoutConfig")
 
     class Config:
         populate_by_name = True

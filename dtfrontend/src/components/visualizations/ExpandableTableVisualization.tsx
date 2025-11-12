@@ -2,6 +2,7 @@ import React from 'react'
 import { createPortal } from 'react-dom'
 import { Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, ChevronDown, Loader2 } from 'lucide-react'
 import { QueryData, QueryResult } from './types'
+import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 import { reportsService } from '@/services/reports'
 
 const TEXT_FILTER_OPERATORS = [
@@ -56,6 +57,7 @@ interface ExpandableTableVisualizationProps {
   setNestedSorting: React.Dispatch<React.SetStateAction<{ [rowKey: string]: { column: string; direction: 'asc' | 'desc' } | null }>>
   setNestedPagination: React.Dispatch<React.SetStateAction<{ [rowKey: string]: { currentPage: number; pageSize: number } }>>
   onRowExpand: (query: QueryData, rowIndex: number, rowData: any[], nestedQueries: any[], level: number, parentRowKey: string) => void
+  scale?: number
 }
 
 // Main table filter input component with local state and Apply/Clear buttons
@@ -88,7 +90,7 @@ const MainTableFilterInput = React.memo<{
   // Check if filter depends on another filter
   const parentFilter = filter.dependsOn ? allFilters.find((f: any) => f.fieldName === filter.dependsOn) : null
   const parentValue = parentFilter ? filters[`${queryId}_${parentFilter.fieldName}`] : null
-  const isDisabled = filter.dependsOn && (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0))
+  const isParentMissing = filter.dependsOn && (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0))
   
   // Get dropdown options
   const options = dropdownOptions[filterKey] || []
@@ -255,18 +257,13 @@ const MainTableFilterInput = React.memo<{
       {filter.type === 'dropdown' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-          {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
-          <div className={`max-h-48 overflow-y-auto border border-gray-300 rounded ${isDisabled ? 'opacity-50' : ''}`}>
+          <div className="max-h-48 overflow-y-auto border border-gray-300 rounded">
             <div
               onClick={(e) => {
                 e.stopPropagation()
-                if (!isDisabled) setLocalValue('')
+                setLocalValue('')
               }}
-              className={`px-3 py-2 text-xs hover:bg-orange-50 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${localValue === '' ? 'bg-orange-100 font-medium' : ''}`}
+              className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === '' ? 'bg-orange-100 font-medium' : ''}`}
             >
               Tümü
             </div>
@@ -275,14 +272,14 @@ const MainTableFilterInput = React.memo<{
                 key={idx}
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (!isDisabled) setLocalValue(option.value)
+                  setLocalValue(option.value)
                 }}
-                className={`px-3 py-2 text-xs hover:bg-orange-50 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${localValue === option.value ? 'bg-orange-100 font-medium' : ''}`}
+                className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === option.value ? 'bg-orange-100 font-medium' : ''}`}
               >
                 {option.label}
               </div>
             ))}
-            {options.length === 0 && !isDisabled && (
+            {options.length === 0 && (
               <div className="px-3 py-2 text-xs text-gray-500">Seçenekler yükleniyor...</div>
             )}
           </div>
@@ -292,11 +289,6 @@ const MainTableFilterInput = React.memo<{
       {filter.type === 'multiselect' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-          {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
           <div className="space-y-2">
             <input
               type="text"
@@ -305,19 +297,18 @@ const MainTableFilterInput = React.memo<{
               onClick={(e) => e.stopPropagation()}
               placeholder="Ara..."
               className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
-              disabled={isDisabled}
               autoFocus
             />
-            <div className={`max-h-48 overflow-y-auto border border-gray-300 rounded p-2 space-y-1 ${isDisabled ? 'opacity-50' : ''}`}>
+            <div className="max-h-48 overflow-y-auto border border-gray-300 rounded p-2 space-y-1">
               {filteredOptions.length === 0 ? (
                 <div className="px-2 py-1 text-xs text-gray-500">
-                  {options.length === 0 ? (isDisabled ? 'Üst filtreyi seçin' : 'Seçenekler yükleniyor...') : 'Sonuç bulunamadı'}
+                  {options.length === 0 ? 'Seçenekler yükleniyor...' : 'Sonuç bulunamadı'}
                 </div>
               ) : (
                 filteredOptions.map((option: any, idx: number) => {
                   const selectedValues = localValue ? localValue.split(',').map((v: string) => v.trim()) : []
                   const isChecked = selectedValues.includes(option.value)
-                  
+
                   return (
                     <label 
                       key={idx} 
@@ -327,7 +318,6 @@ const MainTableFilterInput = React.memo<{
                       <input
                         type="checkbox"
                         checked={isChecked}
-                        disabled={isDisabled}
                         onChange={(e) => {
                           e.stopPropagation()
                           if (e.target.checked) {
@@ -407,43 +397,16 @@ const NestedFilterInput = React.memo<{
   const parentFilter = filter.dependsOn ? allFilters.find((f: any) => f.fieldName === filter.dependsOn) : null
   const parentFilterKey = parentFilter ? `${rowKey}_${filter.dependsOn}` : null
   const parentValue = parentFilterKey ? nestedFilters[parentFilterKey] : null
-  const isDisabled = filter.dependsOn && (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0))
+  const isParentMissing = filter.dependsOn && (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0))
 
   // Load dropdown options from server if filter has dropdownQuery and dependsOn
   const loadDropdownOptions = React.useCallback(async () => {
     if (!filter.dropdownQuery || !filter.dependsOn) return
 
-    if (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0)) {
-      setDistinctValues([])
-      return
-    }
-
     setLoadingOptions(true)
     try {
-      // Replace {{dependsOn}} placeholder with actual parent value
-      let modifiedSql = filter.dropdownQuery
-      const placeholder = `{{${filter.dependsOn}}}`
-      
-      if (Array.isArray(parentValue)) {
-        // For arrays, we need to handle both = and IN operators
-        const valueList = parentValue.map((v: any) => `'${v}'`).join(',')
-        
-        // Check if the SQL uses = operator before the placeholder
-        const equalsPattern = new RegExp(`=\\s*${placeholder.replace(/[{}]/g, '\\$&')}`, 'g')
-        if (equalsPattern.test(modifiedSql)) {
-          // Replace "= {{field}}" with "IN (values)"
-          modifiedSql = modifiedSql.replace(equalsPattern, `IN (${valueList})`)
-        } else {
-          // Just replace the placeholder with the value list
-          modifiedSql = modifiedSql.replace(new RegExp(placeholder, 'g'), `(${valueList})`)
-        }
-      } else {
-        // For single values, simple replacement
-        const replacement = `'${parentValue}'`
-        modifiedSql = modifiedSql.replace(new RegExp(placeholder, 'g'), replacement)
-      }
+      const modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn, parentValue)
 
-        // Execute query using reportsService
       console.log(`Loading dependent filter options for "${filter.displayName}":`, modifiedSql)
       const response = await reportsService.previewQuery({
         sql_query: modifiedSql,
@@ -451,7 +414,6 @@ const NestedFilterInput = React.memo<{
       })
 
       if (response.success && response.data.length > 0) {
-        // Expecting [value, label] format
         const options = response.data.map((row: any[]) => ({
           value: row[0],
           label: row[1] || row[0]
@@ -693,14 +655,9 @@ const NestedFilterInput = React.memo<{
       {filter.type === 'dropdown' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-          {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
           {loadingOptions ? (
             <div className="text-xs text-gray-500 py-2">Seçenekler yükleniyor...</div>
-          ) : distinctValues.length > 0 && !isDisabled ? (
+          ) : distinctValues.length > 0 ? (
             <div className="space-y-2">
               <input
                 type="text"
@@ -743,8 +700,8 @@ const NestedFilterInput = React.memo<{
               </div>
             </div>
           ) : (
-            <div className={`text-xs py-2 ${isDisabled ? 'text-amber-600' : 'text-gray-500'}`}>
-              {isDisabled ? 'Önce bağlı filtreyi seçin' : 'Veri yükleniyor veya değer bulunamadı'}
+            <div className="text-xs py-2 text-gray-500">
+              Veri yükleniyor veya değer bulunamadı
             </div>
           )}
         </div>
@@ -753,14 +710,9 @@ const NestedFilterInput = React.memo<{
       {filter.type === 'multiselect' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-          {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
           {loadingOptions ? (
             <div className="text-xs text-gray-500 py-2">Seçenekler yükleniyor...</div>
-          ) : distinctValues.length > 0 && !isDisabled ? (
+          ) : distinctValues.length > 0 ? (
             <div className="space-y-2">
               <input
                 type="text"
@@ -810,8 +762,8 @@ const NestedFilterInput = React.memo<{
               </div>
             </div>
           ) : (
-            <div className={`text-xs py-2 ${isDisabled ? 'text-amber-600' : 'text-gray-500'}`}>
-              {isDisabled ? 'Önce bağlı filtreyi seçin' : 'Veri yükleniyor veya değer bulunamadı'}
+            <div className="text-xs py-2 text-gray-500">
+              Veri yükleniyor veya değer bulunamadı
             </div>
           )}
         </div>
@@ -928,8 +880,23 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
   setNestedSorting,
   setNestedPagination,
   onRowExpand,
+  scale = 1,
 }) => {
   const { columns, data } = result
+
+  const [mainFilterPositions, setMainFilterPositions] = React.useState<Record<string, { top: number; left: number }>>({})
+
+  React.useEffect(() => {
+    setMainFilterPositions(prev => {
+      const updated = { ...prev }
+      Object.keys(prev).forEach(key => {
+        if (!openPopovers[key]) {
+          delete updated[key]
+        }
+      })
+      return updated
+    })
+  }, [openPopovers])
 
   // Helper function to filter and sort nested rows
   const getFilteredNestedRowsWithIndex = (rowKey: string, nested: { columns: string[], data: any[], filters?: any[] }) => {
@@ -1105,7 +1072,7 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
           </div>
         ) : nested?.data && nested.data.length > 0 ? (
           <div className="space-y-3">
-            <div className="overflow-x-auto max-h-[500px] overflow-y-auto border border-gray-200 rounded">
+            <div className="border border-gray-200 rounded">
               <table className="w-full border-collapse bg-white rounded shadow-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className={`${headerBgColors[colorIndex]} border-b ${headerBorderColors[colorIndex]}`}>
@@ -1403,9 +1370,16 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
   }
 
   return (
-    <div className="overflow-x-auto shadow-xl min-h-[400px] overflow-y-auto relative">
-      <table className="w-full border-collapse relative">
-        <thead className="relative">
+    <div style={{
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: '200px'
+    }}>
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        <table className="w-full border-collapse relative">
+          <thead className="sticky top-0 z-10 relative">
           <tr className="bg-gray-50 border-b border-gray-200">
             <th className="px-3 py-1.5 text-left font-semibold text-gray-800 text-xs w-10">
               {/* Expand/Collapse column */}
@@ -1441,21 +1415,36 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
 
                     {/* Filter button */}
                     {filter && (
-                      <div className="relative">
+                      <div>
                         <div
                           className="cursor-pointer hover:bg-gray-100 p-1 rounded"
                           onClick={(e) => {
                             e.stopPropagation()
-                            setOpenPopovers(prev => {
-                              const currentKey = `${query.id}_${col}`
-                              const isCurrentlyOpen = prev[currentKey]
+                            const currentKey = `${query.id}_${col}`
+                            const isCurrentlyOpen = !!openPopovers[currentKey]
 
-                              // Close all other popovers and toggle current one
+                            if (isCurrentlyOpen) {
+                              setMainFilterPositions(prev => {
+                                const updated = { ...prev }
+                                delete updated[currentKey]
+                                return updated
+                              })
+                            } else {
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                              setMainFilterPositions(prev => ({
+                                ...prev,
+                                [currentKey]: {
+                                  top: rect.bottom + 4,
+                                  left: rect.left
+                                }
+                              }))
+                            }
+
+                            setOpenPopovers(() => {
                               const newPopovers: { [key: string]: boolean } = {}
                               if (!isCurrentlyOpen) {
                                 newPopovers[currentKey] = true
                               }
-
                               return newPopovers
                             })
                           }}
@@ -1474,28 +1463,42 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                           })()}`} />
                         </div>
 
-                        {openPopovers[`${query.id}_${col}`] && (
-                          <div 
-                            className={`absolute top-full mt-1 w-64 p-4 bg-white border border-gray-200 rounded-md shadow-lg z-[9999] ${index >= columns.length - 2 ? 'right-0' : 'left-0'}`}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <MainTableFilterInput
-                              filter={filter}
-                              queryId={query.id.toString()}
-                              filters={filters}
-                              dropdownOptions={dropdownOptions}
-                              onFilterChange={onFilterChange}
-                              setOpenPopovers={setOpenPopovers}
-                              allFilters={query.filters}
-                            />
-                          </div>
-                        )}
+                        {openPopovers[`${query.id}_${col}`] && typeof document !== 'undefined' && (() => {
+                          const filterKey = `${query.id}_${col}`
+                          const position = mainFilterPositions[filterKey]
+                          if (!position) return null
+
+                          const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
+                          const popoverWidth = 256
+                          const adjustedLeft = position.left + popoverWidth > viewportWidth - 16
+                            ? Math.max(16, viewportWidth - popoverWidth - 16)
+                            : position.left
+
+                          return createPortal(
+                            <div
+                              className="fixed w-64 p-4 bg-white border border-gray-200 rounded-md shadow-lg z-[10000]"
+                              style={{ top: position.top, left: adjustedLeft }}
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                            >
+                              <MainTableFilterInput
+                                filter={filter}
+                                queryId={query.id.toString()}
+                                filters={filters}
+                                dropdownOptions={dropdownOptions}
+                                onFilterChange={onFilterChange}
+                                setOpenPopovers={setOpenPopovers}
+                                allFilters={query.filters}
+                              />
+                            </div>,
+                            document.body
+                          )
+                        })()}
                       </div>
                     )}
                   </div>
                 </th>
-              )
-            })}
+              )})}
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
@@ -1547,9 +1550,10 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
           })}
         </tbody>
       </table>
+      </div>
 
       {/* Pagination Controls for Expandable Table */}
-      <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2">
+      <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="text-xs text-gray-600">
             {((currentPage - 1) * pageSize + 1)}-{Math.min(currentPage * pageSize, totalRows)} / {totalRows}
