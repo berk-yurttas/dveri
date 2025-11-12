@@ -1566,24 +1566,35 @@ export default function EditReportPage() {
       // Don't send layoutConfig to preserve it unchanged
       const { layoutConfig, ...reportWithoutLayout } = report
 
-      // Clean filter IDs (remove non-integer IDs as they're client-side only)
+      // Clean query and filter IDs (remove non-integer IDs as they're client-side only)
       const cleanedReport = {
         ...reportWithoutLayout,
-        queries: reportWithoutLayout.queries.map((query: any) => ({
-          ...query,
-          filters: query.filters.map((filter: any) => {
-            const { id, ...filterWithoutId } = filter
-            // Only include id if it's a valid integer (existing filter from backend)
-            if (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) {
-              return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
-            }
-            return filterWithoutId
-          })
-        })),
+        queries: reportWithoutLayout.queries.map((query: any) => {
+          const { id: queryId, ...queryWithoutId } = query
+          const cleanedQuery: any = {
+            ...queryWithoutId,
+            filters: query.filters.map((filter: any) => {
+              const { id, ...filterWithoutId } = filter
+              // Only include id if it's a valid integer (existing filter from backend)
+              const isValidFilterId = typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))
+              if (isValidFilterId) {
+                return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
+              }
+              return filterWithoutId
+            })
+          }
+          // Only include query id if it's a valid integer (existing query from backend)
+          const isValidQueryId = typeof queryId === 'number' || (typeof queryId === 'string' && /^\d+$/.test(queryId))
+          if (isValidQueryId) {
+            cleanedQuery.id = typeof queryId === 'number' ? queryId : parseInt(queryId, 10)
+          }
+          return cleanedQuery
+        }),
         globalFilters: reportWithoutLayout.globalFilters?.map((filter: any) => {
           const { id, ...filterWithoutId } = filter
           // Only include id if it's a valid integer (existing filter from backend)
-          if (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) {
+          const isValidFilterId = typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))
+          if (isValidFilterId) {
             return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
           }
           return filterWithoutId

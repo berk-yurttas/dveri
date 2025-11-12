@@ -1839,20 +1839,28 @@ export default function AddReportPage() {
         reportToSave.tags = [...(reportToSave.tags || []), subplatform]
       }
 
-      // Clean filter IDs (remove non-integer IDs as they're client-side only)
+      // Clean query and filter IDs (remove non-integer IDs as they're client-side only)
       const cleanedReport = {
         ...reportToSave,
-        queries: reportToSave.queries.map((query: any) => ({
-          ...query,
-          filters: query.filters.map((filter: any) => {
-            const { id, ...filterWithoutId } = filter
-            // Only include id if it's a valid integer (existing filter from backend)
-            if (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) {
-              return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
-            }
-            return filterWithoutId
-          })
-        })),
+        queries: reportToSave.queries.map((query: any) => {
+          const { id: queryId, ...queryWithoutId } = query
+          const cleanedQuery: any = {
+            ...queryWithoutId,
+            filters: query.filters.map((filter: any) => {
+              const { id, ...filterWithoutId } = filter
+              // Only include id if it's a valid integer (existing filter from backend)
+              if (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) {
+                return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
+              }
+              return filterWithoutId
+            })
+          }
+          // Only include query id if it's a valid integer (existing query from backend)
+          if (typeof queryId === 'number' || (typeof queryId === 'string' && /^\d+$/.test(queryId))) {
+            cleanedQuery.id = typeof queryId === 'number' ? queryId : parseInt(queryId, 10)
+          }
+          return cleanedQuery
+        }),
         globalFilters: reportToSave.globalFilters?.map((filter: any) => {
           const { id, ...filterWithoutId } = filter
           // Only include id if it's a valid integer (existing filter from backend)

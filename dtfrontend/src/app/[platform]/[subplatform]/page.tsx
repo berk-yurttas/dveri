@@ -26,6 +26,10 @@ import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 
+interface PreviewResponse {
+  data?: any[] | null;
+}
+
 // Icon mapping
 const iconMap: { [key: string]: any } = {
   BarChart3,
@@ -71,6 +75,9 @@ export default function SubPlatformPage() {
   // Kapasite subplatform filters
   const [selectedKapasitePeriod, setSelectedKapasitePeriod] = useState<'weekly' | 'monthly' | 'day60' | 'day90'>('monthly');
   const [showKapasitePeriodDropdown, setShowKapasitePeriodDropdown] = useState(false);
+  const [selectedKapasiteDataType, setSelectedKapasiteDataType] = useState<'mekanik' | 'kablaj'>('mekanik');
+  const [mekanikKapasiteData, setMekanikKapasiteData] = useState<any[]>([]);
+  const [kablajKapasiteData, setKablajKapasiteData] = useState<any[]>([]);
 
   // Idari subplatform filters
   const [selectedIdariDepartman, setSelectedIdariDepartman] = useState<string | null>(null);
@@ -103,31 +110,61 @@ export default function SubPlatformPage() {
         const filteredReports = reportData.filter(r =>
           r.tags && r.tags.includes(subPlatformCode)
         );
-1
+
         setDashboards(filteredDashboards);
         setReports(filteredReports);
 
         // Fetch real chart data for kapasite subplatform
         if (subPlatformCode === 'kapasite') {
           try {
-            const chartResponse: any = await api.post('/reports/preview', {
-              sql_query: 'SELECT "Firma Adı", "Haftalık Planlanan Doluluk Oranı", "Aylık Planlanan Doluluk Oranı", 0 as "60 Günlük Planlanan Doluluk Oranı", 0 as "90 Günlük Planlanan Doluluk Oranı" FROM mes_production.get_firma_makina_planlanan_doluluk'
-            });
+            const [mekanikResponse, kablajResponse] = await Promise.all([
+              api.post<PreviewResponse>('/reports/preview', {
+                sql_query: 'SELECT "Firma Adı", "Haftalık Planlanan Doluluk Oranı", "Aylık Planlanan Doluluk Oranı", 0 as "60 Günlük Planlanan Doluluk Oranı", 0 as "90 Günlük Planlanan Doluluk Oranı" FROM mes_production.get_firma_makina_planlanan_doluluk'
+              }),
+              api.post<PreviewResponse>('/reports/preview', {
+                sql_query: 'SELECT "Firma Adı", "7 Günlük Doluluk", "30 Günlük Doluluk", "60 Günlük Doluluk", "90 Günlük Doluluk" FROM mes_production.kablaj_firma_doluluk_bitmeyen_siparis_sayilari'
+              })
+            ]);
 
-            if (chartResponse && chartResponse.data && Array.isArray(chartResponse.data)) {
-              const transformedData = chartResponse.data.map((row: any[]) => ({
+            // Store mekanik data
+            if (mekanikResponse?.data && Array.isArray(mekanikResponse.data)) {
+              const transformedMekanik = mekanikResponse.data.map((row: any[]) => ({
                 name: row[0], // Firma Adı
-                weekly: parseFloat(row[1]) || 0, // Haftalık Planlanan Doluluk Oranı
-                monthly: parseFloat(row[2]) || 0, // Aylık Planlanan Doluluk Oranı
-                day60: parseFloat(row[3]) || 0, // 60 Günlük Planlanan Doluluk Oranı
-                day90: parseFloat(row[4]) || 0, // 90 Günlük Planlanan Doluluk Oranı
+                weekly: parseFloat(row[1]) || 0,
+                monthly: parseFloat(row[2]) || 0,
+                day60: parseFloat(row[3]) || 0,
+                day90: parseFloat(row[4]) || 0
+              }));
+              setMekanikKapasiteData(transformedMekanik);
+            }
+
+            // Store kablaj data
+            if (kablajResponse?.data && Array.isArray(kablajResponse.data)) {
+              const transformedKablaj = kablajResponse.data.map((row: any[]) => ({
+                name: row[0], // Firma Adı
+                day7: parseFloat(row[1]) || 0,
+                day30: parseFloat(row[2]) || 0,
+                day60: parseFloat(row[3]) || 0,
+                day90: parseFloat(row[4]) || 0
+              }));
+              setKablajKapasiteData(transformedKablaj);
+            }
+
+            // Set initial chart data based on selected type
+            const initialData = selectedKapasiteDataType === 'mekanik' ? mekanikKapasiteData : kablajKapasiteData;
+            if (initialData.length === 0 && mekanikResponse?.data) {
+              // Use mekanik data for initial render
+              const transformedMekanik = mekanikResponse.data.map((row: any[]) => ({
+                name: row[0],
+                weekly: parseFloat(row[1]) || 0,
+                monthly: parseFloat(row[2]) || 0,
+                day60: parseFloat(row[3]) || 0,
+                day90: parseFloat(row[4]) || 0,
                 value: selectedKapasitePeriod === 'weekly' ? (parseFloat(row[1]) || 0) :
                        selectedKapasitePeriod === 'monthly' ? (parseFloat(row[2]) || 0) :
                        selectedKapasitePeriod === 'day60' ? (parseFloat(row[3]) || 0) : (parseFloat(row[4]) || 0)
               }));
-              setChartData(transformedData);
-            } else {
-              setChartData([]);
+              setChartData(transformedMekanik);
             }
           } catch (chartError) {
             console.error("Failed to fetch chart data:", chartError);
@@ -136,11 +173,11 @@ export default function SubPlatformPage() {
         } else if (subPlatformCode === 'verimlilik') {
           // Fetch time-series data from tarih_bazli_oee table
           try {
-            const chartResponse: any = await api.post('/reports/preview', {
+            const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
               sql_query: 'SELECT "Firma Adı", "Makina Kodu", "Üretim Tarihi", "OEE" FROM mes_production.tarih_bazli_oee ORDER BY "Üretim Tarihi" DESC'
             });
 
-            if (chartResponse && chartResponse.data && Array.isArray(chartResponse.data)) {
+            if (chartResponse?.data && Array.isArray(chartResponse.data)) {
               const transformedData = chartResponse.data.map((row: any[]) => ({
                 firma: row[0],
                 machinecode: row[1],
@@ -177,11 +214,11 @@ export default function SubPlatformPage() {
         } else if (subPlatformCode === 'idari') {
           // Fetch real chart data for idari subplatform
           try {
-            const chartResponse: any = await api.post('/reports/preview', {
+            const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
               sql_query: 'SELECT "Firma", "Departman", "Toplam Çalışan Sayısı" FROM mes_production.get_firma_departman_bazli_calisan_sayisi ORDER BY "Firma", "Toplam Çalışan Sayısı" DESC'
             });
 
-            if (chartResponse && chartResponse.data && Array.isArray(chartResponse.data)) {
+            if (chartResponse?.data && Array.isArray(chartResponse.data)) {
               const transformedData = chartResponse.data.map((row: any[]) => ({
                 name: `${row[0]} - ${row[1]}`, // Firma - Departman
                 firma: row[0], // Firma
@@ -226,19 +263,33 @@ export default function SubPlatformPage() {
     fetchData();
   }, [platformCode, subPlatformCode]);
 
-  // Update chart data when period selection changes for kapasite
+  // Update chart data when period or data type selection changes for kapasite
   useEffect(() => {
-    if (subPlatformCode === 'kapasite' && chartData.length > 0) {
-      // Update the value field based on selected period
-      const updatedData = chartData.map(item => ({
-        ...item,
-        value: selectedKapasitePeriod === 'weekly' ? item.weekly :
-               selectedKapasitePeriod === 'monthly' ? item.monthly :
-               selectedKapasitePeriod === 'day60' ? item.day60 : item.day90
-      }));
-      setChartData(updatedData);
+    if (subPlatformCode === 'kapasite') {
+      const sourceData = selectedKapasiteDataType === 'mekanik' ? mekanikKapasiteData : kablajKapasiteData;
+
+      if (sourceData.length > 0) {
+        if (selectedKapasiteDataType === 'mekanik') {
+          const updatedData = sourceData.map(item => ({
+            ...item,
+            value: selectedKapasitePeriod === 'weekly' ? item.weekly :
+                   selectedKapasitePeriod === 'monthly' ? item.monthly :
+                   selectedKapasitePeriod === 'day60' ? item.day60 : item.day90
+          }));
+          setChartData(updatedData);
+        } else {
+          // Kablaj data - map periods differently
+          const updatedData = sourceData.map(item => ({
+            ...item,
+            value: selectedKapasitePeriod === 'weekly' ? item.day7 :
+                   selectedKapasitePeriod === 'monthly' ? item.day30 :
+                   selectedKapasitePeriod === 'day60' ? item.day60 : item.day90
+          }));
+          setChartData(updatedData);
+        }
+      }
     }
-  }, [selectedKapasitePeriod, subPlatformCode]);
+  }, [selectedKapasitePeriod, selectedKapasiteDataType, mekanikKapasiteData, kablajKapasiteData, subPlatformCode]);
 
   // Clear machine selection when firma changes for verimlilik
   useEffect(() => {
@@ -379,60 +430,78 @@ export default function SubPlatformPage() {
                     <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>Firma Bazlı Kapasite Değerleri</h2>
                   </div>
                 </div>
-                <div className="relative">
-                  <button
-                    onClick={() => setShowKapasitePeriodDropdown(!showKapasitePeriodDropdown)}
-                    className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[140px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
-                  >
-                    <span className="truncate">
-                      {selectedKapasitePeriod === 'weekly' ? 'Haftalık' :
-                       selectedKapasitePeriod === 'monthly' ? 'Aylık' :
-                       selectedKapasitePeriod === 'day60' ? '60 Gün' : '90 Gün'}
-                    </span>
-                    <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                  {showKapasitePeriodDropdown && (
-                    <div className="absolute z-10 mt-2 w-40 bg-white border border-gray-300 rounded-lg shadow-lg right-0">
-                      <div
-                        onClick={() => {
-                          setSelectedKapasitePeriod('weekly');
-                          setShowKapasitePeriodDropdown(false);
-                        }}
-                        className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'weekly' ? 'bg-blue-100 font-medium' : ''}`}
-                      >
-                        Haftalık
+                <div className="flex items-center gap-2">
+                  {/* Data Type Toggle */}
+                  <div className="flex border border-gray-300 rounded overflow-hidden">
+                    <button
+                      onClick={() => setSelectedKapasiteDataType('mekanik')}
+                      className={`px-3 py-1.5 text-sm ${selectedKapasiteDataType === 'mekanik' ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                    >
+                      Mekanik
+                    </button>
+                    <button
+                      onClick={() => setSelectedKapasiteDataType('kablaj')}
+                      className={`px-3 py-1.5 text-sm ${selectedKapasiteDataType === 'kablaj' ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                    >
+                      Kablaj
+                    </button>
+                  </div>
+                  {/* Period Dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowKapasitePeriodDropdown(!showKapasitePeriodDropdown)}
+                      className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[140px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    >
+                      <span className="truncate">
+                        {selectedKapasitePeriod === 'weekly' ? 'Haftalık' :
+                         selectedKapasitePeriod === 'monthly' ? 'Aylık':
+                         selectedKapasitePeriod === 'day60' ? '60 Gün' : '90 Gün'}
+                      </span>
+                      <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    {showKapasitePeriodDropdown && (
+                      <div className="absolute z-10 mt-2 w-40 bg-white border border-gray-300 rounded-lg shadow-lg right-0">
+                        <div
+                          onClick={() => {
+                            setSelectedKapasitePeriod('weekly');
+                            setShowKapasitePeriodDropdown(false);
+                          }}
+                          className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'weekly' ? 'bg-blue-100 font-medium' : ''}`}
+                        >
+                          {selectedKapasiteDataType === 'kablaj' ? '7 Gün' : 'Haftalık'}
+                        </div>
+                        <div
+                          onClick={() => {
+                            setSelectedKapasitePeriod('monthly');
+                            setShowKapasitePeriodDropdown(false);
+                          }}
+                          className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'monthly' ? 'bg-blue-100 font-medium' : ''}`}
+                        >
+                          {selectedKapasiteDataType === 'kablaj' ? '30 Gün' : 'Aylık'}
+                        </div>
+                        <div
+                          onClick={() => {
+                            setSelectedKapasitePeriod('day60');
+                            setShowKapasitePeriodDropdown(false);
+                          }}
+                          className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'day60' ? 'bg-blue-100 font-medium' : ''}`}
+                        >
+                          60 Gün
+                        </div>
+                        <div
+                          onClick={() => {
+                            setSelectedKapasitePeriod('day90');
+                            setShowKapasitePeriodDropdown(false);
+                          }}
+                          className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'day90' ? 'bg-blue-100 font-medium' : ''}`}
+                        >
+                          90 Gün
+                        </div>
                       </div>
-                      <div
-                        onClick={() => {
-                          setSelectedKapasitePeriod('monthly');
-                          setShowKapasitePeriodDropdown(false);
-                        }}
-                        className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'monthly' ? 'bg-blue-100 font-medium' : ''}`}
-                      >
-                        Aylık
-                      </div>
-                      <div
-                        onClick={() => {
-                          setSelectedKapasitePeriod('day60');
-                          setShowKapasitePeriodDropdown(false);
-                        }}
-                        className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'day60' ? 'bg-blue-100 font-medium' : ''}`}
-                      >
-                        60 Gün
-                      </div>
-                      <div
-                        onClick={() => {
-                          setSelectedKapasitePeriod('day90');
-                          setShowKapasitePeriodDropdown(false);
-                        }}
-                        className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'day90' ? 'bg-blue-100 font-medium' : ''}`}
-                      >
-                        90 Gün
-                      </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
 

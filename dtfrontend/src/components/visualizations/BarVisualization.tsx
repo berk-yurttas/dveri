@@ -40,7 +40,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
     const maxLines = Math.ceil(maxLabelLength / charsPerLine)
 
     // Base height + extra per line (with -45° angle, each line needs ~15px vertical space)
-    const calculatedHeight = Math.max(70, Math.min(250, 30 + (maxLines - 1) * 15))
+    const calculatedHeight = Math.max(70, Math.min(250, 50 + (maxLines - 1) * 15))
     return calculatedHeight
   }
 
