@@ -1204,7 +1204,7 @@ const NestedQueryBuilder = ({
                               >
                                 <option value="">Bağımsız</option>
                                 {(nestedQuery.filters || [])
-                                  .filter((f, i) => i < filterIndex && (f.type === 'dropdown' || f.type === 'multiselect'))
+                                  .filter((f, i) => i != filterIndex && (f.type === 'dropdown' || f.type === 'multiselect'))
                                   .map((f) => (
                                     <option key={f.id} value={f.fieldName}>
                                       {f.displayName}
@@ -3090,7 +3090,7 @@ export default function AddReportPage() {
                                               >
                                                 <option value="">Bağımsız</option>
                                                 {query.filters
-                                                  .filter((f, idx) => idx < filterIndex && (f.type === 'dropdown' || f.type === 'multiselect'))
+                                                  .filter((f, idx) => idx != filterIndex && (f.type === 'dropdown' || f.type === 'multiselect'))
                                                   .map((f) => (
                                                     <option key={f.id} value={f.fieldName}>
                                                       {f.displayName}
