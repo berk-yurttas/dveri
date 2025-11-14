@@ -663,13 +663,15 @@ export default function ReportDetailPage() {
       }
 
       const response = await reportsService.executeReport(request)
-      
+
       if (response.success && response.results.length > 0) {
         const result = response.results[0]
+        // For pagination, we don't know exact total pages anymore (no COUNT query)
+        // We only know if there are more pages via has_more flag
         const totalPages = (query.visualization.type === 'table' || query.visualization.type === 'expandable')
-          ? Math.ceil(result.total_rows / pageSize)
+          ? (result.has_more ? page + 1 : page)  // If has_more, show at least one more page
           : 1
-          
+
         setQueryResults(prev => ({
           ...prev,
           [query.id]: {
@@ -851,13 +853,15 @@ export default function ReportDetailPage() {
       }
 
       const response = await reportsService.executeReport(request)
-      
+
       if (response.success && response.results.length > 0) {
         const result = response.results[0]
+        // For pagination, we don't know exact total pages anymore (no COUNT query)
+        // We only know if there are more pages via has_more flag
         const totalPages = (query.visualization.type === 'table' || query.visualization.type === 'expandable')
-          ? Math.ceil(result.total_rows / pageSize)
+          ? (result.has_more ? page + 1 : page)  // If has_more, show at least one more page
           : 1
-          
+
         setQueryResults(prev => ({
           ...prev,
           [query.id]: {

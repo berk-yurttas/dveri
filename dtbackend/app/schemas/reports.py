@@ -271,6 +271,7 @@ class QueryExecutionResult(BaseModel):
     execution_time_ms: float
     success: bool
     message: Optional[str] = None
+    has_more: Optional[bool] = False  # Indicates if there are more pages available
 
 class ReportExecutionResponse(BaseModel):
     report_id: int

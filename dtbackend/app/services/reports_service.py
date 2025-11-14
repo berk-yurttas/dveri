@@ -819,20 +819,12 @@ class ReportsService:
                 try:
                     # Handle pagination if both page_size and page_limit are provided
                     if page_size is not None and page_limit is not None:
-                        # First, get the total count for pagination info
-                        t1 = time.time()
-                        count_sql = f"SELECT COUNT(*) FROM ({sanitized_sql}) AS subquery"
-                        cursor.execute(count_sql)
-                        count_result = cursor.fetchone()
-                        total_rows = count_result[0] if count_result else 0
-                        print(f"[PERF] PostgreSQL count query: {(time.time() - t1) * 1000:.2f}ms")
-
                         # Calculate offset (page_limit is 1-based)
                         offset = (page_limit - 1) * page_size
 
-                        # Add pagination to the main query
+                        # Fetch page_size + 1 rows to check if there are more pages (no COUNT needed)
                         t1 = time.time()
-                        paginated_sql = f"{sanitized_sql} LIMIT {page_size} OFFSET {offset}"
+                        paginated_sql = f"{sanitized_sql} LIMIT {page_size + 1} OFFSET {offset}"
                         cursor.execute(paginated_sql)
                         print(f"[PERF] PostgreSQL paginated query: {(time.time() - t1) * 1000:.2f}ms")
                     else:
@@ -868,17 +860,12 @@ class ReportsService:
                 try:
                     # Handle pagination if both page_size and page_limit are provided
                     if page_size is not None and page_limit is not None:
-                        # First, get the total count for pagination info
-                        count_sql = f"SELECT COUNT(*) FROM ({sanitized_sql}) AS subquery"
-                        cursor.execute(count_sql)
-                        count_result = cursor.fetchone()
-                        total_rows = count_result[0] if count_result else 0
-
                         # Calculate offset (page_limit is 1-based)
                         offset = (page_limit - 1) * page_size
 
+                        # Fetch page_size + 1 rows to check if there are more pages (no COUNT needed)
                         # MSSQL uses OFFSET/FETCH syntax
-                        paginated_sql = f"{sanitized_sql} OFFSET {offset} ROWS FETCH NEXT {page_size} ROWS ONLY"
+                        paginated_sql = f"{sanitized_sql} OFFSET {offset} ROWS FETCH NEXT {page_size + 1} ROWS ONLY"
                         cursor.execute(paginated_sql)
                     else:
                         # Add TOP for table visualizations (non-paginated query)
@@ -905,7 +892,17 @@ class ReportsService:
             # Format data for JSON serialization (common for all database types)
             t1 = time.time()
             formatted_data = []
-            for row in data:
+            has_more = False
+
+            # If paginated, check if we got more rows than page_size
+            if page_size is not None and page_limit is not None:
+                has_more = len(data) > page_size
+                # Remove the extra row used for has_more check
+                data_to_format = data[:page_size]
+            else:
+                data_to_format = data
+
+            for row in data_to_format:
                 formatted_row = []
                 for item in row:
                     if isinstance(item, (int, float, str, bool)) or item is None:
@@ -916,8 +913,9 @@ class ReportsService:
                 formatted_data.append(formatted_row)
             print(f"[PERF] Format data for JSON: {(time.time() - t1) * 1000:.2f}ms")
 
-            # Use total_rows from count query if paginated, otherwise use data length
-            actual_total_rows = total_rows if (page_size is not None and page_limit is not None) else len(formatted_data)
+            # For paginated queries, we don't know exact total (no COUNT), just whether there are more pages
+            # For non-paginated queries, use data length
+            actual_total_rows = len(formatted_data)
 
             print(f"[PERF] TOTAL execute_query time: {(time.time() - t0) * 1000:.2f}ms\n")
 
@@ -929,7 +927,8 @@ class ReportsService:
                 total_rows=actual_total_rows,
                 execution_time_ms=round(execution_time_ms, 2),
                 success=True,
-                message=f"Query executed successfully. Retrieved {len(formatted_data)} rows{f' of {actual_total_rows} total' if actual_total_rows > len(formatted_data) else ''}."
+                message=f"Query executed successfully. Retrieved {len(formatted_data)} rows{f' of {actual_total_rows} total' if actual_total_rows > len(formatted_data) else ''}.",
+                has_more=has_more
             )
             
         except Exception as e:
