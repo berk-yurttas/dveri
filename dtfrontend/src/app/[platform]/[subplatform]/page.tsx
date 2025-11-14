@@ -304,7 +304,7 @@ export default function SubPlatformPage() {
       if (subPlatformCode === 'verimlilik') {
         try {
           // Build SQL query with date filter
-          let sqlQuery = `SELECT "Firma Adı", "Makina Kodu", "Üretim Tarihi", "OEE" FROM mes_production.tarih_bazli_oee WHERE DATE("Üretim Tarihi") BETWEEN DATE('${verimlilikStartDate}') AND DATE('${verimlilikEndDate}') ORDER BY "Üretim Tarihi" DESC`;
+          let sqlQuery = `SELECT "Firma Adı", "Makina Kodu", "Üretim Tarihi", "OEE" FROM mes_production.tarih_bazli_oee WHERE DATE("Üretim Tarihi") BETWEEN DATE('${verimlilikStartDate}') AND DATE('${verimlilikEndDate}') ORDER BY "Makina Kodu" DESC`;
 
           const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
             sql_query: sqlQuery
