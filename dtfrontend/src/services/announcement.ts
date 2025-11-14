@@ -23,7 +23,7 @@ export const announcementService = {
       params.append("platform_id", platformId.toString());
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/v1/announcements?${params}`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/?${params}`, {
       credentials: "include",
     });
 
@@ -35,7 +35,7 @@ export const announcementService = {
   },
 
   async getAnnouncementById(id: number): Promise<Announcement> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/${id}`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/${id}/`, {
       credentials: "include",
     });
 
@@ -47,7 +47,7 @@ export const announcementService = {
   },
 
   async createAnnouncement(data: AnnouncementCreate): Promise<Announcement> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/announcements`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -64,7 +64,7 @@ export const announcementService = {
   },
 
   async updateAnnouncement(id: number, data: AnnouncementUpdate): Promise<Announcement> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/${id}`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/${id}/`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -81,7 +81,7 @@ export const announcementService = {
   },
 
   async deleteAnnouncement(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/${id}`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/${id}/`, {
       method: "DELETE",
       credentials: "include",
     });
@@ -103,7 +103,7 @@ export const announcementService = {
       params.append("platform_id", platformId.toString());
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/count?${params}`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/count/?${params}`, {
       credentials: "include",
     });
 
@@ -118,7 +118,7 @@ export const announcementService = {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/upload-image`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/announcements/upload-image/`, {
       method: 'POST',
       credentials: 'include',
       body: formData,
