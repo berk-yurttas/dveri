@@ -187,7 +187,13 @@ export default function ReportDetailPage() {
   const [filters, setFilters] = useState<FilterState>({})
   const [queryResults, setQueryResults] = useState<QueryResultState>({})
   const [openPopovers, setOpenPopovers] = useState<{[key: string]: boolean}>({})
-  const [dropdownOptions, setDropdownOptions] = useState<{[key: string]: Array<{value: any, label: string}>}>({})
+  const [dropdownOptions, setDropdownOptions] = useState<{[key: string]: {
+    options: Array<{value: any, label: string}>,
+    page: number,
+    hasMore: boolean,
+    total: number,
+    loading: boolean
+  }}>({})
   const [searchTerms, setSearchTerms] = useState<{[key: string]: string}>({})
   const [dropdownOpen, setDropdownOpen] = useState<{[key: string]: boolean}>({})
   const [isExporting, setIsExporting] = useState(false)
@@ -286,18 +292,57 @@ export default function ReportDetailPage() {
   }
 
   // Load dropdown options for dropdown/multiselect filters
-  const loadDropdownOptions = async (query: QueryData, filter: FilterData, currentFilterValues?: FilterState) => {
+  const loadDropdownOptions = async (
+    query: QueryData,
+    filter: FilterData,
+    currentFilterValues?: FilterState,
+    page: number = 1,
+    search: string = "",
+    append: boolean = false
+  ) => {
     if (filter.type !== 'dropdown' && filter.type !== 'multiselect') return
     if (!filter.dropdownQuery) return
 
     const key = `${query.id}_${filter.fieldName}`
+
+    // Set loading state
+    if (!append) {
+      setDropdownOptions(prev => ({
+        ...prev,
+        [key]: {
+          options: [],
+          page: 1,
+          hasMore: false,
+          total: 0,
+          loading: true
+        }
+      }))
+    } else {
+      setDropdownOptions(prev => ({
+        ...prev,
+        [key]: {
+          ...prev[key],
+          loading: true
+        }
+      }))
+    }
 
     try {
       if (filter.dependsOn) {
         const parentKey = query.id === 0 ? `global_${filter.dependsOn}` : `${query.id}_${filter.dependsOn}`
         const parentValue = currentFilterValues ? currentFilterValues[parentKey] : filters[parentKey]
 
-        const modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn, parentValue)
+        let modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn, parentValue)
+
+        // Add search filter if provided
+        if (search) {
+          // Wrap the query in a subquery and add WHERE clause for search
+          // Remove trailing semicolon
+          modifiedSql = modifiedSql.replace(/;\s*$/, '').trim()
+
+          // Add search condition - search in both value and label columns
+          modifiedSql = `SELECT * FROM (${modifiedSql}) AS search_subquery WHERE CAST(search_subquery.value AS TEXT) ILIKE '%${search}%' OR CAST(search_subquery.label AS TEXT) ILIKE '%${search}%'`
+        }
 
         const result = await reportsService.previewQuery({
           sql_query: modifiedSql,
@@ -316,12 +361,24 @@ export default function ReportDetailPage() {
 
           setDropdownOptions(prev => ({
             ...prev,
-            [key]: uniqueOptions
+            [key]: {
+              options: uniqueOptions,
+              page: 1,
+              hasMore: false,
+              total: uniqueOptions.length,
+              loading: false
+            }
           }))
         } else {
           setDropdownOptions(prev => ({
             ...prev,
-            [key]: []
+            [key]: {
+              options: [],
+              page: 1,
+              hasMore: false,
+              total: 0,
+              loading: false
+            }
           }))
         }
       } else {
@@ -329,8 +386,20 @@ export default function ReportDetailPage() {
         // For global filters (query.id === 0), use preview query instead
         if (query.id === 0 && filter.dropdownQuery) {
           // Global filter - execute the dropdown query directly
+          let sqlQuery = filter.dropdownQuery
+
+          // Add search filter if provided
+          if (search) {
+            // Wrap the query in a subquery and add WHERE clause for search
+            // Remove trailing semicolon
+            sqlQuery = sqlQuery.replace(/;\s*$/, '').trim()
+
+            // Add search condition - search in both value and label columns
+            sqlQuery = `SELECT * FROM (${sqlQuery}) AS search_subquery WHERE CAST(search_subquery.value AS TEXT) ILIKE '%${search}%' OR CAST(search_subquery.label AS TEXT) ILIKE '%${search}%'`
+          }
+
           const result = await reportsService.previewQuery({
-            sql_query: filter.dropdownQuery,
+            sql_query: sqlQuery,
             limit: 1000
           })
 
@@ -347,30 +416,94 @@ export default function ReportDetailPage() {
 
             setDropdownOptions(prev => ({
               ...prev,
-              [key]: uniqueOptions
+              [key]: {
+                options: uniqueOptions,
+                page: 1,
+                hasMore: false,
+                total: uniqueOptions.length,
+                loading: false
+              }
             }))
           } else {
             setDropdownOptions(prev => ({
               ...prev,
-              [key]: []
+              [key]: {
+                options: [],
+                page: 1,
+                hasMore: false,
+                total: 0,
+                loading: false
+              }
             }))
           }
         } else {
-          // Query-specific filter - use the API endpoint
-          const response = await reportsService.getFilterOptions(reportId, query.id, filter.fieldName)
-          setDropdownOptions(prev => ({
-            ...prev,
-            [key]: response.options
-          }))
+          // Query-specific filter - use the API endpoint with pagination
+          const response = await reportsService.getFilterOptions(reportId, query.id, filter.fieldName, page, 50, search)
+
+          setDropdownOptions(prev => {
+            const existingOptions = append && prev[key] ? prev[key].options : []
+            return {
+              ...prev,
+              [key]: {
+                options: append ? [...existingOptions, ...response.options] : response.options,
+                page: response.page,
+                hasMore: response.has_more,
+                total: response.total,
+                loading: false
+              }
+            }
+          })
         }
       }
     } catch (err) {
       console.error(`Failed to load dropdown options for ${filter.fieldName}:`, err)
       setDropdownOptions(prev => ({
         ...prev,
-        [key]: []
+        [key]: {
+          options: [],
+          page: 1,
+          hasMore: false,
+          total: 0,
+          loading: false
+        }
       }))
     }
+  }
+
+  // Handle loading more options for a dropdown filter
+  const handleLoadMoreOptions = async (filterKey: string) => {
+    const dropdownData = dropdownOptions[filterKey]
+    if (!dropdownData || dropdownData.loading || !dropdownData.hasMore) return
+
+    // Parse filterKey to get query and filter info
+    const parts = filterKey.split('_')
+    const queryId = parseInt(parts[0])
+    const fieldName = parts.slice(1).join('_')
+
+    // Find the query and filter
+    const query = report?.queries.find(q => q.id === queryId)
+    if (!query) return
+
+    const filter = query.filters.find(f => f.fieldName === fieldName)
+    if (!filter) return
+
+    const currentSearch = searchTerms[filterKey] || ''
+    await loadDropdownOptions(query, filter, filters, dropdownData.page + 1, currentSearch, true)
+  }
+
+  // Handle searching options for a dropdown filter
+  const handleSearchOptions = async (filterKey: string, search: string) => {
+    const parts = filterKey.split('_')
+    const queryId = parseInt(parts[0])
+    const fieldName = parts.slice(1).join('_')
+
+    const query = report?.queries.find(q => q.id === queryId)
+    if (!query) return
+
+    const filter = query.filters.find(f => f.fieldName === fieldName)
+    if (!filter) return
+
+    await loadDropdownOptions(query, filter, filters, 1, search, false)
   }
 
   // Execute a single query with custom filters and sorting
@@ -1478,10 +1611,8 @@ export default function ReportDetailPage() {
                 (() => {
                   const filterKey = `${query.id}_${filter.fieldName}`
                   const searchTerm = searchTerms[filterKey] || ''
-                  const options = dropdownOptions[filterKey] || []
-                  const filteredOptions = options.filter(opt =>
-                    opt.label.toLowerCase().includes(searchTerm.toLowerCase())
-                  )
+                  const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
+                  const options = dropdownData.options
                   const selectedValue = filters[filterKey] || ''
                   const selectedLabel = options.find(opt => opt.value === selectedValue)?.label || ''
                   const isOpen = dropdownOpen[filterKey] || false
@@ -1498,13 +1629,28 @@ export default function ReportDetailPage() {
                       )}
                       <button
                         type="button"
-                        onClick={() => {
-                          setOperatorMenuOpen({}) // Close operator menus
-                          setDropdownOpen(prev => {
-                            const isCurrentlyOpen = prev[filterKey]
-                            // Close all other dropdowns
-                            return { [filterKey]: !isCurrentlyOpen }
-                          })
+                        onClick={async (e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setOperatorMenuOpen({})
+
+                          // Check if opening or closing
+                          const willBeOpen = !dropdownOpen[filterKey]
+
+                          if (!willBeOpen) {
+                            // Closing - just close it
+                            setDropdownOpen(prev => ({ ...prev, [filterKey]: false }))
+                            return
+                          }
+
+                          // Opening - reload options
+                          setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                          setDropdownOpen(prev => ({ ...prev, [filterKey]: true }))
+
+                          // Force reload by calling loadDropdownOptions
+                          if (filter.type === 'dropdown' || filter.type === 'multiselect') {
+                            await loadDropdownOptions(query, filter, filters, 1, '', false)
+                          }
                         }}
                         className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${
                           'hover:bg-gray-50'
@@ -1516,9 +1662,13 @@ export default function ReportDetailPage() {
                       </button>
                       {selectedValue && (
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation()
                             handleFilterChange(query.id, filter.fieldName, '')
+
+                            // Clear search and reload all options
+                            setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                            await loadDropdownOptions(query, filter, filters, 1, '', false)
 
                             // Clear and reload dependent filters
                             const newFilters = {
@@ -1532,7 +1682,7 @@ export default function ReportDetailPage() {
                                 handleFilterChange(query.id, f.fieldName, f.type === 'multiselect' ? [] : '')
                                 setDropdownOptions(prev => ({
                                   ...prev,
-                                  [`${query.id}_${f.fieldName}`]: []
+                                  [`${query.id}_${f.fieldName}`]: { options: [], page: 1, hasMore: false, total: 0, loading: false }
                                 }))
                               }
                             })
@@ -1551,7 +1701,11 @@ export default function ReportDetailPage() {
                               <input
                                 type="text"
                                 value={searchTerm}
-                                onChange={(e) => setSearchTerms(prev => ({ ...prev, [filterKey]: e.target.value }))}
+                                onChange={(e) => {
+                                  const newSearch = e.target.value
+                                  setSearchTerms(prev => ({ ...prev, [filterKey]: newSearch }))
+                                  handleSearchOptions(filterKey, newSearch)
+                                }}
                                 placeholder="Ara..."
                                 className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
                                 onClick={(e) => e.stopPropagation()}
@@ -1559,10 +1713,10 @@ export default function ReportDetailPage() {
                             </div>
                           </div>
                           <div className="max-h-40 overflow-y-auto">
-                            {filteredOptions.length === 0 ? (
+                            {options.length === 0 ? (
                               <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
                             ) : (
-                              filteredOptions.map((option, index) => (
+                              options.map((option, index) => (
                                 <div
                                   key={`${filterKey}_${option.value}_${index}`}
                                   onClick={() => {
@@ -1603,10 +1757,8 @@ export default function ReportDetailPage() {
                 (() => {
                   const filterKey = `${query.id}_${filter.fieldName}`
                   const searchTerm = searchTerms[filterKey] || ''
-                  const options = dropdownOptions[filterKey] || []
-                  const filteredOptions = options.filter(opt =>
-                    opt.label.toLowerCase().includes(searchTerm.toLowerCase())
-                  )
+                  const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
+                  const options = dropdownData.options
                   const currentValues = Array.isArray(filters[filterKey]) ? filters[filterKey] : []
                   const isOpen = dropdownOpen[filterKey] || false
                   const selectedCount = currentValues.length
@@ -1623,13 +1775,28 @@ export default function ReportDetailPage() {
                       )}
                       <button
                         type="button"
-                        onClick={() => {
-                          setOperatorMenuOpen({}) // Close operator menus
-                          setDropdownOpen(prev => {
-                            const isCurrentlyOpen = prev[filterKey]
-                            // Close all other dropdowns
-                            return { [filterKey]: !isCurrentlyOpen }
-                          })
+                        onClick={async (e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setOperatorMenuOpen({})
+
+                          // Check if opening or closing
+                          const willBeOpen = !dropdownOpen[filterKey]
+
+                          if (!willBeOpen) {
+                            // Closing - just close it
+                            setDropdownOpen(prev => ({ ...prev, [filterKey]: false }))
+                            return
+                          }
+
+                          // Opening - reload options
+                          setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                          setDropdownOpen(prev => ({ ...prev, [filterKey]: true }))
+
+                          // Force reload by calling loadDropdownOptions
+                          if (filter.type === 'dropdown' || filter.type === 'multiselect') {
+                            await loadDropdownOptions(query, filter, filters, 1, '', false)
+                          }
                         }}
                         className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${
                           'hover:bg-gray-50'
@@ -1641,9 +1808,13 @@ export default function ReportDetailPage() {
                       </button>
                       {selectedCount > 0 && (
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation()
                             handleFilterChange(query.id, filter.fieldName, [])
+
+                            // Clear search and reload all options
+                            setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                            await loadDropdownOptions(query, filter, filters, 1, '', false)
 
                             // Clear and reload dependent filters
                             const newFilters = {
@@ -1657,7 +1828,7 @@ export default function ReportDetailPage() {
                                 handleFilterChange(query.id, f.fieldName, f.type === 'multiselect' ? [] : '')
                                 setDropdownOptions(prev => ({
                                   ...prev,
-                                  [`${query.id}_${f.fieldName}`]: []
+                                  [`${query.id}_${f.fieldName}`]: { options: [], page: 1, hasMore: false, total: 0, loading: false }
                                 }))
                               }
                             })
@@ -1676,7 +1847,11 @@ export default function ReportDetailPage() {
                               <input
                                 type="text"
                                 value={searchTerm}
-                                onChange={(e) => setSearchTerms(prev => ({ ...prev, [filterKey]: e.target.value }))}
+                                onChange={(e) => {
+                                  const newSearch = e.target.value
+                                  setSearchTerms(prev => ({ ...prev, [filterKey]: newSearch }))
+                                  handleSearchOptions(filterKey, newSearch)
+                                }}
                                 placeholder="Ara..."
                                 className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
                                 onClick={(e) => e.stopPropagation()}
@@ -1684,10 +1859,10 @@ export default function ReportDetailPage() {
                             </div>
                           </div>
                           <div className="max-h-40 overflow-y-auto">
-                            {filteredOptions.length === 0 ? (
+                            {options.length === 0 ? (
                               <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
                             ) : (
-                              filteredOptions.map((option, index) => {
+                              options.map((option, index) => {
                                 const isChecked = currentValues.includes(option.value)
                                 return (
                                   <div
@@ -2029,6 +2204,8 @@ export default function ReportDetailPage() {
               handleDebouncedFilterChange(query.id, fieldName, value, query)
             }}
             setOpenPopovers={setOpenPopovers}
+            onLoadMoreOptions={handleLoadMoreOptions}
+            onSearchOptions={handleSearchOptions}
             currentPage={queryState.currentPage}
             pageSize={queryState.pageSize}
             totalPages={queryState.totalPages}
@@ -2073,6 +2250,8 @@ export default function ReportDetailPage() {
               handleDebouncedFilterChange(query.id, fieldName, value, query)
             }}
             setOpenPopovers={setOpenPopovers}
+            onLoadMoreOptions={handleLoadMoreOptions}
+            onSearchOptions={handleSearchOptions}
             currentPage={expandableQueryState.currentPage}
             pageSize={expandableQueryState.pageSize}
             totalPages={expandableQueryState.totalPages}

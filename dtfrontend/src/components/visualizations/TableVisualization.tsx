@@ -29,7 +29,9 @@ const TableFilterInput = React.memo<{
   onFilterChange: (fieldName: string, value: any) => void
   setOpenPopovers: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>
   allFilters: any[]
-}>(function TableFilterInput({ filter, queryId, filters, dropdownOptions, onFilterChange, setOpenPopovers, allFilters }) {
+  onLoadMore?: (filterKey: string) => void
+  onSearch?: (filterKey: string, search: string) => void
+}>(function TableFilterInput({ filter, queryId, filters, dropdownOptions, onFilterChange, setOpenPopovers, allFilters, onLoadMore, onSearch }) {
   const filterKey = `${queryId}_${filter.fieldName}`
   
   // Initialize local values from current filter state
@@ -48,11 +50,23 @@ const TableFilterInput = React.memo<{
   const [searchTerm, setSearchTerm] = React.useState('')
   
   // Dependent filters always show options; parent values are handled upstream when fetching options
-  
+
   // Get dropdown options
-  const options = dropdownOptions[filterKey] || []
-  const filteredOptions = filter.type === 'multiselect' ? 
-    options.filter((opt: any) => opt.label.toLowerCase().includes(searchTerm.toLowerCase())) : []
+  const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
+  const options = dropdownData.options
+  const filteredOptions = filter.type === 'multiselect' ? options : []
+
+  // Debounced search
+  const searchTimeoutRef = React.useRef<NodeJS.Timeout>(null)
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+    if (onSearch && filter.type === 'multiselect') {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+      searchTimeoutRef.current = setTimeout(() => {
+        onSearch(filterKey, value)
+      }, 300)
+    }
+  }
   
   // Sync local state when filter values change externally
   React.useEffect(() => {
@@ -252,48 +266,62 @@ const TableFilterInput = React.memo<{
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               onClick={(e) => e.stopPropagation()}
               placeholder="Ara..."
               className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
               autoFocus
             />
-            <div className="max-h-48 overflow-y-auto border border-gray-300 rounded p-2 space-y-1">
-              {filteredOptions.length === 0 ? (
+            <div
+              className="max-h-48 overflow-y-auto border border-gray-300 rounded p-2 space-y-1"
+              onScroll={(e) => {
+                const target = e.target as HTMLDivElement
+                const bottom = target.scrollHeight - target.scrollTop === target.clientHeight
+                if (bottom && dropdownData.hasMore && !dropdownData.loading && onLoadMore) {
+                  onLoadMore(filterKey)
+                }
+              }}
+            >
+              {filteredOptions.length === 0 && !dropdownData.loading ? (
                 <div className="px-2 py-1 text-xs text-gray-500">
-                  {options.length === 0 ? 'Seçenekler yükleniyor...' : 'Sonuç bulunamadı'}
+                  {options.length === 0 ? 'Seçenek yok' : 'Sonuç bulunamadı'}
                 </div>
               ) : (
-                filteredOptions.map((option: any, idx: number) => {
-                  const selectedValues = localValue ? localValue.split(',').map((v: string) => v.trim()) : []
-                  const isChecked = selectedValues.includes(option.value)
+                <>
+                  {filteredOptions.map((option: any, idx: number) => {
+                    const selectedValues = localValue ? localValue.split(',').map((v: string) => v.trim()) : []
+                    const isChecked = selectedValues.includes(option.value)
 
-                  return (
-                    <label
-                      key={idx}
-                      className="flex items-center gap-2 hover:bg-orange-50 p-1 rounded cursor-pointer"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(e) => {
-                          e.stopPropagation()
-                          if (e.target.checked) {
-                            const newValues = [...selectedValues, option.value]
-                            setLocalValue(newValues.join(', '))
-                          } else {
-                            const newValues = selectedValues.filter((v: string) => v !== option.value)
-                            setLocalValue(newValues.join(', '))
-                          }
-                        }}
+                    return (
+                      <label
+                        key={idx}
+                        className="flex items-center gap-2 hover:bg-orange-50 p-1 rounded cursor-pointer"
                         onClick={(e) => e.stopPropagation()}
-                        className="w-3 h-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                      />
-                      <span className="text-xs">{option.label}</span>
-                    </label>
-                  )
-                })
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            e.stopPropagation()
+                            if (e.target.checked) {
+                              const newValues = [...selectedValues, option.value]
+                              setLocalValue(newValues.join(', '))
+                            } else {
+                              const newValues = selectedValues.filter((v: string) => v !== option.value)
+                              setLocalValue(newValues.join(', '))
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-3 h-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+                        />
+                        <span className="text-xs">{option.label}</span>
+                      </label>
+                    )
+                  })}
+                  {dropdownData.loading && (
+                    <div className="px-2 py-1 text-xs text-gray-500 text-center">Yükleniyor...</div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -333,10 +361,12 @@ interface TableVisualizationProps {
   // Filter props
   filters: { [key: string]: any }
   openPopovers: { [key: string]: boolean }
-  dropdownOptions: { [key: string]: Array<{ value: any; label: string }> }
+  dropdownOptions: { [key: string]: { options: Array<{ value: any; label: string }>, page: number, hasMore: boolean, total: number, loading: boolean } }
   onFilterChange: (fieldName: string, value: any) => void
   onDebouncedFilterChange: (fieldName: string, value: any) => void
   setOpenPopovers: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>
+  onLoadMoreOptions?: (filterKey: string) => void
+  onSearchOptions?: (filterKey: string, search: string) => void
   // Pagination props
   currentPage: number
   pageSize: number
@@ -357,6 +387,8 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
   onFilterChange,
   onDebouncedFilterChange,
   setOpenPopovers,
+  onLoadMoreOptions,
+  onSearchOptions,
   currentPage,
   pageSize,
   totalPages,
@@ -413,20 +445,25 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                       <div className="relative">
                         <div
                           className="cursor-pointer hover:bg-gray-100 p-1 rounded"
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation()
-                            setOpenPopovers(prev => {
-                              const currentKey = `${query.id}_${col}`
-                              const isCurrentlyOpen = prev[currentKey]
 
-                              // Close all other popovers and toggle current one
-                              const newPopovers: { [key: string]: boolean } = {}
-                              if (!isCurrentlyOpen) {
-                                newPopovers[currentKey] = true
+                            const currentKey = `${query.id}_${col}`
+                            const isCurrentlyOpen = openPopovers[currentKey]
+
+                            // Close all popovers first
+                            setOpenPopovers({})
+
+                            if (!isCurrentlyOpen) {
+                              // Opening - reload options for dropdown/multiselect
+                              if ((filter.type === 'dropdown' || filter.type === 'multiselect') && onSearchOptions) {
+                                const filterKey = `${query.id}_${filter.fieldName}`
+                                await onSearchOptions(filterKey, '')
                               }
 
-                              return newPopovers
-                            })
+                              // Open this popover
+                              setOpenPopovers({ [currentKey]: true })
+                            }
                           }}
                         >
                           <Filter className={`h-3 w-3 ${(() => {
@@ -449,14 +486,16 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                             onClick={(e) => e.stopPropagation()}
                           >
                             <TableFilterInput
-                                  filter={filter}
+                              filter={filter}
                               queryId={query.id.toString()}
-                                  filters={filters}
-                                  dropdownOptions={dropdownOptions}
-                                  onFilterChange={onFilterChange}
+                              filters={filters}
+                              dropdownOptions={dropdownOptions}
+                              onFilterChange={onFilterChange}
                               setOpenPopovers={setOpenPopovers}
-                                  allFilters={query.filters}
-                                />
+                              allFilters={query.filters}
+                              onLoadMore={onLoadMoreOptions}
+                              onSearch={onSearchOptions}
+                            />
                           </div>
                         )}
                       </div>

@@ -1044,12 +1044,12 @@ class ReportsService:
                 message=str(e)
             )
 
-    async def get_filter_options(self, report_id: int, query_id: int, filter_field: str, username: str) -> List[Dict[str, Any]]:
+    async def get_filter_options(self, report_id: int, query_id: int, filter_field: str, username: str, page: int = 1, page_size: int = 50, search: str = "") -> Dict[str, Any]:
         user = await UserService.get_user_by_username(self.db, username)
         if not user:
             raise ValueError("User not found")
 
-        """Get dropdown options for a filter by report, query, and field name"""
+        """Get dropdown options for a filter by report, query, and field name with pagination and search"""
         # Get the filter along with report and platform
         stmt = select(ReportQueryFilter).join(ReportQuery).join(Report).options(
             selectinload(ReportQueryFilter.query).selectinload(ReportQuery.report).selectinload(Report.platform)
@@ -1063,13 +1063,13 @@ class ReportsService:
         )
         result = await self.db.execute(stmt)
         db_filter = result.scalar_one_or_none()
-        
+
         if not db_filter or not db_filter.dropdown_query:
-            return []
-        
+            return {"options": [], "total": 0, "page": page, "page_size": page_size, "has_more": False}
+
         # Get platform from the filter's query's report
         platform = db_filter.query.report.platform if db_filter.query and db_filter.query.report else None
-        
+
         # Determine database type
         if platform:
             db_type = platform.db_type.lower()
@@ -1079,14 +1079,40 @@ class ReportsService:
                 raise ValueError("Database client not available")
 
         try:
-            # Execute the dropdown query based on database type
-            sanitized_query = self.sanitize_sql_query(db_filter.dropdown_query)
-            
+            # Build the query with search and pagination
+            base_query = self.sanitize_sql_query(db_filter.dropdown_query)
+
+            # Remove trailing semicolon if present
+            base_query = base_query.rstrip(';').strip()
+
+            # Add search filter if provided
+            if search:
+                # Wrap base query and add WHERE clause for search
+                # This assumes the first column is value and second is label
+                if "WHERE" in base_query.upper():
+                    base_query = f"SELECT * FROM ({base_query}) AS subquery WHERE CAST(subquery.value AS TEXT) ILIKE '%{search}%' OR CAST(subquery.label AS TEXT) ILIKE '%{search}%'"
+                else:
+                    # If no columns specified, search in all columns
+                    base_query = f"SELECT * FROM ({base_query}) AS subquery WHERE CAST(subquery.value AS TEXT) ILIKE '%{search}%'"
+
+            # Get total count
+            count_query = f"SELECT COUNT(*) FROM ({base_query}) AS count_subquery"
+
+            # Add pagination
+            offset = (page - 1) * page_size
+            paginated_query = f"{base_query} LIMIT {page_size} OFFSET {offset}"
+
             if db_type == "clickhouse":
                 if not self.clickhouse_client:
                     raise ValueError("ClickHouse client not available")
-                result = self.clickhouse_client.execute(sanitized_query)
-                
+
+                # Get total count
+                total_result = self.clickhouse_client.execute(count_query)
+                total = total_result[0][0] if total_result else 0
+
+                # Get paginated results
+                result = self.clickhouse_client.execute(paginated_query)
+
             elif db_type == "postgresql":
                 if not platform:
                     raise ValueError("Platform required for PostgreSQL queries")
@@ -1095,26 +1121,36 @@ class ReportsService:
                 conn = self._connection_pool.get_connection(platform, db_type)
                 cursor = conn.cursor()
                 try:
-                    cursor.execute(sanitized_query)
+                    # Get total count
+                    cursor.execute(count_query)
+                    total = cursor.fetchone()[0]
+
+                    # Get paginated results
+                    cursor.execute(paginated_query)
                     result = cursor.fetchall()
                 finally:
                     cursor.close()
                     self._connection_pool.return_connection(platform, db_type, conn)
-                    
+
             elif db_type == "mssql":
                 if not platform:
                     raise ValueError("Platform required for MSSQL queries")
                 conn = DatabaseConnectionFactory.get_mssql_connection(platform)
                 cursor = conn.cursor()
                 try:
-                    cursor.execute(sanitized_query)
+                    # Get total count
+                    cursor.execute(count_query)
+                    total = cursor.fetchone()[0]
+
+                    # Get paginated results
+                    cursor.execute(paginated_query)
                     result = cursor.fetchall()
                 finally:
                     cursor.close()
                     conn.close()
             else:
                 raise ValueError(f"Unsupported database type: {db_type}")
-            
+
             # Format as value/label pairs
             options = []
             for row in result:
@@ -1122,8 +1158,16 @@ class ReportsService:
                     options.append({"value": row[0], "label": row[1]})
                 elif len(row) == 1:
                     options.append({"value": row[0], "label": str(row[0])})
-            
-            return options
+
+            has_more = (offset + len(options)) < total
+
+            return {
+                "options": options,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "has_more": has_more
+            }
             
         except Exception as e:
             raise ValueError(f"Failed to get filter options: {str(e)}")

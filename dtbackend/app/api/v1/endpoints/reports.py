@@ -460,15 +460,18 @@ async def get_filter_options(
     report_id: int,
     query_id: int,
     filter_field: str,
+    page: int = 1,
+    page_size: int = 50,
+    search: str = "",
     current_user: User = Depends(check_authenticated),
     db: AsyncSession = Depends(get_postgres_db),
     clickhouse_client: Client = Depends(get_clickhouse_db)
 ):
-    """Get dropdown options for a specific filter"""
+    """Get dropdown options for a specific filter with pagination and search"""
     service = ReportsService(db, clickhouse_client)
     try:
-        options = await service.get_filter_options(report_id, query_id, filter_field, current_user.username)
-        return {"options": options}
+        result = await service.get_filter_options(report_id, query_id, filter_field, current_user.username, page, page_size, search)
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
