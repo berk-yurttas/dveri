@@ -1,11 +1,13 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, or_, select, delete
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 from clickhouse_driver import Client
 import time
 import re
 import json
+from threading import Lock
+from functools import lru_cache
 
 from app.models.postgres_models import Report, ReportQuery, ReportQueryFilter, User, Platform
 from app.schemas.reports import (
@@ -17,7 +19,64 @@ from app.services.user_service import UserService
 from app.core.platform_db import DatabaseConnectionFactory
 
 
+class ConnectionPool:
+    """Singleton connection pool for database connections"""
+    _instance = None
+    _lock = Lock()
+    _pools: Dict[str, Any] = {}
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def get_connection(self, platform: Platform, db_type: str):
+        """Get or create a connection pool for a platform"""
+        pool_key = f"{db_type}_{platform.id}"
+
+        if pool_key not in self._pools:
+            with self._lock:
+                if pool_key not in self._pools:
+                    self._pools[pool_key] = self._create_pool(platform, db_type)
+
+        return self._pools[pool_key].getconn() if hasattr(self._pools[pool_key], 'getconn') else self._pools[pool_key].connect()
+
+    def return_connection(self, platform: Platform, db_type: str, conn):
+        """Return connection to pool"""
+        pool_key = f"{db_type}_{platform.id}"
+        if pool_key in self._pools and hasattr(self._pools[pool_key], 'putconn'):
+            self._pools[pool_key].putconn(conn)
+        else:
+            # For non-pooled connections, just close
+            conn.close()
+
+    def _create_pool(self, platform: Platform, db_type: str):
+        """Create a connection pool based on database type"""
+        db_config = platform.db_config or {}
+
+        if db_type == "postgresql":
+            from psycopg2 import pool
+            return pool.ThreadedConnectionPool(
+                minconn=1,
+                maxconn=10,
+                host=db_config.get("host", "localhost"),
+                port=int(db_config.get("port", 5432)),
+                database=db_config.get("database"),
+                user=db_config.get("user"),
+                password=db_config.get("password")
+            )
+        elif db_type == "mssql":
+            # MSSQL doesn't have a built-in pool, use factory method
+            return DatabaseConnectionFactory
+        else:
+            raise ValueError(f"Unsupported database type for pooling: {db_type}")
+
+
 class ReportsService:
+    _connection_pool = ConnectionPool()
+
     def __init__(self, db: AsyncSession, clickhouse_client: Optional[Client] = None):
         self.db = db
         self.clickhouse_client = clickhouse_client
@@ -461,10 +520,6 @@ class ReportsService:
             filter_values: List of filter values to apply
             db_type: Database type ('clickhouse', 'postgresql', 'mssql')
         """
-        print(f"DEBUG: apply_filters_to_query called with {len(filter_values)} filter values for db_type: {db_type}")
-        print(f"DEBUG: filter_values: {[{'field': fv.field_name, 'value': fv.value, 'operator': fv.operator} for fv in filter_values]}")
-        print(f"DEBUG: available filters: {[{'field': f.field_name, 'type': f.filter_type} for f in filters]}")
-        
         # Handle empty or None filter_values
         if not filter_values:
             # If no filter values provided, just remove the placeholder
@@ -479,17 +534,14 @@ class ReportsService:
         conditions = []
         
         for db_filter in filters:
-            print(f"DEBUG: Processing filter {db_filter.field_name} (type: {db_filter.filter_type})")
             if db_filter.field_name not in filter_map:
-                print(f"DEBUG: Filter {db_filter.field_name} not found in filter_map")
                 if db_filter.required:
                     raise ValueError(f"Required filter '{db_filter.display_name}' is missing")
                 continue
                 
             filter_value = filter_map[db_filter.field_name]
-            
+
             if filter_value.value is None or filter_value.value == "":
-                print(f"DEBUG: Filter {db_filter.field_name} has empty value")
                 continue
                 
             # Use sql_expression if provided, otherwise use field_name
@@ -504,8 +556,6 @@ class ReportsService:
             
             value = filter_value.value
             operator = filter_value.operator or "="
-            
-            print(f"DEBUG: Building condition for {field_expression} with value {value} and operator {operator}")
 
             if db_filter.filter_type == "text":
                 # For text filters, use different operators based on the filter condition
@@ -549,19 +599,15 @@ class ReportsService:
                 if operator == "BETWEEN" and isinstance(value, list) and len(value) == 2:
                     # For timestamp fields, we need to compare dates properly
                     condition = f"{date_func}({field_expression}) BETWEEN {date_func}('{value[0]}') AND {date_func}('{value[1]}')"
-                    print(f"DEBUG: Created BETWEEN condition: {condition}")
                     conditions.append(condition)
                 elif operator == ">=":
                     condition = f"{date_func}({field_expression}) >= {date_func}('{value}')"
-                    print(f"DEBUG: Created >= date condition: {condition}")
                     conditions.append(condition)
                 elif operator == "<=":
                     condition = f"{date_func}({field_expression}) <= {date_func}('{value}')"
-                    print(f"DEBUG: Created <= date condition: {condition}")
                     conditions.append(condition)
                 else:
                     condition = f"{date_func}({field_expression}) {operator} {date_func}('{value}')"
-                    print(f"DEBUG: Created date condition: {condition}")
                     conditions.append(condition)
             elif db_filter.filter_type in ["dropdown", "multiselect"]:
                 if isinstance(value, list):
@@ -569,14 +615,11 @@ class ReportsService:
                     conditions.append(f"{field_expression} IN ({','.join(quoted_values)})")
                 else:
                     conditions.append(f"{field_expression} = '{value}'")
-        
-        print(f"DEBUG: Generated conditions: {conditions}")
-        
+
         # Replace {{dynamic_filters}} placeholder with actual filter conditions
         if "{{dynamic_filters}}" in sql:
             if conditions:
                 filter_clause = " AND " + " AND ".join(conditions)
-                print(f"DEBUG: Replacing {{dynamic_filters}} with: {filter_clause}")
                 sql = sql.replace("{{dynamic_filters}}", filter_clause)
             else:
                 # Remove the placeholder if no filters are applied
@@ -589,8 +632,7 @@ class ReportsService:
                     sql = sql + f" AND ({where_clause})"
                 else:
                     sql = sql + f" WHERE {where_clause}"
-        
-        print(f"DEBUG: Final SQL: {sql}")
+
         return sql
 
     def apply_sorting_to_query(self, sql: str, sort_by: str, sort_direction: str) -> str:
@@ -633,9 +675,6 @@ class ReportsService:
         # Add new ORDER BY clause
         new_sql = f"{sql_without_order} ORDER BY {sort_by} {sort_direction.upper()}"
 
-        print(f"DEBUG: Applied sorting - Original SQL: {sql}")
-        print(f"DEBUG: Applied sorting - New SQL: {new_sql}")
-
         return new_sql
 
     def execute_query(self, query: ReportQuery, filter_values: List[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Optional[Platform] = None, global_filters: List[Dict[str, Any]] = None) -> QueryExecutionResult:
@@ -653,7 +692,11 @@ class ReportsService:
             platform: Platform instance for database connection (optional, falls back to clickhouse_client)
             global_filters: Global filters from the report that apply to all queries
         """
+        t0 = time.time()
+        print(f"\n[PERF] Starting execute_query for query_id={query.id}")
+
         # Determine database type
+        t1 = time.time()
         if platform:
             db_type = platform.db_type.lower()
         else:
@@ -661,12 +704,16 @@ class ReportsService:
             db_type = "clickhouse"
             if not self.clickhouse_client:
                 raise ValueError("Database client not available")
+        print(f"[PERF] DB type determination: {(time.time() - t1) * 1000:.2f}ms")
 
         try:
             # Get the base SQL
+            t1 = time.time()
             sql = query.sql
+            print(f"[PERF] Get base SQL: {(time.time() - t1) * 1000:.2f}ms")
 
             # Merge global filters with query-specific filters
+            t1 = time.time()
             all_filters = list(query.filters)
             if global_filters:
                 # Convert global filters dict to ReportQueryFilter objects for processing
@@ -682,11 +729,15 @@ class ReportsService:
                         'depends_on': gf.get('dependsOn')
                     })()
                     all_filters.append(filter_obj)
+            print(f"[PERF] Merge global filters: {(time.time() - t1) * 1000:.2f}ms")
 
             # Always apply filters (even if empty) to handle {{dynamic_filters}} placeholder
+            t1 = time.time()
             sql = self.apply_filters_to_query(sql, all_filters, filter_values or [], db_type)
-            
+            print(f"[PERF] Apply filters: {(time.time() - t1) * 1000:.2f}ms")
+
             # Apply sorting if provided
+            t1 = time.time()
             if sort_by and sort_direction:
                 try:
                     sql = self.apply_sorting_to_query(sql, sort_by, sort_direction)
@@ -701,13 +752,16 @@ class ReportsService:
                         success=False,
                         message=f"Sorting error: {str(e)}"
                     )
-            
+            print(f"[PERF] Apply sorting: {(time.time() - t1) * 1000:.2f}ms")
+
             # Sanitize the query
+            t1 = time.time()
             sanitized_sql = self.sanitize_sql_query(sql)
-            
+            print(f"[PERF] Sanitize SQL: {(time.time() - t1) * 1000:.2f}ms")
+
             start_time = time.time()
             total_rows = 0
-            
+
             # Execute based on database type
             if db_type == "clickhouse":
                 # Use ClickHouse client (existing logic)
@@ -716,122 +770,115 @@ class ReportsService:
                 
                 # Handle pagination if both page_size and page_limit are provided
                 if page_size is not None and page_limit is not None:
-                    print(f"DEBUG: Pagination requested - page_size: {page_size}, page_limit: {page_limit}")
-                    
                     # First, get the total count for pagination info
+                    t1 = time.time()
                     count_sql = f"SELECT COUNT(*) FROM ({sanitized_sql}) AS subquery"
-                    print(f"DEBUG: Count SQL: {count_sql}")
                     count_result = self.clickhouse_client.execute(count_sql)
                     total_rows = count_result[0][0] if count_result and count_result[0] else 0
-                    print(f"DEBUG: Total rows: {total_rows}")
-                    
+                    print(f"[PERF] ClickHouse count query: {(time.time() - t1) * 1000:.2f}ms")
+
                     # Calculate offset (page_limit is 1-based)
                     offset = (page_limit - 1) * page_size
-                    print(f"DEBUG: Calculated offset: {offset}")
-                    
+
                     # Add pagination to the main query
+                    t1 = time.time()
                     paginated_sql = f"{sanitized_sql} LIMIT {page_size} OFFSET {offset}"
-                    print(f"DEBUG: Paginated SQL: {paginated_sql}")
                     result = self.clickhouse_client.execute(paginated_sql, with_column_types=True)
+                    print(f"[PERF] ClickHouse paginated query: {(time.time() - t1) * 1000:.2f}ms")
                 else:
                     # Add limit only for table visualizations (non-paginated query)
                     if visualization_type == 'table' and 'LIMIT' not in sanitized_sql.upper():
                         sanitized_sql = f"{sanitized_sql} LIMIT {limit}"
-                    
+
                     # Execute the query
+                    t1 = time.time()
                     result = self.clickhouse_client.execute(sanitized_sql, with_column_types=True)
-                
+                    print(f"[PERF] ClickHouse execute query: {(time.time() - t1) * 1000:.2f}ms")
+
                 # Process ClickHouse results
+                t1 = time.time()
                 if result and len(result) > 0:
                     columns = [col[0] for col in result[1]] if len(result) > 1 else []
                     data = result[0] if result[0] else []
                 else:
                     columns = []
                     data = []
-                    
+                print(f"[PERF] Process ClickHouse results: {(time.time() - t1) * 1000:.2f}ms")
+
             elif db_type == "postgresql":
-                # Use PostgreSQL connection (without RealDictCursor for raw tuples)
+                # Use PostgreSQL connection pool
                 if not platform:
                     raise ValueError("Platform required for PostgreSQL queries")
-                
-                import psycopg2
-                db_config = platform.db_config or {}
-                
-                # Create connection without RealDictCursor to get raw tuples
-                conn = psycopg2.connect(
-                    host=db_config.get("host", "localhost"),
-                    port=int(db_config.get("port", 5432)),
-                    database=db_config.get("database"),
-                    user=db_config.get("user"),
-                    password=db_config.get("password")
-                )
+
+                # Get connection from pool
+                t1 = time.time()
+                conn = self._connection_pool.get_connection(platform, db_type)
                 cursor = conn.cursor()
-                
+                print(f"[PERF] PostgreSQL get connection: {(time.time() - t1) * 1000:.2f}ms")
+
                 try:
                     # Handle pagination if both page_size and page_limit are provided
                     if page_size is not None and page_limit is not None:
-                        print(f"DEBUG: PostgreSQL Pagination requested - page_size: {page_size}, page_limit: {page_limit}")
-                        
                         # First, get the total count for pagination info
+                        t1 = time.time()
                         count_sql = f"SELECT COUNT(*) FROM ({sanitized_sql}) AS subquery"
-                        print(f"DEBUG: PostgreSQL Count SQL: {count_sql}")
                         cursor.execute(count_sql)
                         count_result = cursor.fetchone()
                         total_rows = count_result[0] if count_result else 0
-                        print(f"DEBUG: PostgreSQL Total rows: {total_rows}")
-                        
+                        print(f"[PERF] PostgreSQL count query: {(time.time() - t1) * 1000:.2f}ms")
+
                         # Calculate offset (page_limit is 1-based)
                         offset = (page_limit - 1) * page_size
-                        print(f"DEBUG: PostgreSQL Calculated offset: {offset}")
-                        
+
                         # Add pagination to the main query
+                        t1 = time.time()
                         paginated_sql = f"{sanitized_sql} LIMIT {page_size} OFFSET {offset}"
-                        print(f"DEBUG: PostgreSQL Paginated SQL: {paginated_sql}")
                         cursor.execute(paginated_sql)
+                        print(f"[PERF] PostgreSQL paginated query: {(time.time() - t1) * 1000:.2f}ms")
                     else:
                         # Add limit only for table visualizations (non-paginated query)
                         if visualization_type == 'table' and 'LIMIT' not in sanitized_sql.upper():
                             sanitized_sql = f"{sanitized_sql} LIMIT {limit}"
-                        
+
                         # Execute the query
+                        t1 = time.time()
                         cursor.execute(sanitized_sql)
-                    
+                        print(f"[PERF] PostgreSQL execute query: {(time.time() - t1) * 1000:.2f}ms")
+
                     # Get columns and data
+                    t1 = time.time()
                     columns = [desc[0] for desc in cursor.description] if cursor.description else []
                     data = cursor.fetchall()
-                    
+                    print(f"[PERF] PostgreSQL fetch results: {(time.time() - t1) * 1000:.2f}ms")
+
                 finally:
                     cursor.close()
-                    conn.close()
+                    # Return connection to pool instead of closing
+                    self._connection_pool.return_connection(platform, db_type, conn)
                     
             elif db_type == "mssql":
-                # Use MSSQL connection via DatabaseConnectionFactory
+                # Use MSSQL connection
                 if not platform:
                     raise ValueError("Platform required for MSSQL queries")
-                
-                import pyodbc
+
+                # MSSQL uses factory method (no built-in pooling in pyodbc)
                 conn = DatabaseConnectionFactory.get_mssql_connection(platform)
                 cursor = conn.cursor()
-                
+
                 try:
                     # Handle pagination if both page_size and page_limit are provided
                     if page_size is not None and page_limit is not None:
-                        print(f"DEBUG: MSSQL Pagination requested - page_size: {page_size}, page_limit: {page_limit}")
-                        
                         # First, get the total count for pagination info
                         count_sql = f"SELECT COUNT(*) FROM ({sanitized_sql}) AS subquery"
-                        print(f"DEBUG: MSSQL Count SQL: {count_sql}")
                         cursor.execute(count_sql)
                         count_result = cursor.fetchone()
                         total_rows = count_result[0] if count_result else 0
-                        print(f"DEBUG: MSSQL Total rows: {total_rows}")
-                        
+
                         # Calculate offset (page_limit is 1-based)
                         offset = (page_limit - 1) * page_size
-                        
+
                         # MSSQL uses OFFSET/FETCH syntax
                         paginated_sql = f"{sanitized_sql} OFFSET {offset} ROWS FETCH NEXT {page_size} ROWS ONLY"
-                        print(f"DEBUG: MSSQL Paginated SQL: {paginated_sql}")
                         cursor.execute(paginated_sql)
                     else:
                         # Add TOP for table visualizations (non-paginated query)
@@ -851,10 +898,12 @@ class ReportsService:
                     conn.close()
             else:
                 raise ValueError(f"Unsupported database type: {db_type}")
-            
+
             execution_time_ms = (time.time() - start_time) * 1000
-            
+            print(f"[PERF] Total DB execution time: {execution_time_ms:.2f}ms")
+
             # Format data for JSON serialization (common for all database types)
+            t1 = time.time()
             formatted_data = []
             for row in data:
                 formatted_row = []
@@ -865,10 +914,13 @@ class ReportsService:
                         # Handle datetime, date, and other types
                         formatted_row.append(str(item))
                 formatted_data.append(formatted_row)
-            
+            print(f"[PERF] Format data for JSON: {(time.time() - t1) * 1000:.2f}ms")
+
             # Use total_rows from count query if paginated, otherwise use data length
             actual_total_rows = total_rows if (page_size is not None and page_limit is not None) else len(formatted_data)
-            
+
+            print(f"[PERF] TOTAL execute_query time: {(time.time() - t0) * 1000:.2f}ms\n")
+
             return QueryExecutionResult(
                 query_id=query.id,
                 query_name=query.name,
@@ -897,26 +949,30 @@ class ReportsService:
             )
 
     async def execute_report(self, request: ReportExecutionRequest, username: str) -> ReportExecutionResponse:
+        t0 = time.time()
+        print(f"\n[PERF] Starting execute_report for report_id={request.report_id}")
         user = await UserService.get_user_by_username(self.db, username)
         if not user:
             raise ValueError("User not found")
+        print(f"[PERF] Get user: {(time.time() - t0) * 1000:.2f}ms")
 
         """Execute a full report or specific query"""
         # Get the report with platform relationship
+        # Use joinedload for better performance - single query with JOINs instead of multiple queries
         stmt = select(Report).options(
-            selectinload(Report.queries).selectinload(ReportQuery.filters),
-            selectinload(Report.platform)  # Load platform relationship
-        ).where(
-            and_(
-                Report.id == request.report_id,
-                or_(Report.owner_id == user.id, Report.is_public == True)
-            )
-        )
+            joinedload(Report.queries).joinedload(ReportQuery.filters),
+            joinedload(Report.platform)
+        ).where(Report.id == request.report_id)
+        t2 = time.time()
         result = await self.db.execute(stmt)
-        report = result.scalar_one_or_none()
+        print(f"[PERF] Fetch report with joinedload: {(time.time() - t2) * 1000:.2f}ms")
+        report = result.unique().scalar_one_or_none()
         
         if not report:
             raise ValueError("Report not found or access denied")
+
+        if report.owner_id != user.id and report.is_public == False:
+            raise ValueError("Report access denied")
         
         # Get platform for database connection
         platform = report.platform
@@ -965,6 +1021,7 @@ class ReportsService:
                     results.append(result)
 
             total_execution_time = (time.time() - start_time) * 1000
+            print(f"[PERF] Total execute_report time: {(time.time() - t0) * 1000:.2f}ms\n")
             
             return ReportExecutionResponse(
                 report_id=report.id,
@@ -1033,25 +1090,16 @@ class ReportsService:
             elif db_type == "postgresql":
                 if not platform:
                     raise ValueError("Platform required for PostgreSQL queries")
-                
-                import psycopg2
-                db_config = platform.db_config or {}
-                
-                # Create connection without RealDictCursor to get raw tuples
-                conn = psycopg2.connect(
-                    host=db_config.get("host", "localhost"),
-                    port=int(db_config.get("port", 5432)),
-                    database=db_config.get("database"),
-                    user=db_config.get("user"),
-                    password=db_config.get("password")
-                )
+
+                # Get connection from pool
+                conn = self._connection_pool.get_connection(platform, db_type)
                 cursor = conn.cursor()
                 try:
                     cursor.execute(sanitized_query)
                     result = cursor.fetchall()
                 finally:
                     cursor.close()
-                    conn.close()
+                    self._connection_pool.return_connection(platform, db_type, conn)
                     
             elif db_type == "mssql":
                 if not platform:

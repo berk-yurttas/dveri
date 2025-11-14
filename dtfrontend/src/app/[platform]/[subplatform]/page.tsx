@@ -298,57 +298,85 @@ export default function SubPlatformPage() {
     }
   }, [selectedFirma, subPlatformCode]);
 
-  // Update chart data when filters change for verimlilik
+  // Fetch verimlilik data when filters change
   useEffect(() => {
-    if (subPlatformCode === 'verimlilik' && rawVerimlilikData.length > 0) {
-      // Filter by date range
-      let filteredData = rawVerimlilikData.filter((item: any) => {
-        return item.date >= verimlilikStartDate && item.date <= verimlilikEndDate;
-      });
+    const fetchVerimlilikData = async () => {
+      if (subPlatformCode === 'verimlilik') {
+        try {
+          // Build SQL query with date filter
+          let sqlQuery = `SELECT "Firma Adı", "Makina Kodu", "Üretim Tarihi", "OEE" FROM mes_production.tarih_bazli_oee WHERE DATE("Üretim Tarihi") BETWEEN DATE('${verimlilikStartDate}') AND DATE('${verimlilikEndDate}') ORDER BY "Üretim Tarihi" DESC`;
 
-      if (selectedMachine && selectedFirma) {
-        // Time-series view: show daily OEE for specific machine
-        const machineData = filteredData
-          .filter((item: any) => item.firma === selectedFirma && item.machinecode === selectedMachine)
-          .map((item: any) => ({
-            date: item.date,
-            OEE: item.oee
-          }))
-          .sort((a: any, b: any) => a.date.localeCompare(b.date));
-        setChartData(machineData);
-      } else if (selectedFirma) {
-        // Machine averages view: show average OEE per machine for selected firma
-        const firmaData = filteredData.filter((item: any) => item.firma === selectedFirma);
-        const machines = Array.from(new Set(firmaData.map((item: any) => item.machinecode)));
-        setMachineOptions(machines as string[]);
+          const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
+            sql_query: sqlQuery
+          });
 
-        const machineAverages = machines.map(machine => {
-          const machineData = firmaData.filter((item: any) => item.machinecode === machine);
-          const avgOee = machineData.reduce((sum: number, item: any) => sum + item.oee, 0) / machineData.length;
-          return {
-            name: machine,
-            machinecode: machine,
-            firma: selectedFirma,
-            value: avgOee
-          };
-        });
-        setChartData(machineAverages);
-      } else {
-        // Firma averages view: show average OEE per firma
-        const uniqueFirmas = Array.from(new Set(filteredData.map((item: any) => item.firma)));
-        const firmaAverages = uniqueFirmas.map(firma => {
-          const firmaData = filteredData.filter((item: any) => item.firma === firma);
-          const avgOee = firmaData.reduce((sum: number, item: any) => sum + item.oee, 0) / firmaData.length;
-          return {
-            name: firma,
-            firma: firma,
-            value: avgOee
-          };
-        });
-        setChartData(firmaAverages);
+          if (chartResponse?.data && Array.isArray(chartResponse.data)) {
+            const transformedData = chartResponse.data.map((row: any[]) => ({
+              firma: row[0],
+              machinecode: row[1],
+              date: row[2],
+              oee: (parseFloat(row[3]) || 0) * 100
+            }));
+            setRawVerimlilikData(transformedData);
+
+            // Extract unique firma options
+            const uniqueFirmas = Array.from(new Set(transformedData.map((item: any) => item.firma))).sort() as string[];
+            setFirmaOptions(uniqueFirmas);
+
+            if (selectedMachine && selectedFirma) {
+              // Time-series view: show daily OEE for specific machine
+              const machineData = transformedData
+                .filter((item: any) => item.firma === selectedFirma && item.machinecode === selectedMachine)
+                .map((item: any) => ({
+                  date: item.date,
+                  OEE: item.oee
+                }))
+                .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              setChartData(machineData);
+            } else if (selectedFirma) {
+              // Machine averages view: show average OEE per machine for selected firma
+              const firmaData = transformedData.filter((item: any) => item.firma === selectedFirma);
+              const machines = Array.from(new Set(firmaData.map((item: any) => item.machinecode)));
+              setMachineOptions(machines as string[]);
+
+              const machineAverages = machines.map(machine => {
+                const machineData = firmaData.filter((item: any) => item.machinecode === machine);
+                const avgOee = machineData.reduce((sum: number, item: any) => sum + item.oee, 0) / machineData.length;
+                return {
+                  name: machine,
+                  machinecode: machine,
+                  firma: selectedFirma,
+                  value: avgOee
+                };
+              });
+              setChartData(machineAverages);
+            } else {
+              // Firma averages view: show average OEE per firma
+              const firmaAverages = uniqueFirmas.map(firma => {
+                const firmaData = transformedData.filter((item: any) => item.firma === firma);
+                const avgOee = firmaData.reduce((sum: number, item: any) => sum + item.oee, 0) / firmaData.length;
+                return {
+                  name: firma,
+                  firma: firma,
+                  value: avgOee
+                };
+              });
+              setChartData(firmaAverages);
+            }
+          } else {
+            setChartData([]);
+            setRawVerimlilikData([]);
+          }
+        } catch (error) {
+          console.error("Failed to fetch verimlilik data:", error);
+          setChartData([]);
+          setRawVerimlilikData([]);
+        }
       }
-    }
-  }, [selectedFirma, selectedMachine, verimlilikStartDate, verimlilikEndDate, rawVerimlilikData, subPlatformCode]);
+    };
+
+    fetchVerimlilikData();
+  }, [subPlatformCode, selectedFirma, selectedMachine, verimlilikStartDate, verimlilikEndDate]);
 
   const handleCreateDashboard = () => {
     router.push(`/${platformCode}/dashboard/add?subplatform=${subPlatformCode}`);
@@ -427,12 +455,12 @@ export default function SubPlatformPage() {
                     <BarChart3 className="h-6 w-6" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>Firma Bazlı Kapasite Değerleri</h2>
+                    <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>Talaşlı İmalat: Firma Bazlı Kapasite Değerleri</h2>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {/* Data Type Toggle */}
-                  <div className="flex border border-gray-300 rounded overflow-hidden">
+                  {/* <div className="flex border border-gray-300 rounded overflow-hidden">
                     <button
                       onClick={() => setSelectedKapasiteDataType('mekanik')}
                       className={`px-3 py-1.5 text-sm ${selectedKapasiteDataType === 'mekanik' ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
@@ -445,7 +473,7 @@ export default function SubPlatformPage() {
                     >
                       Kablaj
                     </button>
-                  </div>
+                  </div> */}
                   {/* Period Dropdown */}
                   <div className="relative">
                     <button
@@ -542,7 +570,7 @@ export default function SubPlatformPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>
-                      {!selectedFirma ? 'Firma Bazlı OEE Değerleri' :
+                      {!selectedFirma ? 'Talaşlı İmalat: Firma Bazlı OEE Değerleri' :
                        !selectedMachine ? `${selectedFirma} - Makine OEE Ortalamaları` :
                        `${selectedFirma} - ${selectedMachine} OEE Trendi`}
                     </h2>

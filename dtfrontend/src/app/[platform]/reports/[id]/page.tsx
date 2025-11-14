@@ -761,9 +761,11 @@ export default function ReportDetailPage() {
 
   // Execute all queries with initial empty filters
   const executeAllQueries = async (reportData: ReportData, initialFilters: FilterState) => {
-    for (const query of reportData.queries) {
-      await executeQueryWithFilters(query, reportData.id, initialFilters)
-    }
+    await Promise.all(
+      reportData.queries.map(query =>
+        executeQueryWithFilters(query, reportData.id, initialFilters)
+      )
+    )
   }
 
   // Set locale for date inputs
@@ -933,16 +935,16 @@ export default function ReportDetailPage() {
         })
         setQueryResults(initialResults)
 
-        // Load dropdown options in parallel
-        await Promise.all(dropdownPromises)
+        // Load dropdown options and execute queries in parallel
+        await Promise.all([
+          ...dropdownPromises,
+          executeAllQueries(reportData, initialFilters)
+        ])
 
         // Check again if reportId changed
         if (currentReportIdRef.current !== reportId) {
           return
         }
-
-        // Execute all queries with initial filters
-        await executeAllQueries(reportData, initialFilters)
 
         // Initialize grid layout
         // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
@@ -982,8 +984,8 @@ export default function ReportDetailPage() {
       } finally {
         if (currentReportIdRef.current === reportId) {
           setLoading(false)
+          isLoadingRef.current = false
         }
-        isLoadingRef.current = false
       }
     }
 
@@ -2140,9 +2142,18 @@ export default function ReportDetailPage() {
 
   if (loading) {
     return (
-      <div className="container mx-auto py-8 space-y-6">
-        <div className="flex items-center justify-center">
-          <div className="h-8 w-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-6">
+          <div className="relative flex items-end justify-center h-20 space-x-2">
+            <div className="w-3 bg-blue-600 rounded-t animate-bounce" style={{ height: '40%', animationDelay: '0ms', animationDuration: '0.8s' }} />
+            <div className="w-3 bg-blue-500 rounded-t animate-bounce" style={{ height: '60%', animationDelay: '150ms', animationDuration: '0.8s' }} />
+            <div className="w-3 bg-blue-600 rounded-t animate-bounce" style={{ height: '80%', animationDelay: '300ms', animationDuration: '0.8s' }} />
+            <div className="w-3 bg-blue-500 rounded-t animate-bounce" style={{ height: '50%', animationDelay: '450ms', animationDuration: '0.8s' }} />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xl font-semibold text-gray-800">Rapor Yükleniyor</h3>
+            <p className="text-gray-600">Veriler getiriliyor ve görselleştirmeler hazırlanıyor...</p>
+          </div>
         </div>
       </div>
     )
