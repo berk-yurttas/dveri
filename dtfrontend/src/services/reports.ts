@@ -143,5 +143,12 @@ export const reportsService = {
       page_size: number,
       has_more: boolean
     }>(`/reports/${reportId}/queries/${queryId}/filters/${filterField}/options?${params}`)
+  },
+
+  /**
+   * Toggle favorite status for a report
+   */
+  async toggleFavorite(reportId: string): Promise<{ is_favorite: boolean }> {
+    return api.post<{ is_favorite: boolean }>(`/reports/${reportId}/favorite`, {})
   }
 }

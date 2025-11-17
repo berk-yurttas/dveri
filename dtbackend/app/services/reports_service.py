@@ -9,7 +9,7 @@ import json
 from threading import Lock
 from functools import lru_cache
 
-from app.models.postgres_models import Report, ReportQuery, ReportQueryFilter, User, Platform
+from app.models.postgres_models import Report, ReportQuery, ReportQueryFilter, User, Platform, ReportUser
 from app.schemas.reports import (
     ReportCreate, ReportUpdate, ReportFullUpdate, QueryConfigCreate, QueryConfigUpdate,
     FilterConfigCreate, FilterConfigUpdate, ReportExecutionRequest,
@@ -267,6 +267,14 @@ class ReportsService:
         owner_result = await self.db.execute(owner_stmt)
         owner_map = {row.id: row.name for row in owner_result.all()}
 
+        # Get favorite status for all reports
+        report_ids = [row.id for row in report_rows]
+        favorite_stmt = select(ReportUser.report_id).where(
+            and_(ReportUser.user_id == user.id, ReportUser.report_id.in_(report_ids), ReportUser.is_favorite == True)
+        )
+        favorite_result = await self.db.execute(favorite_stmt)
+        favorite_ids = {row.report_id for row in favorite_result.all()}
+
         # Build ReportList objects
         reports = []
         for row in report_rows:
@@ -280,7 +288,8 @@ class ReportsService:
                 'created_at': row.created_at,
                 'updated_at': row.updated_at,
                 'tags': row.tags,
-                'query_count': row.query_count
+                'query_count': row.query_count,
+                'is_favorite': row.id in favorite_ids
             })
 
         return reports
@@ -487,6 +496,44 @@ class ReportsService:
         await self.db.delete(db_report)
         await self.db.commit()
         return True
+
+    async def toggle_favorite(self, report_id: int, username: str) -> bool:
+        """Toggle favorite status for a report"""
+        user = await UserService.get_user_by_username(self.db, username)
+        if not user:
+            raise ValueError("User not found")
+
+        # Check if report exists
+        stmt = select(Report).where(Report.id == report_id)
+        result = await self.db.execute(stmt)
+        report = result.scalar_one_or_none()
+
+        if not report:
+            raise ValueError("Report not found")
+
+        # Check if ReportUser relationship exists
+        report_user_stmt = select(ReportUser).where(
+            and_(ReportUser.report_id == report_id, ReportUser.user_id == user.id)
+        )
+        report_user_result = await self.db.execute(report_user_stmt)
+        report_user = report_user_result.scalar_one_or_none()
+
+        if report_user:
+            # Toggle existing favorite status
+            report_user.is_favorite = not report_user.is_favorite
+            is_favorite = report_user.is_favorite
+        else:
+            # Create new ReportUser with favorite=True
+            report_user = ReportUser(
+                report_id=report_id,
+                user_id=user.id,
+                is_favorite=True
+            )
+            self.db.add(report_user)
+            is_favorite = True
+
+        await self.db.commit()
+        return is_favorite
 
 
     # Query Execution

@@ -2222,7 +2222,7 @@ export default function EditReportPage() {
                                               </div>
 
                                               {/* Chart Axes Configuration (only show for chart types) */}
-                                              {query.visualization.chartOptions?.nestedQueries?.[0]?.visualizationType && 
+                                              {query.visualization.chartOptions?.nestedQueries?.[0]?.visualizationType &&
                                                query.visualization.chartOptions.nestedQueries[0].visualizationType !== 'table' && (
                                                 <div className="grid grid-cols-2 gap-2">
                                                   {/* X Axis */}
@@ -2316,6 +2316,65 @@ export default function EditReportPage() {
                                                         />
                                                       </div>
                                                     </>
+                                                  )}
+                                                </div>
+                                              )}
+
+                                              {/* Line Overlay for Nested Bar Chart */}
+                                              {query.visualization.chartOptions?.nestedQueries?.[0]?.visualizationType === 'bar' && (
+                                                <div className="mt-2 space-y-2 p-3 bg-cyan-50/50 rounded-lg border border-cyan-200">
+                                                  <div className="flex items-center space-x-2">
+                                                    <Checkbox
+                                                      id={`nested-line-overlay-${query.id}`}
+                                                      checked={query.visualization.chartOptions?.nestedQueries?.[0]?.showLineOverlay ?? false}
+                                                      onCheckedChange={(checked) => {
+                                                        const currentQueries = query.visualization.chartOptions?.nestedQueries || []
+                                                        if (currentQueries.length > 0) {
+                                                          const updated = [...currentQueries]
+                                                          updated[0] = {
+                                                            ...updated[0],
+                                                            showLineOverlay: checked,
+                                                            lineYAxis: checked ? updated[0].lineYAxis : undefined
+                                                          }
+                                                          updateVisualization(queryIndex, {
+                                                            chartOptions: {
+                                                              ...query.visualization.chartOptions,
+                                                              nestedQueries: updated
+                                                            }
+                                                          })
+                                                        }
+                                                      }}
+                                                    />
+                                                    <Label htmlFor={`nested-line-overlay-${query.id}`} className="text-xs font-semibold text-cyan-900">
+                                                      Çizgi Grafik Ekle (Sağ Y Ekseni)
+                                                    </Label>
+                                                  </div>
+
+                                                  {query.visualization.chartOptions?.nestedQueries?.[0]?.showLineOverlay && (
+                                                    <div className="space-y-2">
+                                                      <Label className="text-xs">Çizgi Y Ekseni Alanı</Label>
+                                                      <Input
+                                                        value={query.visualization.chartOptions?.nestedQueries?.[0]?.lineYAxis || ''}
+                                                        onChange={(e) => {
+                                                          const currentQueries = query.visualization.chartOptions?.nestedQueries || []
+                                                          if (currentQueries.length > 0) {
+                                                            const updated = [...currentQueries]
+                                                            updated[0] = { ...updated[0], lineYAxis: e.target.value }
+                                                            updateVisualization(queryIndex, {
+                                                              chartOptions: {
+                                                                ...query.visualization.chartOptions,
+                                                                nestedQueries: updated
+                                                              }
+                                                            })
+                                                          }
+                                                        }}
+                                                        placeholder="Çizgi için Y ekseni alanı"
+                                                        className="text-xs h-8"
+                                                      />
+                                                      <p className="text-xs text-cyan-700">
+                                                        Çizgi grafik sağ Y ekseninde gösterilecek
+                                                      </p>
+                                                    </div>
                                                   )}
                                                 </div>
                                               )}

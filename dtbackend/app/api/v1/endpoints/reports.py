@@ -451,11 +451,24 @@ async def delete_report(
     """Delete a report"""
     service = ReportsService(db)
     success = await service.delete_report(report_id, current_user.username)
-    
+
     if not success:
         raise HTTPException(status_code=404, detail="Report not found or access denied")
-    
+
     return {"message": "Report deleted successfully"}
+
+
+@router.post("/{report_id}/favorite")
+async def toggle_report_favorite(
+    report_id: int,
+    current_user: User = Depends(check_authenticated),
+    db: AsyncSession = Depends(get_postgres_db)
+):
+    """Toggle favorite status for a report"""
+    service = ReportsService(db)
+    is_favorite = await service.toggle_favorite(report_id, current_user.username)
+
+    return {"is_favorite": is_favorite}
 
 
 # Filter Options Endpoint

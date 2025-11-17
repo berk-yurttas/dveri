@@ -198,6 +198,85 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
     // Render chart based on visualization type
     const renderChart = () => {
       if (vizType === 'bar') {
+        const showNestedLineOverlay = nestedQuery.showLineOverlay && nestedQuery.lineYAxis
+
+        if (showNestedLineOverlay) {
+          // Render bar chart with line overlay using ComposedChart
+          return (
+            <ComposedChart data={nestedChartData} margin={{ top: 20, right: 50, left: 0, bottom: 5 }}>
+              <defs>
+                {colors.map((color, i) => {
+                  const darkColor = color.replace(/[0-9A-Fa-f]{2}/, (match) =>
+                    Math.max(0, parseInt(match, 16) - 40).toString(16).padStart(2, '0')
+                  )
+                  return (
+                    <linearGradient key={i} id={`nestedGradient${i}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={color} stopOpacity={0.9}/>
+                      <stop offset="100%" stopColor={darkColor} stopOpacity={0.9}/>
+                    </linearGradient>
+                  )
+                })}
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis
+                dataKey={xAxisField}
+                stroke="#6b7280"
+                style={{ fontSize: '13px', fontWeight: 500 }}
+                tickLine={false}
+              />
+              <YAxis
+                yAxisId="left"
+                stroke="#6b7280"
+                style={{ fontSize: '13px', fontWeight: 500 }}
+                tickLine={false}
+                label={{ value: yAxisField, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
+              />
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                stroke="#6b7280"
+                style={{ fontSize: '13px', fontWeight: 500 }}
+                tickLine={false}
+                label={{ value: nestedQuery.lineYAxis, angle: 90, position: 'insideRight', style: { textAnchor: 'middle' } }}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: 'white',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '12px',
+                  boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                  padding: '12px'
+                }}
+                cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+              />
+              <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
+              <Bar
+                yAxisId="left"
+                dataKey={yAxisField}
+                fill={colors[0]}
+                name={yAxisField}
+                radius={[8, 8, 0, 0]}
+                maxBarSize={60}
+              >
+                {nestedChartData.map((entry: any, index: number) => (
+                  <Cell key={`cell-${index}`} fill={`url(#nestedGradient${index % colors.length})`} />
+                ))}
+              </Bar>
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey={nestedQuery.lineYAxis}
+                stroke={colors[1] || '#10B981'}
+                strokeWidth={3}
+                dot={{ r: 4, fill: colors[1] || '#10B981' }}
+                activeDot={{ r: 6 }}
+                name={nestedQuery.lineYAxis}
+              />
+            </ComposedChart>
+          )
+        }
+
+        // Regular bar chart without line overlay
         return (
           <BarChart data={nestedChartData} margin={{ top: 20, right: 0, left: 0, bottom: 5 }}>
             <defs>

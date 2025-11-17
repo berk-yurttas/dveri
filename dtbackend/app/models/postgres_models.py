@@ -129,6 +129,10 @@ class Report(PostgreSQLBase):
     platform = relationship("Platform", back_populates="reports")  # Platform relationship
     owner = relationship("User", back_populates="owned_reports")
     queries = relationship("ReportQuery", back_populates="report", cascade="all, delete-orphan", order_by="ReportQuery.order_index")
+    users = relationship("ReportUser", back_populates="report", cascade="all, delete-orphan")
+
+    # Property to handle is_favorite field (set dynamically)
+    is_favorite = None
 
 
 class ReportQuery(PostgreSQLBase):
@@ -177,17 +181,33 @@ class ReportQueryFilter(PostgreSQLBase):
         return self.filter_type
 
 
+class ReportUser(PostgreSQLBase):
+    """Junction table for Report-User many-to-many relationship with favorites"""
+    __tablename__ = "report_users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("reports.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    is_favorite = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # relationships
+    report = relationship("Report", back_populates="users")
+    user = relationship("User", backref="report_users")
+
+
 class UserPlatform(PostgreSQLBase):
     """Junction table for User-Platform many-to-many relationship with roles"""
     __tablename__ = "user_platforms"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     platform_id = Column(Integer, ForeignKey("platforms.id"), nullable=False, index=True)
     role = Column(String(50), default="viewer", nullable=False)  # admin, editor, viewer
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
+
     # Relationships
     user = relationship("User", back_populates="user_platforms")
     platform = relationship("Platform", back_populates="user_platforms")

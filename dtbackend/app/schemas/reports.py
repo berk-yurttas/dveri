@@ -242,6 +242,7 @@ class ReportList(BaseModel):
     updated_at: Optional[datetime] = None
     tags: Optional[List[str]] = []
     query_count: Optional[int] = 0
+    is_favorite: Optional[bool] = False
 
     class Config:
         from_attributes = True

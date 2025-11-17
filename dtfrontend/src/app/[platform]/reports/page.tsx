@@ -89,6 +89,15 @@ export default function ReportsPage() {
       try {
         const data = await reportsService.getReports(0, 100, subplatform || undefined);
         setReports(data);
+
+        // Initialize favorites from API response
+        const initialFavorites = new Set<number>();
+        data.forEach((report: any) => {
+          if (report.is_favorite) {
+            initialFavorites.add(report.id);
+          }
+        });
+        setFavorites(initialFavorites);
       } catch (error) {
         console.error("Failed to fetch reports:", error);
         setError("Raporlar yüklenemedi");
@@ -171,14 +180,21 @@ export default function ReportsPage() {
 
   const handleToggleFavorite = async (report: SavedReport, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent navigation
-    
-    const newFavorites = new Set(favorites);
-    if (favorites.has(report.id)) {
-      newFavorites.delete(report.id);
-    } else {
-      newFavorites.add(report.id);
+
+    try {
+      const result = await reportsService.toggleFavorite(report.id.toString());
+
+      // Update local state based on server response
+      const newFavorites = new Set(favorites);
+      if (result.is_favorite) {
+        newFavorites.add(report.id);
+      } else {
+        newFavorites.delete(report.id);
+      }
+      setFavorites(newFavorites);
+    } catch (error) {
+      console.error("Failed to toggle favorite:", error);
     }
-    setFavorites(newFavorites);
   };
 
   const handleEditReport = (report: SavedReport, e: React.MouseEvent) => {
@@ -385,12 +401,211 @@ export default function ReportsPage() {
 
       {/* Reports Grid/List */}
       {filteredReports.length > 0 ? (
-        <div className={
-          viewMode === 'grid' 
-            ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-            : "space-y-4"
-        }>
-          {filteredReports.map((report) => {
+        <div className="space-y-8">
+          {/* Favorited Reports Section - Only show when not filtering by favorites */}
+          {filterBy !== 'favorites' && filteredReports.filter(r => favorites.has(r.id)).length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                <h2 className="text-xl font-semibold text-gray-900">Favori Raporlar</h2>
+                <span className="text-sm text-gray-500">
+                  ({filteredReports.filter(r => favorites.has(r.id)).length})
+                </span>
+              </div>
+              <div className={
+                viewMode === 'grid'
+                  ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+                  : "space-y-4"
+              }>
+                {filteredReports.filter(r => favorites.has(r.id)).map((report) => {
+                  const mainVisualizationType = getMainVisualizationType(report);
+                  const IconComponent = visualizationIconMap[mainVisualizationType] || FileText;
+
+                  if (viewMode === 'list') {
+                    return (
+                      <div
+                        key={report.id}
+                        onClick={() => handleReportClick(report.id)}
+                        className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="p-3 rounded-lg bg-blue-500 text-white flex-shrink-0">
+                            <IconComponent className="h-6 w-6" />
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate">
+                                {report.name}
+                              </h3>
+                              <Star className="h-4 w-4 text-yellow-500 fill-yellow-500 flex-shrink-0" />
+                            </div>
+
+                            <p className="text-sm text-gray-600 mb-2 line-clamp-2">{report.description}</p>
+
+                            <div className="flex items-center gap-4 text-sm text-gray-500">
+                              <div className="flex items-center gap-1">
+                                <Database className="h-4 w-4" />
+                                <span>{report.queries?.length || 0} Sorgu</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Calendar className="h-4 w-4" />
+                                <span>{new Date(report.created_at).toLocaleDateString('tr-TR')}</span>
+                              </div>
+                              {report.owner_name && (
+                                <div className="flex items-center gap-1">
+                                  <User className="h-4 w-4" />
+                                  <span>{report.owner_name}</span>
+                                </div>
+                              )}
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                report.is_public
+                                  ? "bg-blue-100 text-blue-800"
+                                  : "bg-gray-100 text-gray-800"
+                              }`}>
+                                {report.is_public ? (
+                                  <>
+                                    <Eye className="h-3 w-3 mr-1" />
+                                    Herkese Açık
+                                  </>
+                                ) : (
+                                  <>
+                                    <EyeOff className="h-3 w-3 mr-1" />
+                                    Özel
+                                  </>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => handleToggleFavorite(report, e)}
+                              className="p-2 text-gray-400 hover:text-yellow-500 transition-colors"
+                              title="Favorilerden çıkar"
+                            >
+                              <Star className="h-4 w-4 fill-yellow-500 text-yellow-500" />
+                            </button>
+                            <button
+                              onClick={(e) => handleEditReport(report, e)}
+                              className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                              title="Düzenle"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={(e) => handleDeleteReport(report, e)}
+                              className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                              title="Sil"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={report.id}
+                      onClick={() => handleReportClick(report.id)}
+                      className="bg-white rounded-lg shadow-lg shadow-slate-200 p-6 hover:shadow-lg transition-all cursor-pointer group relative"
+                    >
+                      <div className="absolute top-3 right-3">
+                        <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                      </div>
+
+                      <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => handleToggleFavorite(report, e)}
+                          className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-yellow-500 transition-colors"
+                          title="Favorilerden çıkar"
+                        >
+                          <Star className="h-4 w-4 fill-yellow-500 text-yellow-500" />
+                        </button>
+                        <button
+                          onClick={(e) => handleEditReport(report, e)}
+                          className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-blue-500 transition-colors"
+                          title="Düzenle"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={(e) => handleDeleteReport(report, e)}
+                          className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-red-500 transition-colors"
+                          title="Sil"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="p-3 rounded-lg bg-blue-500 text-white">
+                          <IconComponent className="h-6 w-6" />
+                        </div>
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          report.is_public
+                            ? "bg-blue-100 text-blue-800"
+                            : "bg-gray-100 text-gray-800"
+                        }`}>
+                          {report.is_public ? (
+                            <>
+                              <Eye className="h-3 w-3 mr-1" />
+                              Herkese Açık
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="h-3 w-3 mr-1" />
+                              Özel
+                            </>
+                          )}
+                        </span>
+                      </div>
+
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                        {report.name}
+                      </h3>
+
+                      <p className="text-sm text-gray-600 mb-4 line-clamp-2">{report.description}</p>
+
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-4 w-4" />
+                          <span>{new Date(report.created_at).toLocaleDateString('tr-TR')}</span>
+                        </div>
+                        {report.owner_name && (
+                          <div className="flex items-center gap-1">
+                            <User className="h-4 w-4" />
+                            <span>{report.owner_name}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Other Reports Section */}
+          {(filterBy !== 'favorites' ? filteredReports.filter(r => !favorites.has(r.id)) : filteredReports).length > 0 && (
+            <div className="space-y-4">
+              {filterBy !== 'favorites' && filteredReports.filter(r => favorites.has(r.id)).length > 0 && (
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-gray-600" />
+                  <h2 className="text-xl font-semibold text-gray-900">Diğer Raporlar</h2>
+                  <span className="text-sm text-gray-500">
+                    ({filteredReports.filter(r => !favorites.has(r.id)).length})
+                  </span>
+                </div>
+              )}
+              <div className={
+                viewMode === 'grid'
+                  ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+                  : "space-y-4"
+              }>
+                {(filterBy !== 'favorites' ? filteredReports.filter(r => !favorites.has(r.id)) : filteredReports).map((report) => {
             const mainVisualizationType = getMainVisualizationType(report);
             const IconComponent = visualizationIconMap[mainVisualizationType] || FileText;
             
@@ -563,6 +778,9 @@ export default function ReportsPage() {
               </div>
             );
           })}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="text-center py-12">
