@@ -2639,6 +2639,71 @@ export default function EditReportPage() {
                                 />
                               )}
 
+                              {/* Tooltip Configuration - Available for all chart types */}
+                              {(query.visualization.type as string !== 'table' && query.visualization.type as string !== 'expandable') && (
+                                <div className="space-y-3 p-3 bg-blue-50/50 rounded-lg border border-blue-200 mt-4">
+                                  <Label className="text-sm font-semibold">Tooltip Yapılandırması</Label>
+
+                                  <div className="space-y-2">
+                                    <Label className="text-xs">Tooltip'te Gösterilecek Alanlar</Label>
+                                    <div className="space-y-2 max-h-32 overflow-y-auto">
+                                      {availableFields.map((field) => (
+                                        <div key={field} className="flex items-center space-x-2">
+                                          <Checkbox
+                                            id={`tooltip-${field}-${query.id}`}
+                                            checked={query.visualization.chartOptions?.tooltipFields?.includes(field) ?? false}
+                                            onCheckedChange={(checked) => {
+                                              const currentFields = query.visualization.chartOptions?.tooltipFields || []
+                                              const newFields = checked
+                                                ? [...currentFields, field]
+                                                : currentFields.filter(f => f !== field)
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  tooltipFields: newFields
+                                                }
+                                              })
+                                            }}
+                                          />
+                                          <Label htmlFor={`tooltip-${field}-${query.id}`} className="text-xs">
+                                            {field}
+                                          </Label>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* Field Display Names */}
+                                  {(query.visualization.chartOptions?.tooltipFields?.length ?? 0) > 0 && (
+                                    <div className="space-y-2">
+                                      <Label className="text-xs">Alan Görünen Adları</Label>
+                                      {query.visualization.chartOptions?.tooltipFields?.map((field: string) => (
+                                        <div key={field} className="flex items-center space-x-2">
+                                          <span className="text-xs text-slate-600 w-20 flex-shrink-0">{field}:</span>
+                                          <Input
+                                            value={query.visualization.chartOptions?.fieldDisplayNames?.[field] || field}
+                                            onChange={(e) => {
+                                              const currentDisplayNames = query.visualization.chartOptions?.fieldDisplayNames || {}
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  fieldDisplayNames: {
+                                                    ...currentDisplayNames,
+                                                    [field]: e.target.value
+                                                  }
+                                                }
+                                              })
+                                            }}
+                                            placeholder={`${field} için görünen ad`}
+                                            className="text-xs h-8"
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
                               {/* Common Options */}
                               <div className="flex items-center space-x-4 pt-2">
                                 <div className="flex items-center space-x-2">

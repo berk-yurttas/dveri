@@ -15,9 +15,82 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
   const [nestedData, setNestedData] = useState<any>(null)
   const [loadingNested, setLoadingNested] = useState(false)
   const [showNested, setShowNested] = useState(false)
+  const [hoveredBarKey, setHoveredBarKey] = useState<string | null>(null)
+  const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null)
 
-  // Convert data to format suitable for charts
-  const chartData = data.map(row => {
+  // Custom Tooltip Component
+  const CustomTooltip = ({ active, payload, coordinate }: any) => {
+    if (!active || !payload || !payload.length) return null
+
+    const tooltipFields = visualization.chartOptions?.tooltipFields || []
+    const fieldDisplayNames = visualization.chartOptions?.fieldDisplayNames || {}
+
+    if (tooltipFields.length === 0) {
+      // Default behavior - show default tooltip
+      return null
+    }
+
+    // Use hoveredBarKey if available, otherwise fall back to payload detection
+    let dataKey: string
+    let dataPoint: any
+
+    if (hoveredBarKey) {
+      // Use the tracked hovered bar key
+      dataKey = hoveredBarKey
+      dataPoint = payload[0].payload
+    } else {
+      // Fallback: Find the bar that's actually being hovered (not line overlay)
+      const yAxisField = visualization.yAxis || columns[1]
+      const hoveredBar = payload.find((p: any) => {
+        const key = p.dataKey as string
+        return key.startsWith(yAxisField + '_')
+      }) || payload[0]
+
+      dataKey = hoveredBar.dataKey as string
+      dataPoint = hoveredBar.payload
+    }
+
+    // Extract the bar index from the dataKey (e.g., "age_1" -> index 0)
+    const barIndexMatch = dataKey.match(/_(\d+)$/)
+    const barIndex = barIndexMatch ? parseInt(barIndexMatch[1]) - 1 : 0
+
+    // Get the original item data for this specific bar
+    const originalItems = dataPoint._items || []
+    const originalItem = originalItems[barIndex] || dataPoint
+
+    return (
+      <div
+        style={{
+          backgroundColor: 'white',
+          border: '1px solid #e5e7eb',
+          borderRadius: '12px',
+          boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+          padding: '12px'
+        }}
+      >
+        {tooltipFields.map((field: string) => {
+          const displayName = fieldDisplayNames[field] || field
+          const value = originalItem[field]
+
+          return (
+            <div key={field} style={{ marginBottom: '4px' }}>
+              <span style={{ fontWeight: 600, color: '#374151' }}>{displayName}: </span>
+              <span style={{ color: '#6B7280' }}>{value !== null && value !== undefined ? String(value) : 'N/A'}</span>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  // Convert data to format suitable for grouped bar charts
+  const xAxisField = visualization.xAxis || columns[0]
+  const yAxisField = visualization.yAxis || columns[1]
+
+  // Group data by x-axis value - each group will have multiple bars
+  const groupedData = new Map<string, any[]>()
+
+  data.forEach(row => {
     const item: any = {}
     columns.forEach((col, index) => {
       const value = row[index]
@@ -26,8 +99,57 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
         ? Number(value)
         : value
     })
-    return item
+
+    const xValue = String(item[xAxisField])
+    if (!groupedData.has(xValue)) {
+      groupedData.set(xValue, [])
+    }
+    groupedData.get(xValue)!.push(item)
   })
+
+  // Transform grouped data into format for grouped bar chart
+  // Each x-axis label becomes one data point with multiple y-values
+  const chartData = Array.from(groupedData.entries()).map(([xValue, items]) => {
+    const dataPoint: any = { [xAxisField]: xValue }
+
+    // Store all original items for tooltip access (using _items to avoid conflicts)
+    dataPoint._items = items
+
+    // Add each item as a separate bar in the group
+    items.forEach((item, index) => {
+      const barKey = `${yAxisField}_${index + 1}`
+      dataPoint[barKey] = item[yAxisField]
+
+      // Also store line overlay data if present
+      if (visualization.chartOptions?.lineYAxis) {
+        const lineKey = `${visualization.chartOptions.lineYAxis}_${index + 1}`
+        dataPoint[lineKey] = item[visualization.chartOptions.lineYAxis]
+      }
+    })
+
+    // Preserve common fields from the first item for backward compatibility
+    if (items.length > 0) {
+      columns.forEach(col => {
+        // Don't overwrite already set keys
+        if (!(col in dataPoint)) {
+          dataPoint[col] = items[0][col]
+        }
+      })
+    }
+
+    return dataPoint
+  })
+
+  // Get all unique bar keys for rendering
+  const maxBarsPerGroup = Math.max(...Array.from(groupedData.values()).map(items => items.length))
+  const barKeys = Array.from({ length: maxBarsPerGroup }, (_, i) => `${yAxisField}_${i + 1}`)
+
+  // Calculate dynamic bar gap based on grouping
+  // If all groups have only 1 bar, use larger gap (single bars)
+  // If groups have multiple bars, use smaller gap (grouped bars)
+  const allSingleBars = Array.from(groupedData.values()).every(items => items.length === 1)
+  const barCategoryGap = allSingleBars ? '40%' : '20%'
+  const barGap = allSingleBars ? 8 : 4
 
   // Calculate dynamic XAxis height based on longest label
   const calculateXAxisHeight = () => {
@@ -249,8 +371,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 }}
                 cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
               />
-              <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
-              <Bar
+                <Bar
                 yAxisId="left"
                 dataKey={yAxisField}
                 fill={colors[0]}
@@ -306,16 +427,20 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               label={{ value: yAxisField, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
             />
             <Tooltip
-              contentStyle={{
+              content={(visualization.chartOptions?.tooltipFields?.length ?? 0) > 0 ? <CustomTooltip /> : undefined}
+              contentStyle={(visualization.chartOptions?.tooltipFields?.length ?? 0) === 0 ? {
                 backgroundColor: 'white',
                 border: '1px solid #e5e7eb',
                 borderRadius: '12px',
                 boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
                 padding: '12px'
-              }}
+              } : undefined}
               cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              wrapperStyle={{ pointerEvents: 'none' }}
+              isAnimationActive={false}
+              offset={10}
             />
-            <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
             <Bar dataKey={yAxisField} fill={colors[0]} radius={[8, 8, 0, 0]} maxBarSize={60}>
               {nestedChartData.map((entry: any, index: number) => (
                 <Cell key={`cell-${index}`} fill={`url(#nestedGradient${index % colors.length})`} />
@@ -340,16 +465,20 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               label={{ value: yAxisField, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
             />
             <Tooltip
-              contentStyle={{
+              content={(visualization.chartOptions?.tooltipFields?.length ?? 0) > 0 ? <CustomTooltip /> : undefined}
+              contentStyle={(visualization.chartOptions?.tooltipFields?.length ?? 0) === 0 ? {
                 backgroundColor: 'white',
                 border: '1px solid #e5e7eb',
                 borderRadius: '12px',
                 boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
                 padding: '12px'
-              }}
+              } : undefined}
               cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              wrapperStyle={{ pointerEvents: 'none' }}
+              isAnimationActive={false}
+              offset={10}
             />
-            <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
             <Line type="monotone" dataKey={yAxisField} stroke={colors[0]} strokeWidth={2} dot={{ r: 4 }} />
           </LineChart>
         )
@@ -376,16 +505,20 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               label={{ value: yAxisField, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
             />
             <Tooltip
-              contentStyle={{
+              content={(visualization.chartOptions?.tooltipFields?.length ?? 0) > 0 ? <CustomTooltip /> : undefined}
+              contentStyle={(visualization.chartOptions?.tooltipFields?.length ?? 0) === 0 ? {
                 backgroundColor: 'white',
                 border: '1px solid #e5e7eb',
                 borderRadius: '12px',
                 boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
                 padding: '12px'
-              }}
+              } : undefined}
               cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              wrapperStyle={{ pointerEvents: 'none' }}
+              isAnimationActive={false}
+              offset={10}
             />
-            <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
             <Area type="monotone" dataKey={yAxisField} fill="url(#areaGradient)" stroke={colors[0]} strokeWidth={2} />
           </AreaChart>
         )
@@ -427,7 +560,6 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 padding: '12px'
               }}
             />
-            <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
           </PieChart>
         )
       }
@@ -490,7 +622,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
     return (
       <div style={{ width: '100%', height: '100%', minHeight: '200px' }}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{ top: 20, right: 50, left: 0, bottom: bottomMargin }}>
+          <ComposedChart data={chartData} margin={{ top: 20, right: 50, left: 0, bottom: bottomMargin }} barCategoryGap={barCategoryGap} barGap={barGap}>
             <defs>
               {colors.map((color, i) => {
                 const darkColor = color.replace(/[0-9A-Fa-f]{2}/, (match) =>
@@ -530,43 +662,63 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               label={{ value: visualization.chartOptions.lineYAxis, angle: 90, position: 'insideRight', style: { textAnchor: 'middle' } }}
             />
             <Tooltip
-              contentStyle={{
+              content={(visualization.chartOptions?.tooltipFields?.length ?? 0) > 0 ? <CustomTooltip /> : undefined}
+              contentStyle={(visualization.chartOptions?.tooltipFields?.length ?? 0) === 0 ? {
                 backgroundColor: 'white',
                 border: '1px solid #e5e7eb',
                 borderRadius: '12px',
                 boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
                 padding: '12px'
-              }}
+              } : undefined}
               cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              wrapperStyle={{ pointerEvents: 'none' }}
+              isAnimationActive={false}
+              offset={10}
             />
-            <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
-            <Bar
-              yAxisId="left"
-              dataKey={visualization.yAxis || columns[1]}
-              fill={colors[0]}
-              name={visualization.yAxis || columns[1]}
-              onClick={isClickable ? handleBarClick : undefined}
-              cursor={isClickable ? 'pointer' : 'default'}
-              radius={[8, 8, 0, 0]}
-              maxBarSize={60}
-            >
-              {chartData.map((entry, index) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={`url(#colorGradient${index % colors.length})`}
+            {barKeys.map((barKey, barIndex) => (
+              <Bar
+                key={barKey}
+                yAxisId="left"
+                dataKey={barKey}
+                fill={colors[barIndex % colors.length]}
+                name={`${visualization.yAxis || columns[1]} ${barIndex + 1}`}
+                onClick={isClickable ? handleBarClick : undefined}
+                cursor={isClickable ? 'pointer' : 'default'}
+                radius={[8, 8, 0, 0]}
+                maxBarSize={60}
+                onMouseEnter={() => setHoveredBarKey(barKey)}
+                onMouseLeave={() => setHoveredBarKey(null)}
+              >
+                {chartData.map((entry, index) => {
+                  // For single bars, use different color for each x-axis category
+                  // For grouped bars, use the same color for all items in the same bar group
+                  const colorIndex = allSingleBars ? index % colors.length : barIndex % colors.length
+                  return (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={`url(#colorGradient${colorIndex})`}
+                    />
+                  )
+                })}
+              </Bar>
+            ))}
+            {Array.from({ length: maxBarsPerGroup }, (_, i) => i + 1).map((lineIndex, idx) => {
+              const lineKey = `${visualization.chartOptions.lineYAxis}_${lineIndex}`
+              return (
+                <Line
+                  key={lineKey}
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey={lineKey}
+                  stroke={colors[(barKeys.length + idx) % colors.length] || '#10B981'}
+                  strokeWidth={3}
+                  dot={{ r: 4, fill: colors[(barKeys.length + idx) % colors.length] || '#10B981' }}
+                  activeDot={{ r: 6 }}
+                  name={`${visualization.chartOptions.lineYAxis} ${lineIndex}`}
                 />
-              ))}
-            </Bar>
-            <Line
-              yAxisId="right"
-              type="monotone"
-              dataKey={visualization.chartOptions.lineYAxis}
-              stroke={colors[1] || '#10B981'}
-              strokeWidth={3}
-              dot={{ r: 4, fill: colors[1] || '#10B981' }}
-              activeDot={{ r: 6 }}
-              name={visualization.chartOptions.lineYAxis}
-            />
+              )
+            })}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -576,7 +728,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: '200px' }}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: bottomMargin }}>
+        <BarChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: bottomMargin }} barCategoryGap={barCategoryGap} barGap={barGap}>
           <defs>
             {colors.map((color, i) => {
               // Create gradient for each color
@@ -608,31 +760,46 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
             label={{ value: visualization.yAxis || columns[1], angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
           />
           <Tooltip
-            contentStyle={{
+            content={(visualization.chartOptions?.tooltipFields?.length ?? 0) > 0 ? <CustomTooltip /> : undefined}
+            contentStyle={(visualization.chartOptions?.tooltipFields?.length ?? 0) === 0 ? {
               backgroundColor: 'white',
               border: '1px solid #e5e7eb',
               borderRadius: '12px',
               boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
               padding: '12px'
-            }}
+            } : undefined}
             cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+            allowEscapeViewBox={{ x: true, y: true }}
+            wrapperStyle={{ pointerEvents: 'none' }}
+            isAnimationActive={false}
+            offset={10}
           />
-          <Bar
-            dataKey={visualization.yAxis || columns[1]}
-            fill={colors[0]}
-            name={visualization.yAxis || columns[1]}
-            onClick={isClickable ? handleBarClick : undefined}
-            cursor={isClickable ? 'pointer' : 'default'}
-            radius={[8, 8, 0, 0]}
-            maxBarSize={60}
-          >
-            {chartData.map((entry, index) => (
-              <Cell
-                key={`cell-${index}`}
-                fill={`url(#colorGradient${index % colors.length})`}
-              />
-            ))}
-          </Bar>
+          {barKeys.map((barKey, barIndex) => (
+            <Bar
+              key={barKey}
+              dataKey={barKey}
+              fill={colors[barIndex % colors.length]}
+              name={`${visualization.yAxis || columns[1]} ${barIndex + 1}`}
+              onClick={isClickable ? handleBarClick : undefined}
+              cursor={isClickable ? 'pointer' : 'default'}
+              radius={[8, 8, 0, 0]}
+              maxBarSize={60}
+              onMouseEnter={() => setHoveredBarKey(barKey)}
+              onMouseLeave={() => setHoveredBarKey(null)}
+            >
+              {chartData.map((entry, index) => {
+                // For single bars, use different color for each x-axis category
+                // For grouped bars, use the same color for all items in the same bar group
+                const colorIndex = allSingleBars ? index % colors.length : barIndex % colors.length
+                return (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={`url(#colorGradient${colorIndex})`}
+                  />
+                )
+              })}
+            </Bar>
+          ))}
         </BarChart>
       </ResponsiveContainer>
     </div>
