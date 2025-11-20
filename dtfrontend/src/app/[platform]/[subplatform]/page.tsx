@@ -25,6 +25,7 @@ import { useUser } from "@/contexts/user-context";
 import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
+import { Feedback } from "@/components/feedback/feedback";
 
 interface PreviewResponse {
   data?: any[] | null;
@@ -1160,6 +1161,9 @@ export default function SubPlatformPage() {
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
+      
+      {/* Feedback Button */}
+      <Feedback />
     </div>
   );
 }

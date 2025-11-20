@@ -45,6 +45,7 @@ import 'react-resizable/css/styles.css'
 
 // Note: Recharts imports kept for potential direct use in table/expandable visualizations if needed
 import { MirasAssistant } from '@/components/chatbot/miras-assistant'
+import { Feedback } from '@/components/feedback/feedback'
 import {
   BarVisualization,
   LineVisualization,
@@ -2624,6 +2625,9 @@ export default function ReportDetailPage() {
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
+      
+      {/* Feedback Button */}
+      <Feedback />
     </div>
   )
 }

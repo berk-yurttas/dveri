@@ -55,6 +55,7 @@ import { useUser } from "@/contexts/user-context";
 import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
+import { Feedback } from "@/components/feedback/feedback";
 import DOMPurify from 'dompurify';
 
 // Icon mapping
@@ -857,6 +858,9 @@ export default function Home() {
       )}
       </div>
       <MirasAssistant />
+      
+      {/* Feedback Button */}
+      <Feedback />
     </div>
   );
 }
