@@ -58,22 +58,54 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
     const originalItems = dataPoint._items || []
     const originalItem = originalItems[barIndex] || dataPoint
 
+    // Get x-axis value for title
+    const xAxisValue = dataPoint[xAxisField]
+
+    // Get color for this bar
+    const itemsInThisGroup = dataPoint._items?.length || 1
+    const isSingleBarGroup = itemsInThisGroup === 1
+    const xAxisDataIndex = chartData.findIndex(d => d[xAxisField] === xAxisValue)
+    const colorIndex = isSingleBarGroup ? xAxisDataIndex % colors.length : barIndex % colors.length
+    const barColor = colors[colorIndex % colors.length]
+
     return (
       <div
         style={{
           backgroundColor: 'white',
           border: '1px solid #e5e7eb',
-          borderRadius: '12px',
-          boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
-          padding: '12px'
+          borderRadius: '8px',
+          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+          padding: '8px',
+          transform: 'translateX(-100%)',
+          marginLeft: '-10px',
+          fontSize: '11px'
         }}
       >
+        {/* X-axis value as title */}
+        <div style={{
+          fontWeight: 700,
+          color: '#111827',
+          marginBottom: '6px',
+          paddingBottom: '4px',
+          borderBottom: '1px solid #e5e7eb',
+          fontSize: '12px'
+        }}>
+          {String(xAxisValue).substring(0, 20)}
+        </div>
+
         {tooltipFields.map((field: string) => {
           const displayName = fieldDisplayNames[field] || field
           const value = originalItem[field]
 
           return (
-            <div key={field} style={{ marginBottom: '4px' }}>
+            <div key={field} style={{ marginBottom: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '1px',
+                backgroundColor: barColor,
+                flexShrink: 0
+              }} />
               <span style={{ fontWeight: 600, color: '#374151' }}>{displayName}: </span>
               <span style={{ color: '#6B7280' }}>{value !== null && value !== undefined ? String(value) : 'N/A'}</span>
             </div>
@@ -145,11 +177,11 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
   const barKeys = Array.from({ length: maxBarsPerGroup }, (_, i) => `${yAxisField}_${i + 1}`)
 
   // Calculate dynamic bar gap based on grouping
-  // If all groups have only 1 bar, use larger gap (single bars)
-  // If groups have multiple bars, use smaller gap (grouped bars)
+  // If all groups have only 1 bar, use smaller gap (single bars)
+  // If groups have multiple bars, use minimal gap (grouped bars)
   const allSingleBars = Array.from(groupedData.values()).every(items => items.length === 1)
-  const barCategoryGap = allSingleBars ? '40%' : '20%'
-  const barGap = allSingleBars ? 8 : 4
+  const barCategoryGap = allSingleBars ? '5%' : '2%'
+  const barGap = allSingleBars ? 1 : 1
 
   // Calculate dynamic XAxis height based on longest label
   const calculateXAxisHeight = () => {
@@ -377,7 +409,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 fill={colors[0]}
                 name={yAxisField}
                 radius={[8, 8, 0, 0]}
-                maxBarSize={60}
+                maxBarSize={120}
               >
                 {nestedChartData.map((entry: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={`url(#nestedGradient${index % colors.length})`} />
@@ -443,7 +475,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
             />
             <Bar dataKey={yAxisField} fill={colors[0]} radius={[8, 8, 0, 0]} maxBarSize={60}>
               {nestedChartData.map((entry: any, index: number) => (
-                <Cell key={`cell-${index}`} fill={`url(#nestedGradient${index % colors.length})`} />
+                <Cell key={`cell-${index}`} fill={`url(#nestedGradient0)`} />
               ))}
             </Bar>
           </BarChart>
@@ -637,6 +669,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               })}
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <Legend />
             <XAxis
               dataKey={visualization.xAxis || columns[0]}
               stroke="#6b7280"
@@ -682,18 +715,23 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 yAxisId="left"
                 dataKey={barKey}
                 fill={colors[barIndex % colors.length]}
-                name={`${visualization.yAxis || columns[1]} ${barIndex + 1}`}
+                name={visualization.yAxis || columns[1]}
+                legendType={barIndex > 0 ? "none" : undefined}
                 onClick={isClickable ? handleBarClick : undefined}
                 cursor={isClickable ? 'pointer' : 'default'}
                 radius={[8, 8, 0, 0]}
-                maxBarSize={60}
+                maxBarSize={120}
                 onMouseEnter={() => setHoveredBarKey(barKey)}
                 onMouseLeave={() => setHoveredBarKey(null)}
               >
                 {chartData.map((entry, index) => {
-                  // For single bars, use different color for each x-axis category
-                  // For grouped bars, use the same color for all items in the same bar group
-                  const colorIndex = allSingleBars ? index % colors.length : barIndex % colors.length
+                  // Check if this specific group has only 1 item
+                  const itemsInThisGroup = entry._items?.length || 1
+                  const isSingleBarGroup = itemsInThisGroup === 1
+
+                  // For single bar groups, use single color (color 0)
+                  // For grouped bars, use consistent color based on bar position
+                  const colorIndex = isSingleBarGroup ? 0 : barIndex % colors.length
                   return (
                     <Cell
                       key={`cell-${index}`}
@@ -715,7 +753,8 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                   strokeWidth={3}
                   dot={{ r: 4, fill: colors[(barKeys.length + idx) % colors.length] || '#10B981' }}
                   activeDot={{ r: 6 }}
-                  name={`${visualization.chartOptions.lineYAxis} ${lineIndex}`}
+                  name={visualization.chartOptions.lineYAxis}
+                  legendType={idx > 0 ? "none" : "line"}
                 />
               )
             })}
@@ -744,6 +783,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
             })}
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <Legend />
           <XAxis
             dataKey={visualization.xAxis || columns[0]}
             stroke="#6b7280"
@@ -779,18 +819,24 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               key={barKey}
               dataKey={barKey}
               fill={colors[barIndex % colors.length]}
-              name={`${visualization.yAxis || columns[1]} ${barIndex + 1}`}
+              name={visualization.yAxis || columns[1]}
+              legendType={barIndex > 0 ? "none" : undefined}
               onClick={isClickable ? handleBarClick : undefined}
               cursor={isClickable ? 'pointer' : 'default'}
               radius={[8, 8, 0, 0]}
-              maxBarSize={60}
+              maxBarSize={80}
+              minPointSize={10}
               onMouseEnter={() => setHoveredBarKey(barKey)}
               onMouseLeave={() => setHoveredBarKey(null)}
             >
               {chartData.map((entry, index) => {
-                // For single bars, use different color for each x-axis category
-                // For grouped bars, use the same color for all items in the same bar group
-                const colorIndex = allSingleBars ? index % colors.length : barIndex % colors.length
+                // Check if this specific group has only 1 item
+                const itemsInThisGroup = entry._items?.length || 1
+                const isSingleBarGroup = itemsInThisGroup === 1
+
+                // For single bar groups, use single color (color 0)
+                // For grouped bars, use consistent color based on bar position
+                const colorIndex = isSingleBarGroup ? 0 : barIndex % colors.length
                 return (
                   <Cell
                     key={`cell-${index}`}

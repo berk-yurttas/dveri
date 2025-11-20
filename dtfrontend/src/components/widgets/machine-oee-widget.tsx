@@ -232,9 +232,10 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
     })).reverse() // Reverse to show chronological order
 
     const oeeValues = widgetData.map(item => item["OEE"] * 100)
-    avgOee = oeeValues.length > 0 ? oeeValues.reduce((sum, val) => sum + val, 0) / oeeValues.length : 0
-    maxOee = oeeValues.length > 0 ? Math.max(...oeeValues) : 0
-    minOee = oeeValues.length > 0 ? Math.min(...oeeValues) : 0
+    const filteredOeeValues = oeeValues.filter(val => val >= 5)
+    avgOee = filteredOeeValues.length > 0 ? filteredOeeValues.reduce((sum, val) => sum + val, 0) / filteredOeeValues.length : 0
+    maxOee = filteredOeeValues.length > 0 ? Math.max(...filteredOeeValues) : 0
+    minOee = filteredOeeValues.length > 0 ? Math.min(...filteredOeeValues) : 0
   } else {
     // Aggregated view: show average OEE per firma/machine combination
     const aggregated = new Map<string, { sum: number, count: number, firma: string, machine: string }>()
@@ -257,9 +258,10 @@ export function MachineOeeWidget({ widgetId }: MachineOeeWidgetProps) {
     }))
 
     const oeeValues = chartData.map(item => parseFloat(item.OEE))
-    avgOee = oeeValues.length > 0 ? oeeValues.reduce((sum, val) => sum + val, 0) / oeeValues.length : 0
-    maxOee = oeeValues.length > 0 ? Math.max(...oeeValues) : 0
-    minOee = oeeValues.length > 0 ? Math.min(...oeeValues) : 0
+    const filteredOeeValues = oeeValues.filter(val => val >= 5)
+    avgOee = filteredOeeValues.length > 0 ? filteredOeeValues.reduce((sum, val) => sum + val, 0) / filteredOeeValues.length : 0
+    maxOee = filteredOeeValues.length > 0 ? Math.max(...filteredOeeValues) : 0
+    minOee = filteredOeeValues.length > 0 ? Math.min(...filteredOeeValues) : 0
   }
 
   // Filter options based on search

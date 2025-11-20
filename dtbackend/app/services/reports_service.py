@@ -111,7 +111,8 @@ class ReportsService:
             is_public=report_data.is_public,
             tags=report_data.tags or [],
             global_filters=global_filters_json,
-            platform_id=platform.id if platform else None
+            platform_id=platform.id if platform else None,
+            color=report_data.color or "#3B82F6"
         )
         self.db.add(db_report)
         await self.db.flush()  # Get the report ID
@@ -244,6 +245,7 @@ class ReportsService:
             Report.created_at,
             Report.updated_at,
             Report.tags,
+            Report.color,
             func.count(ReportQuery.id).label('query_count')
         ).outerjoin(ReportQuery).group_by(
             Report.id,
@@ -253,7 +255,8 @@ class ReportsService:
             Report.owner_id,
             Report.created_at,
             Report.updated_at,
-            Report.tags
+            Report.tags,
+            Report.color
         ).where(
             and_(*filters)
         ).offset(skip).limit(limit)
@@ -289,7 +292,8 @@ class ReportsService:
                 'updated_at': row.updated_at,
                 'tags': row.tags,
                 'query_count': row.query_count,
-                'is_favorite': row.id in favorite_ids
+                'is_favorite': row.id in favorite_ids,
+                'color': row.color
             })
 
         return reports
@@ -322,6 +326,8 @@ class ReportsService:
             db_report.tags = report_data.tags
         if report_data.layout_config is not None:
             db_report.layout_config = report_data.layout_config
+        if report_data.color is not None:
+            db_report.color = report_data.color
 
         await self.db.commit()
         
@@ -362,6 +368,8 @@ class ReportsService:
             db_report.tags = report_data.tags
         if report_data.layout_config is not None:
             db_report.layout_config = report_data.layout_config
+        if report_data.color is not None:
+            db_report.color = report_data.color
 
         # Update global filters if provided
         if report_data.global_filters is not None:

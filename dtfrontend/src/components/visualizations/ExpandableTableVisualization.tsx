@@ -4,6 +4,7 @@ import { Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, ChevronDown, Loa
 import { QueryData, QueryResult } from './types'
 import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 import { reportsService } from '@/services/reports'
+import { RowColorRule } from '@/types/reports'
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -880,6 +881,51 @@ const NestedFilterInput = React.memo<{
   return true
 })
 
+// Helper function to evaluate row color rules and return text color
+const getRowTextColor = (
+  row: any[],
+  columns: string[],
+  rules?: RowColorRule[]
+): string | undefined => {
+  if (!rules || rules.length === 0) return undefined
+
+  for (const rule of rules) {
+    const columnIndex = columns.indexOf(rule.columnName)
+    if (columnIndex === -1) continue
+
+    const cellValue = row[columnIndex]
+    const ruleValue = typeof rule.value === 'string' ? parseFloat(rule.value) : rule.value
+    const numericCellValue = typeof cellValue === 'string' ? parseFloat(cellValue) : cellValue
+
+    // Evaluate condition based on operator
+    let matches = false
+    switch (rule.operator) {
+      case '>':
+        matches = numericCellValue > ruleValue
+        break
+      case '<':
+        matches = numericCellValue < ruleValue
+        break
+      case '>=':
+        matches = numericCellValue >= ruleValue
+        break
+      case '<=':
+        matches = numericCellValue <= ruleValue
+        break
+      case '=':
+        matches = numericCellValue === ruleValue
+        break
+      case '!=':
+        matches = numericCellValue !== ruleValue
+        break
+    }
+
+    if (matches) return rule.color
+  }
+
+  return undefined
+}
+
 export const ExpandableTableVisualization: React.FC<ExpandableTableVisualizationProps> = ({
   query,
   result,
@@ -1239,6 +1285,8 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                     const nestedRowKey = `${rowKey}_${originalIndex}`
                     const isNestedExpanded = expandedRows[nestedRowKey]
                     const nestedNested = nestedData[nestedRowKey]
+                    // Calculate row text color for nested row based on rules
+                    const nestedRowTextColor = getRowTextColor(nestedRow, nested.columns, query.visualization.chartOptions?.rowColorRules)
 
                     return (
                       <React.Fragment key={nestedRowIndex}>
@@ -1266,7 +1314,7 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                             const displayValue = cellValue.length > 100 ? cellValue.substring(0, 100) + '...' : cellValue
 
                             return (
-                              <td key={cellIndex} className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">
+                              <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: nestedRowTextColor || '#374151' }}>
                                 {displayValue}
                               </td>
                             )
@@ -1541,6 +1589,8 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
             const rowKey = `${query.id}_${rowIndex}`
             const isExpanded = expandedRows[rowKey]
             const nested = nestedData[rowKey]
+            // Calculate row text color based on rules
+            const rowTextColor = getRowTextColor(row, columns, query.visualization.chartOptions?.rowColorRules)
 
             return (
               <React.Fragment key={rowIndex}>
@@ -1561,7 +1611,7 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                     const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
 
                     return (
-                      <td key={cellIndex} className="px-3 py-2 text-xs text-gray-800 whitespace-nowrap">
+                      <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: rowTextColor || '#1f2937' }}>
                         <span>{displayValue}</span>
                       </td>
                     )

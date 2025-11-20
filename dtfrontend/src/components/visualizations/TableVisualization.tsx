@@ -1,6 +1,7 @@
 import React from 'react'
 import { Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { QueryData, QueryResult, FilterData } from './types'
+import { RowColorRule } from '@/types/reports'
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -352,6 +353,51 @@ const TableFilterInput = React.memo<{
   )
 })
 
+// Helper function to evaluate row color rules and return text color
+const getRowTextColor = (
+  row: any[],
+  columns: string[],
+  rules?: RowColorRule[]
+): string | undefined => {
+  if (!rules || rules.length === 0) return undefined
+
+  for (const rule of rules) {
+    const columnIndex = columns.indexOf(rule.columnName)
+    if (columnIndex === -1) continue
+
+    const cellValue = row[columnIndex]
+    const ruleValue = typeof rule.value === 'string' ? parseFloat(rule.value) : rule.value
+    const numericCellValue = typeof cellValue === 'string' ? parseFloat(cellValue) : cellValue
+
+    // Evaluate condition based on operator
+    let matches = false
+    switch (rule.operator) {
+      case '>':
+        matches = numericCellValue > ruleValue
+        break
+      case '<':
+        matches = numericCellValue < ruleValue
+        break
+      case '>=':
+        matches = numericCellValue >= ruleValue
+        break
+      case '<=':
+        matches = numericCellValue <= ruleValue
+        break
+      case '=':
+        matches = numericCellValue === ruleValue
+        break
+      case '!=':
+        matches = numericCellValue !== ruleValue
+        break
+    }
+
+    if (matches) return rule.color
+  }
+
+  return undefined
+}
+
 interface TableVisualizationProps {
   query: QueryData
   result: QueryResult
@@ -507,40 +553,45 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
-          {data.map((row, rowIndex) => (
-            <tr key={rowIndex} className="hover:bg-gray-50 transition-colors">
-              {row.map((cell, cellIndex) => {
-                const cellValue = cell?.toString() || ''
-                const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
-                const showTooltip = cellValue.length > 50
+          {data.map((row, rowIndex) => {
+            // Calculate row text color based on rules
+            const rowTextColor = getRowTextColor(row, columns, query.visualization.chartOptions?.rowColorRules)
 
-                // Insert line break every 50 characters
-                const formatTooltipText = (text: string) => {
-                  const chunks = []
-                  for (let i = 0; i < text.length; i += 50) {
-                    chunks.push(text.substring(i, i + 50))
+            return (
+              <tr key={rowIndex} className="hover:bg-gray-50 transition-colors">
+                {row.map((cell, cellIndex) => {
+                  const cellValue = cell?.toString() || ''
+                  const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
+                  const showTooltip = cellValue.length > 50
+
+                  // Insert line break every 50 characters
+                  const formatTooltipText = (text: string) => {
+                    const chunks = []
+                    for (let i = 0; i < text.length; i += 50) {
+                      chunks.push(text.substring(i, i + 50))
+                    }
+                    return chunks.join('\n')
                   }
-                  return chunks.join('\n')
-                }
 
-                return (
-                  <td key={cellIndex} className="px-3 py-2 text-xs text-gray-800 whitespace-nowrap">
-                    {showTooltip ? (
-                      <div className="relative group">
-                        <span className="cursor-help">{displayValue}</span>
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 max-w-xs whitespace-pre-wrap">
-                          {formatTooltipText(cellValue)}
-                          <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                  return (
+                    <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: rowTextColor || '#1f2937' }}>
+                      {showTooltip ? (
+                        <div className="relative group">
+                          <span className="cursor-help">{displayValue}</span>
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 max-w-xs whitespace-pre-wrap">
+                            {formatTooltipText(cellValue)}
+                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <span>{displayValue}</span>
-                    )}
-                  </td>
-                )
-              })}
-            </tr>
-          ))}
+                      ) : (
+                        <span>{displayValue}</span>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            )
+          })}
         </tbody>
       </table>
       </div>

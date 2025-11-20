@@ -1,0 +1,51 @@
+from pydantic import BaseModel, Field, RootModel
+from typing import Optional, Dict, Any
+from datetime import datetime
+
+
+# Config Schemas
+class ConfigBase(BaseModel):
+    config_key: str = Field(..., min_length=1, max_length=255, description="Configuration key identifier")
+    config_value: Dict[str, Any] = Field(..., description="Configuration value as JSON")
+    description: Optional[str] = Field(None, description="Description of this configuration")
+
+    class Config:
+        from_attributes = True
+
+
+class ConfigCreate(ConfigBase):
+    pass
+
+
+class ConfigUpdate(BaseModel):
+    config_value: Optional[Dict[str, Any]] = None
+    description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class Config(ConfigBase):
+    id: int
+    platform_id: Optional[int] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Specific Config Value Schemas for validation
+class ColorGroupConfig(BaseModel):
+    """Schema for color group configuration"""
+    name: str = Field(..., description="Display name for the color group")
+    description: Optional[str] = Field(None, description="Description of what this color represents")
+
+    class Config:
+        from_attributes = True
+
+
+# Pydantic v2 RootModel for color groups configuration
+# Key is the hex color code, value is ColorGroupConfig
+# Example: {"#FF6B6B": {"name": "Şirket", "description": "Company reports"}}
+ColorGroupsConfigValue = RootModel[Dict[str, ColorGroupConfig]]

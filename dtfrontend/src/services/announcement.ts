@@ -35,7 +35,7 @@ export const announcementService = {
   },
 
   async getAnnouncementById(id: number): Promise<Announcement> {
-    const response = await fetch(`${API_BASE_URL}/announcements/${id}/`, {
+    const response = await fetch(`${API_BASE_URL}/announcements/${id}`, {
       credentials: "include",
     });
 
@@ -64,7 +64,7 @@ export const announcementService = {
   },
 
   async updateAnnouncement(id: number, data: AnnouncementUpdate): Promise<Announcement> {
-    const response = await fetch(`${API_BASE_URL}/announcements/${id}/`, {
+    const response = await fetch(`${API_BASE_URL}/announcements/${id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -81,7 +81,7 @@ export const announcementService = {
   },
 
   async deleteAnnouncement(id: number): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/announcements/${id}/`, {
+    const response = await fetch(`${API_BASE_URL}/announcements/${id}`, {
       method: "DELETE",
       credentials: "include",
     });

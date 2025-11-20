@@ -122,6 +122,7 @@ class Report(PostgreSQLBase):
     tags = Column(ARRAY(String), default=[])
     global_filters = Column(JSONB, default=[])  # Global filters that apply to all queries
     layout_config = Column(JSONB, default=[])  # Grid layout configuration for queries
+    color = Column(String(50), default="#3B82F6")  # Report card border/theme color
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -216,7 +217,7 @@ class UserPlatform(PostgreSQLBase):
 class Announcement(PostgreSQLBase):
     """Announcement model for displaying news and updates"""
     __tablename__ = "announcements"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     title = Column(Text, nullable=False)
     month_title = Column(Text, nullable=True)  # e.g., "Kasım", "Aralık"
@@ -226,6 +227,28 @@ class Announcement(PostgreSQLBase):
     creation_date = Column(DateTime(timezone=True), server_default=func.now())
     expire_date = Column(DateTime(timezone=True), nullable=True)
     platform_id = Column(Integer, ForeignKey("platforms.id", ondelete="SET NULL"), nullable=True, index=True)
-    
+
     # Relationships
     platform = relationship("Platform", backref="announcements")
+
+
+class Config(PostgreSQLBase):
+    """Configuration model for storing application settings"""
+    __tablename__ = "configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    platform_id = Column(Integer, ForeignKey("platforms.id", ondelete="CASCADE"), nullable=True, index=True)
+    config_key = Column(String(255), nullable=False, index=True)  # e.g., "color_groups", "report_settings"
+    config_value = Column(JSONB, nullable=False)  # Store settings as JSON
+    # Example config_value for color_groups:
+    # {
+    #   "#FF6B6B": {"name": "Şirket", "description": "Company reports"},
+    #   "#3B82F6": {"name": "Kişisel", "description": "Personal reports"},
+    #   "#10B981": {"name": "Finansal", "description": "Financial reports"}
+    # }
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    platform = relationship("Platform", backref="configs")

@@ -24,12 +24,16 @@ import {
   AreaChart,
   ScatterChart,
   Edit,
-  User
+  User,
+  Settings,
+  Save,
+  X
 } from "lucide-react";
 import { reportsService } from "@/services/reports";
 import { SavedReport } from "@/types/reports";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 import { DeleteModal } from "@/components/ui/delete-modal";
+import configService, { ColorGroupsMapping } from "@/services/config";
 
 // Icon mapping for visualization types
 const visualizationIconMap: { [key: string]: any } = {
@@ -78,9 +82,33 @@ export default function ReportsPage() {
   const [reportToDelete, setReportToDelete] = useState<SavedReport | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Color groups config state
+  const [colorGroups, setColorGroups] = useState<ColorGroupsMapping>({});
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [editingColorGroups, setEditingColorGroups] = useState<ColorGroupsMapping>({});
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Fetch color groups configuration
+  useEffect(() => {
+    if (!mounted) return;
+
+    const fetchColorGroups = async () => {
+      try {
+        const groups = await configService.getColorGroups();
+        console.log("Fetched color groups:", groups);
+        setColorGroups(groups);
+      } catch (err) {
+        console.error("Failed to fetch color groups:", err);
+        // Continue without color groups if fetch fails
+      }
+    };
+
+    fetchColorGroups();
+  }, [mounted]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -243,6 +271,46 @@ export default function ReportsPage() {
     return report.queries[0].visualization?.type || 'table';
   };
 
+  const handleOpenSettings = () => {
+    // Get distinct colors from current reports
+    const distinctColors = Array.from(new Set(reports.map(r => r.color || '#3B82F6')));
+
+    // Initialize editing state with current color groups
+    const initialGroups: ColorGroupsMapping = {};
+    distinctColors.forEach(color => {
+      initialGroups[color] = colorGroups[color] || { name: '', description: '' };
+    });
+
+    setEditingColorGroups(initialGroups);
+    setSettingsModalOpen(true);
+  };
+
+  const handleSaveSettings = async () => {
+    setIsSavingSettings(true);
+    try {
+      await configService.updateColorGroups(editingColorGroups);
+      // Refetch from DB to ensure we have the latest saved data
+      const updatedGroups = await configService.getColorGroups();
+      setColorGroups(updatedGroups);
+      setSettingsModalOpen(false);
+    } catch (err) {
+      console.error("Failed to save color groups:", err);
+      setError("Renk grupları kaydedilemedi");
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const handleColorGroupChange = (color: string, field: 'name' | 'description', value: string) => {
+    setEditingColorGroups(prev => ({
+      ...prev,
+      [color]: {
+        ...prev[color],
+        [field]: value
+      }
+    }));
+  };
+
   if (!mounted || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -259,9 +327,18 @@ export default function ReportsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Raporlar - {subplatform ? subplatform.charAt(0).toUpperCase() + subplatform.slice(1) : ''}</h1>
-          <p className="text-gray-600 mt-1">Tüm raporlarınızı görüntüleyin ve yönetin</p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Raporlar - {subplatform ? subplatform.charAt(0).toUpperCase() + subplatform.slice(1) : ''}</h1>
+            <p className="text-gray-600 mt-1">Tüm raporlarınızı görüntüleyin ve yönetin</p>
+          </div>
+          <button
+            onClick={handleOpenSettings}
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Renk Gruplarını Ayarla"
+          >
+            <Settings className="h-5 w-5" />
+          </button>
         </div>
         <button
           onClick={handleCreateReport}
@@ -391,6 +468,49 @@ export default function ReportsPage() {
         )}
       </div>
 
+      {/* Color Legend */}
+      {reports.length > 0 && (() => {
+        const distinctColors = Array.from(new Set(reports.map(r => r.color || '#3B82F6')));
+        const colorCounts = distinctColors.map(color => {
+          console.log(`Color ${color} mapping:`, colorGroups[color]);
+          return {
+            color,
+            count: reports.filter(r => (r.color || '#3B82F6') === color).length,
+            groupName: colorGroups[color]?.name,
+            groupDescription: colorGroups[color]?.description
+          };
+        });
+
+        return (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-medium text-gray-700">Rapor Grupları:</span>
+              {colorCounts.map(({ color, count, groupName, groupDescription }) => (
+                <div
+                  key={color}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors cursor-pointer"
+                  style={{ borderLeft: `4px solid ${color}` }}
+                  title={groupDescription || `${count} rapor`}
+                >
+                  <div
+                    className="w-4 h-4 rounded-full"
+                    style={{ backgroundColor: color }}
+                  />
+                  {groupName ? (
+                    <>
+                      <span className="text-sm font-medium text-gray-700">{groupName}</span>
+                      <span className="text-xs text-gray-500">({count})</span>
+                    </>
+                  ) : (
+                    <span className="text-xs text-gray-600">{count} rapor</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Results Count */}
       <div className="flex items-center justify-between text-sm text-gray-600">
         <span>
@@ -426,10 +546,11 @@ export default function ReportsPage() {
                       <div
                         key={report.id}
                         onClick={() => handleReportClick(report.id)}
-                        className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all cursor-pointer group"
+                        className="bg-white rounded-lg p-4 hover:shadow-md transition-all cursor-pointer group border-l-4"
+                        style={{ borderLeftColor: report.color || '#3B82F6' }}
                       >
                         <div className="flex items-center gap-4">
-                          <div className="p-3 rounded-lg bg-blue-500 text-white flex-shrink-0">
+                          <div className="p-3 rounded-lg text-white flex-shrink-0" style={{ backgroundColor: report.color || '#3B82F6' }}>
                             <IconComponent className="h-6 w-6" />
                           </div>
 
@@ -510,7 +631,8 @@ export default function ReportsPage() {
                     <div
                       key={report.id}
                       onClick={() => handleReportClick(report.id)}
-                      className="bg-white rounded-lg shadow-lg shadow-slate-200 p-6 hover:shadow-lg transition-all cursor-pointer group relative"
+                      className="bg-white rounded-lg shadow-lg shadow-slate-200 p-6 hover:shadow-lg transition-all cursor-pointer group relative border-l-4"
+                      style={{ borderLeftColor: report.color || '#3B82F6' }}
                     >
                       <div className="absolute top-3 right-3">
                         <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
@@ -541,7 +663,7 @@ export default function ReportsPage() {
                       </div>
 
                       <div className="flex items-start justify-between mb-4">
-                        <div className="p-3 rounded-lg bg-blue-500 text-white">
+                        <div className="p-3 rounded-lg text-white" style={{ backgroundColor: report.color || '#3B82F6' }}>
                           <IconComponent className="h-6 w-6" />
                         </div>
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
@@ -614,10 +736,11 @@ export default function ReportsPage() {
                 <div
                   key={report.id}
                   onClick={() => handleReportClick(report.id)}
-                  className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all cursor-pointer group"
+                  className="bg-white rounded-lg p-4 hover:shadow-md transition-all cursor-pointer group border-l-4"
+                  style={{ borderLeftColor: report.color || '#3B82F6' }}
                 >
                   <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-lg bg-blue-500 text-white flex-shrink-0">
+                    <div className="p-3 rounded-lg text-white flex-shrink-0" style={{ backgroundColor: report.color || '#3B82F6' }}>
                       <IconComponent className="h-6 w-6" />
                     </div>
                     
@@ -700,7 +823,8 @@ export default function ReportsPage() {
               <div
                 key={report.id}
                 onClick={() => handleReportClick(report.id)}
-                className="bg-white rounded-lg shadow-lg shadow-slate-200 p-6 hover:shadow-lg transition-all cursor-pointer group relative"
+                className="bg-white rounded-lg shadow-lg shadow-slate-200 p-6 hover:shadow-lg transition-all cursor-pointer group relative border-l-4"
+                style={{ borderLeftColor: report.color || '#3B82F6' }}
               >
                 {/* Favorite Star */}
                 {favorites.has(report.id) && (
@@ -735,7 +859,7 @@ export default function ReportsPage() {
                 </div>
 
                 <div className="flex items-start justify-between mb-4">
-                  <div className="p-3 rounded-lg bg-blue-500 text-white">
+                  <div className="p-3 rounded-lg text-white" style={{ backgroundColor: report.color || '#3B82F6' }}>
                     <IconComponent className="h-6 w-6" />
                   </div>
                   <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
@@ -824,6 +948,114 @@ export default function ReportsPage() {
         itemName={reportToDelete?.name}
         isDeleting={isDeleting}
       />
+
+      {/* Color Groups Settings Modal */}
+      {settingsModalOpen && (
+        <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <Settings className="h-6 w-6 text-blue-600" />
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">Renk Grupları Ayarları</h2>
+                  <p className="text-sm text-gray-600 mt-1">Her renk için bir grup adı belirleyin</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSettingsModalOpen(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-4">
+                {Object.keys(editingColorGroups).map(color => (
+                  <div
+                    key={color}
+                    className="flex items-start gap-4 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    {/* Color Preview */}
+                    <div className="flex flex-col items-center gap-2 pt-1">
+                      <div
+                        className="w-12 h-12 rounded-lg shadow-sm"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span className="text-xs text-gray-500 font-mono">{color}</span>
+                    </div>
+
+                    {/* Input Fields */}
+                    <div className="flex-1 space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Grup Adı *
+                        </label>
+                        <input
+                          type="text"
+                          value={editingColorGroups[color]?.name || ''}
+                          onChange={(e) => handleColorGroupChange(color, 'name', e.target.value)}
+                          placeholder="Örn: Şirket, Kişisel, Finansal..."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Açıklama (Opsiyonel)
+                        </label>
+                        <input
+                          type="text"
+                          value={editingColorGroups[color]?.description || ''}
+                          onChange={(e) => handleColorGroupChange(color, 'description', e.target.value)}
+                          placeholder="Bu rengin ne için kullanıldığını açıklayın..."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {Object.keys(editingColorGroups).length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    <Settings className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                    <p>Henüz renk kullanılmamış. Rapor oluştururken renk seçtiğinizde buraya gelecektir.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 bg-gray-50">
+              <button
+                onClick={() => setSettingsModalOpen(false)}
+                disabled={isSavingSettings}
+                className="px-4 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleSaveSettings}
+                disabled={isSavingSettings}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSavingSettings ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Kaydediliyor...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Kaydet
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />

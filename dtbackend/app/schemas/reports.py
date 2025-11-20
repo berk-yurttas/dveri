@@ -24,6 +24,18 @@ class FilterType(str, Enum):
     NUMBER = "number"
     TEXT = "text"
 
+# Row Color Rule Schema (for table visualizations)
+class RowColorRule(BaseModel):
+    id: str
+    column_name: str = Field(..., alias="columnName")
+    operator: Literal['>', '<', '>=', '<=', '=', '!=']
+    value: Any  # Can be string or number
+    color: str
+
+    class Config:
+        populate_by_name = True
+        from_attributes = True
+
 # Chart Options Schema
 class ChartOptions(BaseModel):
     # Bar/Line/Area specific
@@ -72,11 +84,14 @@ class ChartOptions(BaseModel):
     # Tooltip configuration
     tooltip_fields: Optional[List[str]] = Field([], alias="tooltipFields")
     field_display_names: Optional[Dict[str, str]] = Field({}, alias="fieldDisplayNames")
-    
+
 
     # line visual for bar chart
     line_y_axis: Optional[str] = Field(None, alias="lineYAxis")
     show_line_overlay: Optional[bool] = Field(False, alias="showLineOverlay")
+
+    # Row coloring for table visualizations
+    row_color_rules: Optional[List[RowColorRule]] = Field([], alias="rowColorRules")
 
     class Config:
         populate_by_name = True  # Allow both field names and aliases
@@ -187,6 +202,7 @@ class ReportBase(BaseModel):
     tags: Optional[List[str]] = []
     global_filters: Optional[List[FilterConfigCreate]] = Field([], alias="globalFilters", description="Global filters that apply to all queries in the report")
     layout_config: Optional[List[Dict[str, Any]]] = Field([], alias="layoutConfig", description="Grid layout configuration for queries")
+    color: Optional[str] = Field("#3B82F6", description="Report card border/theme color")
 
     class Config:
         populate_by_name = True  # Allow both field names and aliases
@@ -202,6 +218,7 @@ class ReportUpdate(BaseModel):
     tags: Optional[List[str]] = None
     global_filters: Optional[List[FilterConfigCreate]] = Field(None, alias="globalFilters")
     layout_config: Optional[List[Dict[str, Any]]] = Field(None, alias="layoutConfig")
+    color: Optional[str] = None
 
     class Config:
         populate_by_name = True
@@ -215,6 +232,7 @@ class ReportFullUpdate(BaseModel):
     queries: Optional[List[QueryConfigCreate]] = None
     global_filters: Optional[List[FilterConfigCreate]] = Field(None, alias="globalFilters")
     layout_config: Optional[List[Dict[str, Any]]] = Field(None, alias="layoutConfig")
+    color: Optional[str] = None
 
     class Config:
         populate_by_name = True
@@ -243,6 +261,7 @@ class ReportList(BaseModel):
     tags: Optional[List[str]] = []
     query_count: Optional[int] = 0
     is_favorite: Optional[bool] = False
+    color: Optional[str] = "#3B82F6"
 
     class Config:
         from_attributes = True

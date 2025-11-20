@@ -49,6 +49,17 @@ export interface NestedQueryConfig {
   yAxis?: string
   labelField?: string
   valueField?: string
+  lineYAxis?: string
+  showLineOverlay?: boolean
+}
+
+// Row Coloring Configuration for Table/Expandable Table
+export interface RowColorRule {
+  id: string
+  columnName: string
+  operator: '>' | '<' | '>=' | '<=' | '=' | '!='
+  value: string | number
+  color: string
 }
 
 // Visualization Configuration Types
@@ -99,6 +110,9 @@ export interface VisualizationConfig {
 
     // Card specific
     backgroundColor?: string
+
+    // Table/Expandable table specific - Row coloring rules
+    rowColorRules?: RowColorRule[]
   }
 }
 
@@ -128,6 +142,7 @@ export interface ReportConfig {
   tags: string[]
   queries: QueryConfig[]
   globalFilters?: FilterConfig[]  // Filters that apply to all queries in the report
+  color?: string  // Color for report card border/theme
 }
 
 // Future report save/load types
@@ -143,6 +158,7 @@ export interface SavedReport extends ReportConfig {
   created_by: string
   is_public: boolean
   layoutConfig?: any[]  // Grid layout configuration
+  color?: string  // Color for report card border/theme
 }
 
 // Report execution types
