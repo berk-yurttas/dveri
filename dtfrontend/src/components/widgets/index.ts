@@ -17,6 +17,7 @@ export { EducationDistributionWidget } from './education-distribution-widget'
 export { AverageSalaryWidget } from './average-salary-widget'
 export { AbsenteeismWidget } from './absenteeism-widget'
 export { PendingWorkWidget } from './pending-work-widget'
+export { KablajUretimRateWidget } from './kablaj-uretim-rate-widget'
 
 // Export widget configurations
 import { EfficiencyWidget } from './efficiency-widget'
@@ -38,6 +39,7 @@ import { EducationDistributionWidget } from './education-distribution-widget'
 import { AverageSalaryWidget } from './average-salary-widget'
 import { AbsenteeismWidget } from './absenteeism-widget'
 import { PendingWorkWidget } from './pending-work-widget'
+import { KablajUretimRateWidget } from './kablaj-uretim-rate-widget'
 
 export const widgetConfigs = [
   EfficiencyWidget.config,
@@ -58,5 +60,6 @@ export const widgetConfigs = [
   EducationDistributionWidget.config,
   AverageSalaryWidget.config,
   AbsenteeismWidget.config,
-  PendingWorkWidget.config
+  PendingWorkWidget.config,
+  KablajUretimRateWidget.config
 ]

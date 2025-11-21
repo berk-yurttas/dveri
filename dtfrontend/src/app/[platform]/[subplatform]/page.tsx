@@ -16,7 +16,7 @@ import {
   TrendingUp,
   Activity
 } from "lucide-react";
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, LineChart, Line, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { dashboardService } from "@/services/dashboard";
 import { reportsService } from "@/services/reports";
 import { DashboardList } from "@/types/dashboard";
@@ -84,6 +84,9 @@ export default function SubPlatformPage() {
   const [departmanOptions, setDepartmanOptions] = useState<string[]>([]);
   const [showDepartmanDropdown, setShowDepartmanDropdown] = useState(false);
 
+  // Dijital subplatform data
+  const [dijitalData, setDijitalData] = useState<any[]>([]);
+
   // Use useLayoutEffect to set platform BEFORE any effects run
   useLayoutEffect(() => {
     if (platformCode) {
@@ -119,10 +122,12 @@ export default function SubPlatformPage() {
           try {
             const [mekanikResponse, kablajResponse] = await Promise.all([
               api.post<PreviewResponse>('/reports/preview', {
-                sql_query: 'SELECT "Firma Adı", "Haftalık Planlanan Doluluk Oranı", "Aylık Planlanan Doluluk Oranı", 0 as "60 Günlük Planlanan Doluluk Oranı", 0 as "90 Günlük Planlanan Doluluk Oranı" FROM mes_production.get_firma_makina_planlanan_doluluk'
+                sql_query: 'SELECT "Firma Adı", "Haftalık Planlanan Doluluk Oranı", "Aylık Planlanan Doluluk Oranı", 0 as "60 Günlük Planlanan Doluluk Oranı", 0 as "90 Günlük Planlanan Doluluk Oranı" FROM mes_production.get_firma_makina_planlanan_doluluk',
+                limit: 100000
               }),
               api.post<PreviewResponse>('/reports/preview', {
-                sql_query: 'SELECT "Firma Adı", "7 Günlük Doluluk", "30 Günlük Doluluk", "60 Günlük Doluluk", "90 Günlük Doluluk" FROM mes_production.kablaj_firma_doluluk_bitmeyen_siparis_sayilari'
+                sql_query: 'SELECT "Firma Adı", "7 Günlük Doluluk", "30 Günlük Doluluk", "60 Günlük Doluluk", "90 Günlük Doluluk" FROM mes_production.kablaj_firma_doluluk_bitmeyen_siparis_sayilari',
+                limit: 100000
               })
             ]);
 
@@ -174,7 +179,8 @@ export default function SubPlatformPage() {
           // Fetch time-series data from tarih_bazli_oee table
           try {
             const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
-              sql_query: 'SELECT "Firma Adı", "Makina Kodu", "Üretim Tarihi", "OEE" FROM mes_production.tarih_bazli_oee ORDER BY "Üretim Tarihi" DESC'
+              sql_query: 'SELECT "Firma Adı", "Makina Kodu", "Üretim Tarihi", "OEE" FROM mes_production.tarih_bazli_oee ORDER BY "Üretim Tarihi" DESC',
+              limit: 100000
             });
 
             if (chartResponse?.data && Array.isArray(chartResponse.data)) {
@@ -215,7 +221,8 @@ export default function SubPlatformPage() {
           // Fetch real chart data for idari subplatform
           try {
             const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
-              sql_query: 'SELECT "Firma", "Departman", "Toplam Çalışan Sayısı" FROM mes_production.get_firma_departman_bazli_calisan_sayisi ORDER BY "Firma", "Toplam Çalışan Sayısı" DESC'
+              sql_query: 'SELECT "Firma", "Departman", "Toplam Çalışan Sayısı" FROM mes_production.get_firma_departman_bazli_calisan_sayisi ORDER BY "Firma", "Toplam Çalışan Sayısı" DESC',
+              limit: 100000
             });
 
             if (chartResponse?.data && Array.isArray(chartResponse.data)) {
@@ -238,6 +245,50 @@ export default function SubPlatformPage() {
           } catch (chartError) {
             console.error("Failed to fetch chart data:", chartError);
             setChartData([]);
+          }
+        } else if (subPlatformCode === 'dijital') {
+          // Fetch real chart data for dijital subplatform
+          try {
+            const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
+              sql_query: 'SELECT "Firma", "Etiket", "Adet", "Eşleşme Oranı" FROM mes_production.siparis_kalem_no_tarih_bazli ORDER BY "Firma"',
+              limit: 100000
+            });
+
+            if (chartResponse?.data && Array.isArray(chartResponse.data)) {
+              // Group data by Firma
+              const groupedData: { [key: string]: any } = {};
+
+              chartResponse.data.forEach((row: any[]) => {
+                const firma = row[0];
+                const etiket = row[1];
+                const adet = Number(row[2]) || 0;
+                const oran = Number(row[3]) || 0;
+
+                if (!groupedData[firma]) {
+                  groupedData[firma] = {
+                    name: firma,
+                    'MES-SAP Eşleşmiş Sipariş Satır Sayısı': 0,
+                    'SAP Sipariş Sayısı': 0,
+                    'Eşleşme Oranı': 0
+                  };
+                }
+
+                if (etiket === 'MES-SAP Eşleşmiş Sipariş Satır Sayısı') {
+                  groupedData[firma]['MES-SAP Eşleşmiş Sipariş Satır Sayısı'] = adet;
+                  groupedData[firma]['Eşleşme Oranı'] = oran * 100;
+                } else if (etiket === 'SAP Sipariş Sayısı') {
+                  groupedData[firma]['SAP Sipariş Sayısı'] = adet;
+                }
+              });
+
+              const transformedData = Object.values(groupedData);
+              setDijitalData(transformedData);
+            } else {
+              setDijitalData([]);
+            }
+          } catch (chartError) {
+            console.error("Failed to fetch dijital chart data:", chartError);
+            setDijitalData([]);
           }
         } else {
           // Generate sample chart data for other subplatforms
@@ -307,7 +358,8 @@ export default function SubPlatformPage() {
           let sqlQuery = `SELECT "Firma Adı", "Makina Kodu", "Üretim Tarihi", "OEE" FROM mes_production.tarih_bazli_oee WHERE DATE("Üretim Tarihi") BETWEEN DATE('${verimlilikStartDate}') AND DATE('${verimlilikEndDate}') ORDER BY "Makina Kodu" DESC`;
 
           const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
-            sql_query: sqlQuery
+            sql_query: sqlQuery,
+            limit: 100000
           });
 
           if (chartResponse?.data && Array.isArray(chartResponse.data)) {
@@ -910,8 +962,108 @@ export default function SubPlatformPage() {
           </div>
         )}
 
+        {/* Chart Section - Dijital */}
+        {subPlatformCode === 'dijital' && (
+          <div className="mb-12">
+            <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-lg bg-blue-500 text-white">
+                    <BarChart3 className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>
+                      MES-SAP Sipariş Eşleşme Durumu
+                    </h2>
+                  </div>
+                </div>
+              </div>
+
+              <ResponsiveContainer width="100%" height={400}>
+                <ComposedChart data={dijitalData} margin={{ top: 20, right: 90, left: 90, bottom: 80 }}>
+                  <defs>
+                    <linearGradient id="colorMesSap" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.9}/>
+                      <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.9}/>
+                    </linearGradient>
+                    <linearGradient id="colorSap" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.9}/>
+                      <stop offset="100%" stopColor="#6d28d9" stopOpacity={0.9}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis
+                    dataKey="name"
+                    stroke="#6b7280"
+                    style={{ fontSize: '12px', fontWeight: 500 }}
+                    tickLine={false}
+                    angle={-45}
+                    textAnchor="end"
+                    height={100}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    stroke="#6b7280"
+                    style={{ fontSize: '11px', fontWeight: 500 }}
+                    tickLine={false}
+                    width={75}
+                    label={{ value: 'Eşleşme Adedi', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    stroke="#10b981"
+                    style={{ fontSize: '11px', fontWeight: 500 }}
+                    tickLine={false}
+                    width={75}
+                    label={{ value: 'Eşleşme Oranı (%)', angle: 90, position: 'insideRight', style: { textAnchor: 'middle' } }}
+                    domain={[0, 100]}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '12px',
+                      boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                      padding: '12px'
+                    }}
+                    cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+                  />
+                  <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="MES-SAP Eşleşmiş Sipariş Satır Sayısı"
+                    fill="url(#colorMesSap)"
+                    name="MES-SAP Eşleşmiş"
+                    radius={[8, 8, 0, 0]}
+                    maxBarSize={40}
+                  />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="SAP Sipariş Sayısı"
+                    fill="url(#colorSap)"
+                    name="SAP Sipariş"
+                    radius={[8, 8, 0, 0]}
+                    maxBarSize={40}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="Eşleşme Oranı"
+                    stroke="#10b981"
+                    strokeWidth={3}
+                    dot={{ r: 5, fill: '#10b981' }}
+                    activeDot={{ r: 7 }}
+                    name="Eşleşme Oranı (%)"
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* Chart Section - Other Subplatforms */}
-        {subPlatformCode !== 'kapasite' && subPlatformCode !== 'verimlilik' && subPlatformCode !== 'idari' && (
+        {subPlatformCode !== 'kapasite' && subPlatformCode !== 'verimlilik' && subPlatformCode !== 'idari' && subPlatformCode !== 'dijital' && (
           <div className="mb-12">
             <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6">
               <div className="flex items-center justify-between mb-6">
