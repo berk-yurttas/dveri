@@ -118,7 +118,7 @@ export function Feedback() {
                 </div>
                 <div>
                   <h3 className="text-white font-bold">Geri Bildirim Gönder</h3>
-                  <p className="text-blue-100 text-xs">Sorun bildirimi</p>
+                  <p className="text-blue-100 text-xs">Talep ve Öneri Bildirimi</p>
                 </div>
               </div>
               <button
@@ -152,13 +152,13 @@ export function Feedback() {
               {/* Subject Input */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Sorun Başlığı <span className="text-red-500">*</span>
+                  Başlık <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
-                  placeholder="Örn: Dashboard yüklenmiyor"
+                  placeholder="Talep veya öneriniz için başlık giriniz"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-500 text-gray-900"
                   disabled={isSubmitting}
                 />
@@ -167,12 +167,12 @@ export function Feedback() {
               {/* Description Input */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Sorun Detayı <span className="text-red-500">*</span>
+                  Detay <span className="text-red-500">*</span>
                 </label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Sorunu detaylı bir şekilde açıklayın"
+                  placeholder="Talep veya önerinizi detaylı bir şekilde açıklayınız"
                   rows={6}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none placeholder:text-gray-500 text-gray-900"
                   disabled={isSubmitting}

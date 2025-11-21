@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     OPENPROJECT_URL: str = Field(default_factory=lambda: os.getenv("OPENPROJECT_URL", "http://localhost:8080"))
     OPENPROJECT_API_TOKEN: str = Field(default_factory=lambda: os.getenv("OPENPROJECT_API_TOKEN", ""))
     OPENPROJECT_PROJECT_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_PROJECT_ID", "3")))
-    OPENPROJECT_COLUMN_QUERY_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_COLUMN_QUERY_ID", "31")))
+    OPENPROJECT_COLUMN_QUERY_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_COLUMN_QUERY_ID", "30")))
     
     @property
     def postgres_database_url(self) -> str:
