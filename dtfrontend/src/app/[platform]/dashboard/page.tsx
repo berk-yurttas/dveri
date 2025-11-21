@@ -51,6 +51,7 @@ import { DashboardList } from "@/types/dashboard";
 import { useUser } from "@/contexts/user-context";
 import { useDashboards } from "@/contexts/dashboard-context";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
+import { Feedback } from "@/components/feedback/feedback";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -605,6 +606,9 @@ export default function DashboardsPage() {
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
+      
+      {/* Feedback Button */}
+      <Feedback />
     </div>
   );
 }

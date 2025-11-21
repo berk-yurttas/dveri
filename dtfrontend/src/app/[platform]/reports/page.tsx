@@ -32,6 +32,7 @@ import {
 import { reportsService } from "@/services/reports";
 import { SavedReport } from "@/types/reports";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
+import { Feedback } from "@/components/feedback/feedback";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import configService, { ColorGroupsMapping } from "@/services/config";
 
@@ -1059,6 +1060,9 @@ export default function ReportsPage() {
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
+      
+      {/* Feedback Button */}
+      <Feedback />
     </div>
   );
 }

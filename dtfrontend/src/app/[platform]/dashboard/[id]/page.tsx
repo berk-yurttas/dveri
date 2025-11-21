@@ -18,6 +18,7 @@ import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWid
 import { DateInput } from "@/components/ui/date-input";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
+import { Feedback } from "@/components/feedback/feedback";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -576,6 +577,9 @@ export default function DashboardPage() {
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
+      
+      {/* Feedback Button */}
+      <Feedback />
     </div>
   );
 }

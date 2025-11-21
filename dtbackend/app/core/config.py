@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     POCKETBASE_ADMIN_EMAIL: str = Field(default_factory=lambda: os.getenv("furkancilesiz57@gmail.com", ""))
     POCKETBASE_ADMIN_PASSWORD: str = Field(default_factory=lambda: os.getenv("12345678", ""))
     
+    # OpenProject Configuration
+    OPENPROJECT_URL: str = Field(default_factory=lambda: os.getenv("OPENPROJECT_URL", "http://localhost:8080"))
+    OPENPROJECT_API_TOKEN: str = Field(default_factory=lambda: os.getenv("OPENPROJECT_API_TOKEN", ""))
+    OPENPROJECT_PROJECT_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_PROJECT_ID", "3")))
+    OPENPROJECT_COLUMN_QUERY_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_COLUMN_QUERY_ID", "30")))
+    
     @property
     def postgres_database_url(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
