@@ -61,26 +61,37 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
     // Get x-axis value for title
     const xAxisValue = dataPoint[xAxisField]
 
-    // Get color for this bar
+    // Get color for this bar - matching the Cell logic in the chart
     const itemsInThisGroup = dataPoint._items?.length || 1
     const isSingleBarGroup = itemsInThisGroup === 1
-    const xAxisDataIndex = chartData.findIndex(d => d[xAxisField] === xAxisValue)
-    const colorIndex = isSingleBarGroup ? xAxisDataIndex % colors.length : barIndex % colors.length
-    const barColor = colors[colorIndex % colors.length]
+    const colorIndex = isSingleBarGroup ? 0 : barIndex % colors.length
+    const barColor = colors[colorIndex]
+
+    // Dynamic tooltip positioning based on x-coordinate
+    // If tooltip is near the left edge (< 200px), position it to the right of the cursor
+    // Otherwise, position it to the left (default behavior)
+    const isNearLeftEdge = coordinate && coordinate.x < 200
+    const tooltipStyle: React.CSSProperties = {
+      backgroundColor: 'white',
+      border: '1px solid #e5e7eb',
+      borderRadius: '8px',
+      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+      padding: '8px',
+      fontSize: '11px'
+    }
+
+    if (isNearLeftEdge) {
+      // Position to the right of cursor
+      tooltipStyle.transform = 'translateX(0)'
+      tooltipStyle.marginLeft = '10px'
+    } else {
+      // Position to the left of cursor (default)
+      tooltipStyle.transform = 'translateX(-100%)'
+      tooltipStyle.marginLeft = '-10px'
+    }
 
     return (
-      <div
-        style={{
-          backgroundColor: 'white',
-          border: '1px solid #e5e7eb',
-          borderRadius: '8px',
-          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-          padding: '8px',
-          transform: 'translateX(-100%)',
-          marginLeft: '-10px',
-          fontSize: '11px'
-        }}
-      >
+      <div style={tooltipStyle}>
         {/* X-axis value as title */}
         <div style={{
           fontWeight: 700,
@@ -721,6 +732,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 cursor={isClickable ? 'pointer' : 'default'}
                 radius={[8, 8, 0, 0]}
                 maxBarSize={120}
+                minPointSize={0}
                 onMouseEnter={() => setHoveredBarKey(barKey)}
                 onMouseLeave={() => setHoveredBarKey(null)}
               >
@@ -825,7 +837,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               cursor={isClickable ? 'pointer' : 'default'}
               radius={[8, 8, 0, 0]}
               maxBarSize={80}
-              minPointSize={10}
+              minPointSize={0}
               onMouseEnter={() => setHoveredBarKey(barKey)}
               onMouseLeave={() => setHoveredBarKey(null)}
             >

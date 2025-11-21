@@ -63,7 +63,7 @@ class FeedbackService:
             }
             
             # Create work package using httpx (async)
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                 try:
                     resp_wp = await client.post(
                         f"{settings.OPENPROJECT_URL}/api/v3/work_packages",
