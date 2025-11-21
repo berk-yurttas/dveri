@@ -3015,9 +3015,9 @@ export default function EditReportPage() {
                                         <Label className="text-[9px] text-slate-600">Operatör</Label>
                                         <Select
                                           value={rule.operator}
-                                          onValueChange={(value: '>' | '<' | '>=' | '<=' | '=' | '!=') => {
+                                          onValueChange={(value: string) => {
                                             const updatedRules = [...(query.visualization.chartOptions?.rowColorRules || [])]
-                                            updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], operator: value }
+                                            updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], operator: value as '>' | '<' | '>=' | '<=' | '=' | '!=' }
                                             updateVisualization(queryIndex, {
                                               chartOptions: {
                                                 ...query.visualization.chartOptions,
