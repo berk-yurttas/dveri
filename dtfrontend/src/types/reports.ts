@@ -143,6 +143,7 @@ export interface ReportConfig {
   queries: QueryConfig[]
   globalFilters?: FilterConfig[]  // Filters that apply to all queries in the report
   color?: string  // Color for report card border/theme
+  is_public?: boolean
 }
 
 // Future report save/load types

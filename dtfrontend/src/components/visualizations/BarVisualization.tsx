@@ -386,7 +386,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               <XAxis
                 dataKey={xAxisField}
                 stroke="#6b7280"
-                style={{ fontSize: '13px', fontWeight: 500 }}
+                style={{ fontSize: '10px', fontWeight: 500 }}
                 tickLine={false}
               />
               <YAxis
@@ -400,7 +400,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 yAxisId="right"
                 orientation="right"
                 stroke="#6b7280"
-                style={{ fontSize: '13px', fontWeight: 500 }}
+                style={{ fontSize: '10px', fontWeight: 500 }}
                 tickLine={false}
                 label={{ value: nestedQuery.lineYAxis, angle: 90, position: 'insideRight', style: { textAnchor: 'middle' } }}
               />
@@ -465,7 +465,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
             />
             <YAxis
               stroke="#6b7280"
-              style={{ fontSize: '13px', fontWeight: 500 }}
+              style={{ fontSize: '10px', fontWeight: 500 }}
               tickLine={false}
               label={{ value: yAxisField, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
             />
@@ -503,7 +503,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
             />
             <YAxis
               stroke="#6b7280"
-              style={{ fontSize: '13px', fontWeight: 500 }}
+              style={{ fontSize: '10px', fontWeight: 500 }}
               tickLine={false}
               label={{ value: yAxisField, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
             />
@@ -543,7 +543,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
             />
             <YAxis
               stroke="#6b7280"
-              style={{ fontSize: '13px', fontWeight: 500 }}
+              style={{ fontSize: '10px', fontWeight: 500 }}
               tickLine={false}
               label={{ value: yAxisField, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
             />
@@ -693,7 +693,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
             <YAxis
               yAxisId="left"
               stroke="#6b7280"
-              style={{ fontSize: '13px', fontWeight: 500 }}
+              style={{ fontSize: '10px', fontWeight: 500 }}
               tickLine={false}
               label={{ value: visualization.yAxis || columns[1], angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
             />
@@ -701,7 +701,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               yAxisId="right"
               orientation="right"
               stroke="#6b7280"
-              style={{ fontSize: '13px', fontWeight: 500 }}
+              style={{ fontSize: '10px', fontWeight: 500 }}
               tickLine={false}
               label={{ value: visualization.chartOptions.lineYAxis, angle: 90, position: 'insideRight', style: { textAnchor: 'middle' } }}
             />
@@ -810,7 +810,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
           />
           <YAxis
             stroke="#6b7280"
-            style={{ fontSize: '13px', fontWeight: 500 }}
+            style={{ fontSize: '10px', fontWeight: 500 }}
             tickLine={false}
             label={{ value: visualization.yAxis || columns[1], angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
           />
