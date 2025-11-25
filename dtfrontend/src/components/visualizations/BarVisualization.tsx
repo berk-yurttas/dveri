@@ -732,7 +732,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 cursor={isClickable ? 'pointer' : 'default'}
                 radius={[8, 8, 0, 0]}
                 maxBarSize={120}
-                minPointSize={0}
+                minPointSize={10}
                 onMouseEnter={() => setHoveredBarKey(barKey)}
                 onMouseLeave={() => setHoveredBarKey(null)}
               >
@@ -741,13 +741,16 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                   const itemsInThisGroup = entry._items?.length || 1
                   const isSingleBarGroup = itemsInThisGroup === 1
 
+                  // Check if this bar has actual data
+                  const hasData = entry[barKey] !== undefined && entry[barKey] !== null && entry[barKey] !== 0
+
                   // For single bar groups, use single color (color 0)
                   // For grouped bars, use consistent color based on bar position
                   const colorIndex = isSingleBarGroup ? 0 : barIndex % colors.length
                   return (
                     <Cell
                       key={`cell-${index}`}
-                      fill={`url(#colorGradient${colorIndex})`}
+                      fill={hasData ? `url(#colorGradient${colorIndex})` : 'transparent'}
                     />
                   )
                 })}
@@ -837,7 +840,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               cursor={isClickable ? 'pointer' : 'default'}
               radius={[8, 8, 0, 0]}
               maxBarSize={80}
-              minPointSize={0}
+              minPointSize={10}
               onMouseEnter={() => setHoveredBarKey(barKey)}
               onMouseLeave={() => setHoveredBarKey(null)}
             >
@@ -846,13 +849,16 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 const itemsInThisGroup = entry._items?.length || 1
                 const isSingleBarGroup = itemsInThisGroup === 1
 
+                // Check if this bar has actual data
+                const hasData = entry[barKey] !== undefined && entry[barKey] !== null && entry[barKey] !== 0
+
                 // For single bar groups, use single color (color 0)
                 // For grouped bars, use consistent color based on bar position
                 const colorIndex = isSingleBarGroup ? 0 : barIndex % colors.length
                 return (
                   <Cell
                     key={`cell-${index}`}
-                    fill={`url(#colorGradient${colorIndex})`}
+                    fill={hasData ? `url(#colorGradient${colorIndex})` : 'transparent'}
                   />
                 )
               })}

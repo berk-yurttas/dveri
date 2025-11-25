@@ -268,7 +268,7 @@ export function AppShell({
       />
 
       <div className={`relative z-10 flex flex-1 flex-col md:ml-16 bg-gray-50/80 backdrop-blur-sm ${
-        isIvmePlatform ? 'pt-[130px]' : 'pt-16'
+        isIvmePlatform ? 'pt-[100px]' : 'pt-16'
       }`}>
         <main className="flex-1 p-4">{children}</main>
       </div>

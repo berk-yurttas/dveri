@@ -1292,7 +1292,7 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                       <React.Fragment key={nestedRowIndex}>
                         <tr
                           className={`hover:bg-${bgColors[colorIndex].split('-')[1]}-50/30 transition-colors ${nested.nestedQueries && nested.nestedQueries.length > 0 ? 'cursor-pointer' : ''
-                            }`}
+                            } ${isNestedExpanded ? `${bgColors[colorIndex]} font-semibold` : ''}`}
                           onClick={() => {
                             if (nested.nestedQueries && nested.nestedQueries.length > 0) {
                               onRowExpand(query, originalIndex, nestedRow, nested.nestedQueries, level, rowKey)
@@ -1596,7 +1596,7 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
               <React.Fragment key={rowIndex}>
                 {/* Parent Row */}
                 <tr
-                  className="hover:bg-gray-50 transition-colors cursor-pointer"
+                  className={`hover:bg-gray-50 transition-colors cursor-pointer ${isExpanded ? 'bg-blue-50 font-bold' : ''}`}
                   onClick={() => onRowExpand(query, rowIndex, row, query.visualization.chartOptions?.nestedQueries || [], 0, '')}
                 >
                   <td className="px-3 py-2 text-xs text-gray-800">

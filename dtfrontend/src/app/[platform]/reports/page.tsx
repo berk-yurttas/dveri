@@ -53,6 +53,7 @@ type ViewMode = 'grid' | 'list';
 type SortOption = 'name' | 'created' | 'updated' | 'queries';
 type SortDirection = 'asc' | 'desc';
 type FilterOption = 'all' | 'public' | 'private' | 'favorites';
+type ColorFilter = string | null;
 
 export default function ReportsPage() {
   const router = useRouter();
@@ -77,6 +78,7 @@ export default function ReportsPage() {
   const [filterBy, setFilterBy] = useState<FilterOption>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
+  const [colorFilter, setColorFilter] = useState<ColorFilter>(null);
 
   // Delete modal state
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -164,10 +166,15 @@ export default function ReportsPage() {
       // 'all' case doesn't need filtering
     }
 
+    // Apply color filter
+    if (colorFilter) {
+      filtered = filtered.filter(report => (report.color || '#3B82F6') === colorFilter);
+    }
+
     // Apply sorting
     filtered.sort((a, b) => {
       let comparison = 0;
-      
+
       switch (sortBy) {
         case 'name':
           comparison = a.name.localeCompare(b.name);
@@ -189,7 +196,7 @@ export default function ReportsPage() {
     });
 
     setFilteredReports(filtered);
-  }, [reports, searchQuery, filterBy, sortBy, sortDirection, favorites]);
+  }, [reports, searchQuery, filterBy, sortBy, sortDirection, favorites, colorFilter]);
 
   const handleCreateReport = () => {
     if (subplatform) {
@@ -312,6 +319,11 @@ export default function ReportsPage() {
     }));
   };
 
+  const handleColorFilterClick = (color: string) => {
+    // Toggle color filter - if same color is clicked, remove filter
+    setColorFilter(prevColor => prevColor === color ? null : color);
+  };
+
   if (!mounted || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -325,13 +337,13 @@ export default function ReportsPage() {
   }
 
     return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Raporlar - {subplatform ? subplatform.charAt(0).toUpperCase() + subplatform.slice(1) : ''}</h1>
-            <p className="text-gray-600 mt-1">Tüm raporlarınızı görüntüleyin ve yönetin</p>
+            <p className="text-gray-600 mt-1 text-sm">Tüm raporlarınızı görüntüleyin ve yönetin</p>
           </div>
           <button
             onClick={handleOpenSettings}
@@ -364,160 +376,157 @@ export default function ReportsPage() {
       )}
 
       {/* Search and Filters */}
-      <div className="bg-white rounded-lg shadow-lg shadow-slate-200 p-4">
-        <div className="flex flex-col lg:flex-row gap-4">
-          {/* Search */}
-          <div className="flex-1">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Rapor ara..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              />
-            </div>
-          </div>
-
-          {/* View Mode Toggle */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-2 rounded-lg transition-colors ${
-                viewMode === 'grid' 
-                  ? 'bg-blue-100 text-blue-600' 
-                  : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              <Grid3X3 className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-2 rounded-lg transition-colors ${
-                viewMode === 'list' 
-                  ? 'bg-blue-100 text-blue-600' 
-                  : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              <List className="h-4 w-4" />
-            </button>
-          </div>
-
-          {/* Filter Toggle */}
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-              showFilters 
-                ? 'bg-blue-100 text-blue-600' 
-                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
-            }`}
-          >
-            <Filter className="h-4 w-4" />
-            Filtreler
-          </button>
-        </div>
-
-        {/* Expanded Filters */}
-        {showFilters && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <div className="flex flex-wrap gap-4">
-              {/* Category Filter */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-700">Kategori:</span>
-                <select
-                  value={filterBy}
-                  onChange={(e) => setFilterBy(e.target.value as FilterOption)}
-                  className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                >
-                  <option value="all">Tümü</option>
-                  <option value="public">Herkese Açık</option>
-                  <option value="private">Özel</option>
-                  <option value="favorites">Favoriler</option>
-                </select>
-              </div>
-
-              {/* Sort Options */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-700">Sırala:</span>
-                <div className="flex gap-1">
-                  {[
-                    { key: 'name', label: 'Ad' },
-                    { key: 'created', label: 'Oluşturma' },
-                    { key: 'updated', label: 'Güncelleme' },
-                    { key: 'queries', label: 'Sorgu Sayısı' }
-                  ].map(({ key, label }) => (
-                    <button
-                      key={key}
-                      onClick={() => toggleSort(key as SortOption)}
-                      className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
-                        sortBy === key
-                          ? 'bg-blue-100 text-blue-600'
-                          : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
-                      }`}
-                    >
-                      {label}
-                      {sortBy === key && (
-                        sortDirection === 'asc' ? <SortAsc className="h-3 w-3" /> : <SortDesc className="h-3 w-3" />
-                      )}
-                    </button>
-                  ))}
-                </div>
+      <div className="bg-white rounded-lg shadow-lg p-2">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col lg:flex-row gap-3">
+            {/* Search */}
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Rapor ara..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
               </div>
             </div>
-          </div>
-        )}
-      </div>
 
-      {/* Color Legend */}
-      {reports.length > 0 && (() => {
-        const distinctColors = Array.from(new Set(reports.map(r => r.color || '#3B82F6')));
-        const colorCounts = distinctColors.map(color => {
-          console.log(`Color ${color} mapping:`, colorGroups[color]);
-          return {
-            color,
-            count: reports.filter(r => (r.color || '#3B82F6') === color).length,
-            groupName: colorGroups[color]?.name,
-            groupDescription: colorGroups[color]?.description
-          };
-        });
+            {/* Category Filter */}
+            <div className="flex items-center gap-2">
+              <select
+                value={filterBy}
+                onChange={(e) => setFilterBy(e.target.value as FilterOption)}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              >
+                <option value="all">Tümü</option>
+                <option value="public">Herkese Açık</option>
+                <option value="private">Özel</option>
+                <option value="favorites">Favoriler</option>
+              </select>
+            </div>
 
-        return (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm font-medium text-gray-700">Rapor Grupları:</span>
-              {colorCounts.map(({ color, count, groupName, groupDescription }) => (
-                <div
-                  key={color}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors cursor-pointer"
-                  style={{ borderLeft: `4px solid ${color}` }}
-                  title={groupDescription || `${count} rapor`}
+            {/* Sort Options */}
+            <div className="flex items-center gap-1">
+              {[
+                { key: 'name', label: 'Ad' },
+                { key: 'created', label: 'Tarih' },
+                { key: 'updated', label: 'Güncelleme' },
+                { key: 'queries', label: 'Sorgu' }
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => toggleSort(key as SortOption)}
+                  className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors ${
+                    sortBy === key
+                      ? 'bg-blue-100 text-blue-600'
+                      : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
+                  }`}
                 >
-                  <div
-                    className="w-4 h-4 rounded-full"
-                    style={{ backgroundColor: color }}
-                  />
-                  {groupName ? (
-                    <>
-                      <span className="text-sm font-medium text-gray-700">{groupName}</span>
-                      <span className="text-xs text-gray-500">({count})</span>
-                    </>
-                  ) : (
-                    <span className="text-xs text-gray-600">{count} rapor</span>
+                  {label}
+                  {sortBy === key && (
+                    sortDirection === 'asc' ? <SortAsc className="h-3 w-3" /> : <SortDesc className="h-3 w-3" />
                   )}
-                </div>
+                </button>
               ))}
             </div>
-          </div>
-        );
-      })()}
 
-      {/* Results Count */}
-      <div className="flex items-center justify-between text-sm text-gray-600">
-        <span>
-          {filteredReports.length} rapor gösteriliyor
-          {searchQuery && ` "${searchQuery}" için`}
-        </span>
+            {/* View Mode Toggle */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  viewMode === 'grid'
+                    ? 'bg-blue-100 text-blue-600'
+                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Grid3X3 className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-blue-100 text-blue-600'
+                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <List className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Color Legend - Inline */}
+          {reports.length > 0 && (() => {
+            // Get reports without color filter applied (to show accurate counts)
+            let reportsForCounting = [...reports];
+
+            // Apply search filter
+            if (searchQuery.trim()) {
+              reportsForCounting = reportsForCounting.filter(report =>
+                report.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                report.description.toLowerCase().includes(searchQuery.toLowerCase())
+              );
+            }
+
+            // Apply category filter
+            switch (filterBy) {
+              case 'public':
+                reportsForCounting = reportsForCounting.filter(report => report.is_public);
+                break;
+              case 'private':
+                reportsForCounting = reportsForCounting.filter(report => !report.is_public);
+                break;
+              case 'favorites':
+                reportsForCounting = reportsForCounting.filter(report => favorites.has(report.id));
+                break;
+            }
+
+            const distinctColors = Array.from(new Set(reportsForCounting.map(r => r.color || '#3B82F6')));
+            const colorCounts = distinctColors.map(color => {
+              console.log(`Color ${color} mapping:`, colorGroups[color]);
+              return {
+                color,
+                count: reportsForCounting.filter(r => (r.color || '#3B82F6') === color).length,
+                groupName: colorGroups[color]?.name,
+                groupDescription: colorGroups[color]?.description
+              };
+            });
+
+            return (
+              <div className="flex items-center gap-2 flex-wrap border-t border-gray-200 pt-2">
+                <span className="text-xs font-medium text-gray-700">Rapor Grupları:</span>
+                {colorCounts.map(({ color, count, groupName, groupDescription }) => (
+                  <button
+                    key={color}
+                    onClick={() => handleColorFilterClick(color)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                      colorFilter === color
+                        ? 'bg-blue-50 ring-2 ring-blue-500'
+                        : 'hover:bg-gray-50'
+                    }`}
+                    style={{ borderLeft: `4px solid ${color}` }}
+                    title={`${groupDescription || `${count} rapor`}${colorFilter === color ? ' (Filtreleniyor)' : ' - Filtrelemek için tıklayın'}`}
+                  >
+                    <div
+                      className="w-4 h-4 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    {groupName ? (
+                      <>
+                        <span className="text-xs font-medium text-gray-700">{groupName}</span>
+                        <span className="text-xs text-gray-500">({count})</span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-gray-600">{count} rapor</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
       </div>
 
       {/* Reports Grid/List */}
@@ -535,7 +544,7 @@ export default function ReportsPage() {
               </div>
               <div className={
                 viewMode === 'grid'
-                  ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+                  ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4"
                   : "space-y-4"
               }>
                 {filteredReports.filter(r => favorites.has(r.id)).map((report) => {
@@ -632,74 +641,83 @@ export default function ReportsPage() {
                     <div
                       key={report.id}
                       onClick={() => handleReportClick(report.id)}
-                      className="bg-white rounded-lg shadow-lg shadow-slate-200 p-6 hover:shadow-lg transition-all cursor-pointer group relative border-l-4"
+                      className="bg-white rounded-lg shadow-lg shadow-slate-200 p-4 hover:shadow-lg transition-all cursor-pointer group relative border-l-4 overflow-hidden"
                       style={{ borderLeftColor: report.color || '#3B82F6' }}
                     >
-                      <div className="absolute top-3 right-3">
-                        <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                      {/* Background Pattern */}
+                      <div
+                        className="absolute inset-0 opacity-[0.03]"
+                        style={{
+                          backgroundImage: `repeating-linear-gradient(45deg, ${report.color || '#3B82F6'} 0, ${report.color || '#3B82F6'} 1px, transparent 0, transparent 50%)`,
+                          backgroundSize: '10px 10px'
+                        }}
+                      />
+                      <div className="absolute top-2 right-2 z-10">
+                        <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
                       </div>
 
-                      <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                         <button
                           onClick={(e) => handleToggleFavorite(report, e)}
                           className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-yellow-500 transition-colors"
                           title="Favorilerden çıkar"
                         >
-                          <Star className="h-4 w-4 fill-yellow-500 text-yellow-500" />
+                          <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" />
                         </button>
                         <button
                           onClick={(e) => handleEditReport(report, e)}
                           className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-blue-500 transition-colors"
                           title="Düzenle"
                         >
-                          <Edit className="h-4 w-4" />
+                          <Edit className="h-3 w-3" />
                         </button>
                         <button
                           onClick={(e) => handleDeleteReport(report, e)}
                           className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-red-500 transition-colors"
                           title="Sil"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-3 w-3" />
                         </button>
                       </div>
 
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="p-3 rounded-lg text-white" style={{ backgroundColor: report.color || '#3B82F6' }}>
-                          <IconComponent className="h-6 w-6" />
+                      <div className="flex items-start justify-between mb-3 relative z-10">
+                        <div className="p-2 rounded-lg text-white" style={{ backgroundColor: report.color || '#3B82F6' }}>
+                          <IconComponent className="h-5 w-5" />
                         </div>
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          report.is_public
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-gray-100 text-gray-800"
-                        }`}>
-                          {report.is_public ? (
-                            <>
-                              <Eye className="h-3 w-3 mr-1" />
-                              Herkese Açık
-                            </>
-                          ) : (
-                            <>
-                              <EyeOff className="h-3 w-3 mr-1" />
-                              Özel
-                            </>
-                          )}
-                        </span>
                       </div>
 
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                      <span className={`absolute top-2 right-2 z-20 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium group-hover:opacity-0 transition-opacity ${
+                        report.is_public
+                          ? "bg-blue-100 text-blue-800"
+                          : "bg-gray-100 text-gray-800"
+                      }`}>
+                        {report.is_public ? (
+                          <>
+                            <Eye className="h-3 w-3 mr-1" />
+                            Herkese Açık
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="h-3 w-3 mr-1" />
+                            Özel
+                          </>
+                        )}
+                      </span>
+
+                      <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors relative z-10">
                         {report.name}
                       </h3>
 
-                      <p className="text-sm text-gray-600 mb-4 line-clamp-2">{report.description}</p>
+                      <p className="text-sm text-gray-600 mb-3 line-clamp-2 relative z-10">{report.description}</p>
 
-                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                      <div className="flex items-center gap-3 text-xs text-gray-500 relative z-10">
                         <div className="flex items-center gap-1">
-                          <Calendar className="h-4 w-4" />
+                          <Calendar className="h-3 w-3" />
                           <span>{new Date(report.created_at).toLocaleDateString('tr-TR')}</span>
                         </div>
                         {report.owner_name && (
                           <div className="flex items-center gap-1">
-                            <User className="h-4 w-4" />
+                            <User className="h-3 w-3" />
                             <span>{report.owner_name}</span>
                           </div>
                         )}
@@ -725,7 +743,7 @@ export default function ReportsPage() {
               )}
               <div className={
                 viewMode === 'grid'
-                  ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+                  ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4"
                   : "space-y-4"
               }>
                 {(filterBy !== 'favorites' ? filteredReports.filter(r => !favorites.has(r.id)) : filteredReports).map((report) => {
@@ -824,78 +842,87 @@ export default function ReportsPage() {
               <div
                 key={report.id}
                 onClick={() => handleReportClick(report.id)}
-                className="bg-white rounded-lg shadow-lg shadow-slate-200 p-6 hover:shadow-lg transition-all cursor-pointer group relative border-l-4"
+                className="bg-white rounded-lg shadow-lg shadow-slate-200 p-4 hover:shadow-lg transition-all cursor-pointer group relative border-l-4 overflow-hidden"
                 style={{ borderLeftColor: report.color || '#3B82F6' }}
               >
+                {/* Background Pattern */}
+                <div
+                  className="absolute inset-0 opacity-[0.03]"
+                  style={{
+                    backgroundImage: `repeating-linear-gradient(45deg, ${report.color || '#3B82F6'} 0, ${report.color || '#3B82F6'} 1px, transparent 0, transparent 50%)`,
+                    backgroundSize: '10px 10px'
+                  }}
+                />
                 {/* Favorite Star */}
                 {favorites.has(report.id) && (
-                  <div className="absolute top-3 right-3">
-                    <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                  <div className="absolute top-2 right-2 z-10">
+                    <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
                   </div>
                 )}
 
                 {/* Action Buttons */}
-                <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                   <button
                     onClick={(e) => handleToggleFavorite(report, e)}
                     className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-yellow-500 transition-colors"
                     title={favorites.has(report.id) ? "Favorilerden çıkar" : "Favorilere ekle"}
                   >
-                    <Star className={`h-4 w-4 ${favorites.has(report.id) ? 'fill-yellow-500 text-yellow-500' : ''}`} />
+                    <Star className={`h-3 w-3 ${favorites.has(report.id) ? 'fill-yellow-500 text-yellow-500' : ''}`} />
                   </button>
                   <button
                     onClick={(e) => handleEditReport(report, e)}
                     className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-blue-500 transition-colors"
                     title="Düzenle"
                   >
-                    <Edit className="h-4 w-4" />
+                    <Edit className="h-3 w-3" />
                   </button>
                   <button
                     onClick={(e) => handleDeleteReport(report, e)}
                     className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-red-500 transition-colors"
                     title="Sil"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3 w-3" />
                   </button>
                 </div>
 
-                <div className="flex items-start justify-between mb-4">
-                  <div className="p-3 rounded-lg text-white" style={{ backgroundColor: report.color || '#3B82F6' }}>
-                    <IconComponent className="h-6 w-6" />
+                <div className="flex items-start justify-between mb-3 relative z-10">
+                  <div className="p-2 rounded-lg text-white" style={{ backgroundColor: report.color || '#3B82F6' }}>
+                    <IconComponent className="h-5 w-5" />
                   </div>
-                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                    report.is_public 
-                      ? "bg-blue-100 text-blue-800" 
-                      : "bg-gray-100 text-gray-800"
-                  }`}>
-                    {report.is_public ? (
-                      <>
-                        <Eye className="h-3 w-3 mr-1" />
-                        Herkese Açık
-                      </>
-                    ) : (
-                      <>
-                        <EyeOff className="h-3 w-3 mr-1" />
-                        Özel
-                      </>
-                    )}
-                  </span>
                 </div>
-                
-                <h3 className="text-lg font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+
+                <span className={`absolute top-2 right-2 z-20 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium group-hover:opacity-0 transition-opacity ${
+                  report.is_public
+                    ? "bg-blue-100 text-blue-800"
+                    : "bg-gray-100 text-gray-800"
+                }`}>
+                  {report.is_public ? (
+                    <>
+                      <Eye className="h-3 w-3 mr-1" />
+                      Herkese Açık
+                    </>
+                  ) : (
+                    <>
+                      <EyeOff className="h-3 w-3 mr-1" />
+                      Özel
+                    </>
+                  )}
+                </span>
+
+                <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors relative z-10">
                   {report.name}
                 </h3>
-                
-                <p className="text-sm text-gray-600 mb-4 line-clamp-2">{report.description}</p>
-                
-                <div className="flex items-center gap-4 text-sm text-gray-500">
+
+                <p className="text-sm text-gray-600 mb-3 line-clamp-2 relative z-10">{report.description}</p>
+
+                <div className="flex items-center gap-3 text-xs text-gray-500 relative z-10">
                   <div className="flex items-center gap-1">
-                    <Calendar className="h-4 w-4" />
+                    <Calendar className="h-3 w-3" />
                     <span>{new Date(report.created_at).toLocaleDateString('tr-TR')}</span>
                   </div>
                   {report.owner_name && (
                     <div className="flex items-center gap-1">
-                      <User className="h-4 w-4" />
+                      <User className="h-3 w-3" />
                       <span>{report.owner_name}</span>
                     </div>
                   )}

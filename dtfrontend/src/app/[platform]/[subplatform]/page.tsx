@@ -185,12 +185,14 @@ export default function SubPlatformPage() {
             });
 
             if (chartResponse?.data && Array.isArray(chartResponse.data)) {
-              const transformedData = chartResponse.data.map((row: any[]) => ({
-                firma: row[0],
-                machinecode: row[1],
-                date: row[2],
-                oee: (parseFloat(row[3]) || 0) * 100
-              }));
+              const transformedData = chartResponse.data
+                .map((row: any[]) => ({
+                  firma: row[0],
+                  machinecode: row[1],
+                  date: row[2],
+                  oee: (parseFloat(row[3]) || 0) * 100
+                }))
+                .filter((item: any) => item.oee >= 5); // Filter out OEE values under 5%
               setRawVerimlilikData(transformedData);
 
               // Extract unique firma options
@@ -364,12 +366,14 @@ export default function SubPlatformPage() {
           });
 
           if (chartResponse?.data && Array.isArray(chartResponse.data)) {
-            const transformedData = chartResponse.data.map((row: any[]) => ({
-              firma: row[0],
-              machinecode: row[1],
-              date: row[2],
-              oee: (parseFloat(row[3]) || 0) * 100
-            }));
+            const transformedData = chartResponse.data
+              .map((row: any[]) => ({
+                firma: row[0],
+                machinecode: row[1],
+                date: row[2],
+                oee: (parseFloat(row[3]) || 0) * 100
+              }))
+              .filter((item: any) => item.oee >= 5); // Filter out OEE values under 5%
             setRawVerimlilikData(transformedData);
 
             // Extract unique firma options
@@ -392,28 +396,34 @@ export default function SubPlatformPage() {
               const machines = Array.from(new Set(firmaData.map((item: any) => item.machinecode)));
               setMachineOptions(machines as string[]);
 
-              const machineAverages = machines.map(machine => {
-                const machineData = firmaData.filter((item: any) => item.machinecode === machine);
-                const avgOee = machineData.reduce((sum: number, item: any) => sum + item.oee, 0) / machineData.length;
-                return {
-                  name: machine,
-                  machinecode: machine,
-                  firma: selectedFirma,
-                  value: avgOee
-                };
-              });
+              const machineAverages = machines
+                .map(machine => {
+                  const machineData = firmaData.filter((item: any) => item.machinecode === machine);
+                  if (machineData.length === 0) return null;
+                  const avgOee = machineData.reduce((sum: number, item: any) => sum + item.oee, 0) / machineData.length;
+                  return {
+                    name: machine,
+                    machinecode: machine,
+                    firma: selectedFirma,
+                    value: avgOee
+                  };
+                })
+                .filter(item => item !== null); // Remove machines with no valid data
               setChartData(machineAverages);
             } else {
               // Firma averages view: show average OEE per firma
-              const firmaAverages = uniqueFirmas.map(firma => {
-                const firmaData = transformedData.filter((item: any) => item.firma === firma);
-                const avgOee = firmaData.reduce((sum: number, item: any) => sum + item.oee, 0) / firmaData.length;
-                return {
-                  name: firma,
-                  firma: firma,
-                  value: avgOee
-                };
-              });
+              const firmaAverages = uniqueFirmas
+                .map(firma => {
+                  const firmaData = transformedData.filter((item: any) => item.firma === firma);
+                  if (firmaData.length === 0) return null;
+                  const avgOee = firmaData.reduce((sum: number, item: any) => sum + item.oee, 0) / firmaData.length;
+                  return {
+                    name: firma,
+                    firma: firma,
+                    value: avgOee
+                  };
+                })
+                .filter(item => item !== null); // Remove firmas with no valid data
               setChartData(firmaAverages);
             }
           } else {

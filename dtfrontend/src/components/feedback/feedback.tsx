@@ -71,7 +71,7 @@ export function Feedback() {
       {createPortal(
         <button
           onClick={() => setShowFeedbackModal(true)}
-          className="w-18 h-18 rounded-full shadow-2xl hover:scale-110 transition-transform overflow-hidden bg-white/60"
+          className="w-18 h-18 rounded-full shadow-2xl hover:scale-110 transition-transform overflow-hidden bg-white"
           style={{
             position: 'fixed',
             bottom: '32px',
@@ -81,7 +81,7 @@ export function Feedback() {
           title="Geri Bildirim Gönder"
         >
           <img
-            src="/miras_nobg.png"
+            src="/ticket.png"
             alt="Feedback"
             className="w-full h-full object-contain"
           />

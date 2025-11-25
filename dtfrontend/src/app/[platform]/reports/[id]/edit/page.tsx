@@ -1094,6 +1094,7 @@ export default function EditReportPage() {
           globalFilters: (reportData as any).globalFilters || [],
           layoutConfig: reportData.layoutConfig || [],  // Preserve the layout configuration
           color: reportData.color || '#3B82F6',  // Preserve the color or use default
+          is_public: reportData.is_public || false,  // Preserve the public status
           queries: reportData.queries.map((query, index) => ({
             id: query.id?.toString() || generateId(),
             name: query.name,
@@ -1679,7 +1680,7 @@ export default function EditReportPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="reportName" className="text-sm">
                     Rapor Adı *
@@ -1718,6 +1719,19 @@ export default function EditReportPage() {
                       placeholder="#3B82F6"
                       className="h-9 flex-1"
                     />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reportPublic" className="text-sm">Görünürlük</Label>
+                  <div className="flex items-center space-x-2 h-9">
+                    <Checkbox
+                      id="reportPublic"
+                      checked={report.is_public || false}
+                      onCheckedChange={(checked) => setReport(prev => ({ ...prev, is_public: !!checked }))}
+                    />
+                    <Label htmlFor="reportPublic" className="text-sm font-normal cursor-pointer">
+                      Herkese Açık
+                    </Label>
                   </div>
                 </div>
               </div>
@@ -1925,7 +1939,27 @@ export default function EditReportPage() {
                           </Label>
                           <Textarea
                             value={query.sql}
-                            onChange={(e) => updateQuery(queryIndex, { sql: e.target.value })}
+                            onChange={(e) => {
+                              const newSql = e.target.value
+                              updateQuery(queryIndex, { sql: newSql })
+
+                              // Clean up tooltip fields that are no longer available
+                              const newAvailableFields = extractFieldsFromSQL(newSql)
+                              const currentTooltipFields = query.visualization.chartOptions?.tooltipFields || []
+                              const validTooltipFields = currentTooltipFields.filter(field =>
+                                newAvailableFields.includes(field)
+                              )
+
+                              // Only update if fields were removed
+                              if (validTooltipFields.length !== currentTooltipFields.length) {
+                                updateVisualization(queryIndex, {
+                                  chartOptions: {
+                                    ...query.visualization.chartOptions,
+                                    tooltipFields: validTooltipFields
+                                  }
+                                })
+                              }
+                            }}
                             placeholder="SELECT column1, column2 FROM table_name WHERE condition"
                             className="min-h-[400px] font-mono text-xs bg-slate-50/50"
                           />
@@ -3406,7 +3440,7 @@ export default function EditReportPage() {
               </div>
               <div className="space-y-2">
                 <DialogTitle className="text-xl font-bold text-emerald-600">
-                  🐟 Fener balığınız size yol gösteriyor!
+                  {platformCode === 'deriniz' ? '🐟 Fener balığınız size yol gösteriyor!' : '✨ Başarılı!'}
                 </DialogTitle>
                 <p className="text-slate-600">
                   Rapor başarıyla güncellendi

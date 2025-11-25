@@ -1345,7 +1345,7 @@ export default function EditDashboardPage() {
               </div>
               <div className="space-y-2">
                 <DialogTitle className="text-xl font-bold text-emerald-600">
-                  🐟 Fener balığınız size yol gösteriyor!
+                  {platformCode === 'deriniz' ? '🐟 Fener balığınız size yol gösteriyor!' : '✨ Başarılı!'}
                 </DialogTitle>
                 <p className="text-slate-600">
                   Dashboard başarıyla güncellendi
