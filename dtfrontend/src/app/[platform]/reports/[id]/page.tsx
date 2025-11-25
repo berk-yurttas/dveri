@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import {
   Play,
@@ -31,7 +32,9 @@ import {
   Search,
   Layout,
   Save,
-  XCircle
+  XCircle,
+  FileDown,
+  Maximize2
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
@@ -206,6 +209,8 @@ export default function ReportDetailPage() {
   const [nestedData, setNestedData] = useState<{[key: string]: {columns: string[], data: any[], loading: boolean, nestedQueries?: any[], filters?: any[]}}>({})
   const [nestedFilters, setNestedFilters] = useState<{[key: string]: any}>({})
   const [nestedFilterPopovers, setNestedFilterPopovers] = useState<{[key: string]: boolean}>({})
+  const [fullscreenQuery, setFullscreenQuery] = useState<QueryData | null>(null)
+  const [isMounted, setIsMounted] = useState(false)
   const [nestedFilterPositions, setNestedFilterPositions] = useState<{[key: string]: { top: number, left: number } }>({})
   const [nestedSorting, setNestedSorting] = useState<{[rowKey: string]: {column: string, direction: 'asc' | 'desc'} | null}>({})
   const [nestedPagination, setNestedPagination] = useState<{[rowKey: string]: {currentPage: number, pageSize: number}}>({})
@@ -910,6 +915,8 @@ export default function ReportDetailPage() {
   useEffect(() => {
     // Set the document locale to Turkish for proper date formatting
     document.documentElement.lang = 'tr-TR'
+    // Set mounted flag for portal rendering
+    setIsMounted(true)
   }, [])
 
   // Close all popovers when scrolling or clicking outside
@@ -1440,33 +1447,190 @@ export default function ReportDetailPage() {
   // Excel export functionality with chart images
   const exportToExcel = async () => {
     if (!report) return
-    
+
     try {
       setIsExporting(true)
-      
+
       // Create a new workbook
       const workbook = new ExcelJS.Workbook()
       workbook.creator = 'DT Report System'
       workbook.created = new Date()
-      
+
       // Process each query
       for (const query of report.queries) {
-        const queryState = queryResults[query.id]
-        if (!queryState?.result) continue
-        
-        const { result } = queryState
-        const { columns, data } = result
-        
+        let columns: string[] = []
+        let data: any[][] = []
+
+        // For table/expandable visualizations, fetch ALL data without pagination
+        if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
+          try {
+            // Prepare global filters
+            const globalFilters = (report?.globalFilters || [])
+              .map(filter => {
+                if (filter.type === 'date') {
+                  const startKey = `global_${filter.fieldName}_start`
+                  const endKey = `global_${filter.fieldName}_end`
+                  const startValue = filters[startKey]
+                  const endValue = filters[endKey]
+
+                  if (startValue && endValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: [startValue, endValue],
+                      operator: 'BETWEEN'
+                    }
+                  } else if (startValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: startValue,
+                      operator: '>='
+                    }
+                  } else if (endValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: endValue,
+                      operator: '<='
+                    }
+                  }
+                  return null
+                } else {
+                  const key = `global_${filter.fieldName}`
+                  const value = filters[key]
+
+                  if (filter.type === 'multiselect') {
+                    if (Array.isArray(value) && value.length > 0) {
+                      return {
+                        field_name: filter.fieldName,
+                        value: value,
+                        operator: 'IN'
+                      }
+                    }
+                  } else if (value && value !== '') {
+                    const operatorKey = `global_${filter.fieldName}_operator`
+                    const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
+
+                    return {
+                      field_name: filter.fieldName,
+                      value: value,
+                      operator: operator
+                    }
+                  }
+                  return null
+                }
+              })
+              .filter(Boolean)
+
+            // Prepare query filters
+            const queryFilters = query.filters
+              .map(filter => {
+                if (filter.type === 'date') {
+                  const startKey = `${query.id}_${filter.fieldName}_start`
+                  const endKey = `${query.id}_${filter.fieldName}_end`
+                  const startValue = filters[startKey]
+                  const endValue = filters[endKey]
+
+                  if (startValue && endValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: [startValue, endValue],
+                      operator: 'BETWEEN'
+                    }
+                  } else if (startValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: startValue,
+                      operator: '>='
+                    }
+                  } else if (endValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: endValue,
+                      operator: '<='
+                    }
+                  }
+                  return null
+                } else {
+                  const key = `${query.id}_${filter.fieldName}`
+                  const value = filters[key]
+
+                  if (filter.type === 'multiselect') {
+                    if (Array.isArray(value) && value.length > 0) {
+                      return {
+                        field_name: filter.fieldName,
+                        value: value,
+                        operator: 'IN'
+                      }
+                    }
+                  } else if (value && value !== '') {
+                    const operatorKey = `${query.id}_${filter.fieldName}_operator`
+                    const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
+
+                    return {
+                      field_name: filter.fieldName,
+                      value: value,
+                      operator: operator
+                    }
+                  }
+                  return null
+                }
+              })
+              .filter(Boolean)
+
+            // Merge filters
+            const allFilters = [...globalFilters, ...queryFilters]
+
+            // Get current sorting state for this query
+            const currentSort = sorting[query.id]
+
+            // Execute query with high limit to get all data
+            const request = {
+              report_id: report.id,
+              query_id: query.id,
+              filters: allFilters,
+              limit: 1000000, // Very high limit to get all data
+              ...(currentSort && {
+                sort_by: currentSort.column,
+                sort_direction: currentSort.direction
+              })
+            }
+
+            const response = await reportsService.executeReport(request)
+
+            if (response.success && response.results.length > 0) {
+              const result = response.results[0]
+              columns = result.columns
+              data = result.data
+            }
+          } catch (err) {
+            console.error(`Failed to fetch all data for query ${query.id}:`, err)
+            // Fallback to current paginated data if fetch fails
+            const queryState = queryResults[query.id]
+            if (queryState?.result) {
+              columns = queryState.result.columns
+              data = queryState.result.data
+            }
+          }
+        } else {
+          // For charts, use current result data
+          const queryState = queryResults[query.id]
+          if (!queryState?.result) continue
+
+          columns = queryState.result.columns
+          data = queryState.result.data
+        }
+
+        if (columns.length === 0) continue
+
         // Create worksheet
         const worksheet = workbook.addWorksheet(query.name.substring(0, 31))
-        
+
         if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
           // For table visualizations, export raw data
           worksheet.addRow(columns)
           data.forEach(row => {
             worksheet.addRow(row)
           })
-          
+
           // Style the header row
           const headerRow = worksheet.getRow(1)
           headerRow.font = { bold: true }
@@ -1475,7 +1639,7 @@ export default function ReportDetailPage() {
             pattern: 'solid',
             fgColor: { argb: 'FFE6F3FF' }
           }
-          
+
           // Auto-size columns
           columns.forEach((col, index) => {
             const column = worksheet.getColumn(index + 1)
@@ -1485,7 +1649,7 @@ export default function ReportDetailPage() {
             )
             column.width = Math.min(maxLength + 2, 50)
           })
-          
+
         } else {
           // For chart visualizations, add data and chart image
           
@@ -1551,6 +1715,288 @@ export default function ReportDetailPage() {
       const buffer = await workbook.xlsx.writeBuffer()
       saveAs(new Blob([buffer]), filename)
       
+    } catch (error) {
+      console.error('Excel export error:', error)
+      alert('Excel dosyası oluşturulurken hata oluştu.')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  // Export single query to Excel
+  const exportSingleQueryToExcel = async (query: QueryData) => {
+    if (!report) return
+
+    try {
+      setIsExporting(true)
+
+      let columns: string[] = []
+      let data: any[][] = []
+
+      // For table/expandable visualizations, fetch ALL data without pagination
+      if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
+        try {
+          // Prepare global filters
+          const globalFilters = (report?.globalFilters || [])
+            .map(filter => {
+              if (filter.type === 'date') {
+                const startKey = `global_${filter.fieldName}_start`
+                const endKey = `global_${filter.fieldName}_end`
+                const startValue = filters[startKey]
+                const endValue = filters[endKey]
+
+                if (startValue && endValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: [startValue, endValue],
+                    operator: 'BETWEEN'
+                  }
+                } else if (startValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: startValue,
+                    operator: '>='
+                  }
+                } else if (endValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: endValue,
+                    operator: '<='
+                  }
+                }
+                return null
+              } else {
+                const key = `global_${filter.fieldName}`
+                const value = filters[key]
+
+                if (filter.type === 'multiselect') {
+                  if (Array.isArray(value) && value.length > 0) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: value,
+                      operator: 'IN'
+                    }
+                  }
+                } else if (value && value !== '') {
+                  const operatorKey = `global_${filter.fieldName}_operator`
+                  const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
+
+                  return {
+                    field_name: filter.fieldName,
+                    value: value,
+                    operator: operator
+                  }
+                }
+                return null
+              }
+            })
+            .filter(Boolean)
+
+          // Prepare query filters
+          const queryFilters = query.filters
+            .map(filter => {
+              if (filter.type === 'date') {
+                const startKey = `${query.id}_${filter.fieldName}_start`
+                const endKey = `${query.id}_${filter.fieldName}_end`
+                const startValue = filters[startKey]
+                const endValue = filters[endKey]
+
+                if (startValue && endValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: [startValue, endValue],
+                    operator: 'BETWEEN'
+                  }
+                } else if (startValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: startValue,
+                    operator: '>='
+                  }
+                } else if (endValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: endValue,
+                    operator: '<='
+                  }
+                }
+                return null
+              } else {
+                const key = `${query.id}_${filter.fieldName}`
+                const value = filters[key]
+
+                if (filter.type === 'multiselect') {
+                  if (Array.isArray(value) && value.length > 0) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: value,
+                      operator: 'IN'
+                    }
+                  }
+                } else if (value && value !== '') {
+                  const operatorKey = `${query.id}_${filter.fieldName}_operator`
+                  const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
+
+                  return {
+                    field_name: filter.fieldName,
+                    value: value,
+                    operator: operator
+                  }
+                }
+                return null
+              }
+            })
+            .filter(Boolean)
+
+          // Merge filters
+          const allFilters = [...globalFilters, ...queryFilters]
+
+          // Get current sorting state for this query
+          const currentSort = sorting[query.id]
+
+          // Execute query with high limit to get all data
+          const request = {
+            report_id: report.id,
+            query_id: query.id,
+            filters: allFilters,
+            limit: 1000000, // Very high limit to get all data
+            ...(currentSort && {
+              sort_by: currentSort.column,
+              sort_direction: currentSort.direction
+            })
+          }
+
+          const response = await reportsService.executeReport(request)
+
+          if (response.success && response.results.length > 0) {
+            const result = response.results[0]
+            columns = result.columns
+            data = result.data
+          }
+        } catch (err) {
+          console.error(`Failed to fetch all data for query ${query.id}:`, err)
+          // Fallback to current paginated data if fetch fails
+          const queryState = queryResults[query.id]
+          if (queryState?.result) {
+            columns = queryState.result.columns
+            data = queryState.result.data
+          }
+        }
+      } else {
+        // For charts, use current result data
+        const queryState = queryResults[query.id]
+        if (!queryState?.result) {
+          alert('Sorgu sonucu bulunamadı.')
+          return
+        }
+
+        columns = queryState.result.columns
+        data = queryState.result.data
+      }
+
+      if (columns.length === 0) {
+        alert('Dışa aktarılacak veri yok.')
+        return
+      }
+
+      // Create a new workbook
+      const workbook = new ExcelJS.Workbook()
+      workbook.creator = 'DT Report System'
+      workbook.created = new Date()
+
+      // Create worksheet
+      const worksheet = workbook.addWorksheet(query.name.substring(0, 31))
+
+      if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
+        // For table visualizations, export raw data
+        worksheet.addRow(columns)
+        data.forEach(row => {
+          worksheet.addRow(row)
+        })
+
+        // Style the header row
+        const headerRow = worksheet.getRow(1)
+        headerRow.font = { bold: true }
+        headerRow.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE6F3FF' }
+        }
+
+        // Auto-size columns
+        columns.forEach((col, index) => {
+          const column = worksheet.getColumn(index + 1)
+          const maxLength = Math.max(
+            col.length,
+            ...data.map(row => String(row[index] || '').length)
+          )
+          column.width = Math.min(maxLength + 2, 50)
+        })
+
+      } else {
+        // For chart visualizations, add data and chart image
+
+        // Add title
+        worksheet.addRow([query.visualization.title || query.name])
+        worksheet.getRow(1).font = { bold: true, size: 16 }
+        worksheet.addRow([]) // Empty row
+
+        // Add data
+        worksheet.addRow(columns)
+        data.forEach(row => {
+          worksheet.addRow(row)
+        })
+
+        // Style the header row
+        const headerRow = worksheet.getRow(3)
+        headerRow.font = { bold: true }
+        headerRow.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE6F3FF' }
+        }
+
+        // Auto-size columns
+        columns.forEach((col, index) => {
+          const column = worksheet.getColumn(index + 1)
+          const maxLength = Math.max(
+            col.length,
+            ...data.map(row => String(row[index] || '').length)
+          )
+          column.width = Math.min(maxLength + 2, 30)
+        })
+
+        // Capture and add chart image
+        const chartImageBase64 = await captureChartAsImage(query.id)
+        if (chartImageBase64) {
+          try {
+            const imageId = workbook.addImage({
+              base64: chartImageBase64,
+              extension: 'png',
+            })
+
+            // Position the image to the right of the data or below it
+            const dataEndRow = data.length + 3
+            const imageStartCol = Math.max(columns.length + 2, 5) // Start after data columns
+
+            worksheet.addImage(imageId, {
+              tl: { col: imageStartCol, row: 3 }, // Top-left position
+              ext: { width: 1200, height: 400 }, // Size
+            })
+          } catch (imageError) {
+            console.error('Error adding image to worksheet:', imageError)
+          }
+        }
+      }
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-')
+      const filename = `${query.name.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}.xlsx`
+
+      // Export to file
+      const buffer = await workbook.xlsx.writeBuffer()
+      saveAs(new Blob([buffer]), filename)
+
     } catch (error) {
       console.error('Excel export error:', error)
       alert('Excel dosyası oluşturulurken hata oluştu.')
@@ -2565,6 +3011,25 @@ export default function ReportDetailPage() {
                   {isLayoutEditMode && (
                     <span className="ml-auto text-xs text-blue-600 font-medium">Sürükle</span>
                   )}
+                  {!isLayoutEditMode && queryState?.result && (
+                    <div className="ml-auto flex items-center gap-1">
+                      <button
+                        onClick={() => setFullscreenQuery(query)}
+                        className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
+                        title="Tam ekran göster"
+                      >
+                        <Maximize2 className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => exportSingleQueryToExcel(query)}
+                        disabled={isExporting}
+                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                        title="Excel'e aktar"
+                      >
+                        <FileDown className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2625,9 +3090,105 @@ export default function ReportDetailPage() {
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
-      
+
       {/* Feedback Button */}
       <Feedback />
+
+      {/* Fullscreen Query Modal - Using Portal */}
+      {isMounted && fullscreenQuery && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-2xl w-full h-full max-w-[98vw] max-h-[98vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const vizType = fullscreenQuery.visualization.type
+                  const Icon = vizType === 'bar' ? BarChart3
+                    : vizType === 'line' ? LineChart
+                    : vizType === 'pie' ? PieChart
+                    : vizType === 'table' ? Table
+                    : vizType === 'expandable' ? Table
+                    : Database
+                  return <Icon className="h-5 w-5 text-blue-600" />
+                })()}
+                <h2 className="text-xl font-semibold">{fullscreenQuery.name}</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => exportSingleQueryToExcel(fullscreenQuery)}
+                  disabled={isExporting}
+                  className="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  title="Excel'e aktar"
+                >
+                  <FileDown className="h-4 w-4" />
+                  Excel'e Aktar
+                </button>
+                <button
+                  onClick={() => setFullscreenQuery(null)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="Kapat"
+                >
+                  <X className="h-5 w-5 text-gray-600" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-auto p-6">
+              {(() => {
+                const queryState = queryResults[fullscreenQuery.id]
+
+                if (queryState?.loading) {
+                  return (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="h-12 w-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                        <span className="text-lg font-medium text-gray-700">Rapor çalıştırılıyor...</span>
+                      </div>
+                    </div>
+                  )
+                }
+
+                if (queryState?.error) {
+                  return (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-lg">
+                        <div className="flex items-start gap-3">
+                          <AlertCircle className="h-6 w-6 text-red-400 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <h3 className="font-semibold text-red-900 mb-1">Hata Oluştu</h3>
+                            <p className="text-sm text-red-800">{queryState.error}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+
+                if (queryState?.result) {
+                  return (
+                    <div className="h-full">
+                      {fullscreenQuery.visualization.type !== 'table' && fullscreenQuery.visualization.type !== 'expandable' && renderQueryFilters(fullscreenQuery)}
+                      {renderVisualization(fullscreenQuery, queryState.result, 1)}
+                    </div>
+                  )
+                }
+
+                return (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center text-gray-500">
+                      <Database className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                      <p className="text-lg">Veri bulunamadı</p>
+                      <p className="text-sm mt-1">Farklı filtrelerle tekrar deneyin.</p>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

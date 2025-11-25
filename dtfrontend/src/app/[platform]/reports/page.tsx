@@ -641,14 +641,14 @@ export default function ReportsPage() {
                     <div
                       key={report.id}
                       onClick={() => handleReportClick(report.id)}
-                      className="bg-white rounded-lg shadow-lg shadow-slate-200 p-4 hover:shadow-lg transition-all cursor-pointer group relative border-l-4 overflow-hidden"
+                      className="bg-white rounded-lg shadow-lg shadow-slate-200 p-4 hover:shadow-lg hover:scale-105 transition-all cursor-pointer group relative border-l-4 overflow-hidden"
                       style={{ borderLeftColor: report.color || '#3B82F6' }}
                     >
                       {/* Background Pattern */}
                       <div
                         className="absolute inset-0 opacity-[0.03]"
                         style={{
-                          backgroundImage: `repeating-linear-gradient(45deg, ${report.color || '#3B82F6'} 0, ${report.color || '#3B82F6'} 1px, transparent 0, transparent 50%)`,
+                          backgroundImage: `repeating-linear-gradient(45deg, #000000 0, #000000 0.2px, transparent 0, transparent 50%)`,
                           backgroundSize: '10px 10px'
                         }}
                       />
@@ -842,14 +842,14 @@ export default function ReportsPage() {
               <div
                 key={report.id}
                 onClick={() => handleReportClick(report.id)}
-                className="bg-white rounded-lg shadow-lg shadow-slate-200 p-4 hover:shadow-lg transition-all cursor-pointer group relative border-l-4 overflow-hidden"
+                className="bg-white rounded-lg shadow-lg shadow-slate-200 p-4 hover:shadow-lg hover:scale-105 transition-all cursor-pointer group relative border-l-4 overflow-hidden"
                 style={{ borderLeftColor: report.color || '#3B82F6' }}
               >
                 {/* Background Pattern */}
                 <div
                   className="absolute inset-0 opacity-[0.03]"
                   style={{
-                    backgroundImage: `repeating-linear-gradient(45deg, ${report.color || '#3B82F6'} 0, ${report.color || '#3B82F6'} 1px, transparent 0, transparent 50%)`,
+                    backgroundImage: `repeating-linear-gradient(45deg, #000000 0, #000000 0.2px, transparent 0, transparent 50%)`,
                     backgroundSize: '10px 10px'
                   }}
                 />

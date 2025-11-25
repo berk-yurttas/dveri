@@ -67,12 +67,12 @@ const subplatformWidgetMapping: { [key: string]: string[] } = {
   'ivme/verimlilik': [
     'machine_oee-widget',
     'kablaj_duruslar-widget',
-    'mekanik_hatalar-widget',
-    'kablaj_uretim_rate-widget'
+    'mekanik_hatalar-widget'
   ],
   'ivme/kapasite': [
     'capacity_analysis-widget',
-    'pending_work-widget'
+    'pending_work-widget',
+    'kablaj_uretim_rate-widget'
   ],
   'ivme/idari': [
     'employee_count-widget',

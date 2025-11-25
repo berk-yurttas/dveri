@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LineChart, Line, PieChart, Pie, AreaChart, Area, ComposedChart } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LineChart, Line, PieChart, Pie, AreaChart, Area, ComposedChart, ReferenceArea } from 'recharts'
 import { VisualizationProps } from './types'
 import { Button } from '@/components/appShell/ui/button'
 import { ArrowLeft, Loader2 } from 'lucide-react'
@@ -679,7 +679,25 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 )
               })}
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={!allSingleBars} />
+            {/* Add alternating background for grouped bars */}
+            {!allSingleBars && chartData.map((item, index) => {
+              if (index % 2 === 1) {
+                const xValue = item[visualization.xAxis || columns[0]]
+                return (
+                  <ReferenceArea
+                    key={`bg-${index}`}
+                    x1={xValue}
+                    x2={xValue}
+                    yAxisId="left"
+                    fill="#eaddca"
+                    fillOpacity={0.5}
+                    ifOverflow="extendDomain"
+                  />
+                )
+              }
+              return null
+            })}
             <Legend />
             <XAxis
               dataKey={visualization.xAxis || columns[0]}
@@ -797,7 +815,24 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               )
             })}
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={!allSingleBars} />
+          {/* Add alternating background for grouped bars */}
+          {!allSingleBars && chartData.map((item, index) => {
+            if (index % 2 === 1) {
+              const xValue = item[visualization.xAxis || columns[0]]
+              return (
+                <ReferenceArea
+                  key={`bg-${index}`}
+                  x1={xValue}
+                  x2={xValue}
+                  fill="#eaddca"
+                  fillOpacity={0.5}
+                  ifOverflow="extendDomain"
+                />
+              )
+            }
+            return null
+          })}
           <Legend />
           <XAxis
             dataKey={visualization.xAxis || columns[0]}
