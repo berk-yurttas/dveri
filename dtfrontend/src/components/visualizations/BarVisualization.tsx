@@ -129,6 +129,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
   // Convert data to format suitable for grouped bar charts
   const xAxisField = visualization.xAxis || columns[0]
   const yAxisField = visualization.yAxis || columns[1]
+  const legendFields = visualization.chartOptions?.legendFields || []
 
   // Group data by x-axis value - each group will have multiple bars
   const groupedData = new Map<string, any[]>()
@@ -744,8 +745,8 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 yAxisId="left"
                 dataKey={barKey}
                 fill={colors[barIndex % colors.length]}
-                name={visualization.yAxis || columns[1]}
-                legendType={barIndex > 0 ? "none" : undefined}
+                name={legendFields.length > 0 && legendFields[barIndex] ? legendFields[barIndex] : (visualization.yAxis || columns[1])}
+                legendType={legendFields.length > 0 ? undefined : (barIndex > 0 ? "none" : undefined)}
                 onClick={isClickable ? handleBarClick : undefined}
                 cursor={isClickable ? 'pointer' : 'default'}
                 radius={[8, 8, 0, 0]}
@@ -869,8 +870,8 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               key={barKey}
               dataKey={barKey}
               fill={colors[barIndex % colors.length]}
-              name={visualization.yAxis || columns[1]}
-              legendType={barIndex > 0 ? "none" : undefined}
+              name={legendFields.length > 0 && legendFields[barIndex] ? legendFields[barIndex] : (visualization.yAxis || columns[1])}
+              legendType={legendFields.length > 0 ? undefined : (barIndex > 0 ? "none" : undefined)}
               onClick={isClickable ? handleBarClick : undefined}
               cursor={isClickable ? 'pointer' : 'default'}
               radius={[8, 8, 0, 0]}

@@ -42,18 +42,19 @@ class ChartOptions(BaseModel):
     stacked: Optional[bool] = False
     show_grid: Optional[bool] = Field(True, alias="showGrid")
     show_data_labels: Optional[bool] = Field(False, alias="showDataLabels")
-    
+    legend_fields: Optional[List[str]] = Field([], alias="legendFields")  # Fields to show as separate series in bar charts
+
     # Pie specific
     show_percentage: Optional[bool] = Field(True, alias="showPercentage")
     inner_radius: Optional[int] = Field(0, alias="innerRadius")
-    
+
     # Line specific
     smooth: Optional[bool] = False
     show_dots: Optional[bool] = Field(True, alias="showDots")
-    
+
     # Scatter specific
     size_field: Optional[str] = Field(None, alias="sizeField")
-    
+
     # Histogram specific
     bin_count: Optional[int] = Field(10, alias="binCount")
     

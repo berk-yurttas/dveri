@@ -413,7 +413,6 @@ export default function ReportsPage() {
                 { key: 'name', label: 'Ad' },
                 { key: 'created', label: 'Tarih' },
                 { key: 'updated', label: 'Güncelleme' },
-                { key: 'queries', label: 'Sorgu' }
               ].map(({ key, label }) => (
                 <button
                   key={key}
@@ -656,7 +655,7 @@ export default function ReportsPage() {
                         <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
                       </div>
 
-                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-30">
                         <button
                           onClick={(e) => handleToggleFavorite(report, e)}
                           className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-yellow-500 transition-colors"
@@ -861,7 +860,7 @@ export default function ReportsPage() {
                 )}
 
                 {/* Action Buttons */}
-                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-30">
                   <button
                     onClick={(e) => handleToggleFavorite(report, e)}
                     className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-yellow-500 transition-colors"

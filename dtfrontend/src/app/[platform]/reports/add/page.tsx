@@ -2140,8 +2140,12 @@ export default function AddReportPage() {
                 <TabsList className="grid w-full bg-slate-100 p-1 rounded-lg" style={{ gridTemplateColumns: `repeat(${report.queries.length}, minmax(0, 1fr))` }}>
                   {report.queries.map((query, index) => (
                     <div key={query.id} className="relative">
-                      <TabsTrigger value={index.toString()} className="w-full data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-blue-700 data-[state=active]:font-semibold data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900 transition-all">
-                        {query.name}
+                      <TabsTrigger
+                        value={index.toString()}
+                        className="w-full data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-blue-700 data-[state=active]:font-semibold data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900 transition-all overflow-hidden"
+                        title={query.name}
+                      >
+                        <span className="block truncate px-6">{query.name}</span>
                       </TabsTrigger>
                       {report.queries.length > 1 && (
                         <Button
@@ -2302,6 +2306,45 @@ export default function AddReportPage() {
                                       </Select>
                                     </div>
                                   </div>
+
+                                  {/* Legend Fields for Bar Chart */}
+                                  {query.visualization.type === 'bar' && (
+                                    <div className="space-y-2">
+                                      <Label className="text-sm">Legend Alanları (Çoklu Seri)</Label>
+                                      <div className="space-y-1 max-h-32 overflow-y-auto bg-white p-2 rounded border border-gray-200">
+                                        {availableFields.length > 0 ? (
+                                          availableFields.map((field) => (
+                                            <div key={field} className="flex items-center space-x-2">
+                                              <Checkbox
+                                                id={`legend-field-${query.id}-${field}`}
+                                                checked={query.visualization.chartOptions?.legendFields?.includes(field) ?? false}
+                                                onCheckedChange={(checked) => {
+                                                  const currentFields = query.visualization.chartOptions?.legendFields || []
+                                                  const newFields = checked
+                                                    ? [...currentFields, field]
+                                                    : currentFields.filter(f => f !== field)
+                                                  updateVisualization(queryIndex, {
+                                                    chartOptions: {
+                                                      ...query.visualization.chartOptions,
+                                                      legendFields: newFields
+                                                    }
+                                                  })
+                                                }}
+                                              />
+                                              <Label htmlFor={`legend-field-${query.id}-${field}`} className="text-xs">
+                                                {field}
+                                              </Label>
+                                            </div>
+                                          ))
+                                        ) : (
+                                          <p className="text-xs text-gray-500 text-center py-1">Alan bulunamadı</p>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-slate-500">
+                                        Seçilen alanlar ayrı barlar olarak gösterilecek
+                                      </p>
+                                    </div>
+                                  )}
 
                                   {/* Line Overlay for Bar Charts */}
                                   {query.visualization.type === 'bar' && (
