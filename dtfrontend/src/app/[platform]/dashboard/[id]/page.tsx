@@ -14,7 +14,7 @@ import { Calendar, User, Eye, EyeOff,
   Map as MapIcon, Camera, Music, Heart, Star, Target, Gauge, Cpu,
   Wifi, Battery, HardDrive, Smartphone, Plus, Layout, Edit, Trash2, X
 } from "lucide-react";
-import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget } from "@/components/widgets";
+import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget } from "@/components/widgets";
 import { DateInput } from "@/components/ui/date-input";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
@@ -110,6 +110,8 @@ const renderWidgetContent = (widget: any, index: number, dateFrom: string, dateT
       return <PendingWorkWidget widgetId={widget.id || `widget-${index}`} />;
     case 'kablaj_uretim_rate':
       return <KablajUretimRateWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'aselsan_sivas':
+      return <AselsanSivasWidget widgetId={widget.id || `widget-${index}`} />;
     default:
       // Fallback widget display
       const config = widget.config || {};

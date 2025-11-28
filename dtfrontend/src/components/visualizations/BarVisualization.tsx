@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LineChart, Line, PieChart, Pie, AreaChart, Area, ComposedChart, ReferenceArea } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LineChart, Line, PieChart, Pie, AreaChart, Area, ComposedChart, ReferenceArea, ReferenceLine } from 'recharts'
 import { VisualizationProps } from './types'
 import { Button } from '@/components/appShell/ui/button'
 import { ArrowLeft, Loader2 } from 'lucide-react'
@@ -251,6 +251,14 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                       visualization.chartOptions.nestedQueries.length > 0
 
   const showLineOverlay = visualization.chartOptions?.showLineOverlay && visualization.chartOptions?.lineYAxis
+
+  // Calculate reference line value if configured
+  const referenceLineField = visualization.chartOptions?.referenceLineField
+  const referenceLineValue = referenceLineField
+    ? chartData.length > 0 ? chartData[0][referenceLineField] : null
+    : null
+  const referenceLineLabel = visualization.chartOptions?.referenceLineLabel || referenceLineField
+  const referenceLineColor = visualization.chartOptions?.referenceLineColor || '#EF4444'
 
   // Handle bar click
   const handleBarClick = async (data: any) => {
@@ -792,6 +800,22 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 />
               )
             })}
+            {referenceLineValue !== null && referenceLineValue !== undefined && (
+              <ReferenceLine
+                yAxisId="left"
+                y={referenceLineValue}
+                stroke={referenceLineColor}
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                label={{
+                  value: `${referenceLineLabel}: ${referenceLineValue}`,
+                  position: 'top',
+                  fill: referenceLineColor,
+                  fontSize: 11,
+                  fontWeight: 600
+                }}
+              />
+            )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -900,6 +924,21 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               })}
             </Bar>
           ))}
+          {referenceLineValue !== null && referenceLineValue !== undefined && (
+            <ReferenceLine
+              y={referenceLineValue}
+              stroke={referenceLineColor}
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              label={{
+                value: `${referenceLineLabel}: ${referenceLineValue}`,
+                position: 'top',
+                fill: referenceLineColor,
+                fontSize: 11,
+                fontWeight: 600
+              }}
+            />
+          )}
         </BarChart>
       </ResponsiveContainer>
     </div>

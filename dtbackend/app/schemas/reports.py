@@ -91,6 +91,11 @@ class ChartOptions(BaseModel):
     line_y_axis: Optional[str] = Field(None, alias="lineYAxis")
     show_line_overlay: Optional[bool] = Field(False, alias="showLineOverlay")
 
+    # Reference line for bar and line charts
+    reference_line_field: Optional[str] = Field(None, alias="referenceLineField")
+    reference_line_label: Optional[str] = Field(None, alias="referenceLineLabel")
+    reference_line_color: Optional[str] = Field("#EF4444", alias="referenceLineColor")
+
     # Row coloring for table visualizations
     row_color_rules: Optional[List[RowColorRule]] = Field([], alias="rowColorRules")
 

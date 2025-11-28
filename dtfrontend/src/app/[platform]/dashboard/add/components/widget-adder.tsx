@@ -32,7 +32,8 @@ const widgetIconMap: { [key: string]: any } = {
   "product-test-widget": FileText,
   "test-analysis-widget": BarChart3,
   "test_duration-widget": Clock,
-  "measurement-widget": TrendingUp
+  "measurement-widget": TrendingUp,
+  "aselsan_sivas-widget": Database
 }
 
 // Generate available widgets from component configurations
@@ -58,7 +59,8 @@ const platformWidgetMapping: { [key: string]: string[] } = {
     'machine_oee-widget',
     'kablaj_duruslar-widget',
     'mekanik_hatalar-widget',
-    'employee_count-widget'
+    'employee_count-widget',
+    'aselsan_sivas-widget'
   ],
 }
 

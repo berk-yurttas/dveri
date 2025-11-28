@@ -114,6 +114,11 @@ export interface VisualizationConfig {
 
     // Table/Expandable table specific - Row coloring rules
     rowColorRules?: RowColorRule[]
+
+    // Reference line for bar and line charts
+    referenceLineField?: string
+    referenceLineLabel?: string
+    referenceLineColor?: string
   }
 }
 

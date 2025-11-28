@@ -30,7 +30,6 @@ def sanitize_sql_query(query: str) -> str:
     dangerous_patterns = [
         r'\b(DROP|DELETE|TRUNCATE|INSERT|UPDATE|ALTER|CREATE|GRANT|REVOKE)\b',
         r';[\s]*(?:DROP|DELETE|TRUNCATE|INSERT|UPDATE|ALTER|CREATE|GRANT|REVOKE)',
-        r'--',  # SQL comments
         r'/\*.*?\*/',  # Multi-line comments
     ]
 

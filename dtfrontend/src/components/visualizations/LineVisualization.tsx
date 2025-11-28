@@ -1,5 +1,5 @@
 import React from 'react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { VisualizationProps } from './types'
 
 const DEFAULT_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#84CC16', '#F97316']
@@ -16,6 +16,14 @@ export const LineVisualization: React.FC<VisualizationProps> = ({ query, result,
     })
     return item
   })
+
+  // Calculate reference line value if configured
+  const referenceLineField = visualization.chartOptions?.referenceLineField
+  const referenceLineValue = referenceLineField
+    ? chartData.length > 0 ? chartData[0][referenceLineField] : null
+    : null
+  const referenceLineLabel = visualization.chartOptions?.referenceLineLabel || referenceLineField
+  const referenceLineColor = visualization.chartOptions?.referenceLineColor || '#EF4444'
 
   return (
     <ResponsiveContainer width="100%" height={450 * scale}>
@@ -56,6 +64,21 @@ export const LineVisualization: React.FC<VisualizationProps> = ({ query, result,
           dot={{ r: 4 }}
           name={visualization.yAxis || columns[1]}
         />
+        {referenceLineValue !== null && referenceLineValue !== undefined && (
+          <ReferenceLine
+            y={referenceLineValue}
+            stroke={referenceLineColor}
+            strokeWidth={2}
+            strokeDasharray="5 5"
+            label={{
+              value: `${referenceLineLabel}: ${referenceLineValue}`,
+              position: 'top',
+              fill: referenceLineColor,
+              fontSize: 11,
+              fontWeight: 600
+            }}
+          />
+        )}
       </LineChart>
     </ResponsiveContainer>
   )

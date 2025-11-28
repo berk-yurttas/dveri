@@ -2145,6 +2145,86 @@ export default function EditReportPage() {
                                     </div>
                                   )}
 
+                                  {/* Reference Line Configuration */}
+                                  {(query.visualization.type === 'bar' || query.visualization.type === 'line') && (
+                                    <div className="mt-3 space-y-3 p-3 bg-amber-50/50 rounded-lg border border-amber-200">
+                                      <Label className="text-sm font-semibold text-amber-900">
+                                        Referans Çizgisi
+                                      </Label>
+
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div className="col-span-2 space-y-2">
+                                          <Label className="text-sm">Alan Seç</Label>
+                                          <Select
+                                            value={query.visualization.chartOptions?.referenceLineField || ''}
+                                            onValueChange={(value) => updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                referenceLineField: value || undefined
+                                              }
+                                            })}
+                                            placeholder="Referans çizgisi için alan seçin"
+                                          >
+                                            <option value="">Seçilmedi</option>
+                                            {availableFields.map((field) => (
+                                              <option key={field} value={field}>{field}</option>
+                                            ))}
+                                          </Select>
+                                          <p className="text-xs text-amber-700">
+                                            Seçilen alanın değeri yatay çizgi olarak gösterilecek
+                                          </p>
+                                        </div>
+
+                                        {query.visualization.chartOptions?.referenceLineField && (
+                                          <>
+                                            <div className="space-y-2">
+                                              <Label className="text-sm">Etiket</Label>
+                                              <Input
+                                                value={query.visualization.chartOptions?.referenceLineLabel || ''}
+                                                onChange={(e) => updateVisualization(queryIndex, {
+                                                  chartOptions: {
+                                                    ...query.visualization.chartOptions,
+                                                    referenceLineLabel: e.target.value
+                                                  }
+                                                })}
+                                                placeholder="Referans çizgisi etiketi"
+                                                className="h-9 text-xs"
+                                              />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                              <Label className="text-sm">Renk</Label>
+                                              <div className="flex gap-2">
+                                                <input
+                                                  type="color"
+                                                  value={query.visualization.chartOptions?.referenceLineColor || '#EF4444'}
+                                                  onChange={(e) => updateVisualization(queryIndex, {
+                                                    chartOptions: {
+                                                      ...query.visualization.chartOptions,
+                                                      referenceLineColor: e.target.value
+                                                    }
+                                                  })}
+                                                  className="w-10 h-9 rounded cursor-pointer border-2 border-slate-200"
+                                                />
+                                                <Input
+                                                  value={query.visualization.chartOptions?.referenceLineColor || '#EF4444'}
+                                                  onChange={(e) => updateVisualization(queryIndex, {
+                                                    chartOptions: {
+                                                      ...query.visualization.chartOptions,
+                                                      referenceLineColor: e.target.value
+                                                    }
+                                                  })}
+                                                  placeholder="#EF4444"
+                                                  className="h-9 flex-1 text-xs"
+                                                />
+                                              </div>
+                                            </div>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
                                   {/* Clickable Bar Configuration */}
                                   {query.visualization.type === 'bar' && (
                                     <div className="mt-3 space-y-3 p-3 bg-purple-50/50 rounded-lg border border-purple-200">
