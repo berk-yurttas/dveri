@@ -43,7 +43,8 @@ import {
   Cloud,
   Workflow,
   ArrowRight,
-  X
+  X,
+  Lock
 } from "lucide-react";
 import { dashboardService } from "@/services/dashboard";
 import { platformService } from "@/services/platform";
@@ -149,6 +150,7 @@ export default function Home() {
   const [showNavigationModal, setShowNavigationModal] = useState(false);
   const [navigatingPlatform, setNavigatingPlatform] = useState<{ name: string; logo: string; code: string } | null>(null);
   const [showAllAnnouncementsModal, setShowAllAnnouncementsModal] = useState(false);
+  const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
 
   const handleDerinizHover = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -268,14 +270,49 @@ export default function Home() {
     fetchData();
   }, []);
 
-  const handlePlatformSelect = (platformCode: string, isUnderConstruction: boolean, displayName: string, logoUrl: string) => {
+  const checkAccess = (platform: PlatformType) => {
+    // If no restrictions, allow access
+    if ((!platform.allowed_departments || platform.allowed_departments.length === 0) && 
+        (!platform.allowed_users || platform.allowed_users.length === 0)) {
+      return true;
+    }
+
+    if (!user) return false;
+
+    // Check user permission
+    if (platform.allowed_users?.includes(user.username)) {
+      return true;
+    }
+
+    // Check department permission
+    if (platform.allowed_departments && platform.allowed_departments.length > 0 && user.department) {
+      // Check exact match or if user's department is a child of an allowed department
+      // Assuming department format matches (e.g. "DEP1_DEP2")
+      return platform.allowed_departments.some(allowed => 
+        user.department === allowed || user.department.startsWith(allowed + '_')
+      );
+    }
+
+    return false;
+  };
+
+  const handlePlatformSelect = (platform: PlatformType) => {
+    const { code: platformCode, display_name: displayName, logo_url: logoUrl, theme_config } = platform;
+    const isUnderConstruction = theme_config?.underConstruction || false;
+
+    // Check access permissions
+    if (!checkAccess(platform)) {
+      setShowAccessDeniedModal(true);
+      return;
+    }
+
     if (isUnderConstruction) {
       // Show modal instead of navigating
       setUnderConstructionPlatform(displayName);
       setShowUnderConstructionModal(true);
     } else {
       // Show navigation modal
-      setNavigatingPlatform({ name: displayName, logo: logoUrl, code: platformCode });
+      setNavigatingPlatform({ name: displayName, logo: logoUrl || '', code: platformCode });
       setShowNavigationModal(true);
 
       // Store selected platform in localStorage
@@ -362,7 +399,7 @@ export default function Home() {
                     key={platform.code}
                     onMouseEnter={() => setHoveredPlatform(platform.code)}
                     onMouseLeave={() => setHoveredPlatform(null)}
-                    onClick={() => handlePlatformSelect(platform.code, isUnderConstruction, platform.display_name, platform.logo_url || '')}
+                    onClick={() => handlePlatformSelect(platform)}
                     className={`
                       bg-white rounded-lg shadow-xl shadow-slate-200 py-6 px-2
                       hover:shadow-2xl transition-all duration-300 cursor-pointer group
@@ -752,6 +789,41 @@ export default function Home() {
                 className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
               >
                 Tamam
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Access Denied Modal */}
+      {showAccessDeniedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <Lock className="h-8 w-8 text-white" />
+                <h3 className="text-xl font-bold text-white">Erişim Engellendi</h3>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6">
+              <p className="text-gray-700 text-lg mb-2">
+                Bu platforma erişim yetkiniz bulunmamaktadır.
+              </p>
+              <p className="text-gray-600">
+                Erişim izni almak için lütfen sistem yöneticisi ile iletişime geçiniz.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-end">
+              <button
+                onClick={() => setShowAccessDeniedModal(false)}
+                className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+              >
+                Kapat
               </button>
             </div>
           </div>

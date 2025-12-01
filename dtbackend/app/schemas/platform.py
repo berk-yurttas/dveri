@@ -20,6 +20,8 @@ class PlatformBase(BaseModel):
     
     # Status
     is_active: bool = Field(default=True, description="Whether platform is active")
+    allowed_departments: Optional[list[str]] = Field(default=[], description="Departments allowed to access this platform")
+    allowed_users: Optional[list[str]] = Field(default=[], description="Users allowed to access this platform")
 
     @validator('code')
     def validate_code(cls, v):
@@ -52,6 +54,8 @@ class PlatformUpdate(BaseModel):
     logo_url: Optional[str] = Field(None, max_length=255)
     theme_config: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
+    allowed_departments: Optional[list[str]] = None
+    allowed_users: Optional[list[str]] = None
 
     @validator('db_type')
     def validate_db_type(cls, v):
@@ -69,6 +73,8 @@ class Platform(PlatformBase):
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+    allowed_departments: Optional[list[str]] = []
+    allowed_users: Optional[list[str]] = []
     
     class Config:
         from_attributes = True
@@ -86,6 +92,8 @@ class PlatformList(BaseModel):
     theme_config: Optional[Dict[str, Any]] = None
     is_active: bool
     created_at: datetime
+    allowed_departments: Optional[list[str]] = []
+    allowed_users: Optional[list[str]] = []
     
     class Config:
         from_attributes = True

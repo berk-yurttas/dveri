@@ -150,6 +150,8 @@ export interface ReportConfig {
   globalFilters?: FilterConfig[]  // Filters that apply to all queries in the report
   color?: string  // Color for report card border/theme
   is_public?: boolean
+  allowedDepartments?: string[]
+  allowedUsers?: string[]
 }
 
 // Future report save/load types
@@ -166,6 +168,8 @@ export interface SavedReport extends ReportConfig {
   is_public: boolean
   layoutConfig?: any[]  // Grid layout configuration
   color?: string  // Color for report card border/theme
+  allowedDepartments?: string[]
+  allowedUsers?: string[]
 }
 
 // Report execution types
@@ -213,6 +217,8 @@ export interface ReportDetail {
   created_at: string
   updated_at: string | null
   queries: QueryDetail[]
+  allowedDepartments?: string[]
+  allowedUsers?: string[]
 }
 
 export interface QueryDetail {

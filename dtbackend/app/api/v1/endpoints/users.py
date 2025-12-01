@@ -148,3 +148,37 @@ async def get_user_profile(
         "message": "User profile endpoint - authentication not yet implemented",
         "note": "This endpoint requires JWT token validation middleware"
     }
+
+@router.get("/test")
+async def test(
+    db: AsyncSession = Depends(get_postgres_db)
+):
+    """
+    Test endpoint
+    """
+    import app.core.auth as auth
+    secret_key = await auth.create_secure_request()
+    return {"message": "Test endpoint", "secret_key": secret_key}
+
+
+@router.get("/departments")
+async def get_departments(
+    current_user: User = Depends(check_authenticated)
+):
+    """
+    Get all departments
+    """
+    departments = await UserService.retrieve_all_departments(current_user.username)
+    return {"departments": departments}
+
+
+@router.get("/search")
+async def search_users(
+    q: str = Query(..., min_length=1, description="Search query"),
+    current_user: User = Depends(check_authenticated)
+):
+    """
+    Search for users
+    """
+    users = await UserService.search_user(q)
+    return {"users": users}

@@ -34,13 +34,15 @@ import {
   Save,
   XCircle,
   FileDown,
-  Maximize2
+  Maximize2,
+  Shield
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
 import { reportsService } from '@/services/reports'
 import { DeleteModal } from '@/components/ui/delete-modal'
+import { DepartmentSelectModal } from '@/components/reports/department-select-modal'
 import { api } from '@/lib/api'
 import { Responsive, WidthProvider, Layout as GridLayout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
@@ -114,6 +116,9 @@ interface ReportData {
   queries: QueryData[]
   globalFilters?: FilterData[]
   layoutConfig?: any[]
+  color?: string
+  allowedDepartments?: string[]
+  allowedUsers?: string[]
 }
 
 interface QueryData {
@@ -219,6 +224,9 @@ export default function ReportDetailPage() {
   const [isLayoutEditMode, setIsLayoutEditMode] = useState(false)
   const [gridLayout, setGridLayout] = useState<GridLayout[]>([])
   const [isSavingLayout, setIsSavingLayout] = useState(false)
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
+  const [authorizedDepartments, setAuthorizedDepartments] = useState<string[]>([])
+  const [authorizedUsers, setAuthorizedUsers] = useState<string[]>([])
 
   // Debounce timeout refs for each filter
   const debounceTimeouts = useRef<{[key: string]: NodeJS.Timeout}>({})
@@ -285,6 +293,22 @@ export default function ReportDetailPage() {
       }
     }
     setIsLayoutEditMode(false)
+  }
+
+  // Save authorized departments and users
+  const handleSaveDepartments = async (departments: string[], users: string[]) => {
+    try {
+      setAuthorizedDepartments(departments)
+      setAuthorizedUsers(users)
+      
+      await reportsService.updateReport(reportId, {
+        allowedDepartments: departments,
+        allowedUsers: users
+      })
+    } catch (error) {
+      console.error('Failed to save departments:', error)
+      alert('Yetkilendirme kaydedilirken hata oluştu.')
+    }
   }
 
   // Fetch report details using the reports service
@@ -1013,6 +1037,14 @@ export default function ReportDetailPage() {
         }
 
         setReport(reportData)
+
+        // Initialize authorized departments and users
+        if (reportData.allowedDepartments) {
+            setAuthorizedDepartments(reportData.allowedDepartments)
+        }
+        if (reportData.allowedUsers) {
+            setAuthorizedUsers(reportData.allowedUsers)
+        }
 
         // Initialize filter state and load dropdown options
         const initialFilters: FilterState = {}
@@ -2844,6 +2876,16 @@ export default function ReportDetailPage() {
                         <button
                           onClick={() => {
                             setIsSettingsDropdownOpen(false);
+                            setIsAuthModalOpen(true);
+                          }}
+                          className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          <Shield className="h-4 w-4 mr-2" />
+                          Yetkilendirme
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsSettingsDropdownOpen(false);
                             setIsDeleteDialogOpen(true);
                           }}
                           className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
@@ -3086,6 +3128,15 @@ export default function ReportDetailPage() {
         description="Bu işlem geri alınamaz. Raporu kalıcı olarak silinecek."
         itemName={report?.name}
         isDeleting={isDeleting}
+      />
+
+      {/* Department Authorization Modal */}
+      <DepartmentSelectModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSave={handleSaveDepartments}
+        initialSelectedDepartments={authorizedDepartments}
+        initialSelectedUsers={authorizedUsers}
       />
 
       {/* MIRAS Assistant Chatbot */}

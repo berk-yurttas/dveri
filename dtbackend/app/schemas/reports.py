@@ -209,6 +209,8 @@ class ReportBase(BaseModel):
     global_filters: Optional[List[FilterConfigCreate]] = Field([], alias="globalFilters", description="Global filters that apply to all queries in the report")
     layout_config: Optional[List[Dict[str, Any]]] = Field([], alias="layoutConfig", description="Grid layout configuration for queries")
     color: Optional[str] = Field("#3B82F6", description="Report card border/theme color")
+    allowed_departments: Optional[List[str]] = Field([], alias="allowedDepartments", description="List of department IDs allowed to view this report")
+    allowed_users: Optional[List[str]] = Field([], alias="allowedUsers", description="List of usernames allowed to view this report")
 
     class Config:
         populate_by_name = True  # Allow both field names and aliases
@@ -225,6 +227,8 @@ class ReportUpdate(BaseModel):
     global_filters: Optional[List[FilterConfigCreate]] = Field(None, alias="globalFilters")
     layout_config: Optional[List[Dict[str, Any]]] = Field(None, alias="layoutConfig")
     color: Optional[str] = None
+    allowed_departments: Optional[List[str]] = Field(None, alias="allowedDepartments")
+    allowed_users: Optional[List[str]] = Field(None, alias="allowedUsers")
 
     class Config:
         populate_by_name = True
@@ -239,6 +243,8 @@ class ReportFullUpdate(BaseModel):
     global_filters: Optional[List[FilterConfigCreate]] = Field(None, alias="globalFilters")
     layout_config: Optional[List[Dict[str, Any]]] = Field(None, alias="layoutConfig")
     color: Optional[str] = None
+    allowed_departments: Optional[List[str]] = Field(None, alias="allowedDepartments")
+    allowed_users: Optional[List[str]] = Field(None, alias="allowedUsers")
 
     class Config:
         populate_by_name = True

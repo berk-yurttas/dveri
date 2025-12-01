@@ -368,7 +368,7 @@ async def create_report(
     """Create a new report"""
     service = ReportsService(db, clickhouse_client)
     try:
-        return await service.create_report(report_data, current_user.username, platform)
+        return await service.create_report(report_data, current_user, platform)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -385,7 +385,7 @@ async def get_reports(
 ):
     """Get reports list (owned + public, or only owned) - optionally filtered by subplatform"""
     service = ReportsService(db)
-    reports = await service.get_reports_list(current_user.username, skip, limit, my_reports_only, platform, subplatform)
+    reports = await service.get_reports_list(current_user, skip, limit, my_reports_only, platform, subplatform)
     return reports
 
 
@@ -397,7 +397,7 @@ async def get_report(
 ):
     """Get a specific report"""
     service = ReportsService(db)
-    report = await service.get_report(report_id, current_user.username)
+    report = await service.get_report(report_id, current_user)
     
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -415,7 +415,7 @@ async def update_report(
     """Update report metadata only"""
     service = ReportsService(db)
     is_admin = any((role or "").lower() == "miras:admin" for role in (current_user.role or []))
-    report = await service.update_report(report_id, report_data, current_user.username, is_admin=is_admin)
+    report = await service.update_report(report_id, report_data, current_user, is_admin=is_admin)
     
     if not report:
         raise HTTPException(status_code=404, detail="Report not found or access denied")
@@ -433,7 +433,7 @@ async def update_report_full(
     """Update report with queries and filters"""
     service = ReportsService(db)
     is_admin = any((role or "").lower() == "miras:admin" for role in (current_user.role or []))
-    report = await service.update_report_full(report_id, report_data, current_user.username, is_admin=is_admin)
+    report = await service.update_report_full(report_id, report_data, current_user, is_admin=is_admin)
     
     if not report:
         raise HTTPException(status_code=404, detail="Report not found or access denied")
@@ -449,7 +449,7 @@ async def delete_report(
 ):
     """Delete a report"""
     service = ReportsService(db)
-    success = await service.delete_report(report_id, current_user.username)
+    success = await service.delete_report(report_id, current_user)
 
     if not success:
         raise HTTPException(status_code=404, detail="Report not found or access denied")
@@ -465,7 +465,7 @@ async def toggle_report_favorite(
 ):
     """Toggle favorite status for a report"""
     service = ReportsService(db)
-    is_favorite = await service.toggle_favorite(report_id, current_user.username)
+    is_favorite = await service.toggle_favorite(report_id, current_user)
 
     return {"is_favorite": is_favorite}
 
@@ -486,7 +486,7 @@ async def get_filter_options(
     """Get dropdown options for a specific filter with pagination and search"""
     service = ReportsService(db, clickhouse_client)
     try:
-        result = await service.get_filter_options(report_id, query_id, filter_field, current_user.username, page, page_size, search)
+        result = await service.get_filter_options(report_id, query_id, filter_field, current_user, page, page_size, search)
         return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -503,6 +503,6 @@ async def execute_report(
     """Execute a report with optional filters"""
     service = ReportsService(db, clickhouse_client)
     try:
-        return await service.execute_report(request, current_user.username)
+        return await service.execute_report(request, current_user)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

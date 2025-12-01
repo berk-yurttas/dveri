@@ -2,6 +2,8 @@ import traceback
 from typing import Optional, Dict, Any
 import httpx
 import time
+import secrets
+import socket
 from fastapi import Request, HTTPException, status, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
@@ -333,6 +335,122 @@ async def get_current_user_with_refresh(request: Request, response: Response) ->
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Bir hata oluştu"
                 )
+
+def create_random_cuid() -> str:
+    """
+    Generate a random CUID (Collision-resistant Unique Identifier)
+    
+    Returns:
+        A random CUID string in the format: c[timestamp][counter][fingerprint][random]
+    """
+    # Get timestamp in base36
+    timestamp = int(time.time() * 1000)  # milliseconds
+    timestamp_str = format(timestamp, 'x')  # hexadecimal
+    
+    # Get hostname fingerprint (first 2 chars of hostname hash)
+    try:
+        hostname = socket.gethostname()
+        hostname_hash = hash(hostname) & 0xffff  # 16-bit hash
+        fingerprint = format(hostname_hash, 'x')[:2]
+    except:
+        fingerprint = "00"
+    
+    # Generate random part (12 characters)
+    random_part = secrets.token_hex(6)  # 12 hex characters
+    
+    # Counter (simple increment, using time-based for uniqueness)
+    counter = format(int(time.time() * 1000000) % 0xffff, 'x')[:4]
+    
+    # Combine: c + timestamp + counter + fingerprint + random
+    cuid = f"c{timestamp_str}{counter}{fingerprint}{random_part}"
+    
+    return cuid
+
+async def create_secure_request() -> str:
+    """
+    Create a secure request by generating a random CUID and storing it in PocketBase saml_token collection
+    
+    Returns:
+        The generated CUID secret key
+        
+    Raises:
+        HTTPException: If PocketBase operation fails
+    """
+    # Generate random CUID
+    secret_key = create_random_cuid()
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            auth_token = None
+            
+            # Authenticate with PocketBase admin
+            if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:
+                try:
+                    auth_response = await client.post(
+                        f"{settings.POCKETBASE_URL}/api/collections/_superusers/auth-with-password",
+                        json={
+                            "identity": settings.POCKETBASE_ADMIN_EMAIL,
+                            "password": settings.POCKETBASE_ADMIN_PASSWORD
+                        }
+                    )
+                    if auth_response.status_code == 200:
+                        auth_token = auth_response.json().get("token")
+                except Exception as auth_error:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"PocketBase authentication failed: {str(auth_error)}"
+                    )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="PocketBase admin credentials not configured"
+                )
+            
+            if not auth_token:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to authenticate with PocketBase"
+                )
+            
+            # Create record in saml_token collection
+            headers = {"Authorization": auth_token}
+            
+            response = await client.post(
+                f"{settings.POCKETBASE_URL}/api/collections/saml_token/records",
+                headers=headers,
+                json={
+                    "secret_key": secret_key
+                }
+            )
+            
+            response.raise_for_status()
+            
+            return secret_key
+            
+    except httpx.HTTPStatusError as e:
+        error_detail = "Unknown error"
+        try:
+            error_response = e.response.json()
+            error_detail = error_response.get("message", str(e))
+        except:
+            error_detail = str(e)
+        
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"Failed to create secure request in PocketBase: {error_detail}"
+        )
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=status.HTTP_408_REQUEST_TIMEOUT,
+            detail="PocketBase request timeout"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create secure request: {str(e)}"
+        )
 
 async def check_authenticated(request: Request, response: Response) -> User:
     """

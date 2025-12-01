@@ -15,6 +15,7 @@ from app.schemas.reports import (
     FilterConfigCreate, FilterConfigUpdate, ReportExecutionRequest,
     QueryExecutionResult, ReportExecutionResponse, FilterValue
 )
+from app.schemas.user import User as UserSchema
 from app.services.user_service import UserService
 from app.core.platform_db import DatabaseConnectionFactory
 
@@ -82,10 +83,10 @@ class ReportsService:
         self.clickhouse_client = clickhouse_client
 
     # Report CRUD Operations
-    async def create_report(self, report_data: ReportCreate, username: str, platform: Optional[Platform] = None) -> Report:
+    async def create_report(self, report_data: ReportCreate, user: UserSchema, platform: Optional[Platform] = None) -> Report:
         """Create a new report with queries and filters"""
-        user = await UserService.get_user_by_username(self.db, username)
-        if not user:
+        db_user = await UserService.get_user_by_username(self.db, user.username)
+        if not db_user:
             raise ValueError("User not found")
 
         # Serialize global filters to JSON
@@ -107,12 +108,14 @@ class ReportsService:
         db_report = Report(
             name=report_data.name,
             description=report_data.description,
-            owner_id=user.id,
+            owner_id=db_user.id,
             is_public=report_data.is_public,
             tags=report_data.tags or [],
             global_filters=global_filters_json,
             platform_id=platform.id if platform else None,
-            color=report_data.color or "#3B82F6"
+            color=report_data.color or "#3B82F6",
+            allowed_departments=report_data.allowed_departments or [],
+            allowed_users=report_data.allowed_users or []
         )
         self.db.add(db_report)
         await self.db.flush()  # Get the report ID
@@ -155,13 +158,27 @@ class ReportsService:
         result = await self.db.execute(stmt)
         return result.scalar_one()
 
-    async def get_report(self, report_id: int, username: str) -> Optional[Report]:
-        user = await UserService.get_user_by_username(self.db, username)
-        if not user:
+    async def get_report(self, report_id: int, user: UserSchema) -> Optional[Report]:
+        db_user = await UserService.get_user_by_username(self.db, user.username)
+        if not db_user:
             raise ValueError("User not found")
 
-        """Get a report by ID with all queries and filters (only if user owns it or it's public)"""
+        """Get a report by ID with all queries and filters (only if user owns it or it's public or has permission)"""
         from sqlalchemy.orm import joinedload
+        from sqlalchemy import cast, String
+        from sqlalchemy.dialects.postgresql import ARRAY
+
+        # Generate all parent departments for the user
+        user_dept = user.department or ""
+        dept_prefixes = []
+        if user_dept:
+            parts = user_dept.split('_')
+            current = ""
+            for part in parts:
+                current = f"{current}_{part}" if current else part
+                dept_prefixes.append(current)
+        
+        dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
 
         stmt = select(Report).options(
             selectinload(Report.queries).selectinload(ReportQuery.filters),
@@ -169,7 +186,12 @@ class ReportsService:
         ).where(
             and_(
                 Report.id == report_id,
-                or_(Report.owner_id == user.id, Report.is_public == True)
+                or_(
+                    Report.owner_id == db_user.id,
+                    Report.is_public == True,
+                    Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
+                    Report.allowed_departments.op('&&')(dept_prefixes_array)
+                )
             )
         )
         result = await self.db.execute(stmt)
@@ -180,27 +202,46 @@ class ReportsService:
 
         return report
 
-    async def get_reports(self, username: str, skip: int = 0, limit: int = 100, my_reports_only: bool = False) -> List[Report]:
-        user = await UserService.get_user_by_username(self.db, username)
-        if not user:
+    async def get_reports(self, user: UserSchema, skip: int = 0, limit: int = 100, my_reports_only: bool = False) -> List[Report]:
+        db_user = await UserService.get_user_by_username(self.db, user.username)
+        if not db_user:
             raise ValueError("User not found")
 
         """Get reports for a user with all queries and filters (owned + public or only owned)"""
         from sqlalchemy.orm import joinedload
+        from sqlalchemy import cast, String
+        from sqlalchemy.dialects.postgresql import ARRAY
 
         if my_reports_only:
             stmt = select(Report).options(
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
             ).where(
-                Report.owner_id == user.id
+                Report.owner_id == db_user.id
             ).offset(skip).limit(limit)
         else:
+            # Generate all parent departments for the user
+            user_dept = user.department or ""
+            dept_prefixes = []
+            if user_dept:
+                parts = user_dept.split('_')
+                current = ""
+                for part in parts:
+                    current = f"{current}_{part}" if current else part
+                    dept_prefixes.append(current)
+            
+            dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
+
             stmt = select(Report).options(
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
             ).where(
-                or_(Report.owner_id == user.id, Report.is_public == True)
+                or_(
+                    Report.owner_id == db_user.id,
+                    Report.is_public == True,
+                    Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
+                    Report.allowed_departments.op('&&')(dept_prefixes_array)
+                )
             ).offset(skip).limit(limit)
 
         result = await self.db.execute(stmt)
@@ -212,10 +253,10 @@ class ReportsService:
 
         return reports
 
-    async def get_reports_list(self, username: str, skip: int = 0, limit: int = 100, my_reports_only: bool = False, platform: Optional[Platform] = None, subplatform: Optional[str] = None) -> List[Report]:
+    async def get_reports_list(self, user: UserSchema, skip: int = 0, limit: int = 100, my_reports_only: bool = False, platform: Optional[Platform] = None, subplatform: Optional[str] = None) -> List[Report]:
         """Get reports list for a user (without nested queries and filters for performance)"""
-        user = await UserService.get_user_by_username(self.db, username)
-        if not user:
+        db_user = await UserService.get_user_by_username(self.db, user.username)
+        if not db_user:
             raise ValueError("User not found")
 
         from sqlalchemy.orm import joinedload
@@ -223,10 +264,37 @@ class ReportsService:
         from sqlalchemy.dialects.postgresql import ARRAY
 
         # Build base conditions
+        from sqlalchemy import or_, and_, cast, String, literal
+        from sqlalchemy.dialects.postgresql import ARRAY
+
         if my_reports_only:
-            base_condition = Report.owner_id == user.id
+            base_condition = Report.owner_id == db_user.id
         else:
-            base_condition = or_(Report.owner_id == user.id, Report.is_public == True)
+            # Access logic:
+            # 1. Owner
+            # 2. Public
+            # 3. In allowed_users
+            # 4. In allowed_departments (checking all parent departments of user's department)
+            
+            # Generate all parent departments for the user (e.g. "A_B_C" -> ["A_B_C", "A_B", "A"])
+            user_dept = user.department or ""
+            dept_prefixes = []
+            if user_dept:
+                parts = user_dept.split('_')
+                current = ""
+                for part in parts:
+                    current = f"{current}_{part}" if current else part
+                    dept_prefixes.append(current)
+            
+            # If no department, just check empty array overlap (which is false)
+            dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
+            
+            base_condition = or_(
+                Report.owner_id == db_user.id,
+                Report.is_public == True,
+                Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
+                Report.allowed_departments.op('&&')(dept_prefixes_array)
+            )
 
         # Build filter conditions
         filters = [base_condition]
@@ -272,11 +340,14 @@ class ReportsService:
 
         # Get favorite status for all reports
         report_ids = [row.id for row in report_rows]
-        favorite_stmt = select(ReportUser.report_id).where(
-            and_(ReportUser.user_id == user.id, ReportUser.report_id.in_(report_ids), ReportUser.is_favorite == True)
-        )
-        favorite_result = await self.db.execute(favorite_stmt)
-        favorite_ids = {row.report_id for row in favorite_result.all()}
+        if not report_ids:
+            favorite_ids = set()
+        else:
+            favorite_stmt = select(ReportUser.report_id).where(
+                and_(ReportUser.user_id == db_user.id, ReportUser.report_id.in_(report_ids), ReportUser.is_favorite == True)
+            )
+            favorite_result = await self.db.execute(favorite_stmt)
+            favorite_ids = {row.report_id for row in favorite_result.all()}
 
         # Build ReportList objects
         reports = []
@@ -298,15 +369,15 @@ class ReportsService:
 
         return reports
 
-    async def update_report(self, report_id: int, report_data: ReportUpdate, username: str, is_admin: bool = False) -> Optional[Report]:
-        user = await UserService.get_user_by_username(self.db, username)
-        if not user:
+    async def update_report(self, report_id: int, report_data: ReportUpdate, user: UserSchema, is_admin: bool = False) -> Optional[Report]:
+        db_user = await UserService.get_user_by_username(self.db, user.username)
+        if not db_user:
             raise ValueError("User not found")
 
         """Update a report with queries and filters (only if user owns it)"""
         filters = [Report.id == report_id]
         if not is_admin:
-            filters.append(Report.owner_id == user.id)
+            filters.append(Report.owner_id == db_user.id)
 
         stmt = select(Report).where(and_(*filters))
         result = await self.db.execute(stmt)
@@ -328,6 +399,10 @@ class ReportsService:
             db_report.layout_config = report_data.layout_config
         if report_data.color is not None:
             db_report.color = report_data.color
+        if report_data.allowed_departments is not None:
+            db_report.allowed_departments = report_data.allowed_departments
+        if report_data.allowed_users is not None:
+            db_report.allowed_users = report_data.allowed_users
 
         await self.db.commit()
         
@@ -338,15 +413,15 @@ class ReportsService:
         result = await self.db.execute(stmt)
         return result.scalar_one()
 
-    async def update_report_full(self, report_id: int, report_data: ReportFullUpdate, username: str, is_admin: bool = False) -> Optional[Report]:
-        user = await UserService.get_user_by_username(self.db, username)
-        if not user:
+    async def update_report_full(self, report_id: int, report_data: ReportFullUpdate, user: UserSchema, is_admin: bool = False) -> Optional[Report]:
+        db_user = await UserService.get_user_by_username(self.db, user.username)
+        if not db_user:
             raise ValueError("User not found")
 
         """Update a report with queries and filters (only if user owns it)"""
         filters = [Report.id == report_id]
         if not is_admin:
-            filters.append(Report.owner_id == user.id)
+            filters.append(Report.owner_id == db_user.id)
 
         stmt = select(Report).options(
             selectinload(Report.queries).selectinload(ReportQuery.filters)
@@ -370,6 +445,10 @@ class ReportsService:
             db_report.layout_config = report_data.layout_config
         if report_data.color is not None:
             db_report.color = report_data.color
+        if report_data.allowed_departments is not None:
+            db_report.allowed_departments = report_data.allowed_departments
+        if report_data.allowed_users is not None:
+            db_report.allowed_users = report_data.allowed_users
 
         # Update global filters if provided
         if report_data.global_filters is not None:
@@ -469,15 +548,15 @@ class ReportsService:
         result = await self.db.execute(stmt)
         return result.scalar_one()
 
-    async def delete_report(self, report_id: int, username: str) -> bool:
-        user = await UserService.get_user_by_username(self.db, username)
-        if not user:
+    async def delete_report(self, report_id: int, user: UserSchema) -> bool:
+        db_user = await UserService.get_user_by_username(self.db, user.username)
+        if not db_user:
             raise ValueError("User not found")
 
         """Delete a report with all its queries and filters (only if user owns it)"""
         # First, verify the report exists and user owns it
         stmt = select(Report).where(
-            and_(Report.id == report_id, Report.owner_id == user.id)
+            and_(Report.id == report_id, Report.owner_id == db_user.id)
         )
         result = await self.db.execute(stmt)
         db_report = result.scalar_one_or_none()
@@ -505,10 +584,10 @@ class ReportsService:
         await self.db.commit()
         return True
 
-    async def toggle_favorite(self, report_id: int, username: str) -> bool:
+    async def toggle_favorite(self, report_id: int, user: UserSchema) -> bool:
         """Toggle favorite status for a report"""
-        user = await UserService.get_user_by_username(self.db, username)
-        if not user:
+        db_user = await UserService.get_user_by_username(self.db, user.username)
+        if not db_user:
             raise ValueError("User not found")
 
         # Check if report exists
@@ -521,7 +600,7 @@ class ReportsService:
 
         # Check if ReportUser relationship exists
         report_user_stmt = select(ReportUser).where(
-            and_(ReportUser.report_id == report_id, ReportUser.user_id == user.id)
+            and_(ReportUser.report_id == report_id, ReportUser.user_id == db_user.id)
         )
         report_user_result = await self.db.execute(report_user_stmt)
         report_user = report_user_result.scalar_one_or_none()
@@ -534,7 +613,7 @@ class ReportsService:
             # Create new ReportUser with favorite=True
             report_user = ReportUser(
                 report_id=report_id,
-                user_id=user.id,
+                user_id=db_user.id,
                 is_favorite=True
             )
             self.db.add(report_user)
@@ -1001,11 +1080,11 @@ class ReportsService:
                 message=f"Query execution failed: {error_msg}"
             )
 
-    async def execute_report(self, request: ReportExecutionRequest, username: str) -> ReportExecutionResponse:
+    async def execute_report(self, request: ReportExecutionRequest, user: UserSchema) -> ReportExecutionResponse:
         t0 = time.time()
         print(f"\n[PERF] Starting execute_report for report_id={request.report_id}")
-        user = await UserService.get_user_by_username(self.db, username)
-        if not user:
+        db_user = await UserService.get_user_by_username(self.db, user.username)
+        if not db_user:
             raise ValueError("User not found")
         print(f"[PERF] Get user: {(time.time() - t0) * 1000:.2f}ms")
 
@@ -1024,7 +1103,29 @@ class ReportsService:
         if not report:
             raise ValueError("Report not found or access denied")
 
-        if report.owner_id != user.id and report.is_public == False:
+        # Check access permissions
+        has_access = (
+            report.owner_id == db_user.id or 
+            report.is_public == True
+        )
+        
+        if not has_access:
+            # Check allowed users
+            if report.allowed_users and user.username in report.allowed_users:
+                has_access = True
+            
+            # Check allowed departments
+            if not has_access and report.allowed_departments and user.department:
+                # Check if user's department or any of its parents are in allowed_departments
+                user_dept_parts = user.department.split('_')
+                current_dept = ""
+                for part in user_dept_parts:
+                    current_dept = f"{current_dept}_{part}" if current_dept else part
+                    if current_dept in report.allowed_departments:
+                        has_access = True
+                        break
+
+        if not has_access:
             raise ValueError("Report access denied")
         
         # Get platform for database connection
@@ -1097,9 +1198,9 @@ class ReportsService:
                 message=str(e)
             )
 
-    async def get_filter_options(self, report_id: int, query_id: int, filter_field: str, username: str, page: int = 1, page_size: int = 50, search: str = "") -> Dict[str, Any]:
-        user = await UserService.get_user_by_username(self.db, username)
-        if not user:
+    async def get_filter_options(self, report_id: int, query_id: int, filter_field: str, user: UserSchema, page: int = 1, page_size: int = 50, search: str = "") -> Dict[str, Any]:
+        db_user = await UserService.get_user_by_username(self.db, user.username)
+        if not db_user:
             raise ValueError("User not found")
 
         """Get dropdown options for a filter by report, query, and field name with pagination and search"""
@@ -1110,14 +1211,42 @@ class ReportsService:
             and_(
                 Report.id == report_id,
                 ReportQuery.id == query_id,
-                ReportQueryFilter.field_name == filter_field,
-                or_(Report.owner_id == user.id, Report.is_public == True)
+                ReportQueryFilter.field_name == filter_field
             )
         )
         result = await self.db.execute(stmt)
         db_filter = result.scalar_one_or_none()
+        
+        if not db_filter:
+            return {"options": [], "total": 0, "page": page, "page_size": page_size, "has_more": False}
+            
+        # Check permissions
+        report = db_filter.query.report
+        has_access = (
+            report.owner_id == db_user.id or 
+            report.is_public == True
+        )
+        
+        if not has_access:
+            # Check allowed users
+            if report.allowed_users and user.username in report.allowed_users:
+                has_access = True
+            
+            # Check allowed departments
+            if not has_access and report.allowed_departments and user.department:
+                user_dept_parts = user.department.split('_')
+                current_dept = ""
+                for part in user_dept_parts:
+                    current_dept = f"{current_dept}_{part}" if current_dept else part
+                    if current_dept in report.allowed_departments:
+                        has_access = True
+                        break
+        
+        if not has_access:
+            # Don't throw error, just return empty options to avoid leaking info
+            return {"options": [], "total": 0, "page": page, "page_size": page_size, "has_more": False}
 
-        if not db_filter or not db_filter.dropdown_query:
+        if not db_filter.dropdown_query:
             return {"options": [], "total": 0, "page": page, "page_size": page_size, "has_more": False}
 
         # Get platform from the filter's query's report

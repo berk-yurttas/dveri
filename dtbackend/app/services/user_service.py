@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import httpx
 from urllib.parse import unquote
 from Crypto.Cipher import AES
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.config import settings
+from app.core.auth import create_secure_request
 from app.models.postgres_models import User
 
 
@@ -189,3 +190,138 @@ class UserService:
         await db.commit()
         await db.refresh(db_user)
         return db_user
+
+    @staticmethod
+    async def retrieve_all_departments(username: str) -> List[str]:
+        """
+        Retrieve all departments from auth server using secure request
+        
+        Args:
+            username: Username to retrieve departments for
+            
+        Returns:
+            List of department names
+            
+        Raises:
+            HTTPException: If the request fails
+        """
+        # Create secure request and get secret key
+        secret_key = await create_secure_request()
+        
+        try:
+            # Prepare proxy configuration if provided
+            proxy_config = None
+            if settings.AUTH_SERVER_PROXY_HOST and settings.AUTH_SERVER_PROXY_PORT:
+                proxy_config = {
+                    "http://": f"http://{settings.AUTH_SERVER_PROXY_HOST}:{settings.AUTH_SERVER_PROXY_PORT}",
+                    "https://": f"http://{settings.AUTH_SERVER_PROXY_HOST}:{settings.AUTH_SERVER_PROXY_PORT}"
+                }
+            
+            async with httpx.AsyncClient(proxies=proxy_config) as client:
+                response = await client.post(
+                    f"{settings.AUTH_SERVER_URL}/search/retrieveAllDepartments",
+                    json={"username": username},
+                    headers={"Authorization": secret_key}
+                )
+                response.raise_for_status()
+                return response.json()
+                
+        except httpx.HTTPStatusError as e:
+            error_message = "Failed to retrieve departments"
+            try:
+                error_data = e.response.json()
+                if "message" in error_data:
+                    error_message = error_data["message"]
+                elif "detail" in error_data:
+                    error_message = error_data["detail"]
+            except:
+                error_message = str(e)
+                
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=error_message
+            )
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=status.HTTP_408_REQUEST_TIMEOUT,
+                detail="Auth server timeout"
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to retrieve departments: {str(e)}"
+            )
+
+    @staticmethod
+    async def search_user(search: str) -> Any:
+        """
+        Search for users in the auth server using secure request
+        
+        Args:
+            search: Search term for user name
+            
+        Returns:
+            List of user information dictionaries
+            
+        Raises:
+            HTTPException: If the request fails
+        """
+        # Create secure request and get secret key
+        secret_key = await create_secure_request()
+        
+        try:
+            # Prepare proxy configuration if provided
+            proxy_config = None
+            if settings.AUTH_SERVER_PROXY_HOST and settings.AUTH_SERVER_PROXY_PORT:
+                proxy_config = {
+                    "http://": f"http://{settings.AUTH_SERVER_PROXY_HOST}:{settings.AUTH_SERVER_PROXY_PORT}",
+                    "https://": f"http://{settings.AUTH_SERVER_PROXY_HOST}:{settings.AUTH_SERVER_PROXY_PORT}"
+                }
+            
+            # Simple Turkish upper case handling for i -> İ
+            # This is a basic approximation since Python's upper() maps i -> I
+            search_upper = search.replace('i', 'İ').upper()
+            
+            url = f"{settings.AUTH_SERVER_URL}/search/searchData"
+            payload = {
+                "collection": "users",
+                "filter": f'name ~ "%{search}%" || name ~ "%{search_upper}%"'
+            }
+            
+            async with httpx.AsyncClient(proxies=proxy_config) as client:
+                response = await client.post(
+                    url,
+                    json=payload,
+                    headers={"Authorization": secret_key}
+                )
+                
+                response.raise_for_status()
+                return response.json()
+                
+        except httpx.HTTPStatusError as e:
+            error_message = "Failed to search users"
+            try:
+                error_data = e.response.json()
+                if "message" in error_data:
+                    error_message = error_data["message"]
+                elif "detail" in error_data:
+                    error_message = error_data["detail"]
+            except:
+                error_message = str(e)
+                
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=error_message
+            )
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=status.HTTP_408_REQUEST_TIMEOUT,
+                detail="Auth server timeout"
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to search users: {str(e)}"
+            )
+
+    

@@ -34,6 +34,8 @@ class Platform(PostgreSQLBase):
     
     # Status
     is_active = Column(Boolean, default=True, nullable=False)
+    allowed_departments = Column(ARRAY(String), default=[])
+    allowed_users = Column(ARRAY(String), default=[])
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -123,6 +125,8 @@ class Report(PostgreSQLBase):
     global_filters = Column(JSONB, default=[])  # Global filters that apply to all queries
     layout_config = Column(JSONB, default=[])  # Grid layout configuration for queries
     color = Column(String(50), default="#3B82F6")  # Report card border/theme color
+    allowed_departments = Column(ARRAY(String), default=[])
+    allowed_users = Column(ARRAY(String), default=[])
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

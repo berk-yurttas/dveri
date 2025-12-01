@@ -31,9 +31,13 @@ export interface Platform {
       imageUrl?: string;
       useImage: boolean;
       url?: string;
+      allowed_departments?: string[];
+      allowed_users?: string[];
     }[];
   } | null;
   is_active: boolean;
+  allowed_departments?: string[];
+  allowed_users?: string[];
   created_at: string;
   updated_at?: string | null;
 }
@@ -63,6 +67,8 @@ export interface PlatformCreate {
   logo_url?: string | null;
   theme_config?: Record<string, any> | null;
   is_active?: boolean;
+  allowed_departments?: string[];
+  allowed_users?: string[];
 }
 
 export interface PlatformUpdate {
@@ -74,6 +80,8 @@ export interface PlatformUpdate {
   logo_url?: string | null;
   theme_config?: Record<string, any> | null;
   is_active?: boolean;
+  allowed_departments?: string[];
+  allowed_users?: string[];
 }
 
 export interface PlatformConnectionTest {

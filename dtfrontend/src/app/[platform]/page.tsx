@@ -40,7 +40,8 @@ import {
   Edit,
   Trash2,
   User,
-  X
+  X,
+  Lock
 } from "lucide-react";
 import { dashboardService } from "@/services/dashboard";
 import { reportsService } from "@/services/reports";
@@ -112,8 +113,34 @@ export default function PlatformHome() {
   const [hoveredAnnouncement, setHoveredAnnouncement] = useState<number | null>(null);
   const [showIotApps, setShowIotApps] = useState(false);
   const [showAllAnnouncementsModal, setShowAllAnnouncementsModal] = useState(false);
+  const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
   const isIvmePlatform = platformData?.code === 'ivme';
   const isRomiotPlatform = platformCode === 'romiot';
+
+  const checkFeatureAccess = (feature: any) => {
+    // If no restrictions, allow access
+    if ((!feature.allowed_departments || feature.allowed_departments.length === 0) && 
+        (!feature.allowed_users || feature.allowed_users.length === 0)) {
+      return true;
+    }
+
+    if (!user) return false;
+
+    // Check user permission
+    if (feature.allowed_users?.includes(user.username)) {
+      return true;
+    }
+
+    // Check department permission
+    if (feature.allowed_departments && feature.allowed_departments.length > 0 && user.department) {
+      // Check exact match or if user's department is a child of an allowed department
+      return feature.allowed_departments.some((allowed: string) => 
+        user.department === allowed || user.department.startsWith(allowed + '_')
+      );
+    }
+
+    return false;
+  };
 
   const handleDerinizHover = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -486,6 +513,11 @@ export default function PlatformHome() {
                     <div
                       key={index}
                       onClick={() => {
+                        if (!checkFeatureAccess(feature)) {
+                          setShowAccessDeniedModal(true);
+                          return;
+                        }
+
                         if (feature.url && feature.url.startsWith('http')) {
                           window.open(feature.url, '_blank', 'noopener,noreferrer');
                         } else {
@@ -966,6 +998,41 @@ export default function PlatformHome() {
               <button
                 onClick={() => setShowAnnouncementModal(false)}
                 className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Access Denied Modal */}
+      {showAccessDeniedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <Lock className="h-8 w-8 text-white" />
+                <h3 className="text-xl font-bold text-white">Erişim Engellendi</h3>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6">
+              <p className="text-gray-700 text-lg mb-2">
+                Bu özelliğe erişim yetkiniz bulunmamaktadır.
+              </p>
+              <p className="text-gray-600">
+                Erişim izni almak için lütfen sistem yöneticisi ile iletişime geçiniz.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-end">
+              <button
+                onClick={() => setShowAccessDeniedModal(false)}
+                className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
               >
                 Kapat
               </button>
