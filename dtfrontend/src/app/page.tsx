@@ -58,6 +58,7 @@ import { api } from "@/lib/api";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 import { Feedback } from "@/components/feedback/feedback";
 import DOMPurify from 'dompurify';
+import { checkAccess } from "@/lib/utils";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -270,38 +271,13 @@ export default function Home() {
     fetchData();
   }, []);
 
-  const checkAccess = (platform: PlatformType) => {
-    // If no restrictions, allow access
-    if ((!platform.allowed_departments || platform.allowed_departments.length === 0) && 
-        (!platform.allowed_users || platform.allowed_users.length === 0)) {
-      return true;
-    }
-
-    if (!user) return false;
-
-    // Check user permission
-    if (platform.allowed_users?.includes(user.username)) {
-      return true;
-    }
-
-    // Check department permission
-    if (platform.allowed_departments && platform.allowed_departments.length > 0 && user.department) {
-      // Check exact match or if user's department is a child of an allowed department
-      // Assuming department format matches (e.g. "DEP1_DEP2")
-      return platform.allowed_departments.some(allowed => 
-        user.department === allowed || user.department.startsWith(allowed + '_')
-      );
-    }
-
-    return false;
-  };
 
   const handlePlatformSelect = (platform: PlatformType) => {
     const { code: platformCode, display_name: displayName, logo_url: logoUrl, theme_config } = platform;
     const isUnderConstruction = theme_config?.underConstruction || false;
 
     // Check access permissions
-    if (!checkAccess(platform)) {
+    if (!checkAccess(platform, user)) {
       setShowAccessDeniedModal(true);
       return;
     }
@@ -803,7 +779,7 @@ export default function Home() {
             <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4">
               <div className="flex items-center gap-3">
                 <Lock className="h-8 w-8 text-white" />
-                <h3 className="text-xl font-bold text-white">Erişim Engellendi</h3>
+                <h3 className="text-xl font-bold text-white">Erişim Yetkiniz Bulunamadı</h3>
               </div>
             </div>
 
