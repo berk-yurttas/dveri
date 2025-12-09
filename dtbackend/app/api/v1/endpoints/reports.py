@@ -1,21 +1,26 @@
-from typing import List, Dict, Any, Optional
+import re
+import time
+
+from clickhouse_driver import Client
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.auth import check_authenticated
+from app.core.database import get_clickhouse_db, get_postgres_db
+from app.core.platform_db import DatabaseConnectionFactory
 from app.core.platform_middleware import get_current_platform, get_optional_platform
 from app.models.postgres_models import Platform
-from fastapi import APIRouter, Depends, HTTPException, Query
-from clickhouse_driver import Client
-from sqlalchemy.ext.asyncio import AsyncSession
-import time
-import re
-
-from app.core.database import get_clickhouse_db, get_postgres_db
-from app.core.auth import check_authenticated
-from app.core.platform_db import DatabaseConnectionFactory
 from app.schemas.data import ReportPreviewRequest, ReportPreviewResponse
 from app.schemas.reports import (
-    Report, ReportCreate, ReportUpdate, ReportFullUpdate, ReportList,
-    ReportExecutionRequest, ReportExecutionResponse,
-    SqlValidationRequest, SqlValidationResponse,
-    SampleQueriesResponse
+    Report,
+    ReportCreate,
+    ReportExecutionRequest,
+    ReportExecutionResponse,
+    ReportFullUpdate,
+    ReportList,
+    ReportUpdate,
+    SampleQueriesResponse,
+    SqlValidationResponse,
 )
 from app.schemas.user import User
 from app.services.reports_service import ReportsService
@@ -49,7 +54,7 @@ def sanitize_sql_query(query: str) -> str:
 @router.post("/preview", response_model=ReportPreviewResponse)
 async def preview_report_query(
     request: ReportPreviewRequest,
-    platform: Optional[Platform] = Depends(get_optional_platform),
+    platform: Platform | None = Depends(get_optional_platform),
     db_client: Client = Depends(get_clickhouse_db)
 ):
     """
@@ -59,7 +64,7 @@ async def preview_report_query(
     try:
         # Sanitize the SQL query
         sanitized_query = sanitize_sql_query(request.sql_query)
-        
+
         # Determine database type
         db_type = platform.db_type.lower() if platform else "clickhouse"
         print(sanitized_query)
@@ -68,13 +73,11 @@ async def preview_report_query(
             # MSSQL uses TOP instead of LIMIT
             if 'TOP' not in sanitized_query.upper() and 'LIMIT' not in sanitized_query.upper():
                 sanitized_query = sanitized_query.replace("SELECT", f"SELECT TOP {request.limit}", 1)
-        else:
-            # ClickHouse and PostgreSQL use LIMIT
-            if 'LIMIT' not in sanitized_query.upper():
-                if request.limit:
-                    sanitized_query = f"{sanitized_query} LIMIT {request.limit}"
-                else:
-                    sanitized_query = f"{sanitized_query}"
+        elif 'LIMIT' not in sanitized_query.upper():
+            if request.limit:
+                sanitized_query = f"{sanitized_query} LIMIT {request.limit}"
+            else:
+                sanitized_query = f"{sanitized_query}"
 
 
         # Record execution start time
@@ -84,7 +87,7 @@ async def preview_report_query(
         if db_type == "clickhouse":
             # Use ClickHouse client (existing logic)
             result = db_client.execute(sanitized_query, with_column_types=True)
-            
+
             # Extract columns and data for ClickHouse
             if result and len(result) > 0:
                 columns = [col[0] for col in result[1]] if len(result) > 1 else []
@@ -92,15 +95,15 @@ async def preview_report_query(
             else:
                 columns = []
                 data = []
-                
+
         elif db_type == "postgresql":
             # Use PostgreSQL connection (without RealDictCursor for raw data)
             if not platform:
                 raise ValueError("Platform required for PostgreSQL queries")
-            
+
             import psycopg2
             db_config = platform.db_config or {}
-            
+
             # Create connection without RealDictCursor to get raw tuples
             conn = psycopg2.connect(
                 host=db_config.get("host", "localhost"),
@@ -118,16 +121,15 @@ async def preview_report_query(
             finally:
                 cursor.close()
                 conn.close()
-                
+
         elif db_type == "mssql":
             # Use MSSQL connection
             if not platform:
                 raise ValueError("Platform required for MSSQL queries")
-            
-            import pyodbc
+
             conn = DatabaseConnectionFactory.get_mssql_connection(platform)
             cursor = conn.cursor()
-            
+
             try:
                 cursor.execute(sanitized_query)
                 columns = [column[0] for column in cursor.description] if cursor.description else []
@@ -192,7 +194,7 @@ async def preview_report_query(
 @router.get("/validate-syntax", response_model=SqlValidationResponse)
 async def validate_sql_syntax(
     query: str = Query(..., description="SQL query to validate"),
-    platform: Optional[Platform] = Depends(get_optional_platform),
+    platform: Platform | None = Depends(get_optional_platform),
     db_client: Client = Depends(get_clickhouse_db)
 ):
     """
@@ -202,7 +204,7 @@ async def validate_sql_syntax(
     try:
         # Sanitize the query
         sanitized_query = sanitize_sql_query(query)
-        
+
         # Determine database type
         db_type = platform.db_type.lower() if platform else "clickhouse"
 
@@ -210,19 +212,19 @@ async def validate_sql_syntax(
         explain_query = f"EXPLAIN {sanitized_query}"
 
         start_time = time.time()
-        
+
         # Execute EXPLAIN based on database type
         if db_type == "clickhouse":
             result = db_client.execute(explain_query)
             explain_plan = result
-            
+
         elif db_type == "postgresql":
             if not platform:
                 raise ValueError("Platform required for PostgreSQL queries")
-            
+
             import psycopg2
             db_config = platform.db_config or {}
-            
+
             # Create connection without RealDictCursor to get raw tuples
             conn = psycopg2.connect(
                 host=db_config.get("host", "localhost"),
@@ -232,24 +234,23 @@ async def validate_sql_syntax(
                 password=db_config.get("password")
             )
             cursor = conn.cursor()
-            
+
             try:
                 cursor.execute(explain_query)
                 explain_plan = [list(row) for row in cursor.fetchall()]
             finally:
                 cursor.close()
                 conn.close()
-                
+
         elif db_type == "mssql":
             # MSSQL doesn't support EXPLAIN in the same way
             # We can use SET SHOWPLAN_TEXT ON
             if not platform:
                 raise ValueError("Platform required for MSSQL queries")
-            
-            import pyodbc
+
             conn = DatabaseConnectionFactory.get_mssql_connection(platform)
             cursor = conn.cursor()
-            
+
             try:
                 # MSSQL uses SET SHOWPLAN_TEXT ON for query plans
                 cursor.execute("SET SHOWPLAN_TEXT ON")
@@ -261,7 +262,7 @@ async def validate_sql_syntax(
                 conn.close()
         else:
             raise ValueError(f"Unsupported database type: {db_type}")
-        
+
         execution_time_ms = (time.time() - start_time) * 1000
 
         return SqlValidationResponse(
@@ -363,7 +364,7 @@ async def create_report(
     report_data: ReportCreate,
     current_user: User = Depends(check_authenticated),
     db: AsyncSession = Depends(get_postgres_db),
-    platform: Optional[Platform] = Depends(get_current_platform),
+    platform: Platform | None = Depends(get_current_platform),
     clickhouse_client: Client = Depends(get_clickhouse_db)
 ):
     """Create a new report"""
@@ -374,13 +375,13 @@ async def create_report(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/", response_model=List[ReportList])
+@router.get("/", response_model=list[ReportList])
 async def get_reports(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     my_reports_only: bool = Query(False),
-    subplatform: Optional[str] = None,
-    platform: Optional[Platform] = Depends(get_current_platform),
+    subplatform: str | None = None,
+    platform: Platform | None = Depends(get_current_platform),
     current_user: User = Depends(check_authenticated),
     db: AsyncSession = Depends(get_postgres_db)
 ):
@@ -399,10 +400,10 @@ async def get_report(
     """Get a specific report"""
     service = ReportsService(db)
     report = await service.get_report(report_id, current_user.username)
-    
+
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    
+
     return report
 
 
@@ -417,10 +418,10 @@ async def update_report(
     service = ReportsService(db)
     is_admin = any((role or "").lower() == "miras:admin" for role in (current_user.role or []))
     report = await service.update_report(report_id, report_data, current_user.username, is_admin=is_admin)
-    
+
     if not report:
         raise HTTPException(status_code=404, detail="Report not found or access denied")
-    
+
     return report
 
 
@@ -435,10 +436,10 @@ async def update_report_full(
     service = ReportsService(db)
     is_admin = any((role or "").lower() == "miras:admin" for role in (current_user.role or []))
     report = await service.update_report_full(report_id, report_data, current_user.username, is_admin=is_admin)
-    
+
     if not report:
         raise HTTPException(status_code=404, detail="Report not found or access denied")
-    
+
     return report
 
 

@@ -1,0 +1,87 @@
+[project]
+name = "dtbackend"
+version = "0.1.0"
+description = "Dashboard Backend API"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.ruff]
+# Target Python version
+target-version = "py311"
+# Line length (matching Black's default)
+line-length = 88
+# Exclude common directories
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "alembic/versions",
+    "alembic_romiot/versions",
+]
+
+[tool.ruff.lint]
+# Enable all rule sets except those that conflict or are not useful
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "PD",  # pandas-vet
+    "PT",  # flake8-pytest-style
+    "ASYNC",
+    "S",
+    "N"
+]
+
+# Ignore specific rules
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "B008",   # Do not perform function calls in argument defaults (sometimes needed for FastAPI)
+    "PLR0913", # Too many arguments (common in FastAPI route handlers)
+    "PLR2004", # Magic value used in comparison
+    "RET504", # Unnecessary assignment before return
+    "T201",   # Print statements (OK for scripts)
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+
+[tool.ruff.format]
+# Formatting configuration (Black-compatible)
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore certain rules in specific file types
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+"alembic/versions/*.py" = ["ALL"]  # Ignore all checks in migration files
+"alembic_romiot/versions/*.py" = ["ALL"]  # Ignore all checks in migration files
+"manage_migrations.py" = ["T201"]  # Allow print statements in migration scripts
+"run_migration.py" = ["T201"]  # Allow print statements in migration scripts
+"create_migration.py" = ["T201"]  # Allow print statements in migration scripts

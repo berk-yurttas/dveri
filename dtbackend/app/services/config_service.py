@@ -1,6 +1,8 @@
-from typing import List, Optional, Dict, Any
+from typing import Any
+
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
+
 from app.models.postgres_models import Config, Platform
 from app.schemas.config import ConfigCreate, ConfigUpdate
 
@@ -9,7 +11,7 @@ class ConfigService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_config(self, config_key: str, platform: Optional[Platform] = None) -> Optional[Config]:
+    async def get_config(self, config_key: str, platform: Platform | None = None) -> Config | None:
         """Get a configuration by key, optionally filtered by platform"""
         filters = [Config.config_key == config_key]
 
@@ -33,7 +35,7 @@ class ConfigService:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_all_configs(self, platform: Optional[Platform] = None) -> List[Config]:
+    async def get_all_configs(self, platform: Platform | None = None) -> list[Config]:
         """Get all configurations, optionally filtered by platform"""
         if platform:
             stmt = select(Config).where(
@@ -45,7 +47,7 @@ class ConfigService:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def create_config(self, config_data: ConfigCreate, platform: Optional[Platform] = None) -> Config:
+    async def create_config(self, config_data: ConfigCreate, platform: Platform | None = None) -> Config:
         """Create a new configuration"""
         db_config = Config(
             platform_id=platform.id if platform else None,
@@ -58,7 +60,7 @@ class ConfigService:
         await self.db.refresh(db_config)
         return db_config
 
-    async def update_config(self, config_key: str, config_data: ConfigUpdate, platform: Optional[Platform] = None) -> Optional[Config]:
+    async def update_config(self, config_key: str, config_data: ConfigUpdate, platform: Platform | None = None) -> Config | None:
         """Update an existing configuration"""
         config = await self.get_config(config_key, platform)
 
@@ -74,7 +76,7 @@ class ConfigService:
         await self.db.refresh(config)
         return config
 
-    async def upsert_config(self, config_key: str, config_value: Dict[str, Any], description: Optional[str] = None, platform: Optional[Platform] = None) -> Config:
+    async def upsert_config(self, config_key: str, config_value: dict[str, Any], description: str | None = None, platform: Platform | None = None) -> Config:
         """Update configuration if exists, create if not"""
         config = await self.get_config(config_key, platform)
 
@@ -91,7 +93,7 @@ class ConfigService:
                 platform
             )
 
-    async def delete_config(self, config_key: str, platform: Optional[Platform] = None) -> bool:
+    async def delete_config(self, config_key: str, platform: Platform | None = None) -> bool:
         """Delete a configuration"""
         config = await self.get_config(config_key, platform)
 

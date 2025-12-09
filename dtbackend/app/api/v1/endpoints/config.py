@@ -1,20 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException, Header
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional, Dict, Any
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_postgres_db
+from app.models.postgres_models import Platform
+from app.schemas.config import Config, ConfigCreate, ConfigUpdate
 from app.services.config_service import ConfigService
 from app.services.platform_service import PlatformService
-from app.schemas.config import Config, ConfigCreate, ConfigUpdate
-from app.models.postgres_models import Platform
 
 router = APIRouter()
 
 
 async def get_platform_from_header(
-    x_platform: Optional[str] = Header(None),
+    x_platform: str | None = Header(None),
     db: AsyncSession = Depends(get_postgres_db)
-) -> Optional[Platform]:
+) -> Platform | None:
     """Get platform from header if provided"""
     if not x_platform:
         return None
@@ -24,10 +26,10 @@ async def get_platform_from_header(
     return platform
 
 
-@router.get("/configs", response_model=List[Config])
+@router.get("/configs", response_model=list[Config])
 async def get_all_configs(
     db: AsyncSession = Depends(get_postgres_db),
-    platform: Optional[Platform] = Depends(get_platform_from_header)
+    platform: Platform | None = Depends(get_platform_from_header)
 ):
     """Get all configurations"""
     config_service = ConfigService(db)
@@ -39,7 +41,7 @@ async def get_all_configs(
 async def get_config(
     config_key: str,
     db: AsyncSession = Depends(get_postgres_db),
-    platform: Optional[Platform] = Depends(get_platform_from_header)
+    platform: Platform | None = Depends(get_platform_from_header)
 ):
     """Get a specific configuration by key"""
     config_service = ConfigService(db)
@@ -55,7 +57,7 @@ async def get_config(
 async def create_config(
     config_data: ConfigCreate,
     db: AsyncSession = Depends(get_postgres_db),
-    platform: Optional[Platform] = Depends(get_platform_from_header)
+    platform: Platform | None = Depends(get_platform_from_header)
 ):
     """Create a new configuration"""
     config_service = ConfigService(db)
@@ -74,7 +76,7 @@ async def update_config(
     config_key: str,
     config_data: ConfigUpdate,
     db: AsyncSession = Depends(get_postgres_db),
-    platform: Optional[Platform] = Depends(get_platform_from_header)
+    platform: Platform | None = Depends(get_platform_from_header)
 ):
     """Update an existing configuration"""
     config_service = ConfigService(db)
@@ -87,15 +89,15 @@ async def update_config(
 
 
 class UpsertConfigRequest(BaseModel):
-    config_value: Dict[str, Any]
-    description: Optional[str] = None
+    config_value: dict[str, Any]
+    description: str | None = None
 
 @router.post("/configs/{config_key}/upsert", response_model=Config)
 async def upsert_config(
     config_key: str,
     request: UpsertConfigRequest,
     db: AsyncSession = Depends(get_postgres_db),
-    platform: Optional[Platform] = Depends(get_platform_from_header)
+    platform: Platform | None = Depends(get_platform_from_header)
 ):
     """Create or update a configuration"""
     config_service = ConfigService(db)
@@ -107,7 +109,7 @@ async def upsert_config(
 async def delete_config(
     config_key: str,
     db: AsyncSession = Depends(get_postgres_db),
-    platform: Optional[Platform] = Depends(get_platform_from_header)
+    platform: Platform | None = Depends(get_platform_from_header)
 ):
     """Delete a configuration"""
     config_service = ConfigService(db)

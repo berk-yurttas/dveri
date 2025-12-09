@@ -1,6 +1,7 @@
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import declarative_base
 from clickhouse_driver import Client
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import declarative_base
+
 from app.core.config import settings
 
 # PostgreSQL (for metadata) - Async
@@ -22,6 +23,27 @@ PostgreSQLBase = declarative_base()
 # Dependency to get PostgreSQL database session
 async def get_postgres_db():
     async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+# RomIOT PostgreSQL Database - Async
+romiot_postgres_engine = create_async_engine(
+    settings.romiot_postgres_database_url,
+    echo=True,
+    pool_pre_ping=True
+)
+
+RomiotAsyncSessionLocal = async_sessionmaker(
+    romiot_postgres_engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
+
+# Dependency to get RomIOT PostgreSQL database session
+async def get_romiot_db():
+    async with RomiotAsyncSessionLocal() as session:
         try:
             yield session
         finally:

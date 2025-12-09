@@ -1,13 +1,13 @@
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Response, Request
-from fastapi.responses import RedirectResponse, JSONResponse
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_postgres_db
-from app.core.config import settings
-from app.services.user_service import UserService
 from app.core.auth import check_authenticated
+from app.core.config import settings
+from app.core.database import get_postgres_db
 from app.schemas.user import User
+from app.services.user_service import UserService
 
 router = APIRouter()
 
@@ -15,23 +15,23 @@ router = APIRouter()
 @router.get("/login_redirect", dependencies=[])  # Empty dependencies to override global auth
 async def login_redirect(
     response: Response,
-    tokens: Optional[str] = Query(None, description="Encrypted tokens from auth server"),
-    secret: Optional[str] = Query(None, description="SAML token for verification"),
-    client_rdct: Optional[str] = Query(None, description="Client redirect URL"),
+    tokens: str | None = Query(None, description="Encrypted tokens from auth server"),
+    secret: str | None = Query(None, description="SAML token for verification"),
+    client_rdct: str | None = Query(None, description="Client redirect URL"),
     db: AsyncSession = Depends(get_postgres_db)
 ):
     """
     Handle SAML login redirect with token decryption and cookie setting
-    
+
     Query Parameters:
     - tokens: Encrypted tokens from auth server (required)
     - secret: SAML token for verification (required) 
     - client_rdct: Optional client redirect URL
-    
+
     Returns:
     - Redirects to client application with authentication cookies set
     """
-    
+
     try:
         # Handle login redirect and get decrypted tokens
         auth_data = await UserService.handle_login_redirect(
@@ -39,18 +39,18 @@ async def login_redirect(
             secret=secret,
             client_redirect=client_rdct
         )
-        
+
         print(f"Auth data received: {auth_data}")
-        
+
         # Create redirect response
         redirect_response = RedirectResponse(
             url=auth_data["redirect_url"],
             status_code=status.HTTP_302_FOUND
         )
-        
+
         # Set cookies on redirect response (remove domain if localhost)
         cookie_domain = None if settings.COOKIE_DOMAIN == "localhost" else settings.COOKIE_DOMAIN
-        
+
         redirect_response.set_cookie(
             key="access_token",
             value=auth_data["access_token"],
@@ -61,7 +61,7 @@ async def login_redirect(
             secure=False,  # Set to True in production with HTTPS
             samesite="lax"
         )
-        
+
         redirect_response.set_cookie(
             key="refresh_token",
             value=auth_data["refresh_token"],
@@ -72,10 +72,10 @@ async def login_redirect(
             secure=False,  # Set to True in production with HTTPS
             samesite="lax"
         )
-        
+
         print(f"Cookies set, redirecting to: {auth_data['redirect_url']}")
         return redirect_response
-        
+
     except HTTPException:
         # Re-raise HTTP exceptions from the service
         raise
@@ -83,7 +83,7 @@ async def login_redirect(
         # Handle any unexpected errors
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Login redirect failed: {str(e)}"
+            detail=f"Login redirect failed: {e!s}"
         )
 
 @router.get("/login_jwt", response_model=User)
@@ -95,10 +95,10 @@ async def login_jwt(
 ):
     """
     Get current user information from JWT token
-    
+
     Returns:
         User object containing authenticated user information
-    
+
     Raises:
         HTTPException: If user is not authenticated or token is invalid
     """
@@ -123,11 +123,11 @@ async def logout(response: Response):
         path="/"
     )
     response.delete_cookie(
-        key="refresh_token", 
+        key="refresh_token",
         domain=settings.COOKIE_DOMAIN,
         path="/"
     )
-    
+
     return {"message": "Successfully logged out"}
 
 
@@ -143,7 +143,7 @@ async def get_user_profile(
     # 1. Extract user info from JWT token in cookies
     # 2. Validate the token
     # 3. Get user from database
-    
+
     return {
         "message": "User profile endpoint - authentication not yet implemented",
         "note": "This endpoint requires JWT token validation middleware"

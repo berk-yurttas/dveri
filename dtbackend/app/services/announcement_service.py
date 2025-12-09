@@ -4,28 +4,24 @@ Announcement Service
 Handles all announcement-related business logic including CRUD operations.
 """
 
-from typing import List, Optional, Set
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_
-from sqlalchemy.orm import selectinload
-from fastapi import HTTPException
+import re
 from datetime import datetime
 from urllib.parse import urlparse
-import re
 
 import httpx
+from fastapi import HTTPException
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.models.postgres_models import Announcement, Platform
-from app.schemas.announcement import (
-    AnnouncementCreate, 
-    AnnouncementUpdate
-)
 from app.core.config import settings
+from app.models.postgres_models import Announcement, Platform
+from app.schemas.announcement import AnnouncementCreate, AnnouncementUpdate
 
 
 class AnnouncementService:
     """Service for managing announcements"""
-    
+
     @staticmethod
     async def create_announcement(
         db: AsyncSession,
@@ -33,14 +29,14 @@ class AnnouncementService:
     ) -> Announcement:
         """
         Create a new announcement
-        
+
         Args:
             db: Database session
             announcement_data: Announcement creation data
-            
+
         Returns:
             Created announcement
-            
+
         Raises:
             HTTPException: If platform_id is provided but doesn't exist
         """
@@ -54,28 +50,28 @@ class AnnouncementService:
                     status_code=404,
                     detail=f"Platform with ID {announcement_data.platform_id} not found"
                 )
-        
+
         # Create announcement
         announcement = Announcement(**announcement_data.model_dump())
         db.add(announcement)
         await db.commit()
         await db.refresh(announcement)
-        
+
         return announcement
-    
+
     @staticmethod
     async def get_announcements(
         db: AsyncSession,
         skip: int = 0,
         limit: int = 100,
-        platform_id: Optional[int] = None,
+        platform_id: int | None = None,
         active_only: bool = True,
         all_platforms: bool = False,
         include_general: bool = True
-    ) -> List[Announcement]:
+    ) -> list[Announcement]:
         """
         Get list of announcements with optional filtering
-        
+
         Args:
             db: Database session
             skip: Number of records to skip
@@ -84,12 +80,12 @@ class AnnouncementService:
             active_only: If True, only return announcements that are currently active
             all_platforms: If True, return announcements from all platforms (for admin)
             include_general: If True, include general announcements with platform-specific ones
-            
+
         Returns:
             List of announcements
         """
         query = select(Announcement).options(selectinload(Announcement.platform))
-        
+
         # Filter by platform
         if all_platforms:
             # Admin mode: Don't filter by platform, show all announcements
@@ -110,7 +106,7 @@ class AnnouncementService:
         else:
             # For main page (platform_id=None): Only show general announcements
             query = query.where(Announcement.platform_id.is_(None))
-        
+
         # Filter by active status (creation_date <= now and (expire_date is null or expire_date > now))
         if active_only:
             now = datetime.now()
@@ -123,28 +119,28 @@ class AnnouncementService:
                     )
                 )
             )
-        
+
         # Order by creation_date descending, then by id descending (for consistent ordering)
         query = query.order_by(Announcement.creation_date.desc(), Announcement.id.desc())
-        
+
         # Pagination
         query = query.offset(skip).limit(limit)
-        
+
         result = await db.execute(query)
         return result.scalars().all()
-    
+
     @staticmethod
     async def get_announcement_by_id(
         db: AsyncSession,
         announcement_id: int
-    ) -> Optional[Announcement]:
+    ) -> Announcement | None:
         """
         Get announcement by ID
-        
+
         Args:
             db: Database session
             announcement_id: Announcement ID
-            
+
         Returns:
             Announcement or None
         """
@@ -154,31 +150,31 @@ class AnnouncementService:
             .where(Announcement.id == announcement_id)
         )
         return result.scalar_one_or_none()
-    
+
     @staticmethod
     async def update_announcement(
         db: AsyncSession,
         announcement_id: int,
         announcement_data: AnnouncementUpdate
-    ) -> Optional[Announcement]:
+    ) -> Announcement | None:
         """
         Update announcement
-        
+
         Args:
             db: Database session
             announcement_id: Announcement ID
             announcement_data: Announcement update data
-            
+
         Returns:
             Updated announcement or None if not found
-            
+
         Raises:
             HTTPException: If platform_id is provided but doesn't exist
         """
         announcement = await AnnouncementService.get_announcement_by_id(db, announcement_id)
         if not announcement:
             return None
-        
+
         # Preserve old media references for cleanup after update
         old_content_image = announcement.content_image
         old_content_detail = announcement.content_detail
@@ -194,17 +190,17 @@ class AnnouncementService:
                     status_code=404,
                     detail=f"Platform with ID {update_data['platform_id']} not found"
                 )
-        
+
         # Update only provided fields
         for field, value in update_data.items():
             setattr(announcement, field, value)
-        
+
         await db.commit()
         await db.refresh(announcement)
 
         try:
-            old_urls: Set[str] = set()
-            new_urls: Set[str] = set()
+            old_urls: set[str] = set()
+            new_urls: set[str] = set()
 
             if old_content_image:
                 old_urls.add(old_content_image)
@@ -220,9 +216,9 @@ class AnnouncementService:
         except Exception:
             # Do not block update if cleanup fails
             pass
-        
+
         return announcement
-    
+
     @staticmethod
     async def delete_announcement(
         db: AsyncSession,
@@ -230,11 +226,11 @@ class AnnouncementService:
     ) -> bool:
         """
         Delete announcement
-        
+
         Args:
             db: Database session
             announcement_id: Announcement ID
-            
+
         Returns:
             True if deleted, False if not found
         """
@@ -242,7 +238,7 @@ class AnnouncementService:
         if not announcement:
             return False
 
-        pocketbase_urls: Set[str] = set()
+        pocketbase_urls: set[str] = set()
         if announcement.content_image:
             pocketbase_urls.add(announcement.content_image)
 
@@ -256,18 +252,18 @@ class AnnouncementService:
 
         await db.delete(announcement)
         await db.commit()
-        
+
         return True
 
     @staticmethod
-    def _extract_pocketbase_file_urls(content: str) -> Set[str]:
+    def _extract_pocketbase_file_urls(content: str) -> set[str]:
         """
         Extract PocketBase file URLs from rich text/HTML content.
         """
         if not content:
             return set()
 
-        urls: Set[str] = set()
+        urls: set[str] = set()
 
         # Match src attributes (e.g., <img src="...">)
         for match in re.findall(r'src\s*=\s*["\']([^"\']+)["\']', content, flags=re.IGNORECASE):
@@ -280,7 +276,7 @@ class AnnouncementService:
         return urls
 
     @staticmethod
-    async def _delete_pocketbase_file(file_url: Optional[str]) -> None:
+    async def _delete_pocketbase_file(file_url: str | None) -> None:
         """
         Delete announcement image from PocketBase if it was stored there.
         Silently ignores any errors to avoid blocking announcement deletion.
@@ -338,28 +334,28 @@ class AnnouncementService:
         except Exception:
             # Swallow all errors to avoid breaking announcement deletion
             return
-    
+
     @staticmethod
     async def get_announcement_count(
         db: AsyncSession,
-        platform_id: Optional[int] = None,
+        platform_id: int | None = None,
         active_only: bool = True,
         all_platforms: bool = False
     ) -> int:
         """
         Get count of announcements
-        
+
         Args:
             db: Database session
             platform_id: Filter by platform ID
             active_only: If True, only count active announcements
             all_platforms: If True, count announcements from all platforms
-            
+
         Returns:
             Number of announcements
         """
         query = select(func.count(Announcement.id))
-        
+
         # Filter by platform
         if all_platforms:
             # Admin mode: Don't filter by platform
@@ -371,7 +367,7 @@ class AnnouncementService:
                     Announcement.platform_id.is_(None)
                 )
             )
-        
+
         # Filter by active status
         if active_only:
             now = datetime.now()
@@ -384,7 +380,7 @@ class AnnouncementService:
                     )
                 )
             )
-        
+
         result = await db.execute(query)
         return result.scalar() or 0
 

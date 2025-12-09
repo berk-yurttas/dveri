@@ -9,27 +9,27 @@ import sys
 sys.path.insert(0, os.getcwd())
 
 try:
-    from alembic.config import Config
     from alembic import command
-    
+    from alembic.config import Config
+
     print("🔧 Setting up Alembic configuration...")
-    
+
     # Create Alembic config
     alembic_cfg = Config("alembic.ini")
-    
+
     print("📝 Creating migration...")
-    
+
     # Create the migration
     command.revision(alembic_cfg, autogenerate=True, message="Create initial tables")
-    
+
     print("✅ Migration created successfully!")
     print("📁 Check the 'alembic/versions' directory for the new migration file.")
-    
+
     # Ask if user wants to apply the migration
     print("\n" + "="*50)
     print("To apply the migration, run:")
     print("python run_migration.py upgrade")
-    
+
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print("Make sure you're in the virtual environment and alembic is installed.")

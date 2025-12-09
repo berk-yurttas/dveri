@@ -1,11 +1,12 @@
-from typing import Dict, Any, Optional
+from typing import Any
+
 from .base import WidgetStrategy
 
 
 class MachineOeeWidgetStrategy(WidgetStrategy):
     """Strategy for machine OEE analysis widget - analyze OEE by firma and machine"""
 
-    def get_query(self, filters: Optional[Dict[str, Any]] = None) -> str:
+    def get_query(self, filters: dict[str, Any] | None = None) -> str:
         """
         Get machine OEE query with filters
 
@@ -42,7 +43,7 @@ class MachineOeeWidgetStrategy(WidgetStrategy):
 
         return query
 
-    def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def process_result(self, result: Any, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Process machine OEE widget result"""
 
         firma = filters.get('firma', '') if filters else ''

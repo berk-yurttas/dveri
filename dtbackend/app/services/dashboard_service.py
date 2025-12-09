@@ -1,12 +1,13 @@
-from typing import List, Optional, Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.models.postgres_models import Dashboard, DashboardUser, Platform, User
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.postgres_models import Dashboard, DashboardUser, Platform
 from app.schemas.dashboard import DashboardCreate, DashboardUpdate
 from app.services.user_service import UserService
 
+
 class DashboardService:
-    
+
     @staticmethod
     async def create_dashboard(
         db: AsyncSession,
@@ -19,10 +20,10 @@ class DashboardService:
         user = await UserService.get_user_by_username(db, username)
         if not user:
             raise ValueError(f"User with username '{username}' not found")
-        
+
         # Convert Pydantic Widget objects to dictionaries for JSON serialization
         widgets_data = [widget.model_dump() for widget in dashboard_data.widgets] if dashboard_data.widgets else []
-        
+
         # Create the dashboard
         db_dashboard = Dashboard(
             title=dashboard_data.title,
@@ -36,7 +37,7 @@ class DashboardService:
         db.add(db_dashboard)
         await db.commit()
         await db.refresh(db_dashboard)
-        
+
         # Create DashboardUser record to link the owner to the dashboard
         dashboard_user = DashboardUser(
             dashboard_id=db_dashboard.id,
@@ -45,15 +46,15 @@ class DashboardService:
         )
         db.add(dashboard_user)
         await db.commit()
-        
+
         return db_dashboard
-    
+
     @staticmethod
     async def get_dashboard_by_id(
         db: AsyncSession,
         dashboard_id: int,
         username: str
-    ) -> Optional[Dashboard]:
+    ) -> Dashboard | None:
         """Get dashboard by ID"""
         from sqlalchemy.orm import joinedload
 
@@ -81,7 +82,7 @@ class DashboardService:
         dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
 
         return dashboard
-    
+
     @staticmethod
     async def get_dashboards(
         db: AsyncSession,
@@ -90,16 +91,16 @@ class DashboardService:
         limit: int = 100,
         platform: Platform = None,
         subplatform: str = None
-    ) -> List[Dashboard]:
+    ) -> list[Dashboard]:
         """Get all dashboards by username"""
         user = await UserService.get_user_by_username(db, username)
         if not user:
             return []
 
         # Get dashboards where user is in the users relationship OR dashboard is public
-        from sqlalchemy import or_, and_, cast, String
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy import String, and_, cast, or_
         from sqlalchemy.dialects.postgresql import ARRAY
+        from sqlalchemy.orm import joinedload
 
         # Subquery for dashboards where user is explicitly added
         user_dashboards_subquery = select(Dashboard.id).join(DashboardUser).where(
@@ -140,7 +141,7 @@ class DashboardService:
             dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
 
         return dashboards
-    
+
     @staticmethod
     async def add_favorite_dashboard(
         db: AsyncSession,
@@ -151,11 +152,11 @@ class DashboardService:
         user = await UserService.get_user_by_username(db, username)
         if not user:
             return None
-        
+
         dashboard = await DashboardService.get_dashboard_by_id(db, dashboard_id, username)
         if not dashboard:
             return None
-        
+
         dashboard_user_query = select(DashboardUser).where(DashboardUser.dashboard_id == dashboard.id, DashboardUser.user_id == user.id)
         dashboard_user = await db.execute(dashboard_user_query)
         dashboard_user = dashboard_user.scalar_one_or_none()
@@ -182,11 +183,11 @@ class DashboardService:
         user = await UserService.get_user_by_username(db, username)
         if not user:
             return None
-        
+
         dashboard = await DashboardService.get_dashboard_by_id(db, dashboard_id, username)
         if not dashboard:
             return None
-        
+
         dashboard_user_query = select(DashboardUser).where(DashboardUser.dashboard_id == dashboard.id, DashboardUser.user_id == user.id)
         dashboard_user = await db.execute(dashboard_user_query)
         dashboard_user = dashboard_user.scalar_one_or_none()
@@ -204,41 +205,41 @@ class DashboardService:
         owner_id: int,
         skip: int = 0,
         limit: int = 100
-    ) -> List[Dashboard]:
+    ) -> list[Dashboard]:
         """Get all dashboards by owner ID"""
         query = select(Dashboard).where(Dashboard.owner_id == owner_id).offset(skip).limit(limit)
         result = await db.execute(query)
         return result.scalars().all()
-    
+
     @staticmethod
     async def update_dashboard(
         db: AsyncSession,
         username: str,
         dashboard_id: int,
         dashboard_update: DashboardUpdate
-    ) -> Optional[Dashboard]:
+    ) -> Dashboard | None:
         """Update dashboard"""
         dashboard = await DashboardService.get_dashboard_by_id(db, dashboard_id, username)
         if not dashboard:
             return None
-        
+
         update_data = dashboard_update.model_dump(exclude_unset=True)
-        
+
         for field, value in update_data.items():
             setattr(dashboard, field, value)
-        
+
         await db.commit()
         await db.refresh(dashboard)
         return dashboard
-    
+
     @staticmethod
     async def delete_dashboard(db: AsyncSession, dashboard_id: int, username: str) -> bool:
         """Delete dashboard"""
         dashboard = await DashboardService.get_dashboard_by_id(db, dashboard_id, username)
         if not dashboard:
             return False
-        
+
         await db.delete(dashboard)
         await db.commit()
         return True
-    
+

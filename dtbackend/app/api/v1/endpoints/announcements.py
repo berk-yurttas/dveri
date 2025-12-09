@@ -4,32 +4,32 @@ Announcement API Endpoints
 CRUD operations for managing announcements.
 """
 
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
-from sqlalchemy.ext.asyncio import AsyncSession
-import httpx
 
-from app.core.database import get_postgres_db
+import httpx
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.auth import check_authenticated
 from app.core.config import settings
+from app.core.database import get_postgres_db
 from app.models.postgres_models import User
 from app.schemas.announcement import (
     Announcement as AnnouncementSchema,
-    AnnouncementList,
+)
+from app.schemas.announcement import (
     AnnouncementCreate,
     AnnouncementUpdate,
-    AnnouncementWithPlatform
 )
 from app.services.announcement_service import AnnouncementService
-from app.core.auth import check_authenticated
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[AnnouncementSchema])
+@router.get("/", response_model=list[AnnouncementSchema])
 async def get_announcements(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return"),
-    platform_id: Optional[int] = Query(None, description="Filter by platform ID (null for general announcements)"),
+    platform_id: int | None = Query(None, description="Filter by platform ID (null for general announcements)"),
     active_only: bool = Query(True, description="Only return currently active announcements"),
     all_platforms: bool = Query(False, description="Return announcements from all platforms (for admin)"),
     include_general: bool = Query(True, description="Include general announcements with platform-specific ones"),
@@ -38,7 +38,7 @@ async def get_announcements(
 ):
     """
     Get list of announcements
-    
+
     - **skip**: Number of records to skip (pagination)
     - **limit**: Maximum number of records to return
     - **platform_id**: Filter by platform ID (null for general announcements)
@@ -60,7 +60,7 @@ async def get_announcements(
 
 @router.get("/count")
 async def get_announcement_count(
-    platform_id: Optional[int] = Query(None, description="Filter by platform ID"),
+    platform_id: int | None = Query(None, description="Filter by platform ID"),
     active_only: bool = Query(True, description="Only count active announcements"),
     all_platforms: bool = Query(False, description="Count announcements from all platforms"),
     db: AsyncSession = Depends(get_postgres_db),
@@ -86,7 +86,7 @@ async def get_announcement(
 ):
     """
     Get announcement by ID
-    
+
     - **announcement_id**: Announcement ID
     """
     announcement = await AnnouncementService.get_announcement_by_id(db, announcement_id)
@@ -103,7 +103,7 @@ async def create_announcement(
 ):
     """
     Create a new announcement
-    
+
     - **title**: Announcement title (required)
     - **month_title**: Month label (optional)
     - **content_summary**: Short summary (optional)
@@ -129,7 +129,7 @@ async def update_announcement(
 ):
     """
     Update an existing announcement
-    
+
     - **announcement_id**: Announcement ID
     - All fields are optional and only provided fields will be updated
     """
@@ -151,7 +151,7 @@ async def delete_announcement(
 ):
     """
     Delete an announcement
-    
+
     - **announcement_id**: Announcement ID
     """
     deleted = await AnnouncementService.delete_announcement(
@@ -160,7 +160,6 @@ async def delete_announcement(
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Announcement not found")
-    return None
 
 
 @router.post("/upload-image")
@@ -170,9 +169,9 @@ async def upload_announcement_image(
 ):
     """
     Upload an image to PocketBase files collection and return the URL
-    
+
     - **file**: Image file to upload
-    
+
     Returns:
         - **url**: Full URL to access the uploaded image
         - **record_id**: PocketBase record ID
@@ -195,32 +194,32 @@ async def upload_announcement_image(
                         auth_token = auth_response.json().get("token")
                 except Exception as auth_error:
                     print(f"PocketBase auth warning: {auth_error}")
-            
+
             # 2. Upload file to PocketBase
             file_content = await file.read()
-            
+
             # Prepare file for upload (document field in files collection)
             files = {
                 "document": (file.filename, file_content, file.content_type or "image/jpeg")
             }
-            
+
             headers = {}
             if auth_token:
                 headers["Authorization"] = auth_token
-            
+
             # Upload to PocketBase files collection
             upload_response = await client.post(
                 f"{settings.POCKETBASE_URL}/api/collections/files/records",
                 files=files,
                 headers=headers
             )
-            
+
             if upload_response.status_code in [200, 201]:
                 data = upload_response.json()
-                
+
                 # Construct file URL: /api/files/{collectionName}/{recordId}/{filename}
                 file_url = f"{settings.POCKETBASE_URL}/api/files/files/{data['id']}/{data['document']}"
-                
+
                 return {
                     "url": file_url,
                     "record_id": data['id'],
@@ -232,12 +231,12 @@ async def upload_announcement_image(
                     status_code=upload_response.status_code,
                     detail=f"PocketBase upload failed: {error_detail}"
                 )
-                
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error uploading image: {str(e)}"
+            detail=f"Error uploading image: {e!s}"
         )
 
