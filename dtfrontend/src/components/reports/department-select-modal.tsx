@@ -15,6 +15,7 @@ interface UserInfo {
   username: string
   name: string
   email: string
+  department?: string
 }
 
 interface DepartmentSelectModalProps {
@@ -454,8 +455,9 @@ export function DepartmentSelectModal({
                   <div className="space-y-2">
                     {userResults.map(user => {
                       const isSelected = selectedUsers.has(user.username)
+                      const departmentDisplay = user.department ? user.department.split('_').join(' > ') : ''
                       return (
-                        <div 
+                        <div
                           key={user.username}
                           onClick={() => toggleUserSelection(user.username)}
                           className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -471,6 +473,9 @@ export function DepartmentSelectModal({
                             <div>
                               <p className="text-sm font-medium text-gray-900">{user.name || user.username}</p>
                               <p className="text-xs text-gray-500">{user.username}</p>
+                              {departmentDisplay && (
+                                <p className="text-xs text-gray-400 mt-0.5">{departmentDisplay}</p>
+                              )}
                             </div>
                           </div>
                           {isSelected && <Check className="h-4 w-4 text-blue-600" />}
