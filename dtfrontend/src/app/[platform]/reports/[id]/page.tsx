@@ -66,6 +66,8 @@ import {
 } from '@/components/visualizations'
 import { GlobalFilters } from '@/components/reports/GlobalFilters'
 import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
+import { useUser } from '@/contexts/user-context'
+import { isAdmin } from '@/lib/utils'
 
 const VISUALIZATION_ICONS = {
   table: Table,
@@ -190,6 +192,7 @@ export default function ReportDetailPage() {
   const reportId = params.id as string
   const searchParams = useSearchParams()
   const subplatform = searchParams.get('subplatform')
+  const { user } = useUser()
   const [report, setReport] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -2847,56 +2850,58 @@ export default function ReportDetailPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-bold">{report.name}</h1>
-                <div className="relative" ref={dropdownRef}>
-                  <button
-                    className="h-6 w-6 p-0 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-700"
-                    onClick={() => setIsSettingsDropdownOpen(!isSettingsDropdownOpen)}
-                  >
-                    <Settings className="h-3.5 w-3.5" />
-                  </button>
-                  
-                  {/* Settings Dropdown */}
-                  {isSettingsDropdownOpen && (
-                    <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
-                      <div className="py-1">
-                        <button
-                          onClick={() => {
-                            setIsSettingsDropdownOpen(false);
-                            if (subplatform) {
-                              router.push(`/${platformCode}/reports/${reportId}/edit?subplatform=${subplatform}`);
-                            } else {
-                              router.push(`/${platformCode}/reports/${reportId}/edit`);
-                            }
-                          }}
-                          className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        >
-                          <Edit className="h-4 w-4 mr-2" />
-                          Düzenle
-                        </button>
-                        <button
-                          onClick={() => {
-                            setIsSettingsDropdownOpen(false);
-                            setIsAuthModalOpen(true);
-                          }}
-                          className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        >
-                          <Shield className="h-4 w-4 mr-2" />
-                          Yetkilendirme
-                        </button>
-                        <button
-                          onClick={() => {
-                            setIsSettingsDropdownOpen(false);
-                            setIsDeleteDialogOpen(true);
-                          }}
-                          className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Sil
-                        </button>
+                {isAdmin(user) && (
+                  <div className="relative" ref={dropdownRef}>
+                    <button
+                      className="h-6 w-6 p-0 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-700"
+                      onClick={() => setIsSettingsDropdownOpen(!isSettingsDropdownOpen)}
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                    </button>
+
+                    {/* Settings Dropdown */}
+                    {isSettingsDropdownOpen && (
+                      <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+                        <div className="py-1">
+                          <button
+                            onClick={() => {
+                              setIsSettingsDropdownOpen(false);
+                              if (subplatform) {
+                                router.push(`/${platformCode}/reports/${reportId}/edit?subplatform=${subplatform}`);
+                              } else {
+                                router.push(`/${platformCode}/reports/${reportId}/edit`);
+                              }
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          >
+                            <Edit className="h-4 w-4 mr-2" />
+                            Düzenle
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsSettingsDropdownOpen(false);
+                              setIsAuthModalOpen(true);
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          >
+                            <Shield className="h-4 w-4 mr-2" />
+                            Yetkilendirme
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsSettingsDropdownOpen(false);
+                              setIsDeleteDialogOpen(true);
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Sil
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </div>
               <p className="text-gray-600 text-xs mt-0.5">{report.description}</p>
             </div>
@@ -2904,13 +2909,15 @@ export default function ReportDetailPage() {
           <div className="flex items-center gap-1.5">
             {!isLayoutEditMode ? (
               <>
-                <button
-                  onClick={() => setIsLayoutEditMode(true)}
-                  className="flex items-center gap-1.5 bg-purple-600 text-white px-2.5 py-1 text-xs rounded-md hover:bg-purple-700 transition-colors"
-                >
-                  <Layout className="h-3 w-3" />
-                  Düzen
-                </button>
+                {isAdmin(user) && (
+                  <button
+                    onClick={() => setIsLayoutEditMode(true)}
+                    className="flex items-center gap-1.5 bg-purple-600 text-white px-2.5 py-1 text-xs rounded-md hover:bg-purple-700 transition-colors"
+                  >
+                    <Layout className="h-3 w-3" />
+                    Düzen
+                  </button>
+                )}
                 <button
                   onClick={() => report && executeAllQueries(report, filters)}
                   className="flex items-center gap-1.5 bg-blue-600 text-white px-2.5 py-1 text-xs rounded-md hover:bg-blue-700 transition-colors"

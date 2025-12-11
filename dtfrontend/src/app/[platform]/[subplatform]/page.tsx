@@ -26,6 +26,7 @@ import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 import { Feedback } from "@/components/feedback/feedback";
+import { isAdmin } from "@/lib/utils";
 
 interface PreviewResponse {
   data?: any[] | null;
@@ -1117,13 +1118,15 @@ export default function SubPlatformPage() {
                 </button>
               )}
             </div>
-            <button
-              onClick={handleCreateDashboard}
-              className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors shadow-lg"
-            >
-              <Plus className="h-4 w-4" />
-              Yeni Ekran
-            </button>
+            {isAdmin(user) && (
+              <button
+                onClick={handleCreateDashboard}
+                className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors shadow-lg"
+              >
+                <Plus className="h-4 w-4" />
+                Yeni Ekran
+              </button>
+            )}
           </div>
 
           {/* Dashboard Grid */}
@@ -1204,13 +1207,15 @@ export default function SubPlatformPage() {
               <p className="text-gray-500 mb-6">
                 {subPlatformCode.charAt(0).toUpperCase() + subPlatformCode.slice(1)} platformu için ilk ekranınızı oluşturun.
               </p>
-              <button
-                onClick={handleCreateDashboard}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <Plus className="h-5 w-5" />
-                İlk Ekranı Oluştur
-              </button>
+              {isAdmin(user) && (
+                <button
+                  onClick={handleCreateDashboard}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Plus className="h-5 w-5" />
+                  İlk Ekranı Oluştur
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1230,7 +1235,7 @@ export default function SubPlatformPage() {
                 </button>
               )}
             </div>
-            {hasDerinizAdmin && (
+            {isAdmin(user) && (
               <button
                 onClick={handleCreateReport}
                 className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors shadow-lg"
@@ -1307,7 +1312,7 @@ export default function SubPlatformPage() {
               <p className="text-gray-500 mb-6">
                 {subPlatformCode.charAt(0).toUpperCase() + subPlatformCode.slice(1)} platformu için ilk raporunuzu oluşturun.
               </p>
-              {hasDerinizAdmin && (
+              {isAdmin(user) && (
                 <button
                   onClick={handleCreateReport}
                   className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"

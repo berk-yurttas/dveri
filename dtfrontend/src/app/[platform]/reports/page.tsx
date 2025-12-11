@@ -35,6 +35,8 @@ import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 import { Feedback } from "@/components/feedback/feedback";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import configService, { ColorGroupsMapping } from "@/services/config";
+import { useUser } from "@/contexts/user-context";
+import { isAdmin } from "@/lib/utils";
 
 // Icon mapping for visualization types
 const visualizationIconMap: { [key: string]: any } = {
@@ -59,6 +61,7 @@ export default function ReportsPage() {
   const router = useRouter();
   const params = useParams();
   const platformCode = params.platform as string;
+  const { user } = useUser();
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [filteredReports, setFilteredReports] = useState<SavedReport[]>([]);
   const [loading, setLoading] = useState(true);
@@ -345,21 +348,25 @@ export default function ReportsPage() {
             <h1 className="text-3xl font-bold text-gray-900">Raporlar - {subplatform ? subplatform.charAt(0).toUpperCase() + subplatform.slice(1) : ''}</h1>
             <p className="text-gray-600 mt-1 text-sm">Tüm raporlarınızı görüntüleyin ve yönetin</p>
           </div>
-          <button
-            onClick={handleOpenSettings}
-            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            title="Renk Gruplarını Ayarla"
-          >
-            <Settings className="h-5 w-5" />
-          </button>
+          {isAdmin(user) && (
+            <button
+              onClick={handleOpenSettings}
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Renk Gruplarını Ayarla"
+            >
+              <Settings className="h-5 w-5" />
+            </button>
+          )}
         </div>
-        <button
-          onClick={handleCreateReport}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Yeni Rapor
-        </button>
+        {isAdmin(user) && (
+          <button
+            onClick={handleCreateReport}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Yeni Rapor
+          </button>
+        )}
       </div>
 
       {/* Error Message */}
@@ -616,20 +623,24 @@ export default function ReportsPage() {
                             >
                               <Star className="h-4 w-4 fill-yellow-500 text-yellow-500" />
                             </button>
-                            <button
-                              onClick={(e) => handleEditReport(report, e)}
-                              className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
-                              title="Düzenle"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={(e) => handleDeleteReport(report, e)}
-                              className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-                              title="Sil"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                            {isAdmin(user) && (
+                              <>
+                                <button
+                                  onClick={(e) => handleEditReport(report, e)}
+                                  className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                                  title="Düzenle"
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={(e) => handleDeleteReport(report, e)}
+                                  className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                                  title="Sil"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -663,20 +674,24 @@ export default function ReportsPage() {
                         >
                           <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" />
                         </button>
-                        <button
-                          onClick={(e) => handleEditReport(report, e)}
-                          className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-blue-500 transition-colors"
-                          title="Düzenle"
-                        >
-                          <Edit className="h-3 w-3" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteReport(report, e)}
-                          className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-red-500 transition-colors"
-                          title="Sil"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+                        {isAdmin(user) && (
+                          <>
+                            <button
+                              onClick={(e) => handleEditReport(report, e)}
+                              className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-blue-500 transition-colors"
+                              title="Düzenle"
+                            >
+                              <Edit className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={(e) => handleDeleteReport(report, e)}
+                              className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-red-500 transition-colors"
+                              title="Sil"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </>
+                        )}
                       </div>
 
                       <div className="flex items-start justify-between mb-3 relative z-10">
@@ -817,20 +832,24 @@ export default function ReportsPage() {
                       >
                         <Star className={`h-4 w-4 ${favorites.has(report.id) ? 'fill-yellow-500 text-yellow-500' : ''}`} />
                       </button>
-                      <button
-                        onClick={(e) => handleEditReport(report, e)}
-                        className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
-                        title="Düzenle"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={(e) => handleDeleteReport(report, e)}
-                        className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-                        title="Sil"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {isAdmin(user) && (
+                        <>
+                          <button
+                            onClick={(e) => handleEditReport(report, e)}
+                            className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                            title="Düzenle"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteReport(report, e)}
+                            className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                            title="Sil"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -868,20 +887,24 @@ export default function ReportsPage() {
                   >
                     <Star className={`h-3 w-3 ${favorites.has(report.id) ? 'fill-yellow-500 text-yellow-500' : ''}`} />
                   </button>
-                  <button
-                    onClick={(e) => handleEditReport(report, e)}
-                    className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-blue-500 transition-colors"
-                    title="Düzenle"
-                  >
-                    <Edit className="h-3 w-3" />
-                  </button>
-                  <button
-                    onClick={(e) => handleDeleteReport(report, e)}
-                    className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-red-500 transition-colors"
-                    title="Sil"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  {isAdmin(user) && (
+                    <>
+                      <button
+                        onClick={(e) => handleEditReport(report, e)}
+                        className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-blue-500 transition-colors"
+                        title="Düzenle"
+                      >
+                        <Edit className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={(e) => handleDeleteReport(report, e)}
+                        className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-red-500 transition-colors"
+                        title="Sil"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </>
+                  )}
                 </div>
 
                 <div className="flex items-start justify-between mb-3 relative z-10">
@@ -950,7 +973,7 @@ export default function ReportsPage() {
               : "İlk raporunuzu oluşturmak için aşağıdaki butona tıklayın."
             }
           </p>
-          {(!searchQuery && filterBy === 'all') && (
+          {(!searchQuery && filterBy === 'all' && isAdmin(user)) && (
             <button
               onClick={handleCreateReport}
               className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"

@@ -14,7 +14,12 @@ export interface AccessControlEntity {
 export interface AccessControlUser {
   username: string;
   department: string;
+  role?: string[];
   [key: string]: any;
+}
+
+export function isAdmin(user: AccessControlUser | null): boolean {
+  return user?.role?.includes('miras:admin') ?? false;
 }
 
 export function checkAccess(entity: AccessControlEntity, user: AccessControlUser | null): boolean {
@@ -24,7 +29,7 @@ export function checkAccess(entity: AccessControlEntity, user: AccessControlUser
       return true;
     }
 
-    if (user?.role.includes('miras:admin')) {
+    if (isAdmin(user)) {
       return true;
     }
 
