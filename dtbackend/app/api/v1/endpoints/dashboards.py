@@ -49,7 +49,8 @@ async def get_dashboards(
         skip=skip,
         limit=limit,
         platform=platform,
-        subplatform=subplatform
+        subplatform=subplatform,
+        user_role=current_user.role
     )
     return dashboards
 
@@ -83,7 +84,8 @@ async def get_dashboard(
     dashboard = await DashboardService.get_dashboard_by_id(
         db=db,
         dashboard_id=dashboard_id,
-        username=current_user.username
+        username=current_user.username,
+        user_role=current_user.role
     )
     
     if not dashboard:

@@ -165,35 +165,45 @@ class ReportsService:
 
         """Get a report by ID with all queries and filters (only if user owns it or it's public or has permission)"""
         from sqlalchemy.orm import joinedload
-        from sqlalchemy import cast, String
+        from sqlalchemy import cast, String, literal
         from sqlalchemy.dialects.postgresql import ARRAY
 
-        # Generate all parent departments for the user
-        user_dept = user.department or ""
-        dept_prefixes = []
-        if user_dept:
-            parts = user_dept.split('_')
-            current = ""
-            for part in parts:
-                current = f"{current}_{part}" if current else part
-                dept_prefixes.append(current)
-        
-        dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
+        # Check if user is admin
+        is_admin = user.role and "miras:admin" in user.role
 
-        stmt = select(Report).options(
-            selectinload(Report.queries).selectinload(ReportQuery.filters),
-            joinedload(Report.owner)
-        ).where(
-            and_(
-                Report.id == report_id,
-                or_(
-                    Report.owner_id == db_user.id,
-                    Report.is_public == True,
-                    Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
-                    Report.allowed_departments.op('&&')(dept_prefixes_array)
+        if is_admin:
+            # Admin can access all reports
+            stmt = select(Report).options(
+                selectinload(Report.queries).selectinload(ReportQuery.filters),
+                joinedload(Report.owner)
+            ).where(Report.id == report_id)
+        else:
+            # Generate all parent departments for the user
+            user_dept = user.department or ""
+            dept_prefixes = []
+            if user_dept:
+                parts = user_dept.split('_')
+                current = ""
+                for part in parts:
+                    current = f"{current}_{part}" if current else part
+                    dept_prefixes.append(current)
+
+            dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
+
+            stmt = select(Report).options(
+                selectinload(Report.queries).selectinload(ReportQuery.filters),
+                joinedload(Report.owner)
+            ).where(
+                and_(
+                    Report.id == report_id,
+                    or_(
+                        Report.owner_id == db_user.id,
+                        Report.is_public == True,
+                        Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
+                        Report.allowed_departments.op('&&')(dept_prefixes_array)
+                    )
                 )
             )
-        )
         result = await self.db.execute(stmt)
         report = result.scalar_one_or_none()
 
@@ -212,12 +222,21 @@ class ReportsService:
         from sqlalchemy import cast, String
         from sqlalchemy.dialects.postgresql import ARRAY
 
+        # Check if user is admin
+        is_admin = user.role and "miras:admin" in user.role
+
         if my_reports_only:
             stmt = select(Report).options(
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
             ).where(
                 Report.owner_id == db_user.id
+            ).offset(skip).limit(limit)
+        elif is_admin:
+            # Admin sees all reports
+            stmt = select(Report).options(
+                selectinload(Report.queries).selectinload(ReportQuery.filters),
+                joinedload(Report.owner)
             ).offset(skip).limit(limit)
         else:
             # Generate all parent departments for the user
@@ -229,7 +248,7 @@ class ReportsService:
                 for part in parts:
                     current = f"{current}_{part}" if current else part
                     dept_prefixes.append(current)
-            
+
             dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
 
             stmt = select(Report).options(
@@ -267,15 +286,21 @@ class ReportsService:
         from sqlalchemy import or_, and_, cast, String, literal
         from sqlalchemy.dialects.postgresql import ARRAY
 
+        # Check if user is admin
+        is_admin = user.role and "miras:admin" in user.role
+
         if my_reports_only:
             base_condition = Report.owner_id == db_user.id
+        elif is_admin:
+            # Admin sees all reports - no condition needed
+            base_condition = literal(True)
         else:
             # Access logic:
             # 1. Owner
             # 2. Public
             # 3. In allowed_users
             # 4. In allowed_departments (checking all parent departments of user's department)
-            
+
             # Generate all parent departments for the user (e.g. "A_B_C" -> ["A_B_C", "A_B", "A"])
             user_dept = user.department or ""
             dept_prefixes = []
@@ -285,10 +310,10 @@ class ReportsService:
                 for part in parts:
                     current = f"{current}_{part}" if current else part
                     dept_prefixes.append(current)
-            
+
             # If no department, just check empty array overlap (which is false)
             dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
-            
+
             base_condition = or_(
                 Report.owner_id == db_user.id,
                 Report.is_public == True,

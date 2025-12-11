@@ -52,7 +52,8 @@ class DashboardService:
     async def get_dashboard_by_id(
         db: AsyncSession,
         dashboard_id: int,
-        username: str
+        username: str,
+        user_role: List[str] = []
     ) -> Optional[Dashboard]:
         """Get dashboard by ID"""
         from sqlalchemy.orm import joinedload
@@ -67,6 +68,23 @@ class DashboardService:
         user = await UserService.get_user_by_username(db, username)
         if not user:
             return None
+
+        # Check if user is admin
+        is_admin = user_role and "miras:admin" in user_role
+
+        # Check access: admin can access all dashboards
+        if not is_admin:
+            # Check if user has access to this dashboard
+            dashboard_user_query = select(DashboardUser).where(
+                DashboardUser.dashboard_id == dashboard_id,
+                DashboardUser.user_id == user.id
+            )
+            dashboard_user_result = await db.execute(dashboard_user_query)
+            dashboard_user = dashboard_user_result.scalar_one_or_none()
+
+            # If not public and user is not in the dashboard users, deny access
+            if not dashboard.is_public and not dashboard_user:
+                return None
 
         # Check if dashboard is favorited by the user
         is_favorite_query = select(DashboardUser).where(
@@ -89,7 +107,8 @@ class DashboardService:
         skip: int = 0,
         limit: int = 100,
         platform: Platform = None,
-        subplatform: str = None
+        subplatform: str = None,
+        user_role: List[str] = []
     ) -> List[Dashboard]:
         """Get all dashboards by username"""
         user = await UserService.get_user_by_username(db, username)
@@ -97,20 +116,27 @@ class DashboardService:
             return []
 
         # Get dashboards where user is in the users relationship OR dashboard is public
-        from sqlalchemy import or_, and_, cast, String
+        from sqlalchemy import or_, and_, cast, String, literal
         from sqlalchemy.orm import joinedload
         from sqlalchemy.dialects.postgresql import ARRAY
 
-        # Subquery for dashboards where user is explicitly added
-        user_dashboards_subquery = select(Dashboard.id).join(DashboardUser).where(
-            DashboardUser.user_id == user.id
-        )
+        # Check if user is admin
+        is_admin = user_role and "miras:admin" in user_role
 
-        # Build base conditions
-        base_conditions = or_(
-            Dashboard.id.in_(user_dashboards_subquery),
-            Dashboard.is_public == True
-        )
+        if is_admin:
+            # Admin sees all dashboards - no access restriction
+            base_conditions = literal(True)
+        else:
+            # Subquery for dashboards where user is explicitly added
+            user_dashboards_subquery = select(Dashboard.id).join(DashboardUser).where(
+                DashboardUser.user_id == user.id
+            )
+
+            # Build base conditions
+            base_conditions = or_(
+                Dashboard.id.in_(user_dashboards_subquery),
+                Dashboard.is_public == True
+            )
 
         # Build filter conditions
         filters = [base_conditions]
