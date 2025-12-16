@@ -387,7 +387,7 @@ async def create_secure_request() -> str:
             if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:
                 try:
                     auth_response = await client.post(
-                        f"{settings.POCKETBASE_URL}/api/collections/_superusers/auth-with-password",
+                        f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
                         json={
                             "identity": settings.POCKETBASE_ADMIN_EMAIL,
                             "password": settings.POCKETBASE_ADMIN_PASSWORD

@@ -1128,11 +1128,14 @@ class ReportsService:
         if not report:
             raise ValueError("Report not found or access denied")
 
-        # Check access permissions
-        has_access = (
-            report.owner_id == db_user.id or 
-            report.is_public == True
-        )
+        is_admin = user.role and "miras:admin" in user.role
+        if is_admin:
+            has_access = True
+        else:
+            has_access = (
+                report.owner_id == db_user.id or 
+                report.is_public == True
+            )
         
         if not has_access:
             # Check allowed users
