@@ -1,25 +1,26 @@
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 from .widget_factory import WidgetFactory
 
 
 class DataService:
     """Service for handling widget data using factory pattern"""
-    
+
     @staticmethod
     def get_widget_data(
         db_client,
         widget_type: str,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        filters: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Get widget data using widget factory"""
         return WidgetFactory.create_widget_data(
             db_client=db_client,
             widget_type=widget_type,
             filters=filters
         )
-    
+
     @staticmethod
-    def get_infrastructure_list(db_client) -> List[Dict[str, Any]]:
+    def get_infrastructure_list(db_client) -> list[dict[str, Any]]:
         """Get list of available infrastructure/equipment for dropdown filters"""
         try:
             query = """
@@ -29,9 +30,9 @@ class DataService:
             FROM REHIS_TestTanim_Test_TabloTestCihaz
             ORDER BY CihazID
             """
-            
+
             result = db_client.execute(query)
-            
+
             infrastructure_list = []
             for row in result:
                 infrastructure_list.append({
@@ -39,16 +40,16 @@ class DataService:
                     "name": str(row[1]) if row[1] else f"Cihaz {row[0]}",
                     "value": int(row[0])  # For compatibility with frontend
                 })
-            
+
             return infrastructure_list
-            
+
         except Exception as e:
             print(f"Error fetching infrastructure list: {e}")
             # Return error response instead of empty list
-            raise ValueError(f"Failed to fetch infrastructure list: {str(e)}")
-    
+            raise ValueError(f"Failed to fetch infrastructure list: {e!s}")
+
     @staticmethod
-    def get_product_list(db_client) -> List[Dict[str, Any]]:
+    def get_product_list(db_client) -> list[dict[str, Any]]:
         """Get list of all products for dropdown filters"""
         try:
             query = """
@@ -56,9 +57,9 @@ class DataService:
             FROM REHIS_TestTanim_Test_TabloUrun
             ORDER BY UrunID
             """
-            
+
             result = db_client.execute(query)
-            
+
             product_list = []
             for row in result:
                 product_list.append({
@@ -67,15 +68,15 @@ class DataService:
                     "value": int(row[0]),  # For compatibility with frontend
                     "description": str(row[2]) if len(row) > 2 and row[2] else "",  # Additional info if available
                 })
-            
+
             return product_list
-            
+
         except Exception as e:
             print(f"Error fetching product list: {e}")
-            raise ValueError(f"Failed to fetch product list: {str(e)}")
-    
+            raise ValueError(f"Failed to fetch product list: {e!s}")
+
     @staticmethod
-    def get_product_serial_numbers(db_client, product_id: int, firma: str = None) -> List[Dict[str, Any]]:
+    def get_product_serial_numbers(db_client, product_id: int, firma: str = None) -> list[dict[str, Any]]:
         """Get serial numbers for a specific product, optionally filtered by firma"""
         try:
             if firma:
@@ -115,10 +116,10 @@ class DataService:
 
         except Exception as e:
             print(f"Error fetching serial numbers for product {product_id}: {e}")
-            raise ValueError(f"Failed to fetch serial numbers for product {product_id}: {str(e)}")
-    
+            raise ValueError(f"Failed to fetch serial numbers for product {product_id}: {e!s}")
+
     @staticmethod
-    def get_product_test_names(db_client, product_id: int) -> List[Dict[str, Any]]:
+    def get_product_test_names(db_client, product_id: int) -> list[dict[str, Any]]:
         """Get list of test names (TestAdi) for a specific product"""
         try:
             query = f"""
@@ -133,9 +134,9 @@ class DataService:
             WHERE tu.UrunID = {product_id}
             ORDER BY t.TestAdi
             """
-            
+
             result = db_client.execute(query)
-            
+
             test_names = []
             for row in result:
                 if row[0]:  # Check if TestAdi is not null
@@ -144,15 +145,15 @@ class DataService:
                         "name": str(row[0]),  # TestAdi
                         "value": str(row[0]),  # For compatibility with frontend
                     })
-            
+
             return test_names
-            
+
         except Exception as e:
             print(f"Error fetching test names for product {product_id}: {e}")
-            raise ValueError(f"Failed to fetch test names for product {product_id}: {str(e)}")
+            raise ValueError(f"Failed to fetch test names for product {product_id}: {e!s}")
 
     @staticmethod
-    def get_distinct_companies(db_client, product_id: int) -> List[Dict[str, Any]]:
+    def get_distinct_companies(db_client, product_id: int) -> list[dict[str, Any]]:
         """Get list of distinct companies for dropdown filters"""
         try:
             query = f"""
@@ -164,9 +165,9 @@ class DataService:
             WHERE u.UrunID = {product_id}
             ORDER BY upperUTF8(p.Firma)
             """
-            
+
             result = db_client.execute(query)
-            
+
             companies = []
             for row in result:
                 companies.append({
@@ -177,10 +178,10 @@ class DataService:
             return companies
         except Exception as e:
             print(f"Error fetching distinct companies: {e}")
-            raise ValueError(f"Failed to fetch distinct companies: {str(e)}")
+            raise ValueError(f"Failed to fetch distinct companies: {e!s}")
 
     @staticmethod
-    def get_test_statuses(db_client, product_id: int, test_name: str) -> List[Dict[str, Any]]:
+    def get_test_statuses(db_client, product_id: int, test_name: str) -> list[dict[str, Any]]:
         """Get list of test statuses for dropdown filters"""
         try:
             query = f"""
@@ -200,9 +201,9 @@ class DataService:
             WHERE tu.UrunID = {product_id}
             AND t.TestAdi = '{test_name}'
             """
-            
+
             result = db_client.execute(query)
-            
+
             test_statuses = []
             for row in result:
                 test_statuses.append({
@@ -213,10 +214,10 @@ class DataService:
             return test_statuses
         except Exception as e:
             print(f"Error fetching test statuses: {e}")
-            raise ValueError(f"Failed to fetch test statuses: {str(e)}")
+            raise ValueError(f"Failed to fetch test statuses: {e!s}")
 
     @staticmethod
-    def get_measurement_locations(db_client, product_id: int, test_name: str, test_status: str) -> List[Dict[str, Any]]:
+    def get_measurement_locations(db_client, product_id: int, test_name: str, test_status: str) -> list[dict[str, Any]]:
         """Get list of measurement locations for dropdown filters"""
         try:
             query = f"""
@@ -237,9 +238,9 @@ class DataService:
             AND t.TestAdi = '{test_name}'
             AND p.TestDurum = '{test_status}'
             """
-            
+
             result = db_client.execute(query)
-            
+
             measurement_locations = []
             for row in result:
                 measurement_locations.append({
@@ -250,4 +251,4 @@ class DataService:
             return measurement_locations
         except Exception as e:
             print(f"Error fetching measurement locations: {e}")
-            raise ValueError(f"Failed to fetch measurement locations: {str(e)}")
+            raise ValueError(f"Failed to fetch measurement locations: {e!s}")

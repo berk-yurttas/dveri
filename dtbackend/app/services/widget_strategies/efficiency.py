@@ -1,17 +1,18 @@
-from typing import Dict, Any, Optional
+from typing import Any
+
 from .base import WidgetStrategy
 
 
 class EfficiencyWidgetStrategy(WidgetStrategy):
     """Strategy for efficiency widget"""
-    
-    def get_query(self, filters: Optional[Dict[str, Any]] = None) -> str:
+
+    def get_query(self, filters: dict[str, Any] | None = None) -> str:
         """Get efficiency widget query using real ClickHouse schema"""
-        
+
         # Filters are mandatory for efficiency widget
         if not filters:
             raise ValueError("Filters are mandatory for efficiency widget")
-        
+
         # Required filter validation
         if not filters.get('infrastructure_id'):
             raise ValueError("infrastructure_id filter is mandatory for efficiency widget")
@@ -19,12 +20,12 @@ class EfficiencyWidgetStrategy(WidgetStrategy):
             raise ValueError("date_from filter is mandatory for efficiency widget")
         if not filters.get('date_to'):
             raise ValueError("date_to filter is mandatory for efficiency widget")
-        
+
         # Extract required filters
         cihaz_id = str(filters['infrastructure_id'])
         date_from = filters['date_from']
         date_to = filters['date_to']
-        
+
         query = f"""
         WITH efficiency_stats AS (
             SELECT
@@ -100,15 +101,15 @@ class EfficiencyWidgetStrategy(WidgetStrategy):
         LEFT JOIN failed_products fp ON es.infrastructure_id = fp.infrastructure_id
         ORDER BY fp.FailedOrani DESC
         """
-        
+
         return query
-    
-    def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+
+    def process_result(self, result: Any, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Process efficiency widget result from real ClickHouse queries"""
         # Filters are mandatory for efficiency widget
         if not filters:
             raise ValueError("Filters are mandatory for efficiency widget")
-            
+
         if not result:
             # Return empty state structure instead of raising error
             return {
@@ -119,7 +120,7 @@ class EfficiencyWidgetStrategy(WidgetStrategy):
                 "pass_percentage": 0.0,
                 "top_failed_products": []
             }
-        
+
         # Group results by infrastructure
         infra_data = {}
         for row in result:
@@ -136,31 +137,31 @@ class EfficiencyWidgetStrategy(WidgetStrategy):
                     "pass_percentage": float(row[4]) if row[4] is not None else 0,  # PassedOrani
                     "top_failed_products": []
                 }
-            
+
             # Add failed product if exists
             if len(row) > 5 and row[5]:  # product_name (UrunID)
                 product_name = str(row[5])
                 fail_count = int(row[6]) if row[6] is not None else 0
                 fail_percentage = float(row[7]) if row[7] is not None else 0
-                
+
                 # Check if this product is already added to avoid duplicates
-                existing_product = next((p for p in infra_data[infra_id]["top_failed_products"] 
+                existing_product = next((p for p in infra_data[infra_id]["top_failed_products"]
                                        if p["name"] == product_name), None)
-                
+
                 if not existing_product:
                     infra_data[infra_id]["top_failed_products"].append({
                         "name": product_name,
                         "fail_count": fail_count,
                         "fail_percentage": fail_percentage
                     })
-        
+
         # Return first infrastructure data (or filtered one)
         target_infra = str(filters.get('infrastructure_id')) if filters and filters.get('infrastructure_id') else None
         if target_infra and target_infra in infra_data:
             return infra_data[target_infra]
         elif infra_data:
             return list(infra_data.values())[0]
-        
+
         # Return empty state if no matching data found
         return {
             "infrastructure_id": str(filters.get('infrastructure_id', '')),

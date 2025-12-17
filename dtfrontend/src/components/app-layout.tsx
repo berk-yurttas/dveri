@@ -156,23 +156,33 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     }
 
     // For platform-specific pages, show the standard navigation
-    return [
+    // Hide "Ekranlarım" and "Raporlar" on atolye page
+    const isAtolyePage = pathname.includes('/atolye');
+    
+    const baseItems = [
       {
         title: "Anasayfa",
         icon: Home,
         href: platformCode ? `/${platformCode}` : "/",
-      },
-      {
-        title: "Ekranlarım",
-        icon: Layout,
-        href: platformCode ? `${platformPrefix}/dashboard${subplatformQuery}` : "/dashboard",
-      },
-      {
-        title: "Raporlar",
-        icon: BarChart3,
-        href: platformCode ? `${platformPrefix}/reports${subplatformQuery}` : "/reports",
       }
     ];
+
+    if (!isAtolyePage) {
+      baseItems.push(
+        {
+          title: "Ekranlarım",
+          icon: Layout,
+          href: platformCode ? `${platformPrefix}/dashboard${subplatformQuery}` : "/dashboard",
+        },
+        {
+          title: "Raporlar",
+          icon: BarChart3,
+          href: platformCode ? `${platformPrefix}/reports${subplatformQuery}` : "/reports",
+        }
+      );
+    }
+
+    return baseItems;
   }, [platform?.code, pathname, platforms]); // Update when platform, pathname, or platforms change
 
   const handleNavigationClick = useCallback(async (item: any) => {

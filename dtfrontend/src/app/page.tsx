@@ -151,6 +151,7 @@ export default function Home() {
   const [showNavigationModal, setShowNavigationModal] = useState(false);
   const [navigatingPlatform, setNavigatingPlatform] = useState<{ name: string; logo: string; code: string } | null>(null);
   const [showAllAnnouncementsModal, setShowAllAnnouncementsModal] = useState(false);
+  const [showUnauthorizedModal, setShowUnauthorizedModal] = useState(false);
   const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
 
   const handleDerinizHover = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -271,6 +272,14 @@ export default function Home() {
     fetchData();
   }, []);
 
+  // Check if user has atolye role (any variant: yonetici, operator, or musteri)
+  const hasAtolyeRole = user?.role && Array.isArray(user.role) &&
+    user.role.some((role) => 
+      typeof role === "string" && 
+      role.startsWith("atolye:") && 
+      (role.endsWith(":yonetici") || role.endsWith(":operator") || role.endsWith(":musteri"))
+    );
+
 
   const handlePlatformSelect = (platform: PlatformType) => {
     const { code: platformCode, display_name: displayName, logo_url: logoUrl, theme_config } = platform;
@@ -279,6 +288,13 @@ export default function Home() {
     // Check access permissions
     if (!checkAccess(platform, user)) {
       setShowAccessDeniedModal(true);
+      return;
+    }
+
+    // Check if user has atolye role and is trying to access a platform other than romiot
+    if (hasAtolyeRole && platformCode !== 'romiot') {
+      setShowUnauthorizedModal(true);
+      setError(null); // Clear any existing error
       return;
     }
 
@@ -731,6 +747,41 @@ export default function Home() {
               <div className="w-full mt-6 bg-gray-200 rounded-full h-2 overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-blue-600 to-purple-600 rounded-full animate-progress"></div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unauthorized Platform Access Modal */}
+      {showUnauthorizedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-500 to-orange-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <Shield className="h-6 w-6 text-white" />
+                <h3 className="text-xl font-bold text-white">Yetkisiz Erişim</h3>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6">
+              <p className="text-gray-700 text-lg">
+                Bu platform için yetkiniz bulunmamaktadır.
+              </p>
+              <p className="text-gray-600 mt-2">
+                Atölye takip sistemi kullanıcıları yalnızca "rom - IOT" platformuna erişebilir.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-end">
+              <button
+                onClick={() => setShowUnauthorizedModal(false)}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+              >
+                Tamam
+              </button>
             </div>
           </div>
         </div>

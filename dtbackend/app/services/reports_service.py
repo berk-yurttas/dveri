@@ -1,30 +1,40 @@
-from typing import List, Optional, Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import and_, or_, select, delete
-from sqlalchemy.orm import selectinload, joinedload
-from clickhouse_driver import Client
-import time
 import re
-import json
+import time
 from threading import Lock
-from functools import lru_cache
+from typing import Any
 
-from app.models.postgres_models import Report, ReportQuery, ReportQueryFilter, User, Platform, ReportUser
+from clickhouse_driver import Client
+from sqlalchemy import and_, delete, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
+
+from app.core.platform_db import DatabaseConnectionFactory
+from app.models.postgres_models import (
+    Platform,
+    Report,
+    ReportQuery,
+    ReportQueryFilter,
+    ReportUser,
+    User,
+)
 from app.schemas.reports import (
-    ReportCreate, ReportUpdate, ReportFullUpdate, QueryConfigCreate, QueryConfigUpdate,
-    FilterConfigCreate, FilterConfigUpdate, ReportExecutionRequest,
-    QueryExecutionResult, ReportExecutionResponse, FilterValue
+    FilterValue,
+    QueryExecutionResult,
+    ReportCreate,
+    ReportExecutionRequest,
+    ReportExecutionResponse,
+    ReportFullUpdate,
+    ReportUpdate,
 )
 from app.schemas.user import User as UserSchema
 from app.services.user_service import UserService
-from app.core.platform_db import DatabaseConnectionFactory
 
 
 class ConnectionPool:
     """Singleton connection pool for database connections"""
     _instance = None
     _lock = Lock()
-    _pools: Dict[str, Any] = {}
+    _pools: dict[str, Any] = {}
 
     def __new__(cls):
         if cls._instance is None:
@@ -78,12 +88,12 @@ class ConnectionPool:
 class ReportsService:
     _connection_pool = ConnectionPool()
 
-    def __init__(self, db: AsyncSession, clickhouse_client: Optional[Client] = None):
+    def __init__(self, db: AsyncSession, clickhouse_client: Client | None = None):
         self.db = db
         self.clickhouse_client = clickhouse_client
 
     # Report CRUD Operations
-    async def create_report(self, report_data: ReportCreate, user: UserSchema, platform: Optional[Platform] = None) -> Report:
+    async def create_report(self, report_data: ReportCreate, user: UserSchema, platform: Platform | None = None) -> Report:
         """Create a new report with queries and filters"""
         db_user = await UserService.get_user_by_username(self.db, user.username)
         if not db_user:
@@ -150,7 +160,7 @@ class ReportsService:
                 self.db.add(db_filter)
 
         await self.db.commit()
-        
+
         # Refresh and eagerly load relationships
         stmt = select(Report).options(
             selectinload(Report.queries).selectinload(ReportQuery.filters)
@@ -158,7 +168,7 @@ class ReportsService:
         result = await self.db.execute(stmt)
         return result.scalar_one()
 
-    async def get_report(self, report_id: int, user: UserSchema) -> Optional[Report]:
+    async def get_report(self, report_id: int, user: UserSchema) -> Report | None:
         db_user = await UserService.get_user_by_username(self.db, user.username)
         if not db_user:
             raise ValueError("User not found")
@@ -212,7 +222,7 @@ class ReportsService:
 
         return report
 
-    async def get_reports(self, user: UserSchema, skip: int = 0, limit: int = 100, my_reports_only: bool = False) -> List[Report]:
+    async def get_reports(self, user: UserSchema, skip: int = 0, limit: int = 100, my_reports_only: bool = False) -> list[Report]:
         db_user = await UserService.get_user_by_username(self.db, user.username)
         if not db_user:
             raise ValueError("User not found")
@@ -272,14 +282,13 @@ class ReportsService:
 
         return reports
 
-    async def get_reports_list(self, user: UserSchema, skip: int = 0, limit: int = 100, my_reports_only: bool = False, platform: Optional[Platform] = None, subplatform: Optional[str] = None) -> List[Report]:
+    async def get_reports_list(self, user: UserSchema, skip: int = 0, limit: int = 100, my_reports_only: bool = False, platform: Platform | None = None, subplatform: str | None = None) -> list[Report]:
         """Get reports list for a user (without nested queries and filters for performance)"""
         db_user = await UserService.get_user_by_username(self.db, user.username)
         if not db_user:
             raise ValueError("User not found")
 
-        from sqlalchemy.orm import joinedload
-        from sqlalchemy import func, and_, cast, String
+        from sqlalchemy import String, and_, cast, func
         from sqlalchemy.dialects.postgresql import ARRAY
 
         # Build base conditions
@@ -394,7 +403,7 @@ class ReportsService:
 
         return reports
 
-    async def update_report(self, report_id: int, report_data: ReportUpdate, user: UserSchema, is_admin: bool = False) -> Optional[Report]:
+    async def update_report(self, report_id: int, report_data: ReportUpdate, user: UserSchema, is_admin: bool = False) -> Report | None:
         db_user = await UserService.get_user_by_username(self.db, user.username)
         if not db_user:
             raise ValueError("User not found")
@@ -407,7 +416,7 @@ class ReportsService:
         stmt = select(Report).where(and_(*filters))
         result = await self.db.execute(stmt)
         db_report = result.scalar_one_or_none()
-        
+
         if not db_report:
             return None
 
@@ -430,7 +439,7 @@ class ReportsService:
             db_report.allowed_users = report_data.allowed_users
 
         await self.db.commit()
-        
+
         # Refresh and eagerly load relationships
         stmt = select(Report).options(
             selectinload(Report.queries).selectinload(ReportQuery.filters)
@@ -438,7 +447,7 @@ class ReportsService:
         result = await self.db.execute(stmt)
         return result.scalar_one()
 
-    async def update_report_full(self, report_id: int, report_data: ReportFullUpdate, user: UserSchema, is_admin: bool = False) -> Optional[Report]:
+    async def update_report_full(self, report_id: int, report_data: ReportFullUpdate, user: UserSchema, is_admin: bool = False) -> Report | None:
         db_user = await UserService.get_user_by_username(self.db, user.username)
         if not db_user:
             raise ValueError("User not found")
@@ -453,7 +462,7 @@ class ReportsService:
         ).where(and_(*filters))
         result = await self.db.execute(stmt)
         db_report = result.scalar_one_or_none()
-        
+
         if not db_report:
             return None
 
@@ -565,7 +574,7 @@ class ReportsService:
                 db_report.layout_config = updated_layout
 
         await self.db.commit()
-        
+
         # Refresh and eagerly load relationships
         stmt = select(Report).options(
             selectinload(Report.queries).selectinload(ReportQuery.filters)
@@ -669,9 +678,9 @@ class ReportsService:
 
         return sanitized_query
 
-    def apply_filters_to_query(self, sql: str, filters: List[ReportQueryFilter], filter_values: List[FilterValue], db_type: str = "clickhouse") -> str:
+    def apply_filters_to_query(self, sql: str, filters: list[ReportQueryFilter], filter_values: list[FilterValue], db_type: str = "clickhouse") -> str:
         """Apply filter values to a SQL query by replacing {{dynamic_filters}} placeholder
-        
+
         Args:
             sql: SQL query string
             filters: List of filter configurations
@@ -684,34 +693,34 @@ class ReportsService:
             if "{{dynamic_filters}}" in sql:
                 sql = sql.replace("{{dynamic_filters}}", "")
             return sql
-        
+
         # Create a mapping of field names to values
         filter_map = {fv.field_name: fv for fv in filter_values}
-        
+
         # Build WHERE conditions
         conditions = []
-        
+
         for db_filter in filters:
             if db_filter.field_name not in filter_map:
                 if db_filter.required:
                     raise ValueError(f"Required filter '{db_filter.display_name}' is missing")
                 continue
-                
+
             filter_value = filter_map[db_filter.field_name]
 
             if filter_value.value is None or filter_value.value == "":
                 continue
-                
+
             # Use sql_expression if provided, otherwise use field_name
             field_expression = db_filter.sql_expression if db_filter.sql_expression else db_filter.field_name
-            
+
             # Auto-quote field names that need quoting for PostgreSQL (unless already quoted or using sql_expression)
             if not db_filter.sql_expression:
                 if not (field_expression.startswith('"') and field_expression.endswith('"')):
                     # Check if field needs quoting (contains uppercase, spaces, or special chars)
                     if not field_expression.islower() or ' ' in field_expression or not field_expression.replace('_', '').isalnum():
                         field_expression = f'"{field_expression}"'
-            
+
             value = filter_value.value
             operator = filter_value.operator or "="
 
@@ -753,7 +762,7 @@ class ReportsService:
                     date_func = "DATE"
                 else:
                     date_func = "DATE"  # Default to standard SQL
-                
+
                 if operator == "BETWEEN" and isinstance(value, list) and len(value) == 2:
                     # For timestamp fields, we need to compare dates properly
                     condition = f"{date_func}({field_expression}) BETWEEN {date_func}('{value[0]}') AND {date_func}('{value[1]}')"
@@ -782,14 +791,12 @@ class ReportsService:
             else:
                 # Remove the placeholder if no filters are applied
                 sql = sql.replace("{{dynamic_filters}}", "")
-        else:
-            # Fallback: Add conditions to existing WHERE clause if no placeholder found
-            if conditions:
-                where_clause = " AND ".join(conditions)
-                if "WHERE" in sql.upper():
-                    sql = sql + f" AND ({where_clause})"
-                else:
-                    sql = sql + f" WHERE {where_clause}"
+        elif conditions:
+            where_clause = " AND ".join(conditions)
+            if "WHERE" in sql.upper():
+                sql = sql + f" AND ({where_clause})"
+            else:
+                sql = sql + f" WHERE {where_clause}"
 
         return sql
 
@@ -835,7 +842,7 @@ class ReportsService:
 
         return new_sql
 
-    def execute_query(self, query: ReportQuery, filter_values: List[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Optional[Platform] = None, global_filters: List[Dict[str, Any]] = None) -> QueryExecutionResult:
+    def execute_query(self, query: ReportQuery, filter_values: list[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Platform | None = None, global_filters: list[dict[str, Any]] = None) -> QueryExecutionResult:
         """Execute a single query with optional filters
 
         Args:
@@ -908,7 +915,7 @@ class ReportsService:
                         total_rows=0,
                         execution_time_ms=0,
                         success=False,
-                        message=f"Sorting error: {str(e)}"
+                        message=f"Sorting error: {e!s}"
                     )
             print(f"[PERF] Apply sorting: {(time.time() - t1) * 1000:.2f}ms")
 
@@ -925,7 +932,7 @@ class ReportsService:
                 # Use ClickHouse client (existing logic)
                 if not self.clickhouse_client:
                     raise ValueError("ClickHouse client not available")
-                
+
                 # Handle pagination if both page_size and page_limit are provided
                 if page_size is not None and page_limit is not None:
                     # First, get the total count for pagination info
@@ -1005,7 +1012,7 @@ class ReportsService:
                     cursor.close()
                     # Return connection to pool instead of closing
                     self._connection_pool.return_connection(platform, db_type, conn)
-                    
+
             elif db_type == "mssql":
                 # Use MSSQL connection
                 if not platform:
@@ -1030,14 +1037,14 @@ class ReportsService:
                         if visualization_type == 'table' and 'TOP' not in sanitized_sql.upper() and 'LIMIT' not in sanitized_sql.upper():
                             # MSSQL uses TOP instead of LIMIT
                             sanitized_sql = sanitized_sql.replace("SELECT", f"SELECT TOP {limit}", 1)
-                        
+
                         # Execute the query
                         cursor.execute(sanitized_sql)
-                    
+
                     # Get columns and data
                     columns = [column[0] for column in cursor.description] if cursor.description else []
                     data = cursor.fetchall()
-                    
+
                 finally:
                     cursor.close()
                     conn.close()
@@ -1088,12 +1095,12 @@ class ReportsService:
                 message=f"Query executed successfully. Retrieved {len(formatted_data)} rows{f' of {actual_total_rows} total' if actual_total_rows > len(formatted_data) else ''}.",
                 has_more=has_more
             )
-            
+
         except Exception as e:
             error_msg = str(e)
             if "Code:" in error_msg:
                 error_msg = error_msg.split("Code:")[1].strip()
-            
+
             return QueryExecutionResult(
                 query_id=query.id,
                 query_name=query.name,
@@ -1124,7 +1131,7 @@ class ReportsService:
         result = await self.db.execute(stmt)
         print(f"[PERF] Fetch report with joinedload: {(time.time() - t2) * 1000:.2f}ms")
         report = result.unique().scalar_one_or_none()
-        
+
         if not report:
             raise ValueError("Report not found or access denied")
 
@@ -1155,10 +1162,10 @@ class ReportsService:
 
         if not has_access:
             raise ValueError("Report access denied")
-        
+
         # Get platform for database connection
         platform = report.platform
-        
+
         # Verify we have a way to execute queries (either platform or clickhouse_client)
         if not platform and not self.clickhouse_client:
             raise ValueError("No database connection available for this report")
@@ -1204,7 +1211,7 @@ class ReportsService:
 
             total_execution_time = (time.time() - start_time) * 1000
             print(f"[PERF] Total execute_report time: {(time.time() - t0) * 1000:.2f}ms\n")
-            
+
             return ReportExecutionResponse(
                 report_id=report.id,
                 report_name=report.name,
@@ -1213,10 +1220,10 @@ class ReportsService:
                 success=all(r.success for r in results),
                 message="Report executed successfully" if all(r.success for r in results) else "Some queries failed"
             )
-            
+
         except Exception as e:
             total_execution_time = (time.time() - start_time) * 1000
-            
+
             return ReportExecutionResponse(
                 report_id=request.report_id,
                 report_name=report.name if report else "Unknown",
@@ -1226,7 +1233,7 @@ class ReportsService:
                 message=str(e)
             )
 
-    async def get_filter_options(self, report_id: int, query_id: int, filter_field: str, user: UserSchema, page: int = 1, page_size: int = 50, search: str = "") -> Dict[str, Any]:
+    async def get_filter_options(self, report_id: int, query_id: int, filter_field: str, user: UserSchema, page: int = 1, page_size: int = 50, search: str = "") -> dict[str, Any]:
         db_user = await UserService.get_user_by_username(self.db, user.username)
         if not db_user:
             raise ValueError("User not found")
@@ -1378,6 +1385,6 @@ class ReportsService:
                 "page_size": page_size,
                 "has_more": has_more
             }
-            
+
         except Exception as e:
-            raise ValueError(f"Failed to get filter options: {str(e)}")
+            raise ValueError(f"Failed to get filter options: {e!s}")

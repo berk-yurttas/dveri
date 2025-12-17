@@ -4,39 +4,41 @@ Platform API Endpoints
 CRUD operations for managing platforms in the multi-tenant system.
 """
 
-from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import check_authenticated
 from app.core.database import get_postgres_db
-from app.models.postgres_models import Platform, User
+from app.models.postgres_models import User
 from app.schemas.platform import (
     Platform as PlatformSchema,
-    PlatformList,
+)
+from app.schemas.platform import (
+    PlatformConnectionTest,
     PlatformCreate,
-    PlatformUpdate,
+    PlatformList,
     PlatformStats,
+    PlatformUpdate,
     PlatformWithStats,
-    PlatformConnectionTest
 )
 from app.services.platform_service import PlatformService
-from app.core.auth import check_authenticated
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[PlatformList])
+@router.get("/", response_model=list[PlatformList])
 async def get_platforms(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return"),
     include_inactive: bool = Query(False, description="Include inactive platforms"),
-    search: Optional[str] = Query(None, description="Search platforms by code or name"),
+    search: str | None = Query(None, description="Search platforms by code or name"),
     db: AsyncSession = Depends(get_postgres_db),
     current_user: User = Depends(check_authenticated)
 ):
     """
     Get list of platforms
-    
+
     - **skip**: Number of records to skip (pagination)
     - **limit**: Maximum number of records to return
     - **include_inactive**: Whether to include inactive platforms
@@ -73,7 +75,7 @@ async def get_platform_count(
     else:
         # Count only active platforms
         count = await PlatformService.get_active_platform_count(db)
-    
+
     return {"total": count, "active_only": not include_inactive}
 
 
@@ -85,7 +87,7 @@ async def get_platform(
 ):
     """
     Get platform by ID
-    
+
     - **platform_id**: Platform ID
     """
     platform = await PlatformService.get_platform_by_id(db, platform_id)
@@ -102,7 +104,7 @@ async def get_platform_by_code(
 ):
     """
     Get platform by code
-    
+
     - **platform_code**: Platform code (e.g., 'deriniz', 'app2')
     """
     platform = await PlatformService.get_platform_by_code(db, platform_code)
@@ -122,7 +124,7 @@ async def get_platform_statistics(
 ):
     """
     Get platform statistics (dashboard count, report count, user count)
-    
+
     - **platform_id**: Platform ID
     """
     stats = await PlatformService.get_platform_stats(db, platform_id)
@@ -139,15 +141,15 @@ async def get_platform_with_stats(
 ):
     """
     Get platform with statistics
-    
+
     - **platform_id**: Platform ID
     """
     platform = await PlatformService.get_platform_by_id(db, platform_id)
     if not platform:
         raise HTTPException(status_code=404, detail="Platform not found")
-    
+
     stats = await PlatformService.get_platform_stats(db, platform_id)
-    
+
     # Combine platform data with stats
     platform_dict = {
         "id": platform.id,
@@ -166,7 +168,7 @@ async def get_platform_with_stats(
         "report_count": stats.report_count if stats else 0,
         "user_count": stats.user_count if stats else 0
     }
-    
+
     return platform_dict
 
 
@@ -178,13 +180,13 @@ async def create_platform(
 ):
     """
     Create a new platform
-    
+
     Required fields:
     - **code**: Unique platform code (alphanumeric, lowercase)
     - **name**: Platform name
     - **display_name**: Display name for UI
     - **db_type**: Database type (clickhouse, mssql, postgresql)
-    
+
     Optional fields:
     - **description**: Platform description
     - **db_config**: Database connection configuration
@@ -205,9 +207,9 @@ async def update_platform(
 ):
     """
     Update platform
-    
+
     - **platform_id**: Platform ID
-    
+
     All fields are optional. Only provided fields will be updated.
     """
     platform = await PlatformService.update_platform(db, platform_id, platform_data)
@@ -224,7 +226,7 @@ async def activate_platform(
 ):
     """
     Activate platform (set is_active = True)
-    
+
     - **platform_id**: Platform ID
     """
     platform_data = PlatformUpdate(is_active=True)
@@ -242,7 +244,7 @@ async def deactivate_platform(
 ):
     """
     Deactivate platform (set is_active = False)
-    
+
     - **platform_id**: Platform ID
     """
     platform_data = PlatformUpdate(is_active=False)
@@ -264,11 +266,11 @@ async def delete_platform(
 ):
     """
     Delete platform
-    
+
     - **platform_id**: Platform ID
     - **hard_delete**: If True, permanently delete from database. 
                       If False (default), soft delete by setting is_active=False
-    
+
     Note: Hard delete will fail if platform has associated dashboards or reports.
           Use soft delete for platforms with existing data.
     """
@@ -277,10 +279,10 @@ async def delete_platform(
         platform_id,
         soft_delete=not hard_delete
     )
-    
+
     if not success:
         raise HTTPException(status_code=404, detail="Platform not found")
-    
+
     delete_type = "permanently deleted" if hard_delete else "deactivated"
     return {
         "success": True,
@@ -298,9 +300,9 @@ async def test_platform_connection(
 ):
     """
     Test platform database connection
-    
+
     - **platform_id**: Platform ID
-    
+
     Tests connectivity to the configured database and returns connection status.
     """
     result = await PlatformService.test_platform_connection(db, platform_id)

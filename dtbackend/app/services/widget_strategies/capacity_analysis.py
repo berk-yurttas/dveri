@@ -1,11 +1,12 @@
-from typing import Dict, Any, Optional
+from typing import Any
+
 from .base import WidgetStrategy
 
 
 class CapacityAnalysisWidgetStrategy(WidgetStrategy):
     """Strategy for capacity analysis widget - analyze capacity by firma and eksensayisi"""
 
-    def get_query(self, filters: Optional[Dict[str, Any]] = None) -> str:
+    def get_query(self, filters: dict[str, Any] | None = None) -> str:
         """
         Get capacity analysis query with filters
 
@@ -78,7 +79,7 @@ class CapacityAnalysisWidgetStrategy(WidgetStrategy):
 
         return query
 
-    def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def process_result(self, result: Any, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Process capacity analysis widget result"""
 
         if not filters:

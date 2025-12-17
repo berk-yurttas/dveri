@@ -1,16 +1,18 @@
-from typing import Dict, Any, Optional, List, Union
+from typing import Any
+
 from .base import WidgetStrategy
+
 
 class SerialNoComparisonWidgetStrategy(WidgetStrategy):
     """Strategy for serial number comparison widget - compare serial numbers across different fields"""
-    
-    def get_query(self, filters: Optional[Dict[str, Any]] = None) -> str:
+
+    def get_query(self, filters: dict[str, Any] | None = None) -> str:
         """Get serial number comparison widget query with SerialNo, Field1, Field2, Field3, Field4, Field5 filters"""
-        
+
         # Filters are mandatory for serial number comparison widget
         if not filters:
             raise ValueError("Filters are mandatory for serial number comparison widget")
-        
+
         # Required filter validation
         if not filters.get('urun_id'):
             raise ValueError("urun_id filter is mandatory for serial number comparison widget")
@@ -26,7 +28,7 @@ class SerialNoComparisonWidgetStrategy(WidgetStrategy):
             raise ValueError("date_from filter is mandatory for serial number comparison widget")
         if not filters.get('date_to'):
             raise ValueError("date_to filter is mandatory for serial number comparison widget")
-        
+
         # Extract and validate seri_no as array
         seri_no_input = filters['seri_no']
         if isinstance(seri_no_input, str):
@@ -37,10 +39,10 @@ class SerialNoComparisonWidgetStrategy(WidgetStrategy):
             seri_no_list = [str(sn) for sn in seri_no_input if sn]  # Filter out empty values
         else:
             raise ValueError("seri_no must be a string or array of strings")
-        
+
         if not seri_no_list:
             raise ValueError("seri_no array cannot be empty")
-        
+
         # Extract other required filters
         urun_id = int(filters['urun_id'])
         test_adi = str(filters['test_adi'])
@@ -48,11 +50,11 @@ class SerialNoComparisonWidgetStrategy(WidgetStrategy):
         olcum_yeri = str(filters['olcum_yeri'])
         date_from = str(filters['date_from'])
         date_to = str(filters['date_to'])
-        
+
         # Create IN clause for serial numbers
         seri_no_in_clause = "', '".join(seri_no_list)
         seri_no_in_clause = f"'{seri_no_in_clause}'"
-        
+
         # Build the query for serial number comparison
         query = f"""
         SELECT 
@@ -88,15 +90,15 @@ class SerialNoComparisonWidgetStrategy(WidgetStrategy):
             TE.SeriNo ASC,
             T.TestBaslangicTarihi ASC
         """
-        
+
         return query
-    
-    def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+
+    def process_result(self, result: Any, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Process serial number comparison widget result for line chart display"""
-        
+
         if not filters:
             raise ValueError("Filters are mandatory for serial number comparison widget")
-        
+
         if not result:
             return {
                 "urun_id": int(filters.get('urun_id', 0)),
@@ -121,17 +123,17 @@ class SerialNoComparisonWidgetStrategy(WidgetStrategy):
                     }
                 }
             }
-        
+
         # Process serial number comparison results
         stok_no = ""
         measurement_count = 0
         alt_limit = None
         ust_limit = None
-        
+
         # Group results by serial number
         serial_groups = {}
         all_timestamps = set()
-        
+
         for row in result:
             stok_no = str(row[0]) if row[0] else ""
             seri_no = str(row[1])
@@ -141,14 +143,14 @@ class SerialNoComparisonWidgetStrategy(WidgetStrategy):
             ust_limit = float(row[5]) if row[5] is not None else ust_limit
             olculen_deger = float(row[6]) if row[6] is not None else None
             test_baslangic = str(row[7]) if row[7] else ""
-            
+
             # Add timestamp to global set for x-axis categories
             if test_baslangic:
                 all_timestamps.add(test_baslangic)
-            
+
             if seri_no not in serial_groups:
                 serial_groups[seri_no] = []
-            
+
             serial_groups[seri_no].append({
                 "timestamp": test_baslangic,
                 "value": olculen_deger,
@@ -156,20 +158,20 @@ class SerialNoComparisonWidgetStrategy(WidgetStrategy):
                 "test_durum": test_durum
             })
             measurement_count += 1
-        
+
         # Sort timestamps for consistent x-axis
         sorted_timestamps = sorted(list(all_timestamps))
-        
+
         # Create series data for line chart
         series_data = []
         for seri_no, measurements in serial_groups.items():
             # Sort measurements by timestamp
             measurements.sort(key=lambda x: x["timestamp"])
-            
+
             # Extract values for this series
             values = [m["value"] for m in measurements]
             timestamps = [m["timestamp"] for m in measurements]
-            
+
             series_data.append({
                 "name": seri_no,
                 "data": values,
@@ -181,10 +183,10 @@ class SerialNoComparisonWidgetStrategy(WidgetStrategy):
                     "max": max(v for v in values if v is not None) if any(v is not None for v in values) else None
                 }
             })
-        
+
         # Sort series by serial number for consistent ordering
         series_data.sort(key=lambda x: x["name"])
-        
+
         return {
             "urun_id": int(filters['urun_id']),
             "test_adi": str(filters['test_adi']),

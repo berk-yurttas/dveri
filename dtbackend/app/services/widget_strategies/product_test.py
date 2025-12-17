@@ -1,17 +1,18 @@
-from typing import Dict, Any, Optional
+from typing import Any
+
 from .base import WidgetStrategy
 
 
 class ProductTestWidgetStrategy(WidgetStrategy):
     """Strategy for product test analysis widget"""
-    
-    def get_query(self, filters: Optional[Dict[str, Any]] = None) -> str:
+
+    def get_query(self, filters: dict[str, Any] | None = None) -> str:
         """Get product test widget query with UrunID, SeriNo, and TestBaslangicTarihi filters"""
-        
+
         # Filters are mandatory for product test widget
         if not filters:
             raise ValueError("Filters are mandatory for product test widget")
-        
+
         # Required filter validation
         if not filters.get('urun_id'):
             raise ValueError("urun_id filter is mandatory for product test widget")
@@ -21,11 +22,11 @@ class ProductTestWidgetStrategy(WidgetStrategy):
             raise ValueError("date_from filter is mandatory for product test widget")
         if not filters.get('date_to'):
             raise ValueError("date_to filter is mandatory for product test widget")
-        
+
         # Extract required filters
         urun_id = int(filters['urun_id'])
         seri_no = str(filters['seri_no'])
-        
+
         # Build query with parent query for ratios by UrunID, StokNo, SeriNo, TestAdi
         query = f"""
         WITH test_details AS (
@@ -94,15 +95,15 @@ class ProductTestWidgetStrategy(WidgetStrategy):
             td.SeriNo, 
             td.TestAdi
         """
-        
+
         return query
-    
-    def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+
+    def process_result(self, result: Any, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Process product test widget result"""
-        
+
         if not filters:
             raise ValueError("Filters are mandatory for product test widget")
-        
+
         if not result:
             return {
                 "urun_id": int(filters.get('urun_id', 0)),
@@ -117,7 +118,7 @@ class ProductTestWidgetStrategy(WidgetStrategy):
                     "first_pass_ratio": 0.0
                 }
             }
-        
+
         # Process individual test results
         test_results = []
         total_tests_count = 0
@@ -126,7 +127,7 @@ class ProductTestWidgetStrategy(WidgetStrategy):
         total_first_pass_count = 0
         total_total_count_for_first_pass = 0
         stok_no = ""
-        
+
         for row in result:
             urun_id = int(row[0])
             stok_no = str(row[1]) if row[1] else ""
@@ -138,7 +139,7 @@ class ProductTestWidgetStrategy(WidgetStrategy):
             passed = int(row[7])
             first_pass_count = int(row[8])
             total_count_for_first_pass = int(row[9])
-            
+
             test_result = {
                 "test_name": test_adi,
                 "total": total,
@@ -149,19 +150,19 @@ class ProductTestWidgetStrategy(WidgetStrategy):
                 "first_pass_count": first_pass_count,
                 "total_count_for_first_pass": total_count_for_first_pass
             }
-            
+
             test_results.append(test_result)
-            
+
             # Accumulate totals
             total_tests_count += total
             total_passed_count += passed
             total_first_pass_count += first_pass_count
             total_total_count_for_first_pass += total_count_for_first_pass
-        
+
         # Calculate overall ratios
         overall_pass_ratio = (total_passed_count / total_tests_count * 100) if total_tests_count > 0 else 0.0
         first_pass_ratio = (total_first_pass_count / total_total_count_for_first_pass * 100) if total_total_count_for_first_pass > 0 else 0.0
-        
+
         return {
             "urun_id": int(filters['urun_id']),
             "seri_no": str(filters['seri_no']),

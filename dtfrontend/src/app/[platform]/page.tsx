@@ -394,6 +394,37 @@ export default function PlatformHome() {
                 : 'lg:grid-cols-4'
             }`}>
               {platformData.theme_config.features.map((feature, index) => {
+                // Check if user has atolye role (any variant: yonetici, operator, or musteri)
+                const hasAtolyeRole = user?.role && Array.isArray(user.role) &&
+                  user.role.some((role) => 
+                    typeof role === "string" && 
+                    role.startsWith("atolye:") && 
+                    (role.endsWith(":yonetici") || role.endsWith(":operator") || role.endsWith(":musteri"))
+                  );
+
+                // Check if this is the Atölye Takip Sistemi feature
+                const isAtolyeFeature = feature.title?.toLowerCase().includes('atölye') || 
+                                       feature.title?.toLowerCase().includes('atolye') ||
+                                       feature.title?.toLowerCase().includes('takip') ||
+                                       feature.url?.includes('/atolye') ||
+                                       feature.url?.includes('atolye');
+
+                // Ensure the feature URL is correct for atolye users
+                let featureUrl = feature.url;
+                // For atolye users on romiot platform, ensure Atölye Takip Sistemi has correct URL
+                if (isAtolyeFeature && hasAtolyeRole && platformCode === 'romiot') {
+                  // Always set the URL to the correct path for atolye feature
+                  featureUrl = `/${platformCode}/atolye`;
+                } else if (isAtolyeFeature && platformCode === 'romiot') {
+                  // Even if user doesn't have atolye role, ensure URL is correct if it's the atolye feature
+                  if (!featureUrl || !featureUrl.includes('atolye')) {
+                    featureUrl = `/${platformCode}/atolye`;
+                  }
+                } else if (featureUrl && !featureUrl.startsWith('/') && !featureUrl.startsWith('http')) {
+                  // If URL is relative, make it absolute for the current platform
+                  featureUrl = `/${platformCode}${featureUrl.startsWith('/') ? '' : '/'}${featureUrl}`;
+                }
+
                 const cardContent = feature.useImage && feature.imageUrl ? (
                   // Image-based card design
                   <div className="bg-white rounded-lg shadow-xl shadow-slate-200 overflow-hidden hover:shadow-2xl transition-all duration-300">
@@ -483,24 +514,46 @@ export default function PlatformHome() {
                   </div>
                 );
 
-                // If feature has a URL, make it clickable
-                if (feature.url) {
+                // If feature has a URL, or if it's the atolye feature for atolye users, make it clickable
+                // Use the corrected featureUrl if it was modified for atolye feature
+                const urlToUse = featureUrl || feature.url;
+                
+                // For atolye users on romiot platform, always make atolye feature clickable
+                const shouldBeClickable = urlToUse || (isAtolyeFeature && hasAtolyeRole && platformCode === 'romiot');
+                
+                if (shouldBeClickable) {
+                  const finalUrl = urlToUse || `/${platformCode}/atolye`;
                   return (
                     <div
                       key={index}
-                      onClick={() => {
+                      onClick={(e) => {
                         if (!checkAccess(feature, user)) {
                           setShowAccessDeniedModal(true);
                           return;
                         }
 
-                        if (feature.url && feature.url.startsWith('http')) {
-                          window.open(feature.url, '_blank', 'noopener,noreferrer');
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('Feature clicked:', feature.title, 'URL:', finalUrl, 'isAtolyeFeature:', isAtolyeFeature, 'hasAtolyeRole:', hasAtolyeRole);
+                        if (finalUrl.startsWith('http')) {
+                          window.open(finalUrl, '_blank', 'noopener,noreferrer');
                         } else {
-                          router.push(feature.url || '');
+                          router.push(finalUrl);
                         }
                       }}
                       className="block hover:scale-105 transition-transform cursor-pointer"
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          if (finalUrl.startsWith('http')) {
+                            window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                          } else {
+                            router.push(finalUrl);
+                          }
+                        }
+                      }}
                     >
                       {cardContent}
                     </div>

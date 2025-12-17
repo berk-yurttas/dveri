@@ -1,8 +1,10 @@
-from typing import Dict, Any, Optional
 import io
-import pandas as pd
 import re
 from datetime import datetime
+from typing import Any
+
+import pandas as pd
+
 from .base import WidgetStrategy
 
 
@@ -84,13 +86,11 @@ class ExcelExportWidgetStrategy(WidgetStrategy):
                         column_names.append(func_match.group(1).lower())
                     else:
                         column_names.append("calculated_field")
+                elif '.' in col:
+                    # table.column format
+                    column_names.append(col.split('.')[-1])
                 else:
-                    # Simple column reference
-                    if '.' in col:
-                        # table.column format
-                        column_names.append(col.split('.')[-1])
-                    else:
-                        column_names.append(col)
+                    column_names.append(col)
 
             return column_names
 
@@ -98,7 +98,7 @@ class ExcelExportWidgetStrategy(WidgetStrategy):
             print(f"Error extracting column names from query: {e}")
             return []
 
-    def get_query(self, filters: Optional[Dict[str, Any]] = None) -> str:
+    def get_query(self, filters: dict[str, Any] | None = None) -> str:
         """Get Excel export query with UrunID and optional date filters"""
 
         # Filters are mandatory for Excel export widget
@@ -160,8 +160,8 @@ class ExcelExportWidgetStrategy(WidgetStrategy):
 
         print(query)
         return query
-    
-    def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+
+    def process_result(self, result: Any, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Process Excel export result - returns Excel file as bytes"""
 
         if not filters:
@@ -254,14 +254,14 @@ class ExcelExportWidgetStrategy(WidgetStrategy):
 
         # Update DataFrame column names
         df.columns = column_names
-        
+
         # Generate Excel file
         excel_buffer = io.BytesIO()
-        
+
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
             # Write main data
             df.to_excel(writer, sheet_name='Test Data', index=False)
-            
+
             # Add summary sheet
             summary_data = {
                 'Filter': ['Urun ID', 'Firma', 'Serial Number', 'Date From', 'Date To', 'Total Records', 'Export Date'],
@@ -277,9 +277,9 @@ class ExcelExportWidgetStrategy(WidgetStrategy):
             }
             summary_df = pd.DataFrame(summary_data)
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
-        
+
         excel_buffer.seek(0)
-        
+
         # Generate filename
         urun_id = filters.get('urun_id', 'unknown')
         firma = filters.get('firma', 'unknown').replace(' ', '_')
@@ -290,7 +290,7 @@ class ExcelExportWidgetStrategy(WidgetStrategy):
             filename = f"test_data_urun_{urun_id}_firma_{firma}_seri_{seri_no}_{timestamp}.xlsx"
         else:
             filename = f"test_data_urun_{urun_id}_firma_{firma}_{timestamp}.xlsx"
-        
+
         return {
             "excel_file": excel_buffer.getvalue(),
             "filename": filename,

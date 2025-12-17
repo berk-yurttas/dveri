@@ -1,29 +1,30 @@
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, Dict, Any, List
 from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RoleAction(BaseModel):
-    actions: List[str]
+    actions: list[str]
     department: str
 
 class SensorRole(BaseModel):
-    general: List[RoleAction]
-    sensors: List[Any] = []
+    general: list[RoleAction]
+    sensors: list[Any] = []
 
 class ZimmetEquipment(BaseModel):
-    authority: List[str]
+    authority: list[str]
     mspe: str
 
 class ZimmetRole(BaseModel):
-    equipments: List[ZimmetEquipment]
-    general: List[RoleAction]
+    equipments: list[ZimmetEquipment]
+    general: list[RoleAction]
 
 class IhsMarketRole(BaseModel):
-    actions: List[str]
+    actions: list[str]
 
 class UserRole(BaseModel):
-    role: List[str]
+    role: list[str]
 
 class UserBase(BaseModel):
     username: str
@@ -33,8 +34,8 @@ class UserBase(BaseModel):
     department: str
     management_dpt: str = Field(alias='managementDpt')
     title: str
-    avatar_url: Optional[str] = Field(alias='avatar_url', default=None)
-    role: List[str]
+    avatar_url: str | None = Field(alias='avatar_url', default=None)
+    role: list[str]
 
 
 class UserCreate(UserBase):
@@ -42,43 +43,43 @@ class UserCreate(UserBase):
 
 
 class UserUpdate(BaseModel):
-    username: Optional[str] = None
-    email: Optional[str] = None
-    name: Optional[str] = None
-    company: Optional[str] = None
-    department: Optional[str] = None
-    management_dpt: Optional[str] = None
-    title: Optional[str] = None
-    avatar_url: Optional[str] = None
-    role: Optional[List[str]] = None
+    username: str | None = None
+    email: str | None = None
+    name: str | None = None
+    company: str | None = None
+    department: str | None = None
+    management_dpt: str | None = None
+    title: str | None = None
+    avatar_url: str | None = None
+    role: list[str] | None = None
 
 
 class User(UserBase):
     id: str
-    created: Optional[datetime] = None
-    updated: Optional[datetime] = None
+    created: datetime | None = None
+    updated: datetime | None = None
     verified: bool = False
-    
+
     model_config = ConfigDict(
         from_attributes=True,
         populate_by_name=True,
         json_encoders={datetime: lambda dt: dt.isoformat()}
     )
-    
+
     @classmethod
     def from_jwt_payload(cls, payload: dict) -> "User":
         """Create User instance from auth server response"""
-        
+
         # Extract user data from the nested structure
         if "user" in payload:
             user_data = payload["user"]
         else:
             user_data = payload
-            
+
         # Convert datetime strings to datetime objects
         created = datetime.fromisoformat(user_data.get("created").replace("Z", "+00:00")) if user_data.get("created") else None
         updated = datetime.fromisoformat(user_data.get("updated").replace("Z", "+00:00")) if user_data.get("updated") else None
-        
+
         return cls(
             id=user_data.get("id", ""),
             username=user_data.get("username", ""),
@@ -99,7 +100,7 @@ class User(UserBase):
 class LoginRedirectRequest(BaseModel):
     tokens: str
     secret: str
-    client_redirect: Optional[str] = None
+    client_redirect: str | None = None
 
 
 class LoginRedirectResponse(BaseModel):

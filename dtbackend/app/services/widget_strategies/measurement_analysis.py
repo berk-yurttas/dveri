@@ -1,11 +1,12 @@
-from typing import Dict, Any, Optional
+from typing import Any
+
 from .base import WidgetStrategy
 
 
 class MeasurementAnalysisWidgetStrategy(WidgetStrategy):
     """Strategy for measurement analysis widget - analyze measurement data with limits"""
 
-    def get_query(self, filters: Optional[Dict[str, Any]] = None) -> str:
+    def get_query(self, filters: dict[str, Any] | None = None) -> str:
         """Get measurement analysis widget query with filters"""
 
         # Filters are mandatory for measurement analysis widget
@@ -69,7 +70,7 @@ class MeasurementAnalysisWidgetStrategy(WidgetStrategy):
         print(query)
         return query
 
-    def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def process_result(self, result: Any, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Process measurement analysis widget result - return raw data"""
 
         if not filters:

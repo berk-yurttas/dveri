@@ -1,11 +1,12 @@
-from typing import Dict, Any, List, Optional
+from typing import Any
+
 from .base import WidgetStrategy
 
 
 class TestDurationAnalysisWidgetStrategy(WidgetStrategy):
     """Widget strategy for test duration analysis with line and area chart visualization"""
 
-    def get_query(self, filters: Optional[Dict[str, Any]] = None) -> str:
+    def get_query(self, filters: dict[str, Any] | None = None) -> str:
         """
         Get test duration analysis query for specific product and test
 
@@ -49,7 +50,7 @@ class TestDurationAnalysisWidgetStrategy(WidgetStrategy):
 
         return query
 
-    def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def process_result(self, result: Any, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Process the query result into widget-specific format"""
         try:
             # Helper function to convert HH:MM:SS string to seconds
@@ -102,5 +103,5 @@ class TestDurationAnalysisWidgetStrategy(WidgetStrategy):
         except Exception as e:
             return {
                 "error": True,
-                "message": f"Failed to process test duration analysis data: {str(e)}"
+                "message": f"Failed to process test duration analysis data: {e!s}"
             }
