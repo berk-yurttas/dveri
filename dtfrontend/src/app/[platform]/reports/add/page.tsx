@@ -212,6 +212,57 @@ const ChartPreview = ({
     switch (visualization.type) {
       case 'bar':
         const showLineOverlay = visualization.chartOptions?.showLineOverlay && visualization.chartOptions?.lineYAxis
+        const legendFields = visualization.chartOptions?.legendFields || []
+        const useLegendFieldValues = visualization.chartOptions?.useLegendFieldValues ?? false
+
+        // Custom legend formatter to show field values instead of field names
+        const renderLegend = (props: any) => {
+          if (!useLegendFieldValues || legendFields.length === 0) {
+            return <Legend {...props} />
+          }
+
+          // Get unique values from the first legend field
+          const firstLegendField = legendFields[0]
+          const uniqueValues = [...new Set(chartData.map((item: any) => item[firstLegendField]).filter((v: any) => v != null))]
+
+          return (
+            <div className="flex flex-wrap gap-4 justify-center mt-4">
+              {uniqueValues.map((value: any, index: number) => (
+                <div key={index} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded"
+                    style={{ backgroundColor: colors[index % colors.length] }}
+                  />
+                  <span className="text-sm text-slate-700">{String(value)}</span>
+                </div>
+              ))}
+            </div>
+          )
+        }
+
+        // Custom legend content for Recharts
+        const CustomLegend = (props: any) => {
+          if (!useLegendFieldValues || legendFields.length === 0) {
+            return null // Let Recharts handle default legend
+          }
+
+          const firstLegendField = legendFields[0]
+          const uniqueValues = [...new Set(chartData.map((item: any) => item[firstLegendField]).filter((v: any) => v != null))]
+
+          return (
+            <div className="flex flex-wrap gap-4 justify-center mt-4">
+              {uniqueValues.map((value: any, index: number) => (
+                <div key={index} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded"
+                    style={{ backgroundColor: colors[index % colors.length] }}
+                  />
+                  <span className="text-sm text-slate-700">{String(value)}</span>
+                </div>
+              ))}
+            </div>
+          )
+        }
 
         if (showLineOverlay) {
           return (
@@ -243,18 +294,31 @@ const ChartPreview = ({
                     fontSize: '12px'
                   } : undefined}
                 />
-                {visualization.showLegend && <Legend />}
-                <Bar
-                  yAxisId="left"
-                  dataKey={visualization.yAxis || columns[1]}
-                  fill={colors[0]}
-                  radius={[4, 4, 0, 0]}
-                />
+                {visualization.showLegend && (useLegendFieldValues && legendFields.length > 0 ? <CustomLegend /> : <Legend />)}
+                {legendFields.length > 0 ? (
+                  legendFields.map((field, index) => (
+                    <Bar
+                      key={field}
+                      yAxisId="left"
+                      dataKey={field}
+                      fill={colors[index % colors.length]}
+                      radius={[4, 4, 0, 0]}
+                      name={useLegendFieldValues ? undefined : field}
+                    />
+                  ))
+                ) : (
+                  <Bar
+                    yAxisId="left"
+                    dataKey={visualization.yAxis || columns[1]}
+                    fill={colors[0]}
+                    radius={[4, 4, 0, 0]}
+                  />
+                )}
                 <Line
                   yAxisId="right"
                   type="monotone"
                   dataKey={visualization.chartOptions?.lineYAxis}
-                  stroke={colors[1] || '#10B981'}
+                  stroke={colors[legendFields.length % colors.length] || '#10B981'}
                   strokeWidth={3}
                   dot={{ r: 4 }}
                 />
@@ -285,12 +349,24 @@ const ChartPreview = ({
                   fontSize: '12px'
                 } : undefined}
               />
-              {visualization.showLegend && <Legend />}
-              <Bar
-                dataKey={visualization.yAxis || columns[1]}
-                fill={colors[0]}
-                radius={[4, 4, 0, 0]}
-              />
+              {visualization.showLegend && (useLegendFieldValues && legendFields.length > 0 ? <CustomLegend /> : <Legend />)}
+              {legendFields.length > 0 ? (
+                legendFields.map((field, index) => (
+                  <Bar
+                    key={field}
+                    dataKey={field}
+                    fill={colors[index % colors.length]}
+                    radius={[4, 4, 0, 0]}
+                    name={useLegendFieldValues ? undefined : field}
+                  />
+                ))
+              ) : (
+                <Bar
+                  dataKey={visualization.yAxis || columns[1]}
+                  fill={colors[0]}
+                  radius={[4, 4, 0, 0]}
+                />
+              )}
             </BarChart>
           </ResponsiveContainer>
         )
@@ -2340,6 +2416,25 @@ export default function AddReportPage() {
                                           <p className="text-xs text-gray-500 text-center py-1">Alan bulunamadı</p>
                                         )}
                                       </div>
+                                      {query.visualization.chartOptions?.legendFields && query.visualization.chartOptions.legendFields.length > 0 && (
+                                        <div className="flex items-center space-x-2 pt-2 border-t border-gray-200">
+                                          <Checkbox
+                                            id={`use-legend-values-${query.id}`}
+                                            checked={query.visualization.chartOptions?.useLegendFieldValues ?? false}
+                                            onCheckedChange={(checked) => {
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  useLegendFieldValues: !!checked
+                                                }
+                                              })
+                                            }}
+                                          />
+                                          <Label htmlFor={`use-legend-values-${query.id}`} className="text-xs">
+                                            Legend'de alan değerlerini göster (alan adı yerine)
+                                          </Label>
+                                        </div>
+                                      )}
                                       <p className="text-xs text-slate-500">
                                         Seçilen alanlar ayrı barlar olarak gösterilecek
                                       </p>

@@ -130,6 +130,34 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
   const xAxisField = visualization.xAxis || columns[0]
   const yAxisField = visualization.yAxis || columns[1]
   const legendFields = visualization.chartOptions?.legendFields || []
+  const useLegendFieldValues = visualization.chartOptions?.useLegendFieldValues ?? false
+
+  // Extract unique values from legend fields for custom legend
+  const getLegendFieldValues = () => {
+    if (!useLegendFieldValues || legendFields.length === 0) return null
+    
+    const firstLegendField = legendFields[0]
+    const uniqueValues = [...new Set(
+      data.map(row => {
+        const colIndex = columns.indexOf(firstLegendField)
+        return colIndex >= 0 ? row[colIndex] : null
+      }).filter(v => v != null)
+    )]
+    
+    // Sort values to match the sorting in data transformation
+    return uniqueValues.sort((a, b) => String(a).localeCompare(String(b)))
+  }
+
+  const legendFieldValues = getLegendFieldValues()
+
+  // Create a mapping from legend field value to color index
+  // This ensures each unique value always gets the same color
+  const valueToColorIndex = new Map<any, number>()
+  if (useLegendFieldValues && legendFieldValues && legendFieldValues.length > 0) {
+    legendFieldValues.forEach((value: any, index: number) => {
+      valueToColorIndex.set(value, index)
+    })
+  }
 
   // Group data by x-axis value - each group will have multiple bars
   const groupedData = new Map<string, any[]>()
@@ -154,15 +182,34 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
   // Transform grouped data into format for grouped bar chart
   // Each x-axis label becomes one data point with multiple y-values
   const chartData = Array.from(groupedData.entries()).map(([xValue, items]) => {
+    // Sort items by legend field value if useLegendFieldValues is enabled
+    // This ensures consistent bar ordering across all groups
+    let sortedItems = items
+    if (useLegendFieldValues && legendFields.length > 0) {
+      const firstLegendField = legendFields[0]
+      sortedItems = [...items].sort((a, b) => {
+        const aVal = String(a[firstLegendField] || '')
+        const bVal = String(b[firstLegendField] || '')
+        return aVal.localeCompare(bVal)
+      })
+    }
+
     const dataPoint: any = { [xAxisField]: xValue }
 
     // Store all original items for tooltip access (using _items to avoid conflicts)
-    dataPoint._items = items
+    dataPoint._items = sortedItems
 
     // Add each item as a separate bar in the group
-    items.forEach((item, index) => {
+    sortedItems.forEach((item, index) => {
       const barKey = `${yAxisField}_${index + 1}`
       dataPoint[barKey] = item[yAxisField]
+
+      // Store the legend field value for this bar (for color mapping)
+      if (useLegendFieldValues && legendFields.length > 0) {
+        const firstLegendField = legendFields[0]
+        const legendValue = item[firstLegendField]
+        dataPoint[`${barKey}_legendValue`] = legendValue
+      }
 
       // Also store line overlay data if present
       if (visualization.chartOptions?.lineYAxis) {
@@ -251,6 +298,60 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                       visualization.chartOptions.nestedQueries.length > 0
 
   const showLineOverlay = visualization.chartOptions?.showLineOverlay && visualization.chartOptions?.lineYAxis
+
+  // Custom Legend Component for showing field values
+  const CustomLegend = () => {
+    if (!useLegendFieldValues || !legendFieldValues || legendFieldValues.length === 0) {
+      return null
+    }
+
+    return (
+      <div className="flex flex-wrap gap-4 justify-center py-3 px-4 bg-white/50 rounded-lg border border-slate-200 mb-2">
+        {legendFieldValues.map((value: any, index: number) => (
+          <div key={index} className="flex items-center gap-2">
+            <div
+              className="w-4 h-4 rounded"
+              style={{ backgroundColor: colors[index % colors.length] }}
+            />
+            <span className="text-sm font-medium text-slate-700">{String(value)}</span>
+          </div>
+        ))}
+        {/* Show line overlay in legend if present */}
+        {showLineOverlay && visualization.chartOptions?.lineYAxis && (
+          <div className="flex items-center gap-2">
+            <div
+              className="w-4 h-4"
+              style={{
+                borderTop: `3px solid ${colors[legendFieldValues.length % colors.length] || '#10B981'}`,
+                width: '16px',
+                height: '0'
+              }}
+            />
+            <span className="text-sm font-medium text-slate-700">
+              {visualization.chartOptions.lineYAxis}
+            </span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Get bar name for legend - use field value if useLegendFieldValues is enabled
+  const getBarName = (barIndex: number) => {
+    if (useLegendFieldValues && legendFieldValues && legendFieldValues.length > 0) {
+      // Map bar index to legend field value
+      // Since items are sorted by legend field value, bar index maps directly to sorted values
+      if (barIndex < legendFieldValues.length) {
+        return String(legendFieldValues[barIndex])
+      }
+    }
+    
+    // Default: use legend field name or y-axis field
+    if (legendFields.length > 0 && legendFields[barIndex]) {
+      return legendFields[barIndex]
+    }
+    return visualization.yAxis || columns[1]
+  }
 
   // Calculate reference line value if configured
   const referenceLineField = visualization.chartOptions?.referenceLineField
@@ -673,6 +774,10 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
   if (showLineOverlay) {
     return (
       <div style={{ width: '100%', height: '100%', minHeight: '200px' }}>
+        {/* Custom Legend - rendered outside chart */}
+        {visualization.showLegend && useLegendFieldValues && legendFields.length > 0 && legendFieldValues && legendFieldValues.length > 0 ? (
+          <CustomLegend />
+        ) : null}
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 20, right: 50, left: 0, bottom: bottomMargin }} barCategoryGap={barCategoryGap} barGap={barGap}>
             <defs>
@@ -707,7 +812,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               }
               return null
             })}
-            <Legend />
+            {visualization.showLegend && !(useLegendFieldValues && legendFields.length > 0 && legendFieldValues && legendFieldValues.length > 0) && <Legend />}
             <XAxis
               dataKey={visualization.xAxis || columns[0]}
               stroke="#6b7280"
@@ -753,7 +858,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 yAxisId="left"
                 dataKey={barKey}
                 fill={colors[barIndex % colors.length]}
-                name={legendFields.length > 0 && legendFields[barIndex] ? legendFields[barIndex] : (visualization.yAxis || columns[1])}
+                name={getBarName(barIndex)}
                 legendType={legendFields.length > 0 ? undefined : (barIndex > 0 ? "none" : undefined)}
                 onClick={isClickable ? handleBarClick : undefined}
                 cursor={isClickable ? 'pointer' : 'default'}
@@ -771,9 +876,23 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                   // Check if this bar has actual data
                   const hasData = entry[barKey] !== undefined && entry[barKey] !== null && entry[barKey] !== 0
 
-                  // For single bar groups, use single color (color 0)
-                  // For grouped bars, use consistent color based on bar position
-                  const colorIndex = isSingleBarGroup ? 0 : barIndex % colors.length
+                  // Determine color index based on legend field value if useLegendFieldValues is enabled
+                  let colorIndex: number
+                  if (useLegendFieldValues && legendFields.length > 0) {
+                    const legendValueKey = `${barKey}_legendValue`
+                    const legendValue = entry[legendValueKey]
+                    if (legendValue !== undefined && valueToColorIndex.has(legendValue)) {
+                      colorIndex = valueToColorIndex.get(legendValue)!
+                    } else {
+                      // Fallback to barIndex if legend value not found
+                      colorIndex = isSingleBarGroup ? 0 : barIndex % colors.length
+                    }
+                  } else {
+                    // For single bar groups, use single color (color 0)
+                    // For grouped bars, use consistent color based on bar position
+                    colorIndex = isSingleBarGroup ? 0 : barIndex % colors.length
+                  }
+                  
                   return (
                     <Cell
                       key={`cell-${index}`}
@@ -824,6 +943,10 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: '200px' }}>
+      {/* Custom Legend - rendered outside chart */}
+      {visualization.showLegend && useLegendFieldValues && legendFields.length > 0 && legendFieldValues && legendFieldValues.length > 0 ? (
+        <CustomLegend />
+      ) : null}
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: bottomMargin }} barCategoryGap={barCategoryGap} barGap={barGap}>
           <defs>
@@ -858,7 +981,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
             }
             return null
           })}
-          <Legend />
+          {visualization.showLegend && !(useLegendFieldValues && legendFields.length > 0 && legendFieldValues && legendFieldValues.length > 0) && <Legend />}
           <XAxis
             dataKey={visualization.xAxis || columns[0]}
             stroke="#6b7280"
@@ -894,7 +1017,7 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
               key={barKey}
               dataKey={barKey}
               fill={colors[barIndex % colors.length]}
-              name={legendFields.length > 0 && legendFields[barIndex] ? legendFields[barIndex] : (visualization.yAxis || columns[1])}
+              name={getBarName(barIndex)}
               legendType={legendFields.length > 0 ? undefined : (barIndex > 0 ? "none" : undefined)}
               onClick={isClickable ? handleBarClick : undefined}
               cursor={isClickable ? 'pointer' : 'default'}
@@ -912,9 +1035,23 @@ export const BarVisualization: React.FC<VisualizationProps> = ({ query, result, 
                 // Check if this bar has actual data
                 const hasData = entry[barKey] !== undefined && entry[barKey] !== null && entry[barKey] !== 0
 
-                // For single bar groups, use single color (color 0)
-                // For grouped bars, use consistent color based on bar position
-                const colorIndex = isSingleBarGroup ? 0 : barIndex % colors.length
+                // Determine color index based on legend field value if useLegendFieldValues is enabled
+                let colorIndex: number
+                if (useLegendFieldValues && legendFields.length > 0) {
+                  const legendValueKey = `${barKey}_legendValue`
+                  const legendValue = entry[legendValueKey]
+                  if (legendValue !== undefined && valueToColorIndex.has(legendValue)) {
+                    colorIndex = valueToColorIndex.get(legendValue)!
+                  } else {
+                    // Fallback to barIndex if legend value not found
+                    colorIndex = isSingleBarGroup ? 0 : barIndex % colors.length
+                  }
+                } else {
+                  // For single bar groups, use single color (color 0)
+                  // For grouped bars, use consistent color based on bar position
+                  colorIndex = isSingleBarGroup ? 0 : barIndex % colors.length
+                }
+                
                 return (
                   <Cell
                     key={`cell-${index}`}

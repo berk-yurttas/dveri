@@ -81,6 +81,7 @@ export interface VisualizationConfig {
     lineYAxis?: string
     showLineOverlay?: boolean
     legendFields?: string[]  // Fields to show as separate series in bar charts
+    useLegendFieldValues?: boolean  // If true, show field values in legend instead of field names
 
     // Pie specific
     showPercentage?: boolean

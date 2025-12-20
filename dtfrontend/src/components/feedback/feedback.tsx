@@ -4,22 +4,58 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X, Send, AlertCircle, CheckCircle } from "lucide-react";
 import { feedbackService } from "@/services/feedback";
+import { usePlatform } from "@/contexts/platform-context";
+import { useUser } from "@/contexts/user-context";
+import { platformService } from "@/services/platform";
+import type { Platform } from "@/types/platform";
 
 export function Feedback() {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [subject, setSubject] = useState("");
   const [description, setDescription] = useState("");
+  const [selectedPlatform, setSelectedPlatform] = useState<string>("");
+  const [platforms, setPlatforms] = useState<Platform[]>([]);
+  const [platformsLoading, setPlatformsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<"success" | "error" | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [isMounted, setIsMounted] = useState(false);
+  
+  const { platform: currentPlatform } = usePlatform();
+  const { user } = useUser();
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
+  // Fetch platforms when modal opens
+  useEffect(() => {
+    if (showFeedbackModal) {
+      const fetchPlatforms = async () => {
+        setPlatformsLoading(true);
+        try {
+          const platformsData = await platformService.getPlatforms(0, 100, false);
+          setPlatforms(platformsData);
+          
+          // Set initial platform to current platform if available
+          if (currentPlatform) {
+            setSelectedPlatform(currentPlatform.code);
+          } else if (platformsData.length > 0) {
+            setSelectedPlatform(platformsData[0].code);
+          }
+        } catch (error) {
+          console.error("Failed to fetch platforms:", error);
+        } finally {
+          setPlatformsLoading(false);
+        }
+      };
+      
+      fetchPlatforms();
+    }
+  }, [showFeedbackModal, currentPlatform]);
+
   const handleSubmit = async () => {
-    if (!subject.trim() || !description.trim()) {
+    if (!subject.trim() || !description.trim() || !selectedPlatform) {
       setSubmitStatus("error");
       setStatusMessage("Lütfen tüm alanları doldurun.");
       return;
@@ -30,9 +66,21 @@ export function Feedback() {
     setStatusMessage("");
 
     try {
+      // Get selected platform name
+      const selectedPlatformData = platforms.find(p => p.code === selectedPlatform);
+      const platformName = selectedPlatformData?.display_name || selectedPlatform;
+      
+      // Get user info
+      const userName = user?.name || "Bilinmiyor";
+      const userEmail = user?.email || "Bilinmiyor";
+      const userDepartment = user?.department || "Bilinmiyor";
+      
+      // Append platform and user info to description
+      const fullDescription = `${description.trim()}\n\n---\nPlatform: ${platformName}\nTalep Sahibi: ${userName} - ${userEmail}\nBirim: ${userDepartment}`;
+
       const response = await feedbackService.sendFeedback({
         subject: subject.trim(),
-        description: description.trim(),
+        description: fullDescription,
       });
 
       if (response.success) {
@@ -40,12 +88,11 @@ export function Feedback() {
         setStatusMessage(response.message || "Feedback başarıyla gönderildi!");
         setSubject("");
         setDescription("");
+        setSelectedPlatform(currentPlatform?.code || "");
         
         // Close modal after 2 seconds
         setTimeout(() => {
-          setShowFeedbackModal(false);
-          setSubmitStatus(null);
-          setStatusMessage("");
+          handleCloseModal();
         }, 2000);
       } else {
         setSubmitStatus("error");
@@ -61,6 +108,15 @@ export function Feedback() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleCloseModal = () => {
+    setShowFeedbackModal(false);
+    setSubject("");
+    setDescription("");
+    setSelectedPlatform(currentPlatform?.code || "");
+    setSubmitStatus(null);
+    setStatusMessage("");
   };
 
   if (!isMounted) return null;
@@ -96,12 +152,12 @@ export function Feedback() {
           <div
             className="fixed inset-0 bg-black/20"
             style={{ zIndex: 9998 }}
-            onClick={() => setShowFeedbackModal(false)}
+            onClick={handleCloseModal}
           />
 
           {/* Modal */}
           <div
-            className="w-96 h-[500px] bg-white rounded-xl shadow-2xl flex flex-col"
+            className="w-96 h-[580px] bg-white rounded-xl shadow-2xl flex flex-col"
             style={{
               position: 'fixed',
               bottom: '108px',
@@ -122,7 +178,7 @@ export function Feedback() {
                 </div>
               </div>
               <button
-                onClick={() => setShowFeedbackModal(false)}
+                onClick={handleCloseModal}
                 className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -164,6 +220,32 @@ export function Feedback() {
                 />
               </div>
 
+              {/* Platform Dropdown */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Platform <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={selectedPlatform}
+                  onChange={(e) => setSelectedPlatform(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                  disabled={isSubmitting || platformsLoading}
+                >
+                  {platformsLoading ? (
+                    <option value="">Yükleniyor...</option>
+                  ) : (
+                    <>
+                      <option value="">Platform seçiniz</option>
+                      {platforms.map((platform) => (
+                        <option key={platform.code} value={platform.code}>
+                          {platform.display_name}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </div>
+
               {/* Description Input */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -173,7 +255,7 @@ export function Feedback() {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Talep veya önerinizi detaylı bir şekilde açıklayınız"
-                  rows={6}
+                  rows={5}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none placeholder:text-gray-500 text-gray-900"
                   disabled={isSubmitting}
                 />
@@ -184,7 +266,7 @@ export function Feedback() {
             <div className="p-4 border-t border-gray-200">
               <div className="flex gap-2">
                 <button
-                  onClick={() => setShowFeedbackModal(false)}
+                  onClick={handleCloseModal}
                   disabled={isSubmitting}
                   className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -192,7 +274,7 @@ export function Feedback() {
                 </button>
                 <button
                   onClick={handleSubmit}
-                  disabled={isSubmitting || !subject.trim() || !description.trim()}
+                  disabled={isSubmitting || !subject.trim() || !description.trim() || !selectedPlatform}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {isSubmitting ? (

@@ -1657,7 +1657,8 @@ export default function ReportDetailPage() {
         if (columns.length === 0) continue
 
         // Create worksheet
-        const worksheet = workbook.addWorksheet(query.name.substring(0, 31))
+        const worksheetName = (query.name || `Query_${query.id}`).substring(0, 31)
+        const worksheet = workbook.addWorksheet(worksheetName)
 
         if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
           // For table visualizations, export raw data
@@ -1940,7 +1941,8 @@ export default function ReportDetailPage() {
       workbook.created = new Date()
 
       // Create worksheet
-      const worksheet = workbook.addWorksheet(query.name.substring(0, 31))
+      const worksheetName = (query.name || `Query_${query.id}`).substring(0, 31)
+      const worksheet = workbook.addWorksheet(worksheetName)
 
       if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
         // For table visualizations, export raw data

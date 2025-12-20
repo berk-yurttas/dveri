@@ -121,17 +121,6 @@ export function AppShell({
       )}
       {isIvmePlatform && (
         <div className="fixed top-0 left-0 right-0 z-40 flex h-[30px] items-center justify-between px-6 overflow-hidden" style={{ backgroundColor: '#efefef' }}>
-          <div className="absolute left-28 flex items-center gap-2 text-sm">
-            <button
-              onClick={() => 
-                {localStorage.removeItem('platform_code');
-                window.location.href = '/';
-                }}
-              className="flex items-center gap-2 hover:opacity-70 transition-opacity"
-            >
-              <Home color="red" className="h-4 w-4" /> Anasayfa
-            </button>
-          </div>
           <div className="absolute right-40 flex items-center gap-2 text-sm">
             <button
               onClick={() => setFeedbackModalOpen(true)}
@@ -144,6 +133,15 @@ export function AppShell({
               className="flex items-center gap-2 hover:opacity-70 transition-opacity"
             >
               <Mail color="red" className="h-4 w-4" /> Bize Ulaşın
+            </button>
+            <button
+              onClick={() => 
+                {localStorage.removeItem('platform_code');
+                window.location.href = '/';
+                }}
+              className="flex items-center gap-2 hover:opacity-70 transition-opacity"
+            >
+              <Home color="red" className="h-4 w-4" /> Anasayfa
             </button>
           </div>
         </div>

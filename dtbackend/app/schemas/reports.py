@@ -45,6 +45,7 @@ class ChartOptions(BaseModel):
     show_grid: bool | None = Field(True, alias="showGrid")
     show_data_labels: bool | None = Field(False, alias="showDataLabels")
     legend_fields: list[str] | None = Field([], alias="legendFields")  # Fields to show as separate series in bar charts
+    use_legend_field_values: bool | None = Field(False, alias="useLegendFieldValues")  # If true, show field values in legend instead of field names
 
     # Pie specific
     show_percentage: bool | None = Field(True, alias="showPercentage")
