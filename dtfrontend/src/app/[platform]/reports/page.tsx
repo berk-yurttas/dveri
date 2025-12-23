@@ -27,7 +27,8 @@ import {
   User,
   Settings,
   Save,
-  X
+  X,
+  ExternalLink
 } from "lucide-react";
 import { reportsService } from "@/services/reports";
 import { SavedReport } from "@/types/reports";
@@ -209,11 +210,18 @@ export default function ReportsPage() {
     }
   };
 
-  const handleReportClick = (id: number) => {
+  const handleReportClick = (report: SavedReport) => {
+    // If report is a direct link, open in new tab
+    if (report.isDirectLink && report.directLink) {
+      window.open(report.directLink, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    
+    // Otherwise, navigate to report detail page
     if (subplatform) {
-      router.push(`/${platformCode}/reports/${id}?subplatform=${subplatform}`);
+      router.push(`/${platformCode}/reports/${report.id}?subplatform=${subplatform}`);
     } else {
-      router.push(`/${platformCode}/reports/${id}`);
+      router.push(`/${platformCode}/reports/${report.id}`);
     }
   };
 
@@ -561,7 +569,7 @@ export default function ReportsPage() {
                     return (
                       <div
                         key={report.id}
-                        onClick={() => handleReportClick(report.id)}
+                        onClick={() => handleReportClick(report)}
                         className="bg-white rounded-lg p-4 hover:shadow-md transition-all cursor-pointer group border-l-4"
                         style={{ borderLeftColor: report.color || '#3B82F6' }}
                       >
@@ -572,8 +580,11 @@ export default function ReportsPage() {
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate">
+                              <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate flex items-center gap-2">
                                 {report.name}
+                                {report.isDirectLink && (
+                                  <ExternalLink className="h-3 w-3 text-gray-400 flex-shrink-0" title="Dış bağlantı - Yeni sekmede açılır" />
+                                )}
                               </h3>
                               <Star className="h-4 w-4 text-yellow-500 fill-yellow-500 flex-shrink-0" />
                             </div>
@@ -650,7 +661,7 @@ export default function ReportsPage() {
                   return (
                     <div
                       key={report.id}
-                      onClick={() => handleReportClick(report.id)}
+                      onClick={() => handleReportClick(report)}
                       className="bg-white rounded-lg shadow-lg shadow-slate-200 p-4 hover:shadow-lg hover:scale-105 transition-all cursor-pointer group relative border-l-4 overflow-hidden"
                       style={{ borderLeftColor: report.color || '#3B82F6' }}
                     >
@@ -718,8 +729,11 @@ export default function ReportsPage() {
                         )}
                       </span>
 
-                      <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors relative z-10">
+                      <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors relative z-10 flex items-center gap-2">
                         {report.name}
+                        {report.isDirectLink && (
+                          <ExternalLink className="h-3 w-3 text-gray-400" title="Dış bağlantı - Yeni sekmede açılır" />
+                        )}
                       </h3>
 
                       <p className="text-sm text-gray-600 mb-3 line-clamp-2 relative z-10">{report.description}</p>
@@ -768,7 +782,7 @@ export default function ReportsPage() {
               return (
                 <div
                   key={report.id}
-                  onClick={() => handleReportClick(report.id)}
+                  onClick={() => handleReportClick(report)}
                   className="bg-white rounded-lg p-4 hover:shadow-md transition-all cursor-pointer group border-l-4"
                   style={{ borderLeftColor: report.color || '#3B82F6' }}
                 >
@@ -779,8 +793,11 @@ export default function ReportsPage() {
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate">
+                        <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate flex items-center gap-2">
                           {report.name}
+                          {report.isDirectLink && (
+                            <ExternalLink className="h-3 w-3 text-gray-400 flex-shrink-0" title="Dış bağlantı - Yeni sekmede açılır" />
+                          )}
                         </h3>
                         {favorites.has(report.id) && (
                           <Star className="h-4 w-4 text-yellow-500 fill-yellow-500 flex-shrink-0" />
@@ -859,7 +876,7 @@ export default function ReportsPage() {
             return (
               <div
                 key={report.id}
-                onClick={() => handleReportClick(report.id)}
+                onClick={() => handleReportClick(report)}
                 className="bg-white rounded-lg shadow-lg shadow-slate-200 p-4 hover:shadow-lg hover:scale-105 transition-all cursor-pointer group relative border-l-4 overflow-hidden"
                 style={{ borderLeftColor: report.color || '#3B82F6' }}
               >
@@ -931,8 +948,11 @@ export default function ReportsPage() {
                   )}
                 </span>
 
-                <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors relative z-10">
+                <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors relative z-10 flex items-center gap-2">
                   {report.name}
+                  {report.isDirectLink && (
+                    <ExternalLink className="h-3 w-3 text-gray-400" title="Dış bağlantı - Yeni sekmede açılır" />
+                  )}
                 </h3>
 
                 <p className="text-sm text-gray-600 mb-3 line-clamp-2 relative z-10">{report.description}</p>

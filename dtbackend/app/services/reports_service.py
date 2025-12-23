@@ -24,6 +24,7 @@ from app.schemas.reports import (
     ReportExecutionRequest,
     ReportExecutionResponse,
     ReportFullUpdate,
+    ReportList,
     ReportUpdate,
 )
 from app.schemas.user import User as UserSchema
@@ -125,39 +126,42 @@ class ReportsService:
             platform_id=platform.id if platform else None,
             color=report_data.color or "#3B82F6",
             allowed_departments=report_data.allowed_departments or [],
-            allowed_users=report_data.allowed_users or []
+            allowed_users=report_data.allowed_users or [],
+            is_direct_link=report_data.is_direct_link or False,
+            direct_link=report_data.direct_link
         )
         self.db.add(db_report)
         await self.db.flush()  # Get the report ID
 
-        # Create queries
-        for query_data in report_data.queries:
-            db_query = ReportQuery(
-                report_id=db_report.id,
-                name=query_data.name,
-                sql=query_data.sql,
-                visualization_config=query_data.visualization.dict(),
-                order_index=query_data.order_index or 0
-            )
-            self.db.add(db_query)
-            await self.db.flush()  # Get the query ID
-
-            # Create filters for this query
-            for filter_data in query_data.filters:
-                # Handle both enum and string types
-                filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
-
-                db_filter = ReportQueryFilter(
-                    query_id=db_query.id,
-                    field_name=filter_data.field_name,
-                    display_name=filter_data.display_name,
-                    filter_type=filter_type_value,
-                    dropdown_query=filter_data.dropdown_query,
-                    required=filter_data.required,
-                    sql_expression=filter_data.sql_expression,
-                    depends_on=filter_data.depends_on
+        # Create queries only if not a direct link report
+        if not report_data.is_direct_link:
+            for query_data in report_data.queries:
+                db_query = ReportQuery(
+                    report_id=db_report.id,
+                    name=query_data.name,
+                    sql=query_data.sql,
+                    visualization_config=query_data.visualization.dict(),
+                    order_index=query_data.order_index or 0
                 )
-                self.db.add(db_filter)
+                self.db.add(db_query)
+                await self.db.flush()  # Get the query ID
+
+                # Create filters for this query
+                for filter_data in query_data.filters:
+                    # Handle both enum and string types
+                    filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
+
+                    db_filter = ReportQueryFilter(
+                        query_id=db_query.id,
+                        field_name=filter_data.field_name,
+                        display_name=filter_data.display_name,
+                        filter_type=filter_type_value,
+                        dropdown_query=filter_data.dropdown_query,
+                        required=filter_data.required,
+                        sql_expression=filter_data.sql_expression,
+                        depends_on=filter_data.depends_on
+                    )
+                    self.db.add(db_filter)
 
         await self.db.commit()
 
@@ -282,7 +286,7 @@ class ReportsService:
 
         return reports
 
-    async def get_reports_list(self, user: UserSchema, skip: int = 0, limit: int = 100, my_reports_only: bool = False, platform: Platform | None = None, subplatform: str | None = None) -> list[Report]:
+    async def get_reports_list(self, user: UserSchema, skip: int = 0, limit: int = 100, my_reports_only: bool = False, platform: Platform | None = None, subplatform: str | None = None) -> list[ReportList]:
         """Get reports list for a user (without nested queries and filters for performance)"""
         db_user = await UserService.get_user_by_username(self.db, user.username)
         if not db_user:
@@ -348,6 +352,8 @@ class ReportsService:
             Report.updated_at,
             Report.tags,
             Report.color,
+            Report.is_direct_link,
+            Report.direct_link,
             func.count(ReportQuery.id).label('query_count')
         ).outerjoin(ReportQuery).group_by(
             Report.id,
@@ -358,7 +364,9 @@ class ReportsService:
             Report.created_at,
             Report.updated_at,
             Report.tags,
-            Report.color
+            Report.color,
+            Report.is_direct_link,
+            Report.direct_link
         ).where(
             and_(*filters)
         ).offset(skip).limit(limit)
@@ -386,20 +394,22 @@ class ReportsService:
         # Build ReportList objects
         reports = []
         for row in report_rows:
-            reports.append({
-                'id': row.id,
-                'name': row.name,
-                'description': row.description,
-                'is_public': row.is_public,
-                'owner_id': row.owner_id,
-                'owner_name': owner_map.get(row.owner_id),
-                'created_at': row.created_at,
-                'updated_at': row.updated_at,
-                'tags': row.tags,
-                'query_count': row.query_count,
-                'is_favorite': row.id in favorite_ids,
-                'color': row.color
-            })
+            reports.append(ReportList(
+                id=row.id,
+                name=row.name,
+                description=row.description,
+                is_public=row.is_public,
+                owner_id=row.owner_id,
+                owner_name=owner_map.get(row.owner_id),
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                tags=row.tags,
+                query_count=row.query_count,
+                is_favorite=row.id in favorite_ids,
+                color=row.color,
+                is_direct_link=row.is_direct_link or False,
+                direct_link=row.direct_link
+            ))
 
         return reports
 
@@ -437,6 +447,10 @@ class ReportsService:
             db_report.allowed_departments = report_data.allowed_departments
         if report_data.allowed_users is not None:
             db_report.allowed_users = report_data.allowed_users
+        if report_data.is_direct_link is not None:
+            db_report.is_direct_link = report_data.is_direct_link
+        if report_data.direct_link is not None:
+            db_report.direct_link = report_data.direct_link
 
         await self.db.commit()
 
@@ -483,6 +497,10 @@ class ReportsService:
             db_report.allowed_departments = report_data.allowed_departments
         if report_data.allowed_users is not None:
             db_report.allowed_users = report_data.allowed_users
+        if report_data.is_direct_link is not None:
+            db_report.is_direct_link = report_data.is_direct_link
+        if report_data.direct_link is not None:
+            db_report.direct_link = report_data.direct_link
 
         # Update global filters if provided
         if report_data.global_filters is not None:
@@ -500,8 +518,27 @@ class ReportsService:
                 })
             db_report.global_filters = global_filters_json
 
-        # Update queries if provided
-        if report_data.queries is not None:
+        # Determine if report is/will be in direct link mode
+        will_be_direct_link = report_data.is_direct_link if report_data.is_direct_link is not None else db_report.is_direct_link
+        
+        # If switching to or already in direct link mode, delete all queries
+        if will_be_direct_link:
+            old_db_query_ids = [q.id for q in db_report.queries]
+            if old_db_query_ids:
+                # Delete all filters for these queries
+                filter_delete_stmt = delete(ReportQueryFilter).where(
+                    ReportQueryFilter.query_id.in_(old_db_query_ids)
+                )
+                await self.db.execute(filter_delete_stmt)
+                # Delete all queries for this report
+                query_delete_stmt = delete(ReportQuery).where(
+                    ReportQuery.report_id == db_report.id
+                )
+                await self.db.execute(query_delete_stmt)
+                await self.db.flush()
+        
+        # Update queries if provided (only if not a direct link report)
+        if report_data.queries is not None and not will_be_direct_link:
             # Store old query IDs from the database
             old_db_query_ids = [q.id for q in db_report.queries]
 

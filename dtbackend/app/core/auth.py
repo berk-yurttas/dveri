@@ -105,6 +105,7 @@ async def get_http_client():
             timeout=httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0),
             limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
             http2=True,  # Enable HTTP/2 for better performance
+            verify=False,
         )
 
     return _http_client
@@ -170,7 +171,7 @@ async def refresh_access_token(refresh_token: str) -> dict[str, str]:
                 "https://": f"http://{settings.AUTH_SERVER_PROXY_HOST}:{settings.AUTH_SERVER_PROXY_PORT}"
             }
 
-        async with httpx.AsyncClient(proxies=proxy_config) as client:
+        async with httpx.AsyncClient(proxies=proxy_config, verify=False) as client:
             response = await client.get(
                 f"{settings.AUTH_SERVER_URL}/auth/refresh",
                 headers={"Authorization": refresh_token}
@@ -381,7 +382,7 @@ async def create_secure_request() -> str:
     secret_key = create_random_cuid()
     
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             auth_token = None
             
             # Authenticate with PocketBase admin

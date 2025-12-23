@@ -305,7 +305,7 @@ class AnnouncementService:
             if not record_id:
                 return
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                 auth_token = None
 
                 if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:

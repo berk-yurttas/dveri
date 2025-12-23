@@ -83,7 +83,7 @@ class UserService:
                     "https://": f"http://{settings.AUTH_SERVER_PROXY_HOST}:{settings.AUTH_SERVER_PROXY_PORT}"
                 }
 
-            async with httpx.AsyncClient(proxies=proxy_config) as client:
+            async with httpx.AsyncClient(proxies=proxy_config, verify=False) as client:
                 response = await client.get(
                     f"{settings.AUTH_SERVER_URL}/auth/saml_checker",
                     params={"saml_token": secret}
@@ -217,7 +217,7 @@ class UserService:
                     "https://": f"http://{settings.AUTH_SERVER_PROXY_HOST}:{settings.AUTH_SERVER_PROXY_PORT}"
                 }
             
-            async with httpx.AsyncClient(proxies=proxy_config) as client:
+            async with httpx.AsyncClient(proxies=proxy_config, verify=False) as client:
                 response = await client.post(
                     f"{settings.AUTH_SERVER_URL}/search/retrieveAllDepartments",
                     json={"username": username},
@@ -288,7 +288,7 @@ class UserService:
                 "filter": f'name ~ "%{search}%" || name ~ "%{search_upper}%"'
             }
             
-            async with httpx.AsyncClient(proxies=proxy_config) as client:
+            async with httpx.AsyncClient(proxies=proxy_config, verify=False) as client:
                 response = await client.post(
                     url,
                     json=payload,

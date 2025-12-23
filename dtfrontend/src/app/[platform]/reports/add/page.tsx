@@ -1443,7 +1443,9 @@ export default function AddReportPage() {
     tags: [],
     globalFilters: [],
     color: '#3B82F6',  // Default blue color
-    is_public: false   // Default to private
+    is_public: false,   // Default to private
+    isDirectLink: false,  // Default to normal report mode
+    directLink: ''
   })
 
   const [activeQueryIndex, setActiveQueryIndex] = useState<number>(0)
@@ -1898,15 +1900,32 @@ export default function AddReportPage() {
       return
     }
 
-    if (report.queries.length === 0) {
-      alert('En az bir sorgu ekleyin.')
-      return
-    }
-
-    for (const query of report.queries) {
-      if (!query.sql.trim()) {
-        alert(`"${query.name}" sorgusu için SQL yazın.`)
+    // Validate based on report type
+    if (report.isDirectLink) {
+      // Direct link mode: validate direct link
+      if (!report.directLink || !report.directLink.trim()) {
+        alert('Lütfen rapor bağlantısını girin.')
         return
+      }
+      // Basic URL validation
+      try {
+        new URL(report.directLink.trim())
+      } catch {
+        alert('Lütfen geçerli bir URL girin.')
+        return
+      }
+    } else {
+      // Normal mode: validate queries
+      if (report.queries.length === 0) {
+        alert('En az bir sorgu ekleyin.')
+        return
+      }
+
+      for (const query of report.queries) {
+        if (!query.sql.trim()) {
+          alert(`"${query.name}" sorgusu için SQL yazın.`)
+          return
+        }
       }
     }
 
@@ -2058,10 +2077,70 @@ export default function AddReportPage() {
                   </div>
                 </div>
               </div>
+              
+              {/* Direct Link Mode Switch */}
+              <div className="pt-4 border-t border-slate-200/50">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <Label htmlFor="directLinkMode" className="text-sm font-semibold text-slate-700">
+                      Rapor Tipi
+                    </Label>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Normal rapor oluşturma veya dış bağlantı kullanma
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Label htmlFor="directLinkMode" className="text-sm text-slate-600">
+                      Normal Rapor
+                    </Label>
+                    <button
+                      type="button"
+                      id="directLinkMode"
+                      onClick={() => setReport(prev => ({ 
+                        ...prev, 
+                        isDirectLink: !prev.isDirectLink,
+                        directLink: !prev.isDirectLink ? '' : prev.directLink
+                      }))}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        report.isDirectLink ? 'bg-blue-600' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          report.isDirectLink ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                    <Label htmlFor="directLinkMode" className="text-sm text-slate-600">
+                      Dış Bağlantı
+                    </Label>
+                  </div>
+                </div>
+                
+                {/* Direct Link Input - shown when isDirectLink is true */}
+                {report.isDirectLink && (
+                  <div className="space-y-2 mt-4 p-4 bg-blue-50/50 rounded-lg border border-blue-200">
+                    <Label htmlFor="directLink" className="text-sm font-semibold text-slate-700">
+                      Rapor Bağlantısı *
+                    </Label>
+                    <Input
+                      id="directLink"
+                      value={report.directLink || ''}
+                      onChange={(e) => setReport(prev => ({ ...prev, directLink: e.target.value }))}
+                      placeholder="https://example.com/report"
+                      className="h-9"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Dış rapor sayfasının tam URL adresini girin
+                    </p>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 
-          {/* Global Filters Section */}
+          {/* Global Filters Section - Hidden when isDirectLink is true */}
+          {!report.isDirectLink && (
           <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300">
             <CardHeader className="pb-3 pt-3 px-4 border-b border-slate-200/50">
               <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
@@ -2180,8 +2259,10 @@ export default function AddReportPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
-          {/* Queries Section */}
+          {/* Queries Section - Hidden when isDirectLink is true */}
+          {!report.isDirectLink && (
           <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300 gap-1">
             <CardHeader className="pb-3 pt-3 px-4 border-b border-slate-200/50">
               <div className="flex items-center justify-between">
@@ -3771,6 +3852,7 @@ export default function AddReportPage() {
             )}
             </CardContent>
           </Card>
+          )}
 
           {/* Save Button */}
           <div className="flex justify-end gap-4 pt-8">

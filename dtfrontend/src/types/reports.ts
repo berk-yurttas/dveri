@@ -153,6 +153,8 @@ export interface ReportConfig {
   is_public?: boolean
   allowedDepartments?: string[]
   allowedUsers?: string[]
+  isDirectLink?: boolean  // If true, report uses direct link instead of queries
+  directLink?: string  // Direct link URL to external report page
 }
 
 // Future report save/load types

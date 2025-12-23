@@ -141,6 +141,8 @@ class Report(PostgreSQLBase):
     color = Column(String(50), default="#3B82F6")  # Report card border/theme color
     allowed_departments = Column(ARRAY(String), default=[])
     allowed_users = Column(ARRAY(String), default=[])
+    is_direct_link = Column(Boolean, default=False)  # If true, report uses direct link instead of queries
+    direct_link = Column(Text, nullable=True)  # Direct link URL to external report page
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

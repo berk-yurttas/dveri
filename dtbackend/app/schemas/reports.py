@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # Enums for type safety
@@ -169,7 +169,8 @@ class QueryConfigBase(BaseModel):
     visualization: VisualizationConfig
     order_index: int | None = Field(0, alias="orderIndex")
 
-    @validator('sql')
+    @field_validator('sql')
+    @classmethod
     def validate_sql(cls, v):
         if not v.strip():
             raise ValueError('SQL query cannot be empty')
@@ -214,13 +215,34 @@ class ReportBase(BaseModel):
     color: str | None = Field("#3B82F6", description="Report card border/theme color")
     allowed_departments: list[str] | None = Field([], alias="allowedDepartments", description="List of department IDs allowed to view this report")
     allowed_users: list[str] | None = Field([], alias="allowedUsers", description="List of usernames allowed to view this report")
+    is_direct_link: bool | None = Field(False, alias="isDirectLink", description="If true, report uses direct link instead of queries")
+    direct_link: str | None = Field(None, alias="directLink", description="Direct link URL to external report page")
 
     class Config:
         populate_by_name = True  # Allow both field names and aliases
         from_attributes = True
 
 class ReportCreate(ReportBase):
-    queries: list[QueryConfigCreate] = Field(..., min_items=1, description="At least one query is required")
+    queries: list[QueryConfigCreate] = Field(default=[], description="List of queries (required if not isDirectLink)")
+
+    @model_validator(mode='after')
+    def validate_queries_and_direct_link(self):
+        is_direct_link = self.is_direct_link or False
+        if not is_direct_link:
+            if not self.queries or len(self.queries) == 0:
+                raise ValueError('At least one query is required when isDirectLink is false')
+        else:
+            if not self.direct_link or not self.direct_link.strip():
+                raise ValueError('directLink is required when isDirectLink is true')
+            # Basic URL validation
+            try:
+                from urllib.parse import urlparse
+                result = urlparse(self.direct_link.strip())
+                if not result.scheme or not result.netloc:
+                    raise ValueError('directLink must be a valid URL')
+            except Exception as e:
+                raise ValueError(f'directLink must be a valid URL: {str(e)}')
+        return self
 
 class ReportUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
@@ -232,6 +254,8 @@ class ReportUpdate(BaseModel):
     color: str | None = None
     allowed_departments: list[str] | None = Field(None, alias="allowedDepartments")
     allowed_users: list[str] | None = Field(None, alias="allowedUsers")
+    is_direct_link: bool | None = Field(None, alias="isDirectLink")
+    direct_link: str | None = Field(None, alias="directLink")
 
     class Config:
         populate_by_name = True
@@ -248,6 +272,29 @@ class ReportFullUpdate(BaseModel):
     color: str | None = None
     allowed_departments: list[str] | None = Field(None, alias="allowedDepartments")
     allowed_users: list[str] | None = Field(None, alias="allowedUsers")
+    is_direct_link: bool | None = Field(None, alias="isDirectLink")
+    direct_link: str | None = Field(None, alias="directLink")
+
+    @model_validator(mode='after')
+    def validate_queries_and_direct_link(self):
+        is_direct_link = self.is_direct_link
+        # Only validate if is_direct_link is explicitly set
+        if is_direct_link is not None:
+            if not is_direct_link:
+                if not self.queries or len(self.queries) == 0:
+                    raise ValueError('At least one query is required when isDirectLink is false')
+            else:
+                if not self.direct_link or not self.direct_link.strip():
+                    raise ValueError('directLink is required when isDirectLink is true')
+                # Basic URL validation
+                try:
+                    from urllib.parse import urlparse
+                    result = urlparse(self.direct_link.strip())
+                    if not result.scheme or not result.netloc:
+                        raise ValueError('directLink must be a valid URL')
+                except Exception as e:
+                    raise ValueError(f'directLink must be a valid URL: {str(e)}')
+        return self
 
     class Config:
         populate_by_name = True
@@ -277,8 +324,11 @@ class ReportList(BaseModel):
     query_count: int | None = 0
     is_favorite: bool | None = False
     color: str | None = "#3B82F6"
+    is_direct_link: bool | None = Field(False, alias="isDirectLink")
+    direct_link: str | None = Field(None, alias="directLink")
 
     class Config:
+        populate_by_name = True
         from_attributes = True
 
 # Report Execution Schemas

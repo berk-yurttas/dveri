@@ -178,7 +178,7 @@ async def upload_announcement_image(
         - **filename**: Uploaded filename
     """
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             # 1. Admin authentication (if credentials provided)
             auth_token = None
             if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:

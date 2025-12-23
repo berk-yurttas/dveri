@@ -246,7 +246,7 @@ async def create_user_for_station(
     # Create user in PocketBase
     pb_user_id = None
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             # 1. Admin authentication
             auth_token = None
             if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:
