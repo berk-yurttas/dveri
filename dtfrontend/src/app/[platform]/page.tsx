@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useLayoutEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   BarChart3,
@@ -41,7 +41,9 @@ import {
   Trash2,
   User,
   X,
-  Lock
+  Lock,
+  ChevronDown,
+  ChevronRight
 } from "lucide-react";
 import { dashboardService } from "@/services/dashboard";
 import { reportsService } from "@/services/reports";
@@ -115,6 +117,15 @@ export default function PlatformHome() {
   const [showIotApps, setShowIotApps] = useState(false);
   const [showAllAnnouncementsModal, setShowAllAnnouncementsModal] = useState(false);
   const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
+  const [expandedFeatures, setExpandedFeatures] = useState<Set<number>>(new Set());
+  const [hoveredFeature, setHoveredFeature] = useState<number | null>(null);
+  const [showFeatureNavigationModal, setShowFeatureNavigationModal] = useState(false);
+  const [navigatingFeature, setNavigatingFeature] = useState<{
+    name: string;
+    imageUrl?: string;
+    url: string;
+  } | null>(null);
+  const navigationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isIvmePlatform = platformData?.code === 'ivme';
   const isRomiotPlatform = platformCode === 'romiot';
 
@@ -142,6 +153,19 @@ export default function PlatformHome() {
 
   const handleDerinizLeave = () => {
     setShowTooltip(false);
+  };
+
+  // Toggle feature expansion for subfeatures
+  const toggleFeatureExpansion = (index: number) => {
+    setExpandedFeatures((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
   };
 
   // Carousel navigation for announcements
@@ -282,6 +306,42 @@ export default function PlatformHome() {
       {platformCode === 'ivme' && (
         <div className="fixed -z-10 inset-0 top-[-400px] opacity-20 pointer-events-none" style={{ backgroundImage: 'url(/wave_bg.png)', backgroundSize: 'cover', backgroundPosition: 'center' }}></div>
       )}
+
+      {/* Romiot branding elements */}
+      {platformCode === 'romiot' && (
+        <>
+          <div
+            className="fixed pointer-events-none z-10"
+            style={{
+              width: '350px',
+              height: '500px',
+              backgroundImage: 'url(/romiot-bg.png)',
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
+              opacity: 0.2,
+              top: '100px',
+              left: '-100px',
+            }}
+          ></div>
+
+          <div
+            className="fixed pointer-events-none z-10"
+            style={{
+              width: '350px',
+              height: '500px',
+              backgroundImage: 'url(/romiot-bg.png)',
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
+              opacity: 0.2,
+              bottom: '700px',
+              right: '-100px',
+            }}
+          ></div>
+        </>
+      )}
+
       {/* Only show DerinIZ branding elements when platform is deriniz */}
       {platformCode === 'deriniz' && (
         <>
@@ -295,7 +355,7 @@ export default function PlatformHome() {
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'center',
               opacity: 0.2,
-              top: '100px',
+              top: '600px',
               left: '-200px',
             }}
             onMouseMove={handleDerinizMove}
@@ -387,13 +447,17 @@ export default function PlatformHome() {
         {platformData?.theme_config?.features && platformData.theme_config.features.length > 0  && (
           <div className="mb-16">
             <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${
-              platformData.theme_config.features.length === 4 
-                ? 'lg:grid-cols-4' 
-                : platformData.theme_config.features.length === 5 
-                ? 'lg:grid-cols-5' 
+              platformData.theme_config.features.length === 4
+                ? 'lg:grid-cols-4'
+                : platformData.theme_config.features.length === 5
+                ? 'lg:grid-cols-5'
+                : platformData.theme_config.features.length === 6
+                ? 'lg:grid-cols-6'
                 : 'lg:grid-cols-4'
             }`}>
               {platformData.theme_config.features.map((feature, index) => {
+                const hasSubfeatures = feature.subfeatures && feature.subfeatures.length > 0;
+                
                 // Check if user has atolye role (any variant: yonetici, operator, or musteri)
                 const hasAtolyeRole = user?.role && Array.isArray(user.role) &&
                   user.role.some((role) => 
@@ -428,8 +492,47 @@ export default function PlatformHome() {
                 const cardContent = feature.useImage && feature.imageUrl ? (
                   // Image-based card design
                   <div className="bg-white rounded-lg shadow-xl shadow-slate-200 overflow-hidden hover:shadow-2xl transition-all duration-300">
-                    {feature.title && feature.title.trim() ? (
-                      // Two column layout when title exists
+                    {platformCode === 'romiot' ? (
+                      // Romiot layout: Image on top, title centered below
+                      <div className="flex flex-col items-center">
+                        {/* Image at top - smaller size */}
+                        <div className="w-full h-32 flex items-center justify-center p-4">
+                          <img
+                            src={feature.imageUrl}
+                            alt={feature.title}
+                            className="max-w-full max-h-full object-contain"
+                            onError={(e) => {
+                              // Fallback to icon card if image fails to load
+                              const target = e.target as HTMLImageElement;
+                              const card = target.closest('.bg-white');
+                              if (card) {
+                                card.innerHTML = `
+                                  <div class="p-6 text-center">
+                                    <div class="w-12 h-12 rounded-lg flex items-center justify-center mb-4 mx-auto" style="background-color: ${feature.backgroundColor}">
+                                      <svg class="w-6 h-6" style="color: ${feature.iconColor}" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                      </svg>
+                                    </div>
+                                    <h4 class="font-semibold text-gray-900 mb-2">${feature.title}</h4>
+                                    <p class="text-sm text-gray-600">${feature.description}</p>
+                                  </div>
+                                `;
+                              }
+                            }}
+                          />
+                        </div>
+                        {/* Title centered below */}
+                        {feature.title && feature.title.trim() && (
+                          <div className="w-full p-4 text-center border-t border-gray-100">
+                            <h4 className="font-semibold text-gray-900">{feature.title}</h4>
+                            {feature.description && (
+                              <p className="text-sm text-gray-600 mt-2">{feature.description}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : feature.title && feature.title.trim() ? (
+                      // Two column layout when title exists (for non-romiot platforms)
                       <div className="flex">
                         {/* Left column - Image */}
                         <div className="w-40 h-40 flex-shrink-0">
@@ -464,7 +567,7 @@ export default function PlatformHome() {
                         </div>
                       </div>
                     ) : (
-                      // Image only when no title
+                      // Image only when no title (for non-romiot platforms)
                       <div className="w-full h-40 mt-5 mb-5">
                         <img
                           src={feature.imageUrl}
@@ -494,16 +597,16 @@ export default function PlatformHome() {
                   </div>
                 ) : (
                   // Icon-based card design (original)
-                  <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6">
-                    <div 
-                      className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
+                  <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-4">
+                    <div
+                      className="w-10 h-10 rounded-lg flex items-center justify-center mb-3"
                       style={{ backgroundColor: feature.backgroundColor }}
                     >
                       {(() => {
                         const IconComponent = iconMap[feature.icon] || Activity;
                         return (
-                          <IconComponent 
-                            className="h-6 w-6" 
+                          <IconComponent
+                            className="h-5 w-5"
                             style={{ color: feature.iconColor }}
                           />
                         );
@@ -518,55 +621,217 @@ export default function PlatformHome() {
                 // Use the corrected featureUrl if it was modified for atolye feature
                 const urlToUse = featureUrl || feature.url;
                 
-                // For atolye users on romiot platform, always make atolye feature clickable
-                const shouldBeClickable = urlToUse || (isAtolyeFeature && hasAtolyeRole && platformCode === 'romiot');
+                // If feature has subfeatures, clicking should expand/collapse
+                // Otherwise, if it has a URL, navigate to it
+                const hasUrl = urlToUse || (isAtolyeFeature && hasAtolyeRole && platformCode === 'romiot');
                 
-                if (shouldBeClickable) {
-                  const finalUrl = urlToUse || `/${platformCode}/atolye`;
-                  return (
-                    <div
-                      key={index}
-                      onClick={(e) => {
-                        if (!checkAccess(feature, user)) {
-                          setShowAccessDeniedModal(true);
-                          return;
-                        }
+                // Check if this feature is expanded or if any feature is expanded
+                const isThisExpanded = expandedFeatures.has(index);
+                const hasAnyExpanded = expandedFeatures.size > 0;
+                const shouldDim = hasAnyExpanded && !isThisExpanded;
+                const isHovered = hoveredFeature === index;
 
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log('Feature clicked:', feature.title, 'URL:', finalUrl, 'isAtolyeFeature:', isAtolyeFeature, 'hasAtolyeRole:', hasAtolyeRole);
-                        if (finalUrl.startsWith('http')) {
-                          window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                return (
+                  <div
+                    key={index}
+                    onMouseEnter={() => setHoveredFeature(index)}
+                    onMouseLeave={() => setHoveredFeature(null)}
+                    onClick={(e) => {
+                      if (!checkAccess(feature, user)) {
+                        setShowAccessDeniedModal(true);
+                        return;
+                      }
+
+                      e.preventDefault();
+                      e.stopPropagation();
+
+                      // If has subfeatures, toggle expansion
+                      if (hasSubfeatures) {
+                        toggleFeatureExpansion(index);
+                      } else if (hasUrl) {
+                        // Otherwise, navigate to URL
+                        console.log('Feature clicked:', feature.title, 'URL:', urlToUse, 'isAtolyeFeature:', isAtolyeFeature, 'hasAtolyeRole:', hasAtolyeRole);
+                        const finalUrl = urlToUse || `/${platformCode}/atolye`;
+
+                        // For romiot platform, show navigation modal
+                        if (platformCode === 'romiot') {
+                          // Clear any existing timer
+                          if (navigationTimerRef.current) {
+                            clearTimeout(navigationTimerRef.current);
+                          }
+
+                          setNavigatingFeature({
+                            name: feature.title || 'Özellik',
+                            imageUrl: feature.imageUrl,
+                            url: finalUrl
+                          });
+                          setShowFeatureNavigationModal(true);
+
+                          // Navigate after delay
+                          navigationTimerRef.current = setTimeout(() => {
+                            if (finalUrl.startsWith('http')) {
+                              window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                            } else {
+                              router.push(finalUrl);
+                            }
+                            setShowFeatureNavigationModal(false);
+                            navigationTimerRef.current = null;
+                          }, 2000);
                         } else {
-                          router.push(finalUrl);
-                        }
-                      }}
-                      className="block hover:scale-105 transition-transform cursor-pointer"
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
+                          // For other platforms, navigate immediately
                           if (finalUrl.startsWith('http')) {
                             window.open(finalUrl, '_blank', 'noopener,noreferrer');
                           } else {
                             router.push(finalUrl);
                           }
                         }
-                      }}
-                    >
-                      {cardContent}
-                    </div>
-                  );
-                }
+                      }
+                    }}
+                    className={`block transition-all duration-300 rounded-lg ${
+                      hasSubfeatures || hasUrl ? 'hover:scale-105 cursor-pointer' : ''
+                    } ${shouldDim ? 'opacity-40' : 'opacity-100'} ${
+                      platformCode === 'romiot' && isHovered ? 'ring-2 ring-[#FF5620]' : ''
+                    }`}
+                    role={hasSubfeatures || hasUrl ? "button" : undefined}
+                    tabIndex={hasSubfeatures || hasUrl ? 0 : undefined}
+                    onKeyDown={(e) => {
+                      if ((e.key === 'Enter' || e.key === ' ') && (hasSubfeatures || hasUrl)) {
+                        e.preventDefault();
+                        if (hasSubfeatures) {
+                          toggleFeatureExpansion(index);
+                        } else if (hasUrl) {
+                          const finalUrl = urlToUse || `/${platformCode}/atolye`;
 
-                return (
-                  <div key={index}>
+                          // For romiot platform, show navigation modal
+                          if (platformCode === 'romiot') {
+                            // Clear any existing timer
+                            if (navigationTimerRef.current) {
+                              clearTimeout(navigationTimerRef.current);
+                            }
+
+                            setNavigatingFeature({
+                              name: feature.title || 'Özellik',
+                              imageUrl: feature.imageUrl,
+                              url: finalUrl
+                            });
+                            setShowFeatureNavigationModal(true);
+
+                            // Navigate after delay
+                            navigationTimerRef.current = setTimeout(() => {
+                              if (finalUrl.startsWith('http')) {
+                                window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                              } else {
+                                router.push(finalUrl);
+                              }
+                              setShowFeatureNavigationModal(false);
+                              navigationTimerRef.current = null;
+                            }, 2000);
+                          } else {
+                            // For other platforms, navigate immediately
+                            if (finalUrl.startsWith('http')) {
+                              window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                            } else {
+                              router.push(finalUrl);
+                            }
+                          }
+                        }
+                      }
+                    }}
+                  >
                     {cardContent}
                   </div>
                 );
               })}
             </div>
+
+            {/* Subfeatures Section - Separate section below features */}
+            {platformData.theme_config.features.some((feature, index) =>
+              feature.subfeatures && feature.subfeatures.length > 0 && expandedFeatures.has(index)
+            ) && (
+              <div className="mt-8 opacity-0 animate-[fadeInSection_0.5s_ease-in-out_forwards]">
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${
+                  platformData.theme_config.features.length === 4
+                    ? 'lg:grid-cols-4'
+                    : platformData.theme_config.features.length === 5
+                    ? 'lg:grid-cols-5'
+                    : platformData.theme_config.features.length === 6
+                    ? 'lg:grid-cols-6'
+                    : 'lg:grid-cols-4'
+                }`}>
+                  {platformData.theme_config.features.map((feature, index) => {
+                    const isExpanded = expandedFeatures.has(index);
+                    if (!isExpanded || !feature.subfeatures || feature.subfeatures.length === 0) {
+                      return null;
+                    }
+
+                    return feature.subfeatures.map((subfeature: any, subIndex: number) => {
+                      const SubfeatureIcon = iconMap[subfeature.icon] || Activity;
+                      const hasSubfeatureUrl = subfeature.url && subfeature.url.trim();
+                      const canAccessSubfeature = checkAccess(subfeature, user);
+
+                      if (!canAccessSubfeature) {
+                        return null;
+                      }
+
+                      // Make URL relative to platform if needed
+                      let subfeatureUrl = subfeature.url;
+                      if (hasSubfeatureUrl && !subfeatureUrl.startsWith('/') && !subfeatureUrl.startsWith('http')) {
+                        subfeatureUrl = `/${platformCode}${subfeatureUrl.startsWith('/') ? '' : '/'}${subfeatureUrl}`;
+                      }
+
+                      return (
+                        <div
+                          key={`${index}-sub-${subIndex}`}
+                          onClick={(e) => {
+                            if (hasSubfeatureUrl) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (subfeatureUrl.startsWith('http')) {
+                                window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
+                              } else {
+                                router.push(subfeatureUrl);
+                              }
+                            }
+                          }}
+                          className={`opacity-0 ${hasSubfeatureUrl ? "block hover:scale-105 transition-all cursor-pointer" : "block transition-all"}`}
+                          style={{
+                            animation: `slideUp 0.4s ease-out ${subIndex * 0.1}s forwards`
+                          }}
+                          role={hasSubfeatureUrl ? "button" : undefined}
+                          tabIndex={hasSubfeatureUrl ? 0 : undefined}
+                          onKeyDown={(e) => {
+                            if ((e.key === 'Enter' || e.key === ' ') && hasSubfeatureUrl) {
+                              e.preventDefault();
+                              if (subfeatureUrl.startsWith('http')) {
+                                window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
+                              } else {
+                                router.push(subfeatureUrl);
+                              }
+                            }
+                          }}
+                        >
+                          <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300">
+                            <div
+                              className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
+                              style={{ backgroundColor: feature.backgroundColor || '#EFF6FF' }}
+                            >
+                              <SubfeatureIcon
+                                className="h-6 w-6"
+                                style={{ color: feature.iconColor || '#3B82F6' }}
+                              />
+                            </div>
+                            <h4 className="font-semibold text-gray-900 mb-2">{subfeature.title}</h4>
+                            {subfeature.description && (
+                              <p className="text-sm text-gray-600">{subfeature.description}</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1065,6 +1330,52 @@ export default function PlatformHome() {
               >
                 Kapat
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feature Navigation Loading Modal - Romiot Platform */}
+      {showFeatureNavigationModal && navigatingFeature && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 backdrop-blur-md">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-fade-in">
+            {/* Header with gradient */}
+            <div className="bg-gradient-to-r from-blue-800 to-orange-500 px-8 py-6">
+              <div className="flex items-center justify-center gap-4">
+                <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                <h3 className="text-2xl font-bold text-white">Yönlendiriliyor...</h3>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-8 flex flex-col items-center">
+              {navigatingFeature.imageUrl ? (
+                <div className="w-32 h-32 mb-6 flex items-center justify-center">
+                  <img
+                    src={navigatingFeature.imageUrl}
+                    alt={navigatingFeature.name}
+                    className="max-w-full max-h-full object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="w-32 h-32 mb-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
+                  <Database className="w-16 h-16 text-blue-600" />
+                </div>
+              )}
+
+              <p className="text-gray-700 text-xl text-center mb-2">
+                <span className="font-bold text-2xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                  {navigatingFeature.name}
+                </span>
+              </p>
+              <p className="text-gray-600 text-center">
+                servisine yönlendiriliyorsunuz
+              </p>
+
+              {/* Progress bar */}
+              <div className="w-full mt-6 bg-gray-200 rounded-full h-2 overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-blue-600 to-purple-600 rounded-full animate-progress"></div>
+              </div>
             </div>
           </div>
         </div>

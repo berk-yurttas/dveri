@@ -14,7 +14,11 @@ import {
   Settings,
   Image as ImageIcon,
   Shield,
-  Users
+  Users,
+  Plus,
+  X,
+  ChevronDown,
+  ChevronRight
 } from "lucide-react";
 import { platformService } from "@/services/platform";
 import { Platform, PlatformUpdate } from "@/types/platform";
@@ -34,6 +38,8 @@ export default function EditPlatformPage() {
   const [activeTab, setActiveTab] = useState('basic');
   const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [featurePermissionIndex, setFeaturePermissionIndex] = useState<number | null>(null);
+  const [subfeaturePermissionIndices, setSubfeaturePermissionIndices] = useState<{featureIndex: number, subfeatureIndex: number} | null>(null);
+  const [expandedFeatures, setExpandedFeatures] = useState<Set<number>>(new Set());
 
   // Form state
   const [formData, setFormData] = useState<PlatformUpdate>({
@@ -109,7 +115,20 @@ export default function EditPlatformPage() {
   };
 
   const handlePermissionSave = (departments: string[], users: string[]) => {
-    if (featurePermissionIndex !== null) {
+    if (subfeaturePermissionIndices !== null) {
+      // Updating subfeature permissions
+      const newFeatures = [...(formData.theme_config as any)?.features || []];
+      const { featureIndex, subfeatureIndex } = subfeaturePermissionIndices;
+      if (newFeatures[featureIndex]?.subfeatures?.[subfeatureIndex]) {
+        if (!newFeatures[featureIndex].subfeatures) {
+          newFeatures[featureIndex].subfeatures = [];
+        }
+        newFeatures[featureIndex].subfeatures[subfeatureIndex].allowed_departments = departments;
+        newFeatures[featureIndex].subfeatures[subfeatureIndex].allowed_users = users;
+        handleThemeConfigChange('features', newFeatures);
+      }
+      setSubfeaturePermissionIndices(null);
+    } else if (featurePermissionIndex !== null) {
       // Updating feature card permissions
       const newFeatures = [...(formData.theme_config as any)?.features || []];
       if (newFeatures[featurePermissionIndex]) {
@@ -134,6 +153,10 @@ export default function EditPlatformPage() {
   };
 
   const getInitialDepartments = () => {
+    if (subfeaturePermissionIndices !== null) {
+      const { featureIndex, subfeatureIndex } = subfeaturePermissionIndices;
+      return (formData.theme_config as any)?.features?.[featureIndex]?.subfeatures?.[subfeatureIndex]?.allowed_departments || [];
+    }
     if (featurePermissionIndex !== null) {
       return (formData.theme_config as any)?.features?.[featurePermissionIndex]?.allowed_departments || [];
     }
@@ -141,10 +164,31 @@ export default function EditPlatformPage() {
   };
 
   const getInitialUsers = () => {
+    if (subfeaturePermissionIndices !== null) {
+      const { featureIndex, subfeatureIndex } = subfeaturePermissionIndices;
+      return (formData.theme_config as any)?.features?.[featureIndex]?.subfeatures?.[subfeatureIndex]?.allowed_users || [];
+    }
     if (featurePermissionIndex !== null) {
       return (formData.theme_config as any)?.features?.[featurePermissionIndex]?.allowed_users || [];
     }
     return formData.allowed_users || [];
+  };
+
+  const toggleFeatureExpansion = (index: number) => {
+    setExpandedFeatures(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  };
+
+  const openSubfeaturePermissionModal = (featureIndex: number, subfeatureIndex: number) => {
+    setSubfeaturePermissionIndices({ featureIndex, subfeatureIndex });
+    setShowPermissionModal(true);
   };
 
   const handleTestConnection = async () => {
@@ -775,6 +819,180 @@ export default function EditPlatformPage() {
                             />
                           </div>
                         </div>
+
+                        {/* Subfeatures Section */}
+                        <div className="mt-6 pt-6 border-t border-gray-200">
+                          <div className="flex items-center justify-between mb-4">
+                            <button
+                              type="button"
+                              onClick={() => toggleFeatureExpansion(index)}
+                              className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+                            >
+                              {expandedFeatures.has(index) ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                              Alt Özellikler ({feature.subfeatures?.length || 0})
+                            </button>
+                            {expandedFeatures.has(index) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newFeatures = [...(formData.theme_config as any)?.features || []];
+                                  if (!newFeatures[index].subfeatures) {
+                                    newFeatures[index].subfeatures = [];
+                                  }
+                                  newFeatures[index].subfeatures.push({
+                                    title: "Yeni Alt Özellik",
+                                    description: "",
+                                    url: "",
+                                    icon: "Activity"
+                                  });
+                                  handleThemeConfigChange('features', newFeatures);
+                                }}
+                                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+                              >
+                                <Plus className="h-4 w-4" />
+                                Alt Özellik Ekle
+                              </button>
+                            )}
+                          </div>
+
+                          {expandedFeatures.has(index) && (
+                            <div className="space-y-4">
+                              {(feature.subfeatures || []).map((subfeature: any, subIndex: number) => (
+                                <div key={subIndex} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <h4 className="text-sm font-medium text-gray-900">Alt Özellik {subIndex + 1}</h4>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newFeatures = [...(formData.theme_config as any)?.features || []];
+                                        newFeatures[index].subfeatures.splice(subIndex, 1);
+                                        handleThemeConfigChange('features', newFeatures);
+                                      }}
+                                      className="text-red-600 hover:text-red-700 text-sm"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </button>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                                        Başlık
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={subfeature.title || ""}
+                                        onChange={(e) => {
+                                          const newFeatures = [...(formData.theme_config as any)?.features || []];
+                                          newFeatures[index].subfeatures[subIndex].title = e.target.value;
+                                          handleThemeConfigChange('features', newFeatures);
+                                        }}
+                                        placeholder="Alt özellik başlığı"
+                                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                      />
+                                    </div>
+
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                                        Açıklama (Opsiyonel)
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={subfeature.description || ""}
+                                        onChange={(e) => {
+                                          const newFeatures = [...(formData.theme_config as any)?.features || []];
+                                          newFeatures[index].subfeatures[subIndex].description = e.target.value;
+                                          handleThemeConfigChange('features', newFeatures);
+                                        }}
+                                        placeholder="Alt özellik açıklaması"
+                                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                      />
+                                    </div>
+
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                                        İkon
+                                      </label>
+                                      <select
+                                        value={subfeature.icon || "Activity"}
+                                        onChange={(e) => {
+                                          const newFeatures = [...(formData.theme_config as any)?.features || []];
+                                          newFeatures[index].subfeatures[subIndex].icon = e.target.value;
+                                          handleThemeConfigChange('features', newFeatures);
+                                        }}
+                                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                      >
+                                        <option value="BarChart3">BarChart3</option>
+                                        <option value="TrendingUp">TrendingUp</option>
+                                        <option value="Gauge">Gauge</option>
+                                        <option value="Clock">Clock</option>
+                                        <option value="Activity">Activity</option>
+                                        <option value="Database">Database</option>
+                                        <option value="Users">Users</option>
+                                        <option value="Settings">Settings</option>
+                                        <option value="Calendar">Calendar</option>
+                                        <option value="FileText">FileText</option>
+                                        <option value="PieChart">PieChart</option>
+                                        <option value="Target">Target</option>
+                                        <option value="Monitor">Monitor</option>
+                                        <option value="Zap">Zap</option>
+                                        <option value="Shield">Shield</option>
+                                      </select>
+                                    </div>
+
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                                        URL (Opsiyonel)
+                                      </label>
+                                      <div className="flex gap-2">
+                                        <input
+                                          type="text"
+                                          value={subfeature.url || ""}
+                                          onChange={(e) => {
+                                            const newFeatures = [...(formData.theme_config as any)?.features || []];
+                                            newFeatures[index].subfeatures[subIndex].url = e.target.value;
+                                            handleThemeConfigChange('features', newFeatures);
+                                          }}
+                                          placeholder="https://example.com"
+                                          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                        {subfeature.url && (
+                                          <button
+                                            type="button"
+                                            onClick={() => openSubfeaturePermissionModal(index, subIndex)}
+                                            className={`p-2 rounded-lg border ${
+                                              (subfeature.allowed_departments?.length > 0 || subfeature.allowed_users?.length > 0)
+                                                ? 'bg-blue-50 border-blue-200 text-blue-600'
+                                                : 'border-gray-300 text-gray-500 hover:bg-gray-50'
+                                            }`}
+                                            title="Erişim Yetkileri"
+                                          >
+                                            <Shield className="h-4 w-4" />
+                                          </button>
+                                        )}
+                                      </div>
+                                      {subfeature.url && (subfeature.allowed_departments?.length > 0 || subfeature.allowed_users?.length > 0) && (
+                                        <div className="mt-1 text-xs text-blue-600 flex items-center gap-1">
+                                          <Shield className="h-3 w-3" />
+                                          {subfeature.allowed_departments?.length || 0} departman, {subfeature.allowed_users?.length || 0} kullanıcı yetkili
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                              {(!feature.subfeatures || feature.subfeatures.length === 0) && (
+                                <div className="text-center py-4 text-sm text-gray-500">
+                                  Henüz alt özellik eklenmemiş
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ))}
 
@@ -790,7 +1008,8 @@ export default function EditPlatformPage() {
                           backgroundColor: "#EFF6FF",
                           imageUrl: "",
                           useImage: false,
-                          url: ""
+                          url: "",
+                          subfeatures: []
                         });
                         handleThemeConfigChange('features', newFeatures);
                       }}
@@ -987,6 +1206,7 @@ export default function EditPlatformPage() {
         onClose={() => {
           setShowPermissionModal(false);
           setFeaturePermissionIndex(null);
+          setSubfeaturePermissionIndices(null);
         }}
         onSave={handlePermissionSave}
         initialSelectedDepartments={getInitialDepartments()}

@@ -14,7 +14,11 @@ import {
   User,
   Star,
   TrendingUp,
-  Activity
+  Activity,
+  ChevronDown,
+  ChevronRight,
+  Shield,
+  Clock
 } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { dashboardService } from "@/services/dashboard";
@@ -26,18 +30,25 @@ import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 import { Feedback } from "@/components/feedback/feedback";
-import { isAdmin } from "@/lib/utils";
+import { isAdmin, checkAccess } from "@/lib/utils";
 
 interface PreviewResponse {
   data?: any[] | null;
 }
 
-// Icon mapping
+// Icon mapping for features
 const iconMap: { [key: string]: any } = {
   BarChart3,
   Activity,
   TrendingUp,
-  Layout
+  Layout,
+  FileText,
+  Database,
+  User,
+  Calendar,
+  Shield,
+  Clock,
+  Star
 };
 
 export default function SubPlatformPage() {

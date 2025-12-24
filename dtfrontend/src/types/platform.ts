@@ -33,6 +33,14 @@ export interface Platform {
       url?: string;
       allowed_departments?: string[];
       allowed_users?: string[];
+      subfeatures?: {
+        title: string;
+        description?: string;
+        url?: string;
+        icon?: string;
+        allowed_departments?: string[];
+        allowed_users?: string[];
+      }[];
     }[];
   } | null;
   is_active: boolean;

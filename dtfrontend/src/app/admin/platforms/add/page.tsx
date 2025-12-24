@@ -657,7 +657,8 @@ export default function AddPlatformPage() {
                     backgroundColor: "#EFF6FF",
                     imageUrl: "",
                     useImage: false,
-                    url: ""
+                    url: "",
+                    subfeatures: []
                   });
                   handleThemeConfigChange('features', newFeatures);
                 }}

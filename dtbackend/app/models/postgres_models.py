@@ -40,7 +40,7 @@ class Platform(PostgreSQLBase):
 
     # Branding/theming configuration
     logo_url = Column(String(255), nullable=True)
-    theme_config = Column(JSONB, nullable=True)  # { "primaryColor": "#3B82F6", "secondaryColor": "#8B5CF6", ... }
+    theme_config = Column(JSONB, nullable=True)  # { "primaryColor": "#3B82F6", "secondaryColor": "#8B5CF6", "features": [{ "title": "...", "subfeatures": [...] }], ... }
 
     # Status
     is_active = Column(Boolean, default=True, nullable=False)

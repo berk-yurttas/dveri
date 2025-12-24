@@ -17,7 +17,11 @@ class PlatformBase(BaseModel):
 
     # Branding
     logo_url: str | None = Field(None, max_length=255, description="URL to platform logo")
-    theme_config: dict[str, Any] | None = Field(None, description="Theme configuration (colors, etc.)")
+    theme_config: dict[str, Any] | None = Field(
+        None, 
+        description="Theme configuration (colors, features, etc.). "
+                    "Features can include subfeatures: features[].subfeatures[]"
+    )
 
     # Status
     is_active: bool = Field(default=True, description="Whether platform is active")
