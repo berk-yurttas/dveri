@@ -34,12 +34,14 @@ interface WidgetData {
 
 interface KablajUretimRateWidgetProps {
   widgetId?: string
+  dateFrom?: string
+  dateTo?: string
 }
 
 // Color palette - Blue, Green, Yellow, Red sequence
 const COLORS = ['#3b82f6', '#22c55e', '#eab308', '#ef4444']
 
-export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps) {
+export function KablajUretimRateWidget({ widgetId, dateFrom, dateTo }: KablajUretimRateWidgetProps) {
   // Create unique instance identifier
   const instanceRef = useRef(widgetId || `kablaj-uretim-${Math.random().toString(36).substr(2, 9)}`)
   const instanceId = instanceRef.current
@@ -102,12 +104,49 @@ export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps
     }
   }, [selectedFirmas, selectedYears, viewMode, hedefValue, instanceId])
 
-  // Load data once on mount
+  // Load data when date filters change
   useEffect(() => {
     const loadData = async () => {
       try {
+        setLoading(true)
+        setError(null)
+
+        // Build SQL query with date filtering
+        let sqlQuery = 'SELECT "NAME", "Yıl", "Ay", "Ay Bilgi", "Miktar" FROM mes_production.kablaj_uretim_rate_takibi'
+
+        // Add date filtering based on Year and Month if provided
+        if (dateFrom || dateTo) {
+          const whereClauses: string[] = []
+
+          if (dateFrom) {
+            // Parse dateFrom to extract year and month (format: "YYYY-MM-DD HH:MM:SS")
+            const fromDate = new Date(dateFrom)
+            const fromYear = fromDate.getFullYear()
+            const fromMonth = fromDate.getMonth() + 1 // JavaScript months are 0-indexed
+
+            // Create condition: (Yıl > fromYear) OR (Yıl = fromYear AND Ay >= fromMonth)
+            whereClauses.push(`("Yıl" > ${fromYear} OR ("Yıl" = ${fromYear} AND "Ay" >= ${fromMonth}))`)
+          }
+
+          if (dateTo) {
+            // Parse dateTo to extract year and month
+            const toDate = new Date(dateTo)
+            const toYear = toDate.getFullYear()
+            const toMonth = toDate.getMonth() + 1
+
+            // Create condition: (Yıl < toYear) OR (Yıl = toYear AND Ay <= toMonth)
+            whereClauses.push(`("Yıl" < ${toYear} OR ("Yıl" = ${toYear} AND "Ay" <= ${toMonth}))`)
+          }
+
+          if (whereClauses.length > 0) {
+            sqlQuery += ' WHERE ' + whereClauses.join(' AND ')
+          }
+        }
+
+        sqlQuery += ' ORDER BY "Yıl", "Ay"'
+
         const response = await api.post<WidgetData>('/reports/preview', {
-          sql_query: 'SELECT "NAME", "Yıl", "Ay", "Ay Bilgi", "Miktar" FROM mes_production.kablaj_uretim_rate_takibi ORDER BY "Yıl", "Ay"'
+          sql_query: sqlQuery
         })
 
         if (response.success && response.data && response.data.length > 0) {
@@ -130,6 +169,11 @@ export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps
           // Extract unique year options
           const uniqueYears = Array.from(new Set(transformed.map(item => item["Yıl"]))).sort()
           setYearOptions(uniqueYears)
+        } else {
+          // No data returned - reset to empty
+          setRawData([])
+          setFirmaOptions([])
+          setYearOptions([])
         }
       } catch (err) {
         console.error(`Error loading data for ${instanceId}:`, err)
@@ -140,7 +184,7 @@ export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps
     }
 
     loadData()
-  }, [instanceId])
+  }, [instanceId, dateFrom, dateTo])
 
   // Filter data
   const filteredData = rawData.filter(item => {

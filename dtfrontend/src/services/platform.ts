@@ -73,7 +73,7 @@ export const platformService = {
    * Create new platform
    */
   async createPlatform(platformData: PlatformCreate): Promise<Platform> {
-    return api.post<Platform>('/platforms', platformData);
+    return api.post<Platform>('/platforms/', platformData);
   },
 
   /**
