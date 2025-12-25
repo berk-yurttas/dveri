@@ -214,15 +214,6 @@ export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps
     )
   }
 
-  // Show no data state
-  if (filteredData.length === 0) {
-    return (
-      <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
-        <p className="text-sm text-gray-500">Veri bulunamadı</p>
-      </div>
-    )
-  }
-
   return (
     <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 flex flex-col overflow-hidden">
       {/* Header with filters */}
@@ -419,7 +410,15 @@ export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps
 
       {/* Chart / Table */}
       <div className="flex-1 min-h-0">
-        {viewMode === 'table' ? (
+        {filteredData.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center">
+            <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+            </svg>
+            <p className="text-sm text-gray-500 font-medium">Seçilen filtrelere uygun veri bulunamadı</p>
+            <p className="text-xs text-gray-400 mt-1">Lütfen farklı filtre seçenekleri deneyin</p>
+          </div>
+        ) : viewMode === 'table' ? (
           <div className="h-[400px] overflow-auto">
             <table className="w-full text-sm">
               <thead className="bg-purple-100 sticky top-0">

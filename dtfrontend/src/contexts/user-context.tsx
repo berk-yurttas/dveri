@@ -35,13 +35,22 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const refreshUser = async () => {
+  const refreshUser = async (silent = false) => {
     try {
-      setLoading(true)
+      if (!silent) {
+        setLoading(true)
+      }
       setError(null)
-      
+
       const userData = await api.get<User>('/users/login_jwt')
-      setUser(userData)
+
+      // Only update state if data has changed (prevents unnecessary re-renders)
+      setUser(prevUser => {
+        if (JSON.stringify(prevUser) === JSON.stringify(userData)) {
+          return prevUser // Keep same reference, no re-render
+        }
+        return userData
+      })
     } catch (err: any) {
       console.error('Failed to fetch user:', err)
       if (err.status === 401) {
@@ -52,7 +61,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
         setError(err.message || 'Failed to fetch user data')
       }
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 
@@ -82,7 +93,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const interval = setInterval(() => {
       if (user) {
-        refreshUser()
+        refreshUser(true) // Silent refresh - no loading state changes
       }
     }, 5 * 60 * 1000) // 5 minutes
 

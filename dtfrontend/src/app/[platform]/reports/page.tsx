@@ -583,7 +583,7 @@ export default function ReportsPage() {
                               <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate flex items-center gap-2">
                                 {report.name}
                                 {report.isDirectLink && (
-                                  <ExternalLink className="h-3 w-3 text-gray-400 flex-shrink-0" title="Dış bağlantı - Yeni sekmede açılır" />
+                                  <ExternalLink className="h-3 w-3 text-gray-400 flex-shrink-0" />
                                 )}
                               </h3>
                               <Star className="h-4 w-4 text-yellow-500 fill-yellow-500 flex-shrink-0" />
@@ -732,7 +732,7 @@ export default function ReportsPage() {
                       <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors relative z-10 flex items-center gap-2">
                         {report.name}
                         {report.isDirectLink && (
-                          <ExternalLink className="h-3 w-3 text-gray-400" title="Dış bağlantı - Yeni sekmede açılır" />
+                          <ExternalLink className="h-3 w-3 text-gray-400" />
                         )}
                       </h3>
 
@@ -796,7 +796,7 @@ export default function ReportsPage() {
                         <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate flex items-center gap-2">
                           {report.name}
                           {report.isDirectLink && (
-                            <ExternalLink className="h-3 w-3 text-gray-400 flex-shrink-0" title="Dış bağlantı - Yeni sekmede açılır" />
+                            <ExternalLink className="h-3 w-3 text-gray-400 flex-shrink-0" />
                           )}
                         </h3>
                         {favorites.has(report.id) && (
@@ -951,7 +951,7 @@ export default function ReportsPage() {
                 <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors relative z-10 flex items-center gap-2">
                   {report.name}
                   {report.isDirectLink && (
-                    <ExternalLink className="h-3 w-3 text-gray-400" title="Dış bağlantı - Yeni sekmede açılır" />
+                    <ExternalLink className="h-3 w-3 text-gray-400" />
                   )}
                 </h3>
 
