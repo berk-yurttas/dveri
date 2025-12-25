@@ -49,11 +49,22 @@ export interface NestedQueryConfig {
   yAxis?: string
   labelField?: string
   valueField?: string
+  lineYAxis?: string
+  showLineOverlay?: boolean
+}
+
+// Row Coloring Configuration for Table/Expandable Table
+export interface RowColorRule {
+  id: string
+  columnName: string
+  operator: '>' | '<' | '>=' | '<=' | '=' | '!='
+  value: string | number
+  color: string
 }
 
 // Visualization Configuration Types
 export interface VisualizationConfig {
-  type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram'
+  type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram' | 'card'
   xAxis?: string
   yAxis?: string
   labelField?: string
@@ -67,6 +78,10 @@ export interface VisualizationConfig {
     stacked?: boolean
     showGrid?: boolean
     showDataLabels?: boolean
+    lineYAxis?: string
+    showLineOverlay?: boolean
+    legendFields?: string[]  // Fields to show as separate series in bar charts
+    useLegendFieldValues?: boolean  // If true, show field values in legend instead of field names
 
     // Pie specific
     showPercentage?: boolean
@@ -94,6 +109,17 @@ export interface VisualizationConfig {
     // Tooltip configuration
     tooltipFields?: string[]
     fieldDisplayNames?: Record<string, string>
+
+    // Card specific
+    backgroundColor?: string
+
+    // Table/Expandable table specific - Row coloring rules
+    rowColorRules?: RowColorRule[]
+
+    // Reference line for bar and line charts
+    referenceLineField?: string
+    referenceLineLabel?: string
+    referenceLineColor?: string
   }
 }
 
@@ -123,6 +149,12 @@ export interface ReportConfig {
   tags: string[]
   queries: QueryConfig[]
   globalFilters?: FilterConfig[]  // Filters that apply to all queries in the report
+  color?: string  // Color for report card border/theme
+  is_public?: boolean
+  allowedDepartments?: string[]
+  allowedUsers?: string[]
+  isDirectLink?: boolean  // If true, report uses direct link instead of queries
+  directLink?: string  // Direct link URL to external report page
 }
 
 // Future report save/load types
@@ -137,6 +169,10 @@ export interface SavedReport extends ReportConfig {
   updated_at: string
   created_by: string
   is_public: boolean
+  layoutConfig?: any[]  // Grid layout configuration
+  color?: string  // Color for report card border/theme
+  allowedDepartments?: string[]
+  allowedUsers?: string[]
 }
 
 // Report execution types
@@ -184,6 +220,8 @@ export interface ReportDetail {
   created_at: string
   updated_at: string | null
   queries: QueryDetail[]
+  allowedDepartments?: string[]
+  allowedUsers?: string[]
 }
 
 export interface QueryDetail {

@@ -42,16 +42,23 @@ import {
   Server,
   Cloud,
   Workflow,
-  ArrowRight
+  ArrowRight,
+  X,
+  Lock
 } from "lucide-react";
 import { dashboardService } from "@/services/dashboard";
 import { platformService } from "@/services/platform";
+import { announcementService } from "@/services/announcement";
 import { DashboardList } from "@/types/dashboard";
 import { Platform as PlatformType } from "@/types/platform";
+import { Announcement } from "@/types/announcement";
 import { useUser } from "@/contexts/user-context";
 import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
+import { Feedback } from "@/components/feedback/feedback";
+import DOMPurify from 'dompurify';
+import { checkAccess } from "@/lib/utils";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -130,14 +137,22 @@ export default function Home() {
     user.role.includes('deriniz:admin');
   const [platforms, setPlatforms] = useState<PlatformType[]>([]);
   const [dashboards, setDashboards] = useState<DashboardList[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [currentAnnouncementIndex, setCurrentAnnouncementIndex] = useState(0);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
   const [hoveredPlatform, setHoveredPlatform] = useState<string | null>(null);
+  const [hoveredAnnouncement, setHoveredAnnouncement] = useState<number | null>(null);
   const [showUnderConstructionModal, setShowUnderConstructionModal] = useState(false);
   const [underConstructionPlatform, setUnderConstructionPlatform] = useState<string>("");
   const [showNavigationModal, setShowNavigationModal] = useState(false);
   const [navigatingPlatform, setNavigatingPlatform] = useState<{ name: string; logo: string; code: string } | null>(null);
+  const [showAllAnnouncementsModal, setShowAllAnnouncementsModal] = useState(false);
+  const [showUnauthorizedModal, setShowUnauthorizedModal] = useState(false);
+  const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
 
   const handleDerinizHover = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -165,6 +180,53 @@ export default function Home() {
     setShowTooltip(false);
   };
 
+  // Carousel navigation for announcements
+  const handleNextAnnouncement = () => {
+    setCurrentAnnouncementIndex((prev) => {
+      const nextIndex = prev + 3;
+      // Don't go beyond the last set of announcements
+      return nextIndex < announcements.length ? nextIndex : prev;
+    });
+  };
+
+  const handlePrevAnnouncement = () => {
+    setCurrentAnnouncementIndex((prev) => {
+      const prevIndex = prev - 3;
+      // Don't go below 0
+      return prevIndex >= 0 ? prevIndex : prev;
+    });
+  };
+
+  // Check if navigation buttons should be disabled
+  const announcementsPerPage = 3;
+  const isFirstPage = currentAnnouncementIndex === 0;
+  const isLastPage =
+    currentAnnouncementIndex + announcementsPerPage >= announcements.length;
+
+  // Handle announcement card click
+  const handleAnnouncementClick = (announcement: Announcement) => {
+    console.log("🔔 Clicked announcement:", {
+      id: announcement.id,
+      title: announcement.title,
+      hasImage: !!announcement.content_image,
+      imageLength: announcement.content_image?.length,
+      hasDetail: !!announcement.content_detail,
+      detailContent: announcement.content_detail,
+      hasSummary: !!announcement.content_summary,
+      summaryContent: announcement.content_summary
+    });
+    setSelectedAnnouncement(announcement);
+    setShowAnnouncementModal(true);
+  };
+
+  const handleViewAllAnnouncements = () => {
+    setShowAllAnnouncementsModal(true);
+  };
+
+  const closeAllAnnouncementsModal = () => {
+    setShowAllAnnouncementsModal(false);
+  };
+
   useEffect(() => {
     // Clear platform when visiting root home page
     // This ensures dashboards/reports from all platforms are shown
@@ -177,12 +239,28 @@ export default function Home() {
     
     const fetchData = async () => {
       try {
-        const [platformData, dashboardData] = await Promise.all([
+        const [platformData, dashboardData, announcementData] = await Promise.all([
           platformService.getPlatforms(0, 100, false), // Get active platforms only
           dashboardService.getDashboards(),
+          announcementService.getAnnouncements(0, 10, null, true), // Get general announcements (platform_id = null)
         ]);
         setPlatforms(platformData);
         setDashboards(dashboardData);
+        
+        // Debug: Log announcement data
+        console.log("📢 Fetched announcements:", announcementData);
+        announcementData.forEach((ann, idx) => {
+          console.log(`Announcement ${idx + 1}:`, {
+            id: ann.id,
+            title: ann.title,
+            hasImage: !!ann.content_image,
+            imagePrefix: ann.content_image?.substring(0, 30),
+            hasDetail: !!ann.content_detail,
+            detailLength: ann.content_detail?.length
+          });
+        });
+        
+        setAnnouncements(announcementData);
       } catch (error) {
         console.error("Failed to fetch data:", error);
         setError("Veriler yüklenemedi");
@@ -194,14 +272,39 @@ export default function Home() {
     fetchData();
   }, []);
 
-  const handlePlatformSelect = (platformCode: string, isUnderConstruction: boolean, displayName: string, logoUrl: string) => {
+  // Check if user has atolye role (any variant: yonetici, operator, or musteri)
+  const hasAtolyeRole = user?.role && Array.isArray(user.role) &&
+    user.role.some((role) => 
+      typeof role === "string" && 
+      role.startsWith("atolye:") && 
+      (role.endsWith(":yonetici") || role.endsWith(":operator") || role.endsWith(":musteri"))
+    );
+
+
+  const handlePlatformSelect = (platform: PlatformType) => {
+    const { code: platformCode, display_name: displayName, logo_url: logoUrl, theme_config } = platform;
+    const isUnderConstruction = theme_config?.underConstruction || false;
+
+    // Check access permissions
+    if (!checkAccess(platform, user)) {
+      setShowAccessDeniedModal(true);
+      return;
+    }
+
+    // Check if user has atolye role and is trying to access a platform other than romiot
+    if (hasAtolyeRole && platformCode !== 'romiot') {
+      setShowUnauthorizedModal(true);
+      setError(null); // Clear any existing error
+      return;
+    }
+
     if (isUnderConstruction) {
       // Show modal instead of navigating
       setUnderConstructionPlatform(displayName);
       setShowUnderConstructionModal(true);
     } else {
       // Show navigation modal
-      setNavigatingPlatform({ name: displayName, logo: logoUrl, code: platformCode });
+      setNavigatingPlatform({ name: displayName, logo: logoUrl || '', code: platformCode });
       setShowNavigationModal(true);
 
       // Store selected platform in localStorage
@@ -288,7 +391,7 @@ export default function Home() {
                     key={platform.code}
                     onMouseEnter={() => setHoveredPlatform(platform.code)}
                     onMouseLeave={() => setHoveredPlatform(null)}
-                    onClick={() => handlePlatformSelect(platform.code, isUnderConstruction, platform.display_name, platform.logo_url || '')}
+                    onClick={() => handlePlatformSelect(platform)}
                     className={`
                       bg-white rounded-lg shadow-xl shadow-slate-200 py-6 px-2
                       hover:shadow-2xl transition-all duration-300 cursor-pointer group
@@ -350,136 +453,141 @@ export default function Home() {
 
       {/* Full-width Duyurular Section */}
       <div className="w-full py-12 mb-8 relative overflow-hidden">
-
-
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="mb-8">
             <h3 className="text-2xl font-bold mb-2" style={{"color": "rgb(69,81,89)"}}>Duyurular</h3>
             <div className="w-[100px] h-[5px] bg-red-600"></div>
           </div>
 
-          {/* Carousel Container */}
-          <div className="relative flex justify-center">
-            {/* Navigation Arrows */}
-            <button className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-red-600 hover:bg-red-700 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <button className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-red-600 hover:bg-red-700 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
+          {announcements.length > 0 ? (
+            <>
+              {/* Carousel Container */}
+              <div className="relative flex justify-center">
+                {/* Navigation Arrows - Only show if more than 3 items */}
+                {announcements.length > 3 && (
+                  <>
+                    <button 
+                      onClick={handlePrevAnnouncement}
+                      disabled={isFirstPage}
+                      className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${
+                        isFirstPage 
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                          : 'bg-red-600 hover:bg-red-700 text-white'
+                      }`}
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <button 
+                      onClick={handleNextAnnouncement}
+                      disabled={isLastPage}
+                      className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${
+                        isLastPage 
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                          : 'bg-red-600 hover:bg-red-700 text-white'
+                      }`}
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </>
+                )}
 
-            {/* Carousel Cards */}
-            <div className="flex gap-6 justify-center items-center max-w-4xl mx-auto">
-              {/* Card 1 */}
-              <div className="flex-shrink-0 w-80">
-                <div className="relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl">
-                  {/* Glow Effect */}
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-30 blur-xl"></div>
+              {/* Carousel Cards */}
+              <div className="flex gap-6 justify-center items-start max-w-4xl mx-auto">
+                {announcements.slice(currentAnnouncementIndex, currentAnnouncementIndex + 3).map((announcement) => {
+                  const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
+                  return (
+                  <div 
+                    key={announcement.id} 
+                    className="flex-shrink-0 w-80 cursor-pointer transition-transform hover:scale-105"
+                    onClick={() => handleAnnouncementClick(announcement)}
+                    onMouseEnter={() => setHoveredAnnouncement(announcement.id)}
+                    onMouseLeave={() => setHoveredAnnouncement(null)}
+                  >
+                    <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${
+                      isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
+                    }`}>
+                      {/* Image Area - Full background with gradient overlay */}
+                      {announcement.content_image && (
+                        <div className="absolute top-0 left-0 right-0 bottom-0">
+                          <img 
+                            src={announcement.content_image} 
+                            alt={announcement.title}
+                            className="w-full h-full object-fill"
+                          />
+                          {/* Gradient overlay for text readability */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+                        </div>
+                      )}
 
-                  {/* Logo */}
-                  <div className="absolute top-4 right-4 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
-                    <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                      <div className="w-4 h-4 bg-white rounded-full"></div>
+                      {/* Glow Effect */}
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-20 blur-xl"></div>
+
+                      {/* Main Title - Lower position for better image visibility */}
+                      <div className="absolute bottom-16 left-4 right-4 z-10">
+                        <div className="text-white font-bold text-xl leading-tight text-left">
+                          {announcement.title.split('\n').map((line, i) => (
+                            <div key={i}>{line}</div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Month Badge - Bottom Left, Small */}
+                      {announcement.month_title && (
+                        <div className="absolute bottom-3 left-3 bg-red-600 text-white px-3 py-1 rounded-md shadow-lg z-10">
+                          <span className="text-xs font-semibold uppercase">{announcement.month_title}</span>
+                        </div>
+                      )}
+
+                      {/* Click Indicator */}
+                      <div className="absolute bottom-3 right-3 bg-white/20 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs z-10">
+                        Detaylar →
+                      </div>
+                    </div>
+
+                    {/* Card Description */}
+                    <div className="mt-3">
+                      <div className="h-1 w-12 bg-red-600 mb-2"></div>
+                      <h4 className="text-gray-900 font-semibold mb-1 line-clamp-2">{announcement.content_summary || announcement.title}</h4>
+                      <p className="text-gray-600 text-sm">
+                        {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
+                      </p>
                     </div>
                   </div>
-
-                  {/* Date Banner */}
-                  <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                    <span className="text-sm font-bold uppercase">27 EKİM - 31 EKİM HAFTASI</span>
-                  </div>
-
-                  {/* Main Title */}
-                  <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
-                    <div className="text-white font-bold text-lg leading-tight">
-                      <div>MIRAS'TA</div>
-                      <div>BU HAFTA NELER OLDU?</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card Description */}
-                <div className="mt-3">
-                  <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                  <h4 className="text-gray-900 font-semibold mb-1">Miras'ta bu hafta neler oldu?</h4>
-                  <p className="text-gray-600 text-sm">29.10.2025</p>
-                </div>
-              </div>
-
-              {/* Card 2 */}
-              <div className="flex-shrink-0 w-80">
-                <div className="relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl">
-                  {/* Glow Effect */}
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-30 blur-xl"></div>
-
-                  {/* Logo */}
-                  <div className="absolute top-4 right-4 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
-                    <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                      <div className="w-4 h-4 bg-white rounded-full"></div>
-                    </div>
-                  </div>
-
-                  {/* Date Banner */}
-                  <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                    <span className="text-sm font-bold uppercase">EKİM AYI</span>
-                  </div>
-
-                  {/* Main Title */}
-                  <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
-                    <div className="text-white font-bold text-lg leading-tight">
-                      <div>ROM'da</div>
-                      <div>BU AY NELER OLDU?</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card Description */}
-                <div className="mt-3">
-                  <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                  <h4 className="text-gray-900 font-semibold mb-1">ROM'da bu ay neler oldu?</h4>
-                  <p className="text-gray-600 text-sm">15.11.2025</p>
-                </div>
-              </div>
-
-              {/* Card 3 */}
-              <div className="flex-shrink-0 w-80">
-                <div className="relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl">
-                  {/* Glow Effect */}
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-30 blur-xl"></div>
-
-                  {/* Logo */}
-                  <div className="absolute top-4 right-4 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
-                    <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                      <div className="w-4 h-4 bg-white rounded-full"></div>
-                    </div>
-                  </div>
-
-                  {/* Date Banner */}
-                  <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                    <span className="text-sm font-bold uppercase">EKİM AYI</span>
-                  </div>
-
-                  {/* Main Title */}
-                  <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
-                    <div className="text-white font-bold text-lg leading-tight">
-                      <div>REHİS'de bu ay Dijital Dönüşüm Müdürlükleri ile</div>
-                      <div>NELER YAPILDI?</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card Description */}
-                <div className="mt-3">
-                  <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                  <h4 className="text-gray-900 font-semibold mb-1">REHİS'de bu ay neler yapıldı?</h4>
-                  <p className="text-gray-600 text-sm">15.11.2025</p>
-                </div>
+                  );
+                })}
               </div>
             </div>
-          </div>
+
+            {/* Tümünü Gör Button */}
+            {announcements.length > 3 && (
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={handleViewAllAnnouncements}
+                  className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium shadow-lg hover:shadow-xl"
+                >
+                  <Eye className="h-5 w-5" />
+                  Tüm Duyuruları Gör ({announcements.length})
+                </button>
+              </div>
+            )}
+            </>
+          ) : (
+            <div className="text-center py-12">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
+                <MessageSquare className="h-8 w-8 text-gray-400" />
+              </div>
+              <h4 className="text-lg font-medium text-gray-900 mb-2">
+                Şu anda aktif duyuru bulunmamaktadır
+              </h4>
+              <p className="text-gray-500 text-sm">
+                Yeni duyurular eklendiğinde burada görünecektir
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -494,6 +602,109 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* Announcement Detail Modal */}
+      {showAnnouncementModal && selectedAnnouncement && (
+        <div 
+          className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => setShowAnnouncementModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto animate-fade-in [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-gray-400"
+            onClick={(e) => e.stopPropagation()}
+            style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent' }}
+          >
+            {/* Modal Header */}
+            <div className="relative">
+              {selectedAnnouncement.content_image && (
+                <div className="w-full h-[500px] bg-gradient-to-br from-blue-900 to-blue-800 relative overflow-hidden">
+                  <img 
+                    src={selectedAnnouncement.content_image} 
+                    alt={selectedAnnouncement.title}
+                    className="w-full h-full object-fill"
+                  />
+                  {selectedAnnouncement.month_title && (
+                    <div className="absolute bottom-4 left-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg z-10">
+                      <span className="text-sm font-bold uppercase">{selectedAnnouncement.month_title}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Close Button */}
+              <button
+                onClick={() => setShowAnnouncementModal(false)}
+                className="absolute top-4 right-4 p-2 bg-white/90 hover:bg-white rounded-full shadow-lg transition-colors z-10"
+              >
+                <X className="h-5 w-5 text-gray-700" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6">
+              {/* Title */}
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                {selectedAnnouncement.title}
+              </h2>
+
+              {/* Date */}
+              <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
+                <Calendar className="h-4 w-4" />
+                <span>{new Date(selectedAnnouncement.creation_date).toLocaleDateString('tr-TR', { 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}</span>
+              </div>
+
+              {/* Summary */}
+              {selectedAnnouncement.content_summary && (
+                <div className="mb-4 p-4 bg-blue-50 border-l-4 border-blue-600 rounded-r-lg">
+                  <p className="text-gray-700 font-medium">{selectedAnnouncement.content_summary}</p>
+                </div>
+              )}
+
+              {/* Divider */}
+              {selectedAnnouncement.content_detail && (
+                <div className="border-t border-gray-200 my-4"></div>
+              )}
+
+              {/* Detail Content - Main content of the announcement */}
+              {selectedAnnouncement.content_detail && (
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Detaylı İçerik</h3>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <div 
+                      className="text-gray-700 leading-relaxed [&>p]:mb-4 [&>p:last-child]:mb-0 [&>p:empty]:min-h-[1em]"
+                      dangerouslySetInnerHTML={{ 
+                        __html: DOMPurify.sanitize(selectedAnnouncement.content_detail) 
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* No Detail Message */}
+              {!selectedAnnouncement.content_detail && !selectedAnnouncement.content_summary && (
+                <div className="text-center py-8 text-gray-500">
+                  <MessageSquare className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                  <p>Bu duyuru için detaylı açıklama bulunmamaktadır.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+              <button
+                onClick={() => setShowAnnouncementModal(false)}
+                className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Navigation Loading Modal */}
       {showNavigationModal && navigatingPlatform && (
@@ -541,6 +752,41 @@ export default function Home() {
         </div>
       )}
 
+      {/* Unauthorized Platform Access Modal */}
+      {showUnauthorizedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-500 to-orange-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <Shield className="h-6 w-6 text-white" />
+                <h3 className="text-xl font-bold text-white">Yetkisiz Erişim</h3>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6">
+              <p className="text-gray-700 text-lg">
+                Bu platform için yetkiniz bulunmamaktadır.
+              </p>
+              <p className="text-gray-600 mt-2">
+                Atölye takip sistemi kullanıcıları yalnızca "rom - IOT" platformuna erişebilir.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-end">
+              <button
+                onClick={() => setShowUnauthorizedModal(false)}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+              >
+                Tamam
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Under Construction Modal */}
       {showUnderConstructionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
@@ -575,8 +821,145 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Access Denied Modal */}
+      {showAccessDeniedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <Lock className="h-8 w-8 text-white" />
+                <h3 className="text-xl font-bold text-white">Erişim Yetkiniz Bulunamadı</h3>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6">
+              <p className="text-gray-700 text-lg mb-2">
+                Bu platforma erişim yetkiniz bulunmamaktadır.
+              </p>
+              <p className="text-gray-600">
+                Erişim izni almak için lütfen sistem yöneticisi ile iletişime geçiniz.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-end">
+              <button
+                onClick={() => setShowAccessDeniedModal(false)}
+                className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* All Announcements Modal */}
+      {showAllAnnouncementsModal && announcements.length > 0 && (
+        <div 
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setShowAllAnnouncementsModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] animate-fade-in overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <MessageSquare className="h-6 w-6 text-white" />
+                <h3 className="text-xl font-bold text-white">Tüm Duyurular</h3>
+                <span className="px-3 py-1 bg-white/20 rounded-full text-sm text-white font-medium">
+                  {announcements.length}
+                </span>
+              </div>
+              <button
+                onClick={closeAllAnnouncementsModal}
+                className="p-2 hover:bg-white/20 rounded-full transition-colors"
+              >
+                <X className="h-5 w-5 text-white" />
+              </button>
+            </div>
+
+            {/* Modal Body - Grid */}
+            <div className="p-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-h-[65vh] overflow-y-auto px-2 md:px-4 lg:px-6 py-4">
+                {announcements.map((announcement) => {
+                  const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
+                  return (
+                    <div 
+                      key={announcement.id} 
+                      className="cursor-pointer transition-transform hover:scale-105"
+                      onClick={() => handleAnnouncementClick(announcement)}
+                      onMouseEnter={() => setHoveredAnnouncement(announcement.id)}
+                      onMouseLeave={() => setHoveredAnnouncement(null)}
+                    >
+                      <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${
+                        isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
+                      }`}>
+                        {announcement.content_image && (
+                          <div className="absolute top-0 left-0 right-0 bottom-0">
+                            <img 
+                              src={announcement.content_image} 
+                              alt={announcement.title}
+                              className="w-full h-full object-fill"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+                          </div>
+                        )}
+
+                        <div className="absolute bottom-16 left-4 right-4 z-10">
+                          <div className="text-white font-bold text-xl leading-tight text-left">
+                            {announcement.title.split('\n').map((line, i) => (
+                              <div key={i}>{line}</div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {announcement.month_title && (
+                          <div className="absolute bottom-3 left-3 bg-red-600 text-white px-3 py-1 rounded-md shadow-lg z-10">
+                            <span className="text-xs font-semibold uppercase">{announcement.month_title}</span>
+                          </div>
+                        )}
+
+                        <div className="absolute bottom-3 right-3 bg-white/20 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs z-10">
+                          Detaylar →
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="h-1 w-12 bg-red-600 mb-2"></div>
+                        <h4 className="text-gray-900 font-semibold mb-1 line-clamp-2">{announcement.content_summary || announcement.title}</h4>
+                        <p className="text-gray-600 text-sm">
+                          {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 rounded-b-2xl flex justify-end">
+              <button
+                onClick={closeAllAnnouncementsModal}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
       <MirasAssistant />
+      
+      {/* Feedback Button */}
+      <Feedback />
     </div>
   );
 }

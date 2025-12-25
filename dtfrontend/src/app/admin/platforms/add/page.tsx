@@ -11,16 +11,20 @@ import {
   Globe,
   Palette,
   Layout,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Shield,
+  Users
 } from "lucide-react";
 import { platformService } from "@/services/platform";
 import { PlatformCreate, DatabaseType } from "@/types/platform";
+import { DepartmentSelectModal } from "@/components/reports/department-select-modal";
 
 export default function AddPlatformPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+  const [featurePermissionIndex, setFeaturePermissionIndex] = useState<number | null>(null);
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
   // Form state
   const [formData, setFormData] = useState<PlatformCreate>({
     code: "",
@@ -88,8 +92,49 @@ export default function AddPlatformPage() {
         }
       ]
     },
-    is_active: true
+    is_active: true,
+    allowed_departments: [],
+    allowed_users: []
   });
+
+  const handlePermissionSave = (departments: string[], users: string[]) => {
+    if (featurePermissionIndex !== null) {
+      // Updating feature card permissions
+      const newFeatures = [...(formData.theme_config as any)?.features || []];
+      if (newFeatures[featurePermissionIndex]) {
+        newFeatures[featurePermissionIndex].allowed_departments = departments;
+        newFeatures[featurePermissionIndex].allowed_users = users;
+        handleThemeConfigChange('features', newFeatures);
+      }
+      setFeaturePermissionIndex(null);
+    } else {
+      // Updating platform-wide permissions
+      setFormData(prev => ({
+        ...prev,
+        allowed_departments: departments,
+        allowed_users: users
+      }));
+    }
+  };
+
+  const openPermissionModal = (index: number | null = null) => {
+    setFeaturePermissionIndex(index);
+    setShowPermissionModal(true);
+  };
+
+  const getInitialDepartments = () => {
+    if (featurePermissionIndex !== null) {
+      return (formData.theme_config as any)?.features?.[featurePermissionIndex]?.allowed_departments || [];
+    }
+    return formData.allowed_departments || [];
+  };
+
+  const getInitialUsers = () => {
+    if (featurePermissionIndex !== null) {
+      return (formData.theme_config as any)?.features?.[featurePermissionIndex]?.allowed_users || [];
+    }
+    return formData.allowed_users || [];
+  };
 
   const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({
@@ -528,17 +573,39 @@ export default function AddPlatformPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         URL (Opsiyonel)
                       </label>
-                      <input
-                        type="url"
-                        value={feature.url || ""}
-                        onChange={(e) => {
-                          const newFeatures = [...(formData.theme_config as any)?.features || []];
-                          newFeatures[index].url = e.target.value;
-                          handleThemeConfigChange('features', newFeatures);
-                        }}
-                        placeholder="https://example.com"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="url"
+                          value={feature.url || ""}
+                          onChange={(e) => {
+                            const newFeatures = [...(formData.theme_config as any)?.features || []];
+                            newFeatures[index].url = e.target.value;
+                            handleThemeConfigChange('features', newFeatures);
+                          }}
+                          placeholder="https://example.com"
+                          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                        {feature.url && (
+                          <button
+                            type="button"
+                            onClick={() => openPermissionModal(index)}
+                            className={`p-2 rounded-lg border ${
+                              (feature.allowed_departments?.length > 0 || feature.allowed_users?.length > 0)
+                                ? 'bg-blue-50 border-blue-200 text-blue-600'
+                                : 'border-gray-300 text-gray-500 hover:bg-gray-50'
+                            }`}
+                            title="Erişim Yetkileri"
+                          >
+                            <Shield className="h-5 w-5" />
+                          </button>
+                        )}
+                      </div>
+                      {feature.url && (feature.allowed_departments?.length > 0 || feature.allowed_users?.length > 0) && (
+                        <div className="mt-1 text-xs text-blue-600 flex items-center gap-1">
+                          <Shield className="h-3 w-3" />
+                          {feature.allowed_departments?.length || 0} departman, {feature.allowed_users?.length || 0} kullanıcı yetkili
+                        </div>
+                      )}
                     </div>
 
                     {!feature.useImage && (
@@ -590,7 +657,8 @@ export default function AddPlatformPage() {
                     backgroundColor: "#EFF6FF",
                     imageUrl: "",
                     useImage: false,
-                    url: ""
+                    url: "",
+                    subfeatures: []
                   });
                   handleThemeConfigChange('features', newFeatures);
                 }}
@@ -702,6 +770,47 @@ export default function AddPlatformPage() {
             </div>
           </div>
 
+          {/* Authorization */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Shield className="h-5 w-5 text-gray-600" />
+              <h2 className="text-xl font-semibold text-gray-900">Yetkilendirme</h2>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                Bu platforma erişebilecek departmanları ve kullanıcıları seçin. Hiçbir seçim yapılmazsa platform herkese açık olacaktır.
+              </p>
+
+              <div className="flex flex-wrap gap-2 mb-4">
+                {formData.allowed_departments && formData.allowed_departments.length > 0 && (
+                  <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm">
+                    <Database className="h-4 w-4" />
+                    <span>{formData.allowed_departments.length} Departman</span>
+                  </div>
+                )}
+                {formData.allowed_users && formData.allowed_users.length > 0 && (
+                  <div className="flex items-center gap-2 bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-sm">
+                    <Users className="h-4 w-4" />
+                    <span>{formData.allowed_users.length} Kullanıcı</span>
+                  </div>
+                )}
+                {(!formData.allowed_departments?.length && !formData.allowed_users?.length) && (
+                  <span className="text-sm text-gray-500 italic">Herkese açık</span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => openPermissionModal(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm flex items-center gap-2"
+              >
+                <Shield className="h-4 w-4" />
+                Yetkileri Düzenle
+              </button>
+            </div>
+          </div>
+
           {/* Submit Buttons */}
           <div className="flex gap-4 justify-end">
             <button
@@ -732,6 +841,18 @@ export default function AddPlatformPage() {
           </div>
         </form>
       </div>
+
+      {/* Permission Modal */}
+      <DepartmentSelectModal
+        isOpen={showPermissionModal}
+        onClose={() => {
+          setShowPermissionModal(false);
+          setFeaturePermissionIndex(null);
+        }}
+        onSave={handlePermissionSave}
+        initialSelectedDepartments={getInitialDepartments()}
+        initialSelectedUsers={getInitialUsers()}
+      />
     </div>
   );
 }

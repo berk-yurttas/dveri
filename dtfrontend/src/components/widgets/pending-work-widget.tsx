@@ -146,7 +146,8 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
 
   // State for filters
   const [selectedFirmas, setSelectedFirmas] = useState<string[]>(initialFilters.selectedFirmas)
-  const [firmaOptions, setFirmaOptions] = useState<string[]>([])
+  const [kablajFirmaOptions, setKablajFirmaOptions] = useState<string[]>([])
+  const [mekanikFirmaOptions, setMekanikFirmaOptions] = useState<string[]>([])
   const [firmaSearch, setFirmaSearch] = useState('')
   const [showFirmaDropdown, setShowFirmaDropdown] = useState(false)
   
@@ -175,6 +176,17 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
       }))
     }
   }, [selectedFirmas, selectedDataType, startDate, endDate, viewMode, instanceId])
+
+  // Clear selected firmas when switching data type if they don't exist in new dataset
+  useEffect(() => {
+    const currentOptions = selectedDataType === 'kablaj' ? kablajFirmaOptions : mekanikFirmaOptions
+    if (currentOptions.length > 0 && selectedFirmas.length > 0) {
+      const validFirmas = selectedFirmas.filter(firma => currentOptions.includes(firma))
+      if (validFirmas.length !== selectedFirmas.length) {
+        setSelectedFirmas(validFirmas)
+      }
+    }
+  }, [selectedDataType, kablajFirmaOptions, mekanikFirmaOptions])
 
   // Load all data once on mount
   useEffect(() => {
@@ -216,8 +228,8 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
         // Extract unique firma options from both datasets, filtering out null/undefined
         const kablajFirmas = kablajResponse.data?.map(row => row[0]).filter(Boolean) || []
         const mekanikFirmas = mekanikResponse.data?.map(row => row[0]).filter(Boolean) || []
-        const allFirmas = Array.from(new Set([...kablajFirmas, ...mekanikFirmas])).sort()
-        setFirmaOptions(allFirmas)
+        setKablajFirmaOptions(Array.from(new Set(kablajFirmas)).sort())
+        setMekanikFirmaOptions(Array.from(new Set(mekanikFirmas)).sort())
 
       } catch (err) {
         console.error(`Error loading data for ${instanceId}:`, err)
@@ -306,6 +318,56 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
 
   const chartData = aggregateByFirma()
 
+  // Calculate dynamic XAxis height based on longest label
+  const calculateXAxisHeight = () => {
+    const xAxisValue = chartData.map(item => item.name)
+    const maxLabelLength = Math.max(...xAxisValue.map(item => String(item).length), 0)
+
+    // Calculate number of lines needed for longest label (20 chars per line)
+    const charsPerLine = 20
+    const maxLines = Math.ceil(maxLabelLength / charsPerLine)
+
+    // Base height + extra per line (with -45° angle, each line needs ~15px vertical space)
+    const calculatedHeight = Math.max(70, Math.min(250, 50 + (maxLines - 1) * 15))
+    return calculatedHeight
+  }
+
+  // Custom tick to render multiline labels
+  const CustomXAxisTick = ({ x, y, payload }: any) => {
+    const str = String(payload.value)
+    const charsPerLine = 30
+    const lines: string[] = []
+
+    // Split into multiple lines
+    for (let i = 0; i < str.length; i += charsPerLine) {
+      lines.push(str.substring(i, i + charsPerLine))
+    }
+
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text
+          x={0}
+          y={0}
+          dy={0}
+          textAnchor="end"
+          fill="#6b7280"
+          fontSize="10px"
+          fontWeight={400}
+          transform="rotate(-45)"
+        >
+          {lines.map((line, index) => (
+            <tspan key={index} x={0} dy={index === 0 ? 0 : 12}>
+              {line}
+            </tspan>
+          ))}
+        </text>
+      </g>
+    )
+  }
+
+  const xAxisHeight = calculateXAxisHeight()
+  const bottomMargin = Math.max(5, xAxisHeight - 60) // Adjust bottom margin based on height
+
   // Calculate summary statistics
   const totalRecords = currentData.length
   const totalFirmas = new Set(chartData.map(d => d.name)).size
@@ -325,8 +387,11 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
     totalNotStart = notStarts.reduce((a, b) => a + b, 0)
   }
 
+  // Get current firma options based on selected data type
+  const currentFirmaOptions = selectedDataType === 'kablaj' ? kablajFirmaOptions : mekanikFirmaOptions
+
   // Filter options based on search
-  const filteredFirmaOptions = firmaOptions.filter(firma =>
+  const filteredFirmaOptions = currentFirmaOptions.filter(firma =>
     firma && firma.toLowerCase().includes(firmaSearch.toLowerCase())
   )
 
@@ -718,17 +783,17 @@ export function PendingWorkWidget({ widgetId }: PendingWorkWidgetProps) {
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={chartData}
-              margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
+              margin={{ top: 20, right: 30, left: 20, bottom: bottomMargin }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis
                 dataKey="name"
-                angle={-45}
-                textAnchor="end"
-                height={100}
                 stroke="#6b7280"
-                style={{ fontSize: '12px', fontWeight: 500 }}
                 tickLine={false}
+                padding={{ left: 30, right: 30 }}
+                height={xAxisHeight}
+                interval={0}
+                tick={<CustomXAxisTick />}
               />
               <YAxis
                 stroke="#6b7280"

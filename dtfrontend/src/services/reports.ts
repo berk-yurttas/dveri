@@ -117,7 +117,38 @@ export const reportsService = {
   /**
    * Get dropdown options for a specific filter
    */
-  async getFilterOptions(reportId: string, queryId: number, filterField: string): Promise<{options: Array<{value: any, label: string}>}> {
-    return api.get<{options: Array<{value: any, label: string}>}>(`/reports/${reportId}/queries/${queryId}/filters/${filterField}/options`)
+  async getFilterOptions(
+    reportId: string,
+    queryId: number,
+    filterField: string,
+    page: number = 1,
+    pageSize: number = 50,
+    search: string = ""
+  ): Promise<{
+    options: Array<{value: any, label: string}>,
+    total: number,
+    page: number,
+    page_size: number,
+    has_more: boolean
+  }> {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      page_size: pageSize.toString(),
+      search: search
+    })
+    return api.get<{
+      options: Array<{value: any, label: string}>,
+      total: number,
+      page: number,
+      page_size: number,
+      has_more: boolean
+    }>(`/reports/${reportId}/queries/${queryId}/filters/${filterField}/options?${params}`)
+  },
+
+  /**
+   * Toggle favorite status for a report
+   */
+  async toggleFavorite(reportId: string): Promise<{ is_favorite: boolean }> {
+    return api.post<{ is_favorite: boolean }>(`/reports/${reportId}/favorite`, {})
   }
 }

@@ -1,45 +1,47 @@
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
 from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel
+
 
 # Widget schema (for JSONB field)
 class Widget(BaseModel):
-    id: Optional[str] = None  # Client-generated ID for widget identification
+    id: str | None = None  # Client-generated ID for widget identification
     title: str
     widget_type: str
     position_x: int = 0
     position_y: int = 0
     width: int = 1
     height: int = 1
-    config: Optional[Dict[str, Any]] = None
-    data_source_query: Optional[str] = None
+    config: dict[str, Any] | None = None
+    data_source_query: str | None = None
 
 # Base schemas
 class DashboardBase(BaseModel):
     title: str
-    tags: Optional[List[str]] = []
+    tags: list[str] | None = []
     is_public: bool = False
-    layout_config: Optional[Dict[str, Any]] = None
-    widgets: Optional[List[Widget]] = []
+    layout_config: dict[str, Any] | None = None
+    widgets: list[Widget] | None = []
 
 class DashboardCreate(DashboardBase):
     username: str
     owner_id: int
 
 class DashboardUpdate(BaseModel):
-    title: Optional[str] = None
-    tags: Optional[List[str]] = None
-    is_public: Optional[bool] = None
-    layout_config: Optional[Dict[str, Any]] = None
-    widgets: Optional[List[Widget]] = None
+    title: str | None = None
+    tags: list[str] | None = None
+    is_public: bool | None = None
+    layout_config: dict[str, Any] | None = None
+    widgets: list[Widget] | None = None
 
 class Dashboard(DashboardBase):
     id: int
     owner_id: int
-    owner_name: Optional[str] = None
+    owner_name: str | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
-    is_favorite: Optional[bool] = False
+    updated_at: datetime | None = None
+    is_favorite: bool | None = False
 
     class Config:
         from_attributes = True
@@ -47,15 +49,15 @@ class Dashboard(DashboardBase):
 class DashboardList(BaseModel):
     id: int
     title: str
-    tags: Optional[List[str]] = []
+    tags: list[str] | None = []
     is_public: bool
     owner_id: int
-    owner_name: Optional[str] = None
-    layout_config: Optional[Dict[str, Any]] = None
-    widgets: Optional[List[Dict[str, Any]]] = []  # Using Dict instead of Widget to avoid circular imports
+    owner_name: str | None = None
+    layout_config: dict[str, Any] | None = None
+    widgets: list[dict[str, Any]] | None = []  # Using Dict instead of Widget to avoid circular imports
     created_at: datetime
-    updated_at: Optional[datetime] = None
-    is_favorite: Optional[bool] = False
+    updated_at: datetime | None = None
+    is_favorite: bool | None = False
 
     class Config:
         from_attributes = True

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter, useParams, useSearchParams } from "next/navigation"
 import { WidgetAdder } from "../../add/components/widget-adder"
-import { EfficiencyWidget, ExcelExportWidget, GaugeWidget, MeasurementWidget, ProductTestWidget, TestAnalysisWidget, TestDurationWidget, SerialNoComparisonWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget } from "@/components/widgets"
+import { EfficiencyWidget, ExcelExportWidget, GaugeWidget, MeasurementWidget, ProductTestWidget, TestAnalysisWidget, TestDurationWidget, SerialNoComparisonWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget } from "@/components/widgets"
 import { dashboardService } from "@/services/dashboard"
 import { Dashboard, DashboardUpdate, PlacedWidget as PlacedWidgetType } from "@/types/dashboard"
 import { useDashboards } from "@/contexts/dashboard-context"
@@ -113,6 +113,10 @@ const renderWidgetContent = (widget: PlacedWidget, dateFrom: string, dateTo: str
       return <AbsenteeismWidget widgetId={widget.id} {...dateFilterProps} />;
     case 'pending_work':
       return <PendingWorkWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'kablaj_uretim_rate':
+      return <KablajUretimRateWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'aselsan_sivas':
+      return <AselsanSivasWidget widgetId={widget.id} {...dateFilterProps} />;
     default:
       return (
         <div className="flex flex-col items-center justify-center h-full">
@@ -1343,7 +1347,7 @@ export default function EditDashboardPage() {
               </div>
               <div className="space-y-2">
                 <DialogTitle className="text-xl font-bold text-emerald-600">
-                  🐟 Fener balığınız size yol gösteriyor!
+                  {platformCode === 'deriniz' ? '🐟 Fener balığınız size yol gösteriyor!' : '✨ Başarılı!'}
                 </DialogTitle>
                 <p className="text-slate-600">
                   Dashboard başarıyla güncellendi

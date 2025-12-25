@@ -1,17 +1,18 @@
-from typing import Dict, Any, Optional
+from typing import Any
+
 from .base import WidgetStrategy
 
 
 class TestDurationWidgetStrategy(WidgetStrategy):
     """Strategy for test duration widget - analyze total test duration by product"""
-    
-    def get_query(self, filters: Optional[Dict[str, Any]] = None) -> str:
+
+    def get_query(self, filters: dict[str, Any] | None = None) -> str:
         """Get test duration widget query with UrunID and TestBaslangicTarihi filters"""
-        
+
         # Filters are mandatory for test duration widget
         if not filters:
             raise ValueError("Filters are mandatory for test duration widget")
-        
+
         # Required filter validation
         if not filters.get('urun_id'):
             raise ValueError("urun_id filter is mandatory for test duration widget")
@@ -21,13 +22,13 @@ class TestDurationWidgetStrategy(WidgetStrategy):
             raise ValueError("date_from filter is mandatory for test duration widget")
         if not filters.get('date_to'):
             raise ValueError("date_to filter is mandatory for test duration widget")
-        
+
         # Extract required filters
         urun_id = int(filters['urun_id'])
         date_from = filters['date_from']
         date_to = filters['date_to']
         seri_no = filters['seri_no']
-        
+
         # Build query with time duration calculation and first pass analysis
         query = f"""
         WITH duration_stats AS (
@@ -107,15 +108,15 @@ class TestDurationWidgetStrategy(WidgetStrategy):
         GROUP BY ds.product_id, ds.stock_no, ds.total_sure
         ORDER BY ds.total_sure DESC
         """
-        
+
         return query
-    
-    def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+
+    def process_result(self, result: Any, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Process test duration widget result with first pass analysis"""
-        
+
         if not filters:
             raise ValueError("Filters are mandatory for test duration widget")
-        
+
         if not result:
             return {
                 "urun_id": int(filters.get('urun_id', 0)),
@@ -132,7 +133,7 @@ class TestDurationWidgetStrategy(WidgetStrategy):
                     "first_pass_percentage": 0.0
                 }
             }
-        
+
         # Process results
         total_duration_seconds = 0
         total_test_combinations = 0
@@ -140,7 +141,7 @@ class TestDurationWidgetStrategy(WidgetStrategy):
         total_total_count_for_first_pass = 0
         total_test_count = 0
         stok_no = ""
-        
+
         for row in result:
             urun_id = int(row[0])
             stok_no = str(row[1]) if row[1] else ""
@@ -151,13 +152,13 @@ class TestDurationWidgetStrategy(WidgetStrategy):
             first_pass_percentage = float(row[6]) if row[6] is not None else 0.0
             test_count = int(row[7]) if row[7] is not None else 0
             average_duration = float(row[8]) if row[8] is not None else 0.0
-            
+
             total_duration_seconds += duration_seconds
             total_test_combinations += test_combinations
             total_first_pass_count += first_pass_count
             total_total_count_for_first_pass += total_count_for_first_pass
             total_test_count += test_count
-        
+
         # Format duration for display
         def format_duration(seconds):
             """Convert seconds to human readable format"""
@@ -172,12 +173,12 @@ class TestDurationWidgetStrategy(WidgetStrategy):
                 minutes = int((seconds % 3600) // 60)
                 remaining_seconds = int(seconds % 60)
                 return f"{hours}sa {minutes}dk {remaining_seconds}s"
-        
+
         total_duration_formatted = format_duration(total_duration_seconds)
         overall_first_pass_percentage = (total_first_pass_count / total_total_count_for_first_pass * 100) if total_total_count_for_first_pass > 0 else 0.0
         # Calculate average duration by dividing total duration by total test count
         average_duration_seconds = (total_duration_seconds / total_test_count) if total_test_count > 0 else 0.0
-        
+
         return {
             "urun_id": int(filters['urun_id']),
             "stok_no": stok_no,

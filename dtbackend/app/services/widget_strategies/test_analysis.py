@@ -1,17 +1,18 @@
-from typing import Dict, Any, Optional
+from typing import Any
+
 from .base import WidgetStrategy
 
 
 class TestAnalysisWidgetStrategy(WidgetStrategy):
     """Strategy for test analysis widget - analyze specific test across serial numbers"""
-    
-    def get_query(self, filters: Optional[Dict[str, Any]] = None) -> str:
+
+    def get_query(self, filters: dict[str, Any] | None = None) -> str:
         """Get test analysis widget query with UrunID, TestAdi, and TestBaslangicTarihi filters"""
-        
+
         # Filters are mandatory for test analysis widget
         if not filters:
             raise ValueError("Filters are mandatory for test analysis widget")
-        
+
         # Required filter validation
         if not filters.get('urun_id'):
             raise ValueError("urun_id filter is mandatory for test analysis widget")
@@ -21,11 +22,11 @@ class TestAnalysisWidgetStrategy(WidgetStrategy):
             raise ValueError("date_from filter is mandatory for test analysis widget")
         if not filters.get('date_to'):
             raise ValueError("date_to filter is mandatory for test analysis widget")
-        
+
         # Extract required filters
         urun_id = int(filters['urun_id'])
         test_adi = str(filters['test_adi'])
-        
+
         # Build base query
         query = f"""
         SELECT 
@@ -66,15 +67,15 @@ class TestAnalysisWidgetStrategy(WidgetStrategy):
             failed DESC, 
             teu.SeriNo ASC
         """
-        
+
         return query
-    
-    def process_result(self, result: Any, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+
+    def process_result(self, result: Any, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Process test analysis widget result"""
-        
+
         if not filters:
             raise ValueError("Filters are mandatory for test analysis widget")
-        
+
         if not result:
             return {
                 "urun_id": int(filters.get('urun_id', 0)),
@@ -90,14 +91,14 @@ class TestAnalysisWidgetStrategy(WidgetStrategy):
                     "total_serials": 0
                 }
             }
-        
+
         # Process individual serial number results
         serial_results = []
         total_tests_count = 0
         total_passed_count = 0
         first_pass_count = 0
         stok_no = ""
-        
+
         for row in result:
             urun_id = int(row[0])
             stok_no = str(row[1]) if row[1] else ""
@@ -108,11 +109,11 @@ class TestAnalysisWidgetStrategy(WidgetStrategy):
             failed = int(row[6])
             pass_ratio = float(row[7])
             fail_ratio = float(row[8])
-            
+
             # Determine if this is a first pass (total=1 and passed=1)
             print(total, passed)
             first_pass = total == passed
-            
+
             serial_result = {
                 "seri_no": seri_no,
                 "total": total,
@@ -122,19 +123,19 @@ class TestAnalysisWidgetStrategy(WidgetStrategy):
                 "fail_ratio": fail_ratio,
                 "first_pass": first_pass
             }
-            
+
             serial_results.append(serial_result)
-            
+
             # Accumulate totals
             total_tests_count += total
             total_passed_count += passed
             if first_pass:
                 first_pass_count += 1
-        
+
         # Calculate overall ratios
         overall_pass_ratio = (total_passed_count / total_tests_count * 100) if total_tests_count > 0 else 0.0
         first_pass_ratio = (first_pass_count / len(serial_results) * 100) if serial_results else 0.0
-        
+
         return {
             "urun_id": int(filters['urun_id']),
             "test_adi": str(filters['test_adi']),

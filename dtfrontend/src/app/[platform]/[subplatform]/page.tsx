@@ -14,9 +14,13 @@ import {
   User,
   Star,
   TrendingUp,
-  Activity
+  Activity,
+  ChevronDown,
+  ChevronRight,
+  Shield,
+  Clock
 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, LineChart, Line, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { dashboardService } from "@/services/dashboard";
 import { reportsService } from "@/services/reports";
 import { DashboardList } from "@/types/dashboard";
@@ -25,13 +29,26 @@ import { useUser } from "@/contexts/user-context";
 import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
+import { Feedback } from "@/components/feedback/feedback";
+import { isAdmin, checkAccess } from "@/lib/utils";
 
-// Icon mapping
+interface PreviewResponse {
+  data?: any[] | null;
+}
+
+// Icon mapping for features
 const iconMap: { [key: string]: any } = {
   BarChart3,
   Activity,
   TrendingUp,
-  Layout
+  Layout,
+  FileText,
+  Database,
+  User,
+  Calendar,
+  Shield,
+  Clock,
+  Star
 };
 
 export default function SubPlatformPage() {
@@ -49,22 +66,39 @@ export default function SubPlatformPage() {
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
   const [rawMachineData, setRawMachineData] = useState<any[]>([]); // Store raw machine data for verimlilik
+  const [rawVerimlilikData, setRawVerimlilikData] = useState<any[]>([]); // Store all time-series data
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedFirma, setSelectedFirma] = useState<string | null>(null);
+  const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
   const [firmaOptions, setFirmaOptions] = useState<string[]>([]);
+  const [machineOptions, setMachineOptions] = useState<string[]>([]);
   const [showFirmaDropdown, setShowFirmaDropdown] = useState(false);
-  const [selectedDayRange, setSelectedDayRange] = useState<'day7' | 'day30' | 'day60' | 'day90'>('day7');
-  const [showDayDropdown, setShowDayDropdown] = useState(false);
-  
+  const [verimlilikStartDate, setVerimlilikStartDate] = useState<string>(() => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 30);
+    return start.toISOString().split('T')[0];
+  });
+  const [verimlilikEndDate, setVerimlilikEndDate] = useState<string>(() => {
+    const end = new Date();
+    return end.toISOString().split('T')[0];
+  });
+
   // Kapasite subplatform filters
-  const [selectedKapasitePeriod, setSelectedKapasitePeriod] = useState<'weekly' | 'monthly'>('monthly');
+  const [selectedKapasitePeriod, setSelectedKapasitePeriod] = useState<'weekly' | 'monthly' | 'day60' | 'day90'>('monthly');
   const [showKapasitePeriodDropdown, setShowKapasitePeriodDropdown] = useState(false);
-  
+  const [selectedKapasiteDataType, setSelectedKapasiteDataType] = useState<'mekanik' | 'kablaj'>('mekanik');
+  const [mekanikKapasiteData, setMekanikKapasiteData] = useState<any[]>([]);
+  const [kablajKapasiteData, setKablajKapasiteData] = useState<any[]>([]);
+
   // Idari subplatform filters
   const [selectedIdariDepartman, setSelectedIdariDepartman] = useState<string | null>(null);
   const [departmanOptions, setDepartmanOptions] = useState<string[]>([]);
   const [showDepartmanDropdown, setShowDepartmanDropdown] = useState(false);
+
+  // Dijital subplatform data
+  const [dijitalData, setDijitalData] = useState<any[]>([]);
 
   // Use useLayoutEffect to set platform BEFORE any effects run
   useLayoutEffect(() => {
@@ -92,102 +126,121 @@ export default function SubPlatformPage() {
         const filteredReports = reportData.filter(r =>
           r.tags && r.tags.includes(subPlatformCode)
         );
-1
+
         setDashboards(filteredDashboards);
         setReports(filteredReports);
 
         // Fetch real chart data for kapasite subplatform
         if (subPlatformCode === 'kapasite') {
           try {
-            const chartResponse: any = await api.post('/reports/preview', {
-              sql_query: 'SELECT "Firma Adı", "Haftalık Planlanan Doluluk Oranı", "Aylık Planlanan Doluluk Oranı" FROM mes_production.get_firma_makina_planlanan_doluluk'
-            });
+            const [mekanikResponse, kablajResponse] = await Promise.all([
+              api.post<PreviewResponse>('/reports/preview', {
+                sql_query: 'SELECT "Firma Adı", "Haftalık Planlanan Doluluk Oranı", "Aylık Planlanan Doluluk Oranı", 0 as "60 Günlük Planlanan Doluluk Oranı", 0 as "90 Günlük Planlanan Doluluk Oranı" FROM mes_production.get_firma_makina_planlanan_doluluk',
+                limit: 100000
+              }),
+              api.post<PreviewResponse>('/reports/preview', {
+                sql_query: 'SELECT "Firma Adı", "7 Günlük Doluluk", "30 Günlük Doluluk", "60 Günlük Doluluk", "90 Günlük Doluluk" FROM mes_production.kablaj_firma_doluluk_bitmeyen_siparis_sayilari',
+                limit: 100000
+              })
+            ]);
 
-            if (chartResponse && chartResponse.data && Array.isArray(chartResponse.data)) {
-              const transformedData = chartResponse.data.map((row: any[]) => ({
+            // Store mekanik data
+            if (mekanikResponse?.data && Array.isArray(mekanikResponse.data)) {
+              const transformedMekanik = mekanikResponse.data.map((row: any[]) => ({
                 name: row[0], // Firma Adı
-                weekly: parseFloat(row[1]) || 0, // Haftalık Planlanan Doluluk Oranı
-                monthly: parseFloat(row[2]) || 0, // Aylık Planlanan Doluluk Oranı
-                value: selectedKapasitePeriod === 'weekly' ? (parseFloat(row[1]) || 0) : (parseFloat(row[2]) || 0)
+                weekly: parseFloat(row[1]) || 0,
+                monthly: parseFloat(row[2]) || 0,
+                day60: parseFloat(row[3]) || 0,
+                day90: parseFloat(row[4]) || 0
               }));
-              setChartData(transformedData);
-            } else {
-              setChartData([]);
+              setMekanikKapasiteData(transformedMekanik);
+            }
+
+            // Store kablaj data
+            if (kablajResponse?.data && Array.isArray(kablajResponse.data)) {
+              const transformedKablaj = kablajResponse.data.map((row: any[]) => ({
+                name: row[0], // Firma Adı
+                day7: parseFloat(row[1]) || 0,
+                day30: parseFloat(row[2]) || 0,
+                day60: parseFloat(row[3]) || 0,
+                day90: parseFloat(row[4]) || 0
+              }));
+              setKablajKapasiteData(transformedKablaj);
+            }
+
+            // Set initial chart data based on selected type
+            const initialData = selectedKapasiteDataType === 'mekanik' ? mekanikKapasiteData : kablajKapasiteData;
+            if (initialData.length === 0 && mekanikResponse?.data) {
+              // Use mekanik data for initial render
+              const transformedMekanik = mekanikResponse.data.map((row: any[]) => ({
+                name: row[0],
+                weekly: parseFloat(row[1]) || 0,
+                monthly: parseFloat(row[2]) || 0,
+                day60: parseFloat(row[3]) || 0,
+                day90: parseFloat(row[4]) || 0,
+                value: selectedKapasitePeriod === 'weekly' ? (parseFloat(row[1]) || 0) :
+                       selectedKapasitePeriod === 'monthly' ? (parseFloat(row[2]) || 0) :
+                       selectedKapasitePeriod === 'day60' ? (parseFloat(row[3]) || 0) : (parseFloat(row[4]) || 0)
+              }));
+              setChartData(transformedMekanik);
             }
           } catch (chartError) {
             console.error("Failed to fetch chart data:", chartError);
             setChartData([]);
           }
         } else if (subPlatformCode === 'verimlilik') {
-          // Fetch real chart data for verimlilik subplatform
+          // Fetch time-series data from tarih_bazli_oee table
           try {
-            const chartResponse: any = await api.post('/reports/preview', {
-              sql_query: 'SELECT "NAME", "MachineCode", "AVG_OEE_7_Days", "AVG_OEE_30_Days", "AVG_OEE_60_Days", "AVG_OEE_90_Days" FROM mes_production.mes_production_firma_tezgah_oee'
+            const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
+              sql_query: 'SELECT "Firma Adı", "Makina Kodu", "Üretim Tarihi", "OEE" FROM mes_production.tarih_bazli_oee ORDER BY "Üretim Tarihi" DESC',
+              limit: 100000
             });
 
-            if (chartResponse && chartResponse.data && Array.isArray(chartResponse.data)) {
-              console.log('Verimlilik raw data:', chartResponse.data);
+            if (chartResponse?.data && Array.isArray(chartResponse.data)) {
+              const transformedData = chartResponse.data
+                .map((row: any[]) => ({
+                  firma: row[0],
+                  machinecode: row[1],
+                  date: row[2],
+                  oee: (parseFloat(row[3]) || 0) * 100
+                }))
+                .filter((item: any) => item.oee >= 5); // Filter out OEE values under 5%
+              setRawVerimlilikData(transformedData);
 
               // Extract unique firma options
-              const uniqueFirmas = Array.from(new Set(chartResponse.data.map((row: any[]) => row[0]))).sort() as string[];
+              const uniqueFirmas = Array.from(new Set(transformedData.map((item: any) => item.firma))).sort() as string[];
               setFirmaOptions(uniqueFirmas);
 
-              const transformedData = chartResponse.data.map((row: any[]) => {
-                const item = {
-                  firma: row[0], // NAME
-                  machinecode: row[1], // MachineCode
-                  name: `${row[0]} - ${row[1]}`, // Combined name for display
-                  displayName: String(row[1] || ''), // MachineCode only for filtered view
-                  day7: parseFloat(row[2]) || 0,
-                  day30: parseFloat(row[3]) || 0,
-                  day60: parseFloat(row[4]) || 0,
-                  day90: parseFloat(row[5]) || 0
-                };
-                console.log('Transformed item:', item);
-                return item;
-              });
-              console.log('Final transformed data:', transformedData);
-              
-              // Store raw machine data
-              setRawMachineData(transformedData);
-              
-              // Calculate average values per company for initial view
+              // Calculate average OEE per firma
               const firmaAverages = uniqueFirmas.map(firma => {
                 const firmaData = transformedData.filter((item: any) => item.firma === firma);
-                const avgDay7 = firmaData.reduce((sum: number, item: any) => sum + item.day7, 0) / firmaData.length;
-                const avgDay30 = firmaData.reduce((sum: number, item: any) => sum + item.day30, 0) / firmaData.length;
-                const avgDay60 = firmaData.reduce((sum: number, item: any) => sum + item.day60, 0) / firmaData.length;
-                const avgDay90 = firmaData.reduce((sum: number, item: any) => sum + item.day90, 0) / firmaData.length;
-                
+                const avgOee = firmaData.reduce((sum: number, item: any) => sum + item.oee, 0) / firmaData.length;
                 return {
-                  firma: firma,
                   name: firma,
-                  day7: avgDay7,
-                  day30: avgDay30,
-                  day60: avgDay60,
-                  day90: avgDay90
+                  firma: firma,
+                  value: avgOee
                 };
               });
-              
+
               setChartData(firmaAverages);
             } else {
-              console.log('No data or invalid format:', chartResponse);
               setChartData([]);
-              setRawMachineData([]);
+              setRawVerimlilikData([]);
             }
           } catch (chartError) {
             console.error("Failed to fetch chart data:", chartError);
             setChartData([]);
-            setRawMachineData([]);
+            setRawVerimlilikData([]);
           }
         } else if (subPlatformCode === 'idari') {
           // Fetch real chart data for idari subplatform
           try {
-            const chartResponse: any = await api.post('/reports/preview', {
-              sql_query: 'SELECT "Firma", "Departman", "Toplam Çalışan Sayısı" FROM mes_production.get_firma_departman_bazli_calisan_sayisi ORDER BY "Firma", "Toplam Çalışan Sayısı" DESC'
+            const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
+              sql_query: 'SELECT "Firma", "Departman", "Toplam Çalışan Sayısı" FROM mes_production.get_firma_departman_bazli_calisan_sayisi ORDER BY "Firma", "Toplam Çalışan Sayısı" DESC',
+              limit: 100000
             });
 
-            if (chartResponse && chartResponse.data && Array.isArray(chartResponse.data)) {
+            if (chartResponse?.data && Array.isArray(chartResponse.data)) {
               const transformedData = chartResponse.data.map((row: any[]) => ({
                 name: `${row[0]} - ${row[1]}`, // Firma - Departman
                 firma: row[0], // Firma
@@ -207,6 +260,50 @@ export default function SubPlatformPage() {
           } catch (chartError) {
             console.error("Failed to fetch chart data:", chartError);
             setChartData([]);
+          }
+        } else if (subPlatformCode === 'dijital') {
+          // Fetch real chart data for dijital subplatform
+          try {
+            const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
+              sql_query: 'SELECT "Firma", "Etiket", "Adet", "Eşleşme Oranı" FROM mes_production.siparis_kalem_no_tarih_bazli ORDER BY "Firma"',
+              limit: 100000
+            });
+
+            if (chartResponse?.data && Array.isArray(chartResponse.data)) {
+              // Group data by Firma
+              const groupedData: { [key: string]: any } = {};
+
+              chartResponse.data.forEach((row: any[]) => {
+                const firma = row[0];
+                const etiket = row[1];
+                const adet = Number(row[2]) || 0;
+                const oran = Number(row[3]) || 0;
+
+                if (!groupedData[firma]) {
+                  groupedData[firma] = {
+                    name: firma,
+                    'MES-SAP Eşleşmiş Sipariş Satır Sayısı': 0,
+                    'SAP Sipariş Sayısı': 0,
+                    'Eşleşme Oranı': 0
+                  };
+                }
+
+                if (etiket === 'MES-SAP Eşleşmiş Sipariş Satır Sayısı') {
+                  groupedData[firma]['MES-SAP Eşleşmiş Sipariş Satır Sayısı'] = adet;
+                  groupedData[firma]['Eşleşme Oranı'] = oran * 100;
+                } else if (etiket === 'SAP Sipariş Sayısı') {
+                  groupedData[firma]['SAP Sipariş Sayısı'] = adet;
+                }
+              });
+
+              const transformedData = Object.values(groupedData);
+              setDijitalData(transformedData);
+            } else {
+              setDijitalData([]);
+            }
+          } catch (chartError) {
+            console.error("Failed to fetch dijital chart data:", chartError);
+            setDijitalData([]);
           }
         } else {
           // Generate sample chart data for other subplatforms
@@ -232,48 +329,129 @@ export default function SubPlatformPage() {
     fetchData();
   }, [platformCode, subPlatformCode]);
 
-  // Update chart data when period selection changes for kapasite
+  // Update chart data when period or data type selection changes for kapasite
   useEffect(() => {
-    if (subPlatformCode === 'kapasite' && chartData.length > 0) {
-      // Update the value field based on selected period
-      const updatedData = chartData.map(item => ({
-        ...item,
-        value: selectedKapasitePeriod === 'weekly' ? item.weekly : item.monthly
-      }));
-      setChartData(updatedData);
-    }
-  }, [selectedKapasitePeriod, subPlatformCode]);
+    if (subPlatformCode === 'kapasite') {
+      const sourceData = selectedKapasiteDataType === 'mekanik' ? mekanikKapasiteData : kablajKapasiteData;
 
-  // Update chart data when firma selection changes for verimlilik
-  useEffect(() => {
-    if (subPlatformCode === 'verimlilik' && rawMachineData.length > 0) {
-      if (selectedFirma) {
-        // Show machine-level data for selected firma
-        const firmaData = rawMachineData.filter(item => item.firma === selectedFirma);
-        setChartData(firmaData);
-      } else {
-        // Show average values per company
-        const uniqueFirmas = Array.from(new Set(rawMachineData.map((item: any) => item.firma))).sort() as string[];
-        const firmaAverages = uniqueFirmas.map(firma => {
-          const firmaData = rawMachineData.filter((item: any) => item.firma === firma);
-          const avgDay7 = firmaData.reduce((sum: number, item: any) => sum + item.day7, 0) / firmaData.length;
-          const avgDay30 = firmaData.reduce((sum: number, item: any) => sum + item.day30, 0) / firmaData.length;
-          const avgDay60 = firmaData.reduce((sum: number, item: any) => sum + item.day60, 0) / firmaData.length;
-          const avgDay90 = firmaData.reduce((sum: number, item: any) => sum + item.day90, 0) / firmaData.length;
-          
-          return {
-            firma: firma,
-            name: firma,
-            day7: avgDay7,
-            day30: avgDay30,
-            day60: avgDay60,
-            day90: avgDay90
-          };
-        });
-        setChartData(firmaAverages);
+      if (sourceData.length > 0) {
+        if (selectedKapasiteDataType === 'mekanik') {
+          const updatedData = sourceData.map(item => ({
+            ...item,
+            value: selectedKapasitePeriod === 'weekly' ? item.weekly :
+                   selectedKapasitePeriod === 'monthly' ? item.monthly :
+                   selectedKapasitePeriod === 'day60' ? item.day60 : item.day90
+          }));
+          setChartData(updatedData);
+        } else {
+          // Kablaj data - map periods differently
+          const updatedData = sourceData.map(item => ({
+            ...item,
+            value: selectedKapasitePeriod === 'weekly' ? item.day7 :
+                   selectedKapasitePeriod === 'monthly' ? item.day30 :
+                   selectedKapasitePeriod === 'day60' ? item.day60 : item.day90
+          }));
+          setChartData(updatedData);
+        }
       }
     }
-  }, [selectedFirma, rawMachineData, subPlatformCode]);
+  }, [selectedKapasitePeriod, selectedKapasiteDataType, mekanikKapasiteData, kablajKapasiteData, subPlatformCode]);
+
+  // Clear machine selection when firma changes for verimlilik
+  useEffect(() => {
+    if (subPlatformCode === 'verimlilik' && selectedFirma) {
+      setSelectedMachine(null);
+    }
+  }, [selectedFirma, subPlatformCode]);
+
+  // Fetch verimlilik data when filters change
+  useEffect(() => {
+    const fetchVerimlilikData = async () => {
+      if (subPlatformCode === 'verimlilik') {
+        try {
+          // Build SQL query with date filter
+          let sqlQuery = `SELECT "Firma Adı", "Makina Kodu", "Üretim Tarihi", "OEE" FROM mes_production.tarih_bazli_oee WHERE DATE("Üretim Tarihi") BETWEEN DATE('${verimlilikStartDate}') AND DATE('${verimlilikEndDate}') ORDER BY "Makina Kodu" DESC`;
+
+          const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
+            sql_query: sqlQuery,
+            limit: 100000
+          });
+
+          if (chartResponse?.data && Array.isArray(chartResponse.data)) {
+            const transformedData = chartResponse.data
+              .map((row: any[]) => ({
+                firma: row[0],
+                machinecode: row[1],
+                date: row[2],
+                oee: (parseFloat(row[3]) || 0) * 100
+              }))
+              .filter((item: any) => item.oee >= 5); // Filter out OEE values under 5%
+            setRawVerimlilikData(transformedData);
+
+            // Extract unique firma options
+            const uniqueFirmas = Array.from(new Set(transformedData.map((item: any) => item.firma))).sort() as string[];
+            setFirmaOptions(uniqueFirmas);
+
+            if (selectedMachine && selectedFirma) {
+              // Time-series view: show daily OEE for specific machine
+              const machineData = transformedData
+                .filter((item: any) => item.firma === selectedFirma && item.machinecode === selectedMachine)
+                .map((item: any) => ({
+                  date: item.date,
+                  OEE: item.oee
+                }))
+                .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              setChartData(machineData);
+            } else if (selectedFirma) {
+              // Machine averages view: show average OEE per machine for selected firma
+              const firmaData = transformedData.filter((item: any) => item.firma === selectedFirma);
+              const machines = Array.from(new Set(firmaData.map((item: any) => item.machinecode)));
+              setMachineOptions(machines as string[]);
+
+              const machineAverages = machines
+                .map(machine => {
+                  const machineData = firmaData.filter((item: any) => item.machinecode === machine);
+                  if (machineData.length === 0) return null;
+                  const avgOee = machineData.reduce((sum: number, item: any) => sum + item.oee, 0) / machineData.length;
+                  return {
+                    name: machine,
+                    machinecode: machine,
+                    firma: selectedFirma,
+                    value: avgOee
+                  };
+                })
+                .filter(item => item !== null); // Remove machines with no valid data
+              setChartData(machineAverages);
+            } else {
+              // Firma averages view: show average OEE per firma
+              const firmaAverages = uniqueFirmas
+                .map(firma => {
+                  const firmaData = transformedData.filter((item: any) => item.firma === firma);
+                  if (firmaData.length === 0) return null;
+                  const avgOee = firmaData.reduce((sum: number, item: any) => sum + item.oee, 0) / firmaData.length;
+                  return {
+                    name: firma,
+                    firma: firma,
+                    value: avgOee
+                  };
+                })
+                .filter(item => item !== null); // Remove firmas with no valid data
+              setChartData(firmaAverages);
+            }
+          } else {
+            setChartData([]);
+            setRawVerimlilikData([]);
+          }
+        } catch (error) {
+          console.error("Failed to fetch verimlilik data:", error);
+          setChartData([]);
+          setRawVerimlilikData([]);
+        }
+      }
+    };
+
+    fetchVerimlilikData();
+  }, [subPlatformCode, selectedFirma, selectedMachine, verimlilikStartDate, verimlilikEndDate]);
 
   const handleCreateDashboard = () => {
     router.push(`/${platformCode}/dashboard/add?subplatform=${subPlatformCode}`);
@@ -293,9 +471,14 @@ export default function SubPlatformPage() {
 
   // Handle bar click for verimlilik chart
   const handleBarClick = (data: any) => {
-    if (subPlatformCode === 'verimlilik' && data && data.firma && !selectedFirma) {
-      // Only set filter if clicking on company average bars (when no filter is active)
-      setSelectedFirma(data.firma);
+    if (subPlatformCode === 'verimlilik') {
+      if (!selectedFirma && data.firma) {
+        // Click on firma bar -> show machines for that firma
+        setSelectedFirma(data.firma);
+      } else if (selectedFirma && !selectedMachine && data.machinecode) {
+        // Click on machine bar -> show time-series for that machine
+        setSelectedMachine(data.machinecode);
+      }
     }
   };
 
@@ -347,43 +530,81 @@ export default function SubPlatformPage() {
                     <BarChart3 className="h-6 w-6" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>Firma Bazlı Kapasite Değerleri</h2>
+                    <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>Talaşlı İmalat: Firma Bazlı Kapasite Değerleri</h2>
                   </div>
                 </div>
-                <div className="relative">
-                  <button 
-                    onClick={() => setShowKapasitePeriodDropdown(!showKapasitePeriodDropdown)} 
-                    className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[140px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
-                  >
-                    <span className="truncate">
-                      {selectedKapasitePeriod === 'weekly' ? 'Haftalık' : 'Aylık'}
-                    </span>
-                    <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                  {showKapasitePeriodDropdown && (
-                    <div className="absolute z-10 mt-2 w-40 bg-white border border-gray-300 rounded-lg shadow-lg right-0">
-                      <div 
-                        onClick={() => { 
-                          setSelectedKapasitePeriod('weekly'); 
-                          setShowKapasitePeriodDropdown(false); 
-                        }} 
-                        className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'weekly' ? 'bg-blue-100 font-medium' : ''}`}
-                      >
-                        Haftalık
+                <div className="flex items-center gap-2">
+                  {/* Data Type Toggle */}
+                  {/* <div className="flex border border-gray-300 rounded overflow-hidden">
+                    <button
+                      onClick={() => setSelectedKapasiteDataType('mekanik')}
+                      className={`px-3 py-1.5 text-sm ${selectedKapasiteDataType === 'mekanik' ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                    >
+                      Mekanik
+                    </button>
+                    <button
+                      onClick={() => setSelectedKapasiteDataType('kablaj')}
+                      className={`px-3 py-1.5 text-sm ${selectedKapasiteDataType === 'kablaj' ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                    >
+                      Kablaj
+                    </button>
+                  </div> */}
+                  {/* Period Dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowKapasitePeriodDropdown(!showKapasitePeriodDropdown)}
+                      className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[140px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    >
+                      <span className="truncate">
+                        {selectedKapasitePeriod === 'weekly' ? 'Haftalık' :
+                         selectedKapasitePeriod === 'monthly' ? 'Aylık':
+                         selectedKapasitePeriod === 'day60' ? '60 Gün' : '90 Gün'}
+                      </span>
+                      <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    {showKapasitePeriodDropdown && (
+                      <div className="absolute z-10 mt-2 w-40 bg-white border border-gray-300 rounded-lg shadow-lg right-0">
+                        <div
+                          onClick={() => {
+                            setSelectedKapasitePeriod('weekly');
+                            setShowKapasitePeriodDropdown(false);
+                          }}
+                          className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'weekly' ? 'bg-blue-100 font-medium' : ''}`}
+                        >
+                          {selectedKapasiteDataType === 'kablaj' ? '7 Gün' : 'Haftalık'}
+                        </div>
+                        <div
+                          onClick={() => {
+                            setSelectedKapasitePeriod('monthly');
+                            setShowKapasitePeriodDropdown(false);
+                          }}
+                          className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'monthly' ? 'bg-blue-100 font-medium' : ''}`}
+                        >
+                          {selectedKapasiteDataType === 'kablaj' ? '30 Gün' : 'Aylık'}
+                        </div>
+                        <div
+                          onClick={() => {
+                            setSelectedKapasitePeriod('day60');
+                            setShowKapasitePeriodDropdown(false);
+                          }}
+                          className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'day60' ? 'bg-blue-100 font-medium' : ''}`}
+                        >
+                          60 Gün
+                        </div>
+                        <div
+                          onClick={() => {
+                            setSelectedKapasitePeriod('day90');
+                            setShowKapasitePeriodDropdown(false);
+                          }}
+                          className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'day90' ? 'bg-blue-100 font-medium' : ''}`}
+                        >
+                          90 Gün
+                        </div>
                       </div>
-                      <div 
-                        onClick={() => { 
-                          setSelectedKapasitePeriod('monthly'); 
-                          setShowKapasitePeriodDropdown(false); 
-                        }} 
-                        className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedKapasitePeriod === 'monthly' ? 'bg-blue-100 font-medium' : ''}`}
-                      >
-                        Aylık
-                      </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -423,93 +644,155 @@ export default function SubPlatformPage() {
                     <BarChart3 className="h-6 w-6" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>Firma Bazlı OEE Değerleri</h2>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  {firmaOptions.length > 0 && (
-                    <div className="relative">
-                      <button onClick={() => setShowFirmaDropdown(!showFirmaDropdown)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[160px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors">
-                        <span className="truncate">{selectedFirma || 'Tüm Firmalar'}</span>
-                        <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>
+                      {!selectedFirma ? 'Talaşlı İmalat: Firma Bazlı OEE Değerleri' :
+                       !selectedMachine ? `${selectedFirma} - Makine OEE Ortalamaları` :
+                       `${selectedFirma} - ${selectedMachine} OEE Trendi`}
+                    </h2>
+                    {selectedFirma && (
+                      <button
+                        onClick={() => {
+                          if (selectedMachine) {
+                            setSelectedMachine(null);
+                          } else {
+                            setSelectedFirma(null);
+                          }
+                        }}
+                        className="text-sm text-blue-600 hover:text-blue-800 mt-1"
+                      >
+                        ← Geri
                       </button>
-                      {showFirmaDropdown && (
-                        <div className="absolute z-10 mt-2 w-48 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto right-0">
-                          <div onClick={() => { setSelectedFirma(null); setShowFirmaDropdown(false); }} className="px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer font-medium">Tüm Firmalar</div>
-                          {firmaOptions.map((firma) => (
-                            <div key={firma} onClick={() => { setSelectedFirma(firma); setShowFirmaDropdown(false); }} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedFirma === firma ? 'bg-blue-100 font-medium' : ''}`}>{firma}</div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div className="relative">
-                    <button onClick={() => setShowDayDropdown(!showDayDropdown)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[140px] text-left flex items-center justify-between hover:bg-gray-50 transition-colors">
-                      <span className="truncate">
-                        {selectedDayRange === 'day7' && '7 Gün'}
-                        {selectedDayRange === 'day30' && '30 Gün'}
-                        {selectedDayRange === 'day60' && '60 Gün'}
-                        {selectedDayRange === 'day90' && '90 Gün'}
-                      </span>
-                      <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                    </button>
-                    {showDayDropdown && (
-                      <div className="absolute z-10 mt-2 w-40 bg-white border border-gray-300 rounded-lg shadow-lg right-0">
-                        <div onClick={() => { setSelectedDayRange('day7'); setShowDayDropdown(false); }} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedDayRange === 'day7' ? 'bg-blue-100 font-medium' : ''}`}>7 Gün</div>
-                        <div onClick={() => { setSelectedDayRange('day30'); setShowDayDropdown(false); }} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedDayRange === 'day30' ? 'bg-blue-100 font-medium' : ''}`}>30 Gün</div>
-                        <div onClick={() => { setSelectedDayRange('day60'); setShowDayDropdown(false); }} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedDayRange === 'day60' ? 'bg-blue-100 font-medium' : ''}`}>60 Gün</div>
-                        <div onClick={() => { setSelectedDayRange('day90'); setShowDayDropdown(false); }} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${selectedDayRange === 'day90' ? 'bg-blue-100 font-medium' : ''}`}>90 Gün</div>
-                      </div>
                     )}
                   </div>
+                </div>
+                <div className="flex gap-2">
+                  {/* Date Range Filters */}
+                  <input
+                    type="date"
+                    value={verimlilikStartDate}
+                    onChange={(e) => setVerimlilikStartDate(e.target.value)}
+                    className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    type="date"
+                    value={verimlilikEndDate}
+                    onChange={(e) => setVerimlilikEndDate(e.target.value)}
+                    className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
               </div>
 
               <ResponsiveContainer width="100%" height={400}>
-                <BarChart 
-                  key={selectedFirma || 'all'} 
-                  data={chartData} 
-                  margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
-                  onClick={(data) => {
-                    if (data && data.activePayload && data.activePayload[0]) {
-                      handleBarClick(data.activePayload[0].payload);
-                    }
-                  }}
-                  style={{ cursor: !selectedFirma ? 'pointer' : 'default' }}
-                >
-                  <defs>
-                    {[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19].map(i => (
-                      <linearGradient key={i} id={`colorOee${i}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#ec4899','#06b6d4','#84cc16','#6366f1','#f43f5e','#14b8a6','#a855f7','#f97316','#22c55e','#eab308','#d946ef','#0ea5e9','#facc15','#fb923c','#a3e635'][i]} stopOpacity={0.9}/>
-                        <stop offset="100%" stopColor={['#1d4ed8','#6d28d9','#059669','#d97706','#dc2626','#db2777','#0891b2','#65a30d','#4f46e5','#e11d48','#0d9488','#9333ea','#ea580c','#16a34a','#ca8a04','#c026d3','#0284c7','#eab308','#f97316','#84cc16'][i]} stopOpacity={0.9}/>
+                {selectedFirma && selectedMachine ? (
+                  // Line chart for time-series when both firma and machine are selected
+                  <LineChart
+                    data={chartData}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                  >
+                    <defs>
+                      <linearGradient id="colorVerimlilikOee" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.8}/>
+                        <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.1}/>
                       </linearGradient>
-                    ))}
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey={selectedFirma ? "machinecode" : "name"} stroke="#6b7280" style={{ fontSize: '13px', fontWeight: 500 }} tickLine={false} angle={-45} textAnchor="end" height={80} />
-                  <YAxis stroke="#6b7280" style={{ fontSize: '13px', fontWeight: 500 }} tickLine={false} label={{ value: 'OEE (%)', angle: -90, position: 'insideLeft' }} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px' }} 
-                    cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }} 
-                    formatter={(value: number) => `${value.toFixed(2)}%`}
-                    labelFormatter={(label: string, payload: any[]) => {
-                      if (!selectedFirma && payload && payload.length > 0) {
-                        return `${label} (Ortalama - Detay için tıklayın)`;
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis
+                      dataKey="date"
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                      stroke="#6b7280"
+                      style={{ fontSize: '11px', fontWeight: 500 }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      stroke="#6b7280"
+                      style={{ fontSize: '13px', fontWeight: 500 }}
+                      tickLine={false}
+                      label={{ value: 'OEE (%)', angle: -90, position: 'insideLeft' }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'white',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '12px',
+                        boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                        padding: '12px'
+                      }}
+                      formatter={(value: number) => `${value.toFixed(2)}%`}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="OEE"
+                      stroke="#8b5cf6"
+                      strokeWidth={3}
+                      dot={{ r: 4, fill: '#8b5cf6' }}
+                      activeDot={{ r: 6 }}
+                      fill="url(#colorVerimlilikOee)"
+                    />
+                  </LineChart>
+                ) : (
+                  // Bar chart for aggregated views
+                  <BarChart
+                    data={chartData}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
+                    onClick={(data) => {
+                      if (data && data.activePayload && data.activePayload[0]) {
+                        handleBarClick(data.activePayload[0].payload);
                       }
-                      return label;
                     }}
-                  />
-                  <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
-                  <Bar dataKey={selectedDayRange} name={
-                    selectedDayRange === 'day7' ? '7 Gün' :
-                    selectedDayRange === 'day30' ? '30 Gün' :
-                    selectedDayRange === 'day60' ? '60 Gün' : '90 Gün'
-                  } radius={[8, 8, 0, 0]} maxBarSize={60}>
-                    {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={`url(#colorOee${index % 20})`} />
-                    ))}
-                  </Bar>
-                </BarChart>
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <defs>
+                      {[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19].map(i => (
+                        <linearGradient key={i} id={`colorOee${i}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#ec4899','#06b6d4','#84cc16','#6366f1','#f43f5e','#14b8a6','#a855f7','#f97316','#22c55e','#eab308','#d946ef','#0ea5e9','#facc15','#fb923c','#a3e635'][i]} stopOpacity={0.9}/>
+                          <stop offset="100%" stopColor={['#1d4ed8','#6d28d9','#059669','#d97706','#dc2626','#db2777','#0891b2','#65a30d','#4f46e5','#e11d48','#0d9488','#9333ea','#ea580c','#16a34a','#ca8a04','#c026d3','#0284c7','#eab308','#f97316','#84cc16'][i]} stopOpacity={0.9}/>
+                        </linearGradient>
+                      ))}
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis
+                      dataKey="name"
+                      stroke="#6b7280"
+                      style={{ fontSize: '13px', fontWeight: 500 }}
+                      tickLine={false}
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                    />
+                    <YAxis
+                      stroke="#6b7280"
+                      style={{ fontSize: '13px', fontWeight: 500 }}
+                      tickLine={false}
+                      label={{ value: 'OEE (%)', angle: -90, position: 'insideLeft' }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'white',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '12px',
+                        boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                        padding: '12px'
+                      }}
+                      cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+                      formatter={(value: number) => `${value.toFixed(2)}%`}
+                      labelFormatter={(label: string) => {
+                        if (!selectedFirma) {
+                          return `${label} (Tıklayın - Makineleri Görün)`;
+                        } else {
+                          return `${label} (Tıklayın - Trend Görün)`;
+                        }
+                      }}
+                    />
+                    <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
+                    <Bar dataKey="value" name="Ortalama OEE (%)" radius={[8, 8, 0, 0]} maxBarSize={60}>
+                      {chartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={`url(#colorOee${index % 20})`} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                )}
               </ResponsiveContainer>
             </div>
           </div>
@@ -702,8 +985,108 @@ export default function SubPlatformPage() {
           </div>
         )}
 
+        {/* Chart Section - Dijital */}
+        {subPlatformCode === 'dijital' && (
+          <div className="mb-12">
+            <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-lg bg-blue-500 text-white">
+                    <BarChart3 className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold" style={{ color: 'rgb(69, 81, 89)' }}>
+                      MES-SAP Sipariş Eşleşme Durumu
+                    </h2>
+                  </div>
+                </div>
+              </div>
+
+              <ResponsiveContainer width="100%" height={400}>
+                <ComposedChart data={dijitalData} margin={{ top: 20, right: 90, left: 90, bottom: 80 }}>
+                  <defs>
+                    <linearGradient id="colorMesSap" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.9}/>
+                      <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.9}/>
+                    </linearGradient>
+                    <linearGradient id="colorSap" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.9}/>
+                      <stop offset="100%" stopColor="#6d28d9" stopOpacity={0.9}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis
+                    dataKey="name"
+                    stroke="#6b7280"
+                    style={{ fontSize: '12px', fontWeight: 500 }}
+                    tickLine={false}
+                    angle={-45}
+                    textAnchor="end"
+                    height={100}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    stroke="#6b7280"
+                    style={{ fontSize: '11px', fontWeight: 500 }}
+                    tickLine={false}
+                    width={75}
+                    label={{ value: 'Eşleşme Adedi', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' } }}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    stroke="#10b981"
+                    style={{ fontSize: '11px', fontWeight: 500 }}
+                    tickLine={false}
+                    width={75}
+                    label={{ value: 'Eşleşme Oranı (%)', angle: 90, position: 'insideRight', style: { textAnchor: 'middle' } }}
+                    domain={[0, 100]}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '12px',
+                      boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                      padding: '12px'
+                    }}
+                    cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+                  />
+                  <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="MES-SAP Eşleşmiş Sipariş Satır Sayısı"
+                    fill="url(#colorMesSap)"
+                    name="MES-SAP Eşleşmiş"
+                    radius={[8, 8, 0, 0]}
+                    maxBarSize={40}
+                  />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="SAP Sipariş Sayısı"
+                    fill="url(#colorSap)"
+                    name="SAP Sipariş"
+                    radius={[8, 8, 0, 0]}
+                    maxBarSize={40}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="Eşleşme Oranı"
+                    stroke="#10b981"
+                    strokeWidth={3}
+                    dot={{ r: 5, fill: '#10b981' }}
+                    activeDot={{ r: 7 }}
+                    name="Eşleşme Oranı (%)"
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* Chart Section - Other Subplatforms */}
-        {subPlatformCode !== 'kapasite' && subPlatformCode !== 'verimlilik' && subPlatformCode !== 'idari' && (
+        {subPlatformCode !== 'kapasite' && subPlatformCode !== 'verimlilik' && subPlatformCode !== 'idari' && subPlatformCode !== 'dijital' && (
           <div className="mb-12">
             <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6">
               <div className="flex items-center justify-between mb-6">
@@ -746,13 +1129,15 @@ export default function SubPlatformPage() {
                 </button>
               )}
             </div>
-            <button
-              onClick={handleCreateDashboard}
-              className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors shadow-lg"
-            >
-              <Plus className="h-4 w-4" />
-              Yeni Ekran
-            </button>
+            {isAdmin(user) && (
+              <button
+                onClick={handleCreateDashboard}
+                className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors shadow-lg"
+              >
+                <Plus className="h-4 w-4" />
+                Yeni Ekran
+              </button>
+            )}
           </div>
 
           {/* Dashboard Grid */}
@@ -833,13 +1218,15 @@ export default function SubPlatformPage() {
               <p className="text-gray-500 mb-6">
                 {subPlatformCode.charAt(0).toUpperCase() + subPlatformCode.slice(1)} platformu için ilk ekranınızı oluşturun.
               </p>
-              <button
-                onClick={handleCreateDashboard}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <Plus className="h-5 w-5" />
-                İlk Ekranı Oluştur
-              </button>
+              {isAdmin(user) && (
+                <button
+                  onClick={handleCreateDashboard}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Plus className="h-5 w-5" />
+                  İlk Ekranı Oluştur
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -859,7 +1246,7 @@ export default function SubPlatformPage() {
                 </button>
               )}
             </div>
-            {hasDerinizAdmin && (
+            {isAdmin(user) && (
               <button
                 onClick={handleCreateReport}
                 className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors shadow-lg"
@@ -936,7 +1323,7 @@ export default function SubPlatformPage() {
               <p className="text-gray-500 mb-6">
                 {subPlatformCode.charAt(0).toUpperCase() + subPlatformCode.slice(1)} platformu için ilk raporunuzu oluşturun.
               </p>
-              {hasDerinizAdmin && (
+              {isAdmin(user) && (
                 <button
                   onClick={handleCreateReport}
                   className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -952,6 +1339,9 @@ export default function SubPlatformPage() {
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
+      
+      {/* Feedback Button */}
+      <Feedback />
     </div>
   );
 }

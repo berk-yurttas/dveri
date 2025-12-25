@@ -51,6 +51,8 @@ import { DashboardList } from "@/types/dashboard";
 import { useUser } from "@/contexts/user-context";
 import { useDashboards } from "@/contexts/dashboard-context";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
+import { Feedback } from "@/components/feedback/feedback";
+import { isAdmin } from "@/lib/utils";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -271,13 +273,15 @@ export default function DashboardsPage() {
           <h1 className="text-3xl font-bold text-gray-900">Ekranlarım - {subplatform ? subplatform.charAt(0).toUpperCase() + subplatform.slice(1) : ''}</h1>
           <p className="text-gray-600 mt-1">Tüm ekranlarınızı görüntüleyin ve yönetin</p>
         </div>
-        <button
-          onClick={handleCreateDashboard}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Yeni Ekran
-        </button>
+        {isAdmin(user) && (
+          <button
+            onClick={handleCreateDashboard}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Yeni Ekran
+          </button>
+        )}
       </div>
 
       {/* Error Message */}
@@ -483,13 +487,15 @@ export default function DashboardsPage() {
                       >
                         <Star className={`h-4 w-4 ${dashboard.is_favorite ? 'fill-yellow-500 text-yellow-500' : ''}`} />
                       </button>
-                      <button
-                        onClick={(e) => handleDeleteDashboard(dashboard, e)}
-                        className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-                        title="Sil"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {isAdmin(user) && (
+                        <button
+                          onClick={(e) => handleDeleteDashboard(dashboard, e)}
+                          className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                          title="Sil"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -518,13 +524,15 @@ export default function DashboardsPage() {
                   >
                     <Star className={`h-4 w-4 ${dashboard.is_favorite ? 'fill-yellow-500 text-yellow-500' : ''}`} />
                   </button>
-                  <button
-                    onClick={(e) => handleDeleteDashboard(dashboard, e)}
-                    className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-red-500 transition-colors"
-                    title="Sil"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {isAdmin(user) && (
+                    <button
+                      onClick={(e) => handleDeleteDashboard(dashboard, e)}
+                      className="p-1 bg-white rounded-full shadow-md text-gray-400 hover:text-red-500 transition-colors"
+                      title="Sil"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex items-start justify-between mb-4">
@@ -591,7 +599,7 @@ export default function DashboardsPage() {
               : "İlk dashboard'ınızı oluşturmak için aşağıdaki butona tıklayın."
             }
           </p>
-          {(!searchQuery && filterBy === 'all') && (
+          {(!searchQuery && filterBy === 'all' && isAdmin(user)) && (
             <button
               onClick={handleCreateDashboard}
               className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -605,6 +613,9 @@ export default function DashboardsPage() {
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
+      
+      {/* Feedback Button */}
+      <Feedback />
     </div>
   );
 }

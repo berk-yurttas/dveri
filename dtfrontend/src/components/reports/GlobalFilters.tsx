@@ -23,7 +23,13 @@ interface FilterState {
 interface GlobalFiltersProps {
   globalFilters: FilterData[]
   filters: FilterState
-  dropdownOptions: {[key: string]: Array<{value: any, label: string}>}
+  dropdownOptions: {[key: string]: {
+    options: Array<{value: any, label: string}>,
+    page: number,
+    hasMore: boolean,
+    total: number,
+    loading: boolean
+  }}
   searchTerms: {[key: string]: string}
   dropdownOpen: {[key: string]: boolean}
   operatorMenuOpen: {[key: string]: boolean}
@@ -126,7 +132,8 @@ export function GlobalFilters({
                 (() => {
                   const filterKey = `0_${filter.fieldName}`
                   const searchTerm = searchTerms[filterKey] || ''
-                  const options = dropdownOptions[filterKey] || []
+                  const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
+                  const options = dropdownData.options
                   const filteredOptions = options.filter(opt =>
                     opt.label.toLowerCase().includes(searchTerm.toLowerCase())
                   )
@@ -208,7 +215,8 @@ export function GlobalFilters({
                 (() => {
                   const filterKey = `0_${filter.fieldName}`
                   const searchTerm = searchTerms[filterKey] || ''
-                  const options = dropdownOptions[filterKey] || []
+                  const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
+                  const options = dropdownData.options
                   const filteredOptions = options.filter(opt =>
                     opt.label.toLowerCase().includes(searchTerm.toLowerCase())
                   )

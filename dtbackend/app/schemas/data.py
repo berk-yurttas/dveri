@@ -1,19 +1,20 @@
+from typing import Any
+
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
-from datetime import datetime, date
+
 
 class WidgetQueryRequest(BaseModel):
     widget_type: str
-    filters: Optional[Dict[str, Any]] = None
+    filters: dict[str, Any] | None = None
 
 class ReportPreviewRequest(BaseModel):
     sql_query: str
-    limit: Optional[int] = 100
+    limit: int | None = 100
 
 class ReportPreviewResponse(BaseModel):
-    columns: List[str]
-    data: List[List[Any]]
+    columns: list[str]
+    data: list[list[Any]]
     total_rows: int
     execution_time_ms: float
     success: bool
-    message: Optional[str] = None
+    message: str | None = None

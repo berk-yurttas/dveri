@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useLayoutEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   BarChart3,
@@ -39,16 +39,25 @@ import {
   EyeOff,
   Edit,
   Trash2,
-  User
+  User,
+  X,
+  Lock,
+  ChevronDown,
+  ChevronRight
 } from "lucide-react";
 import { dashboardService } from "@/services/dashboard";
 import { reportsService } from "@/services/reports";
+import { announcementService } from "@/services/announcement";
 import { DashboardList } from "@/types/dashboard";
 import { SavedReport } from "@/types/reports";
+import { Announcement } from "@/types/announcement";
 import { useUser } from "@/contexts/user-context";
 import { usePlatform } from "@/contexts/platform-context";
 import { api } from "@/lib/api";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
+import { Feedback } from "@/components/feedback/feedback";
+import DOMPurify from 'dompurify';
+import { checkAccess } from "@/lib/utils";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -97,10 +106,26 @@ export default function PlatformHome() {
     user.role.includes('deriniz:admin');
   const [dashboards, setDashboards] = useState<DashboardList[]>([]);
   const [reports, setReports] = useState<SavedReport[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [currentAnnouncementIndex, setCurrentAnnouncementIndex] = useState(0);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
+  const [hoveredAnnouncement, setHoveredAnnouncement] = useState<number | null>(null);
   const [showIotApps, setShowIotApps] = useState(false);
+  const [showAllAnnouncementsModal, setShowAllAnnouncementsModal] = useState(false);
+  const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
+  const [expandedFeatures, setExpandedFeatures] = useState<Set<number>>(new Set());
+  const [hoveredFeature, setHoveredFeature] = useState<number | null>(null);
+  const [showFeatureNavigationModal, setShowFeatureNavigationModal] = useState(false);
+  const [navigatingFeature, setNavigatingFeature] = useState<{
+    name: string;
+    imageUrl?: string;
+    url: string;
+  } | null>(null);
+  const navigationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isIvmePlatform = platformData?.code === 'ivme';
   const isRomiotPlatform = platformCode === 'romiot';
 
@@ -130,6 +155,66 @@ export default function PlatformHome() {
     setShowTooltip(false);
   };
 
+  // Toggle feature expansion for subfeatures
+  const toggleFeatureExpansion = (index: number) => {
+    setExpandedFeatures((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  };
+
+  // Carousel navigation for announcements
+  const handleNextAnnouncement = () => {
+    setCurrentAnnouncementIndex((prev) => {
+      const nextIndex = prev + 3;
+      // Don't go beyond the last set of announcements
+      return nextIndex < announcements.length ? nextIndex : prev;
+    });
+  };
+
+  const handlePrevAnnouncement = () => {
+    setCurrentAnnouncementIndex((prev) => {
+      const prevIndex = prev - 3;
+      // Don't go below 0
+      return prevIndex >= 0 ? prevIndex : prev;
+    });
+  };
+
+  // Check if navigation buttons should be disabled
+  const announcementsPerPage = 3;
+  const isFirstPage = currentAnnouncementIndex === 0;
+  const isLastPage = currentAnnouncementIndex + announcementsPerPage >= announcements.length;
+
+  // Handle announcement card click
+  const handleAnnouncementClick = (announcement: Announcement) => {
+    console.log("🔔 Clicked announcement:", {
+      id: announcement.id,
+      title: announcement.title,
+      hasImage: !!announcement.content_image,
+      imageLength: announcement.content_image?.length,
+      hasDetail: !!announcement.content_detail,
+      detailContent: announcement.content_detail,
+      hasSummary: !!announcement.content_summary,
+      summaryContent: announcement.content_summary
+    });
+    setSelectedAnnouncement(announcement);
+    setShowAnnouncementModal(true);
+  };
+
+  // Handle "Tümünü Gör" button click
+  const handleViewAllAnnouncements = () => {
+    setShowAllAnnouncementsModal(true);
+  };
+
+  const closeAllAnnouncementsModal = () => {
+    setShowAllAnnouncementsModal(false);
+  };
+
   // Use useLayoutEffect to set platform BEFORE any effects run (including API calls)
   useLayoutEffect(() => {
     if (platformCode) {
@@ -156,6 +241,27 @@ export default function PlatformHome() {
         ]);
         setDashboards(dashboardData);
         setReports(reportData);
+        
+        // Fetch announcements if platform data is available
+        if (platformData?.id) {
+          // Don't include general announcements on platform-specific pages (includeGeneral: false)
+          const announcementData = await announcementService.getAnnouncements(0, 10, platformData.id, true, false, false);
+          
+          // Debug: Log announcement data
+          console.log("📢 Fetched announcements for platform:", platformData.id, announcementData);
+          announcementData.forEach((ann, idx) => {
+            console.log(`Announcement ${idx + 1}:`, {
+              id: ann.id,
+              title: ann.title,
+              hasImage: !!ann.content_image,
+              imagePrefix: ann.content_image?.substring(0, 30),
+              hasDetail: !!ann.content_detail,
+              detailLength: ann.content_detail?.length
+            });
+          });
+          
+          setAnnouncements(announcementData);
+        }
       } catch (error) {
         console.error("Failed to fetch data:", error);
         setError("Veriler yüklenemedi");
@@ -165,7 +271,7 @@ export default function PlatformHome() {
     };
 
     fetchData();
-  }, [platformCode]);
+  }, [platformCode, platformData]);
 
   const handleCreateDashboard = () => {
     router.push(`/${platformCode}/dashboard/add`);
@@ -200,6 +306,42 @@ export default function PlatformHome() {
       {platformCode === 'ivme' && (
         <div className="fixed -z-10 inset-0 top-[-400px] opacity-20 pointer-events-none" style={{ backgroundImage: 'url(/wave_bg.png)', backgroundSize: 'cover', backgroundPosition: 'center' }}></div>
       )}
+
+      {/* Romiot branding elements */}
+      {platformCode === 'romiot' && (
+        <>
+          <div
+            className="fixed pointer-events-none z-10"
+            style={{
+              width: '350px',
+              height: '500px',
+              backgroundImage: 'url(/romiot-bg.png)',
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
+              opacity: 0.2,
+              top: '100px',
+              left: '-100px',
+            }}
+          ></div>
+
+          <div
+            className="fixed pointer-events-none z-10"
+            style={{
+              width: '350px',
+              height: '500px',
+              backgroundImage: 'url(/romiot-bg.png)',
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
+              opacity: 0.2,
+              bottom: '700px',
+              right: '-100px',
+            }}
+          ></div>
+        </>
+      )}
+
       {/* Only show DerinIZ branding elements when platform is deriniz */}
       {platformCode === 'deriniz' && (
         <>
@@ -213,7 +355,7 @@ export default function PlatformHome() {
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'center',
               opacity: 0.2,
-              top: '100px',
+              top: '600px',
               left: '-200px',
             }}
             onMouseMove={handleDerinizMove}
@@ -301,153 +443,96 @@ export default function PlatformHome() {
           </div>
         )}
 
-        {/* Romiot Platform Special Features */}
-        {isRomiotPlatform && !showIotApps && (
-          <div className="mb-16">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-              {/* Katalog Card */}
-              <div
-                onClick={() => window.open('https://www.aselsan.com.tr/tr/urun-ve-cozumlerimiz/katalog', '_blank', 'noopener,noreferrer')}
-                className="bg-white rounded-lg shadow-xl shadow-slate-200 p-8 hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
-              >
-                <div className="flex flex-col items-center text-center">
-                  <div className="w-16 h-16 rounded-lg flex items-center justify-center mb-4 bg-blue-500">
-                    <FileText className="h-8 w-8 text-white" />
-                  </div>
-                  <h4 className="font-semibold text-gray-900 text-xl mb-2">Katalog</h4>
-                  <p className="text-sm text-gray-600">ROM ürün kataloğuna göz atın</p>
-                </div>
-              </div>
-
-              {/* IOT Uygulamaları Card */}
-              <div
-                onClick={() => setShowIotApps(true)}
-                className="bg-white rounded-lg shadow-xl shadow-slate-200 p-8 hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
-              >
-                <div className="flex flex-col items-center text-center">
-                  <div className="w-16 h-16 rounded-lg flex items-center justify-center mb-4 bg-green-500">
-                    <Wifi className="h-8 w-8 text-white" />
-                  </div>
-                  <h4 className="font-semibold text-gray-900 text-xl mb-2">IOT Uygulamaları</h4>
-                  <p className="text-sm text-gray-600">IOT çözümlerini keşfedin</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Romiot IOT Applications - 4 Category Cards */}
-        {isRomiotPlatform && showIotApps && (
-          <div className="mb-16">
-            <div className="mb-6 flex items-center justify-between">
-              <h3 className="text-2xl font-bold text-gray-900">IOT Uygulamaları</h3>
-              <button
-                onClick={() => setShowIotApps(false)}
-                className="text-sm text-gray-500 hover:text-blue-600 font-medium transition-colors flex items-center gap-2"
-              >
-                ← Geri Dön
-              </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* Card 1 - M2X */}
-              <div
-                onClick={() => window.open('https://www.aselsan.com.tr/tr/urun-ve-cozumlerimiz/katalog?category=akilli-sehir', '_blank', 'noopener,noreferrer')}
-                className="bg-white rounded-lg shadow-xl shadow-slate-200 overflow-hidden hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
-              >
-                <div className="flex flex-col">
-                  <div className="w-full h-40 bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center">
-                    <img 
-                      src="https://via.placeholder.com/300x200/8b5cf6/ffffff?text=M2X+Software" 
-                      alt="M2X Software"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="p-6 text-center">
-                    <h4 className="font-semibold text-gray-900 mb-2">M2X YAZILIM VE DONANIMLARI</h4>
-                    <p className="text-sm text-gray-600">Kategoriye git</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 2 - Modelleme */}
-              <div
-                onClick={() => window.open('https://www.aselsan.com.tr/tr/urun-ve-cozumlerimiz/katalog?category=enerji', '_blank', 'noopener,noreferrer')}
-                className="bg-white rounded-lg shadow-xl shadow-slate-200 overflow-hidden hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
-              >
-                <div className="flex flex-col">
-                  <div className="w-full h-40 bg-gradient-to-br from-yellow-500 to-yellow-700 flex items-center justify-center">
-                    <img 
-                      src="https://via.placeholder.com/300x200/eab308/ffffff?text=Simulation" 
-                      alt="Simulation Solutions"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="p-6 text-center">
-                    <h4 className="font-semibold text-gray-900 mb-2">MODELLEME VE SİMÜLASYON ÇÖZÜMLERİ</h4>
-                    <p className="text-sm text-gray-600">Kategoriye git</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 3 - Otomasyon */}
-              <div
-                onClick={() => window.open('https://www.aselsan.com.tr/tr/urun-ve-cozumlerimiz/katalog?category=ulasim', '_blank', 'noopener,noreferrer')}
-                className="bg-white rounded-lg shadow-xl shadow-slate-200 overflow-hidden hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
-              >
-                <div className="flex flex-col">
-                  <div className="w-full h-40 bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center">
-                    <img 
-                      src="https://via.placeholder.com/300x200/3b82f6/ffffff?text=Automation" 
-                      alt="Automation Systems"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="p-6 text-center">
-                    <h4 className="font-semibold text-gray-900 mb-2">OTOMASYON SİSTEMLERİ</h4>
-                    <p className="text-sm text-gray-600">Kategoriye git</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 4 - Yazılım */}
-              <div
-                onClick={() => window.open('https://www.aselsan.com.tr/tr/urun-ve-cozumlerimiz/katalog?category=sanayi', '_blank', 'noopener,noreferrer')}
-                className="bg-white rounded-lg shadow-xl shadow-slate-200 overflow-hidden hover:shadow-2xl transition-all cursor-pointer hover:scale-105"
-              >
-                <div className="flex flex-col">
-                  <div className="w-full h-40 bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center">
-                    <img 
-                      src="https://via.placeholder.com/300x200/ef4444/ffffff?text=Web+Services" 
-                      alt="Software and Web Services"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="p-6 text-center">
-                    <h4 className="font-semibold text-gray-900 mb-2">YAZILIM VE WEB SERVİSLERİ</h4>
-                    <p className="text-sm text-gray-600">Kategoriye git</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Features Section */}
-        {platformData?.theme_config?.features && platformData.theme_config.features.length > 0 && !isRomiotPlatform && (
+        {platformData?.theme_config?.features && platformData.theme_config.features.length > 0  && (
           <div className="mb-16">
             <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${
-              platformData.theme_config.features.length === 4 
-                ? 'lg:grid-cols-4' 
-                : platformData.theme_config.features.length === 5 
-                ? 'lg:grid-cols-5' 
+              platformData.theme_config.features.length === 4
+                ? 'lg:grid-cols-4'
+                : platformData.theme_config.features.length === 5
+                ? 'lg:grid-cols-5'
+                : platformData.theme_config.features.length === 6
+                ? 'lg:grid-cols-6'
                 : 'lg:grid-cols-4'
             }`}>
               {platformData.theme_config.features.map((feature, index) => {
+                const hasSubfeatures = feature.subfeatures && feature.subfeatures.length > 0;
+                
+                // Check if user has atolye role (any variant: yonetici, operator, or musteri)
+                const hasAtolyeRole = user?.role && Array.isArray(user.role) &&
+                  user.role.some((role) => 
+                    typeof role === "string" && 
+                    role.startsWith("atolye:") && 
+                    (role.endsWith(":yonetici") || role.endsWith(":operator") || role.endsWith(":musteri"))
+                  );
+
+                // Check if this is the Atölye Takip Sistemi feature
+                const isAtolyeFeature = feature.title?.toLowerCase().includes('atölye') || 
+                                       feature.title?.toLowerCase().includes('atolye') ||
+                                       feature.title?.toLowerCase().includes('takip') ||
+                                       feature.url?.includes('/atolye') ||
+                                       feature.url?.includes('atolye');
+
+                // Ensure the feature URL is correct for atolye users
+                let featureUrl = feature.url;
+                // For atolye users on romiot platform, ensure Atölye Takip Sistemi has correct URL
+                if (isAtolyeFeature && hasAtolyeRole && platformCode === 'romiot') {
+                  // Always set the URL to the correct path for atolye feature
+                  featureUrl = `/${platformCode}/atolye`;
+                } else if (isAtolyeFeature && platformCode === 'romiot') {
+                  // Even if user doesn't have atolye role, ensure URL is correct if it's the atolye feature
+                  if (!featureUrl || !featureUrl.includes('atolye')) {
+                    featureUrl = `/${platformCode}/atolye`;
+                  }
+                } else if (featureUrl && !featureUrl.startsWith('/') && !featureUrl.startsWith('http')) {
+                  // If URL is relative, make it absolute for the current platform
+                  featureUrl = `/${platformCode}${featureUrl.startsWith('/') ? '' : '/'}${featureUrl}`;
+                }
+
                 const cardContent = feature.useImage && feature.imageUrl ? (
                   // Image-based card design
                   <div className="bg-white rounded-lg shadow-xl shadow-slate-200 overflow-hidden hover:shadow-2xl transition-all duration-300">
-                    {feature.title && feature.title.trim() ? (
-                      // Two column layout when title exists
+                    {platformCode === 'romiot' ? (
+                      // Romiot layout: Image on top, title centered below
+                      <div className="flex flex-col items-center">
+                        {/* Image at top - smaller size */}
+                        <div className="w-full h-32 flex items-center justify-center p-4">
+                          <img
+                            src={feature.imageUrl}
+                            alt={feature.title}
+                            className="max-w-full max-h-full object-contain"
+                            onError={(e) => {
+                              // Fallback to icon card if image fails to load
+                              const target = e.target as HTMLImageElement;
+                              const card = target.closest('.bg-white');
+                              if (card) {
+                                card.innerHTML = `
+                                  <div class="p-6 text-center">
+                                    <div class="w-12 h-12 rounded-lg flex items-center justify-center mb-4 mx-auto" style="background-color: ${feature.backgroundColor}">
+                                      <svg class="w-6 h-6" style="color: ${feature.iconColor}" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                      </svg>
+                                    </div>
+                                    <h4 class="font-semibold text-gray-900 mb-2">${feature.title}</h4>
+                                    <p class="text-sm text-gray-600">${feature.description}</p>
+                                  </div>
+                                `;
+                              }
+                            }}
+                          />
+                        </div>
+                        {/* Title centered below */}
+                        {feature.title && feature.title.trim() && (
+                          <div className="w-full p-4 text-center border-t border-gray-100">
+                            <h4 className="font-semibold text-gray-900">{feature.title}</h4>
+                            {feature.description && (
+                              <p className="text-sm text-gray-600 mt-2">{feature.description}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : feature.title && feature.title.trim() ? (
+                      // Two column layout when title exists (for non-romiot platforms)
                       <div className="flex">
                         {/* Left column - Image */}
                         <div className="w-40 h-40 flex-shrink-0">
@@ -482,7 +567,7 @@ export default function PlatformHome() {
                         </div>
                       </div>
                     ) : (
-                      // Image only when no title
+                      // Image only when no title (for non-romiot platforms)
                       <div className="w-full h-40 mt-5 mb-5">
                         <img
                           src={feature.imageUrl}
@@ -512,16 +597,16 @@ export default function PlatformHome() {
                   </div>
                 ) : (
                   // Icon-based card design (original)
-                  <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6">
-                    <div 
-                      className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
+                  <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-4">
+                    <div
+                      className="w-10 h-10 rounded-lg flex items-center justify-center mb-3"
                       style={{ backgroundColor: feature.backgroundColor }}
                     >
                       {(() => {
                         const IconComponent = iconMap[feature.icon] || Activity;
                         return (
-                          <IconComponent 
-                            className="h-6 w-6" 
+                          <IconComponent
+                            className="h-5 w-5"
                             style={{ color: feature.iconColor }}
                           />
                         );
@@ -532,169 +617,224 @@ export default function PlatformHome() {
                   </div>
                 );
 
-                // If feature has a URL, make it clickable
-                if (feature.url) {
-                  return (
-                    <div
-                      key={index}
-                      onClick={() => {
-                        if (feature.url && feature.url.startsWith('http')) {
-                          window.open(feature.url, '_blank', 'noopener,noreferrer');
-                        } else {
-                          router.push(feature.url || '');
-                        }
-                      }}
-                      className="block hover:scale-105 transition-transform cursor-pointer"
-                    >
-                      {cardContent}
-                    </div>
-                  );
-                }
+                // If feature has a URL, or if it's the atolye feature for atolye users, make it clickable
+                // Use the corrected featureUrl if it was modified for atolye feature
+                const urlToUse = featureUrl || feature.url;
+                
+                // If feature has subfeatures, clicking should expand/collapse
+                // Otherwise, if it has a URL, navigate to it
+                const hasUrl = urlToUse || (isAtolyeFeature && hasAtolyeRole && platformCode === 'romiot');
+                
+                // Check if this feature is expanded or if any feature is expanded
+                const isThisExpanded = expandedFeatures.has(index);
+                const hasAnyExpanded = expandedFeatures.size > 0;
+                const shouldDim = hasAnyExpanded && !isThisExpanded;
+                const isHovered = hoveredFeature === index;
 
                 return (
-                  <div key={index}>
+                  <div
+                    key={index}
+                    onMouseEnter={() => setHoveredFeature(index)}
+                    onMouseLeave={() => setHoveredFeature(null)}
+                    onClick={(e) => {
+                      if (!checkAccess(feature, user)) {
+                        setShowAccessDeniedModal(true);
+                        return;
+                      }
+
+                      e.preventDefault();
+                      e.stopPropagation();
+
+                      // If has subfeatures, toggle expansion
+                      if (hasSubfeatures) {
+                        toggleFeatureExpansion(index);
+                      } else if (hasUrl) {
+                        // Otherwise, navigate to URL
+                        console.log('Feature clicked:', feature.title, 'URL:', urlToUse, 'isAtolyeFeature:', isAtolyeFeature, 'hasAtolyeRole:', hasAtolyeRole);
+                        const finalUrl = urlToUse || `/${platformCode}/atolye`;
+
+                        // For romiot platform, show navigation modal
+                        if (platformCode === 'romiot') {
+                          // Clear any existing timer
+                          if (navigationTimerRef.current) {
+                            clearTimeout(navigationTimerRef.current);
+                          }
+
+                          setNavigatingFeature({
+                            name: feature.title || 'Özellik',
+                            imageUrl: feature.imageUrl,
+                            url: finalUrl
+                          });
+                          setShowFeatureNavigationModal(true);
+
+                          // Navigate after delay
+                          navigationTimerRef.current = setTimeout(() => {
+                            if (finalUrl.startsWith('http')) {
+                              window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                            } else {
+                              router.push(finalUrl);
+                            }
+                            setShowFeatureNavigationModal(false);
+                            navigationTimerRef.current = null;
+                          }, 2000);
+                        } else {
+                          // For other platforms, navigate immediately
+                          if (finalUrl.startsWith('http')) {
+                            window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                          } else {
+                            router.push(finalUrl);
+                          }
+                        }
+                      }
+                    }}
+                    className={`block transition-all duration-300 rounded-lg ${
+                      hasSubfeatures || hasUrl ? 'hover:scale-105 cursor-pointer' : ''
+                    } ${shouldDim ? 'opacity-40' : 'opacity-100'} ${
+                      platformCode === 'romiot' && isHovered ? 'ring-2 ring-[#FF5620]' : ''
+                    }`}
+                    role={hasSubfeatures || hasUrl ? "button" : undefined}
+                    tabIndex={hasSubfeatures || hasUrl ? 0 : undefined}
+                    onKeyDown={(e) => {
+                      if ((e.key === 'Enter' || e.key === ' ') && (hasSubfeatures || hasUrl)) {
+                        e.preventDefault();
+                        if (hasSubfeatures) {
+                          toggleFeatureExpansion(index);
+                        } else if (hasUrl) {
+                          const finalUrl = urlToUse || `/${platformCode}/atolye`;
+
+                          // For romiot platform, show navigation modal
+                          if (platformCode === 'romiot') {
+                            // Clear any existing timer
+                            if (navigationTimerRef.current) {
+                              clearTimeout(navigationTimerRef.current);
+                            }
+
+                            setNavigatingFeature({
+                              name: feature.title || 'Özellik',
+                              imageUrl: feature.imageUrl,
+                              url: finalUrl
+                            });
+                            setShowFeatureNavigationModal(true);
+
+                            // Navigate after delay
+                            navigationTimerRef.current = setTimeout(() => {
+                              if (finalUrl.startsWith('http')) {
+                                window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                              } else {
+                                router.push(finalUrl);
+                              }
+                              setShowFeatureNavigationModal(false);
+                              navigationTimerRef.current = null;
+                            }, 2000);
+                          } else {
+                            // For other platforms, navigate immediately
+                            if (finalUrl.startsWith('http')) {
+                              window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                            } else {
+                              router.push(finalUrl);
+                            }
+                          }
+                        }
+                      }
+                    }}
+                  >
                     {cardContent}
                   </div>
                 );
               })}
             </div>
+
+            {/* Subfeatures Section - Separate section below features */}
+            {platformData.theme_config.features.some((feature, index) =>
+              feature.subfeatures && feature.subfeatures.length > 0 && expandedFeatures.has(index)
+            ) && (
+              <div className="mt-8 opacity-0 animate-[fadeInSection_0.5s_ease-in-out_forwards]">
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${
+                  platformData.theme_config.features.length === 4
+                    ? 'lg:grid-cols-4'
+                    : platformData.theme_config.features.length === 5
+                    ? 'lg:grid-cols-5'
+                    : platformData.theme_config.features.length === 6
+                    ? 'lg:grid-cols-6'
+                    : 'lg:grid-cols-4'
+                }`}>
+                  {platformData.theme_config.features.map((feature, index) => {
+                    const isExpanded = expandedFeatures.has(index);
+                    if (!isExpanded || !feature.subfeatures || feature.subfeatures.length === 0) {
+                      return null;
+                    }
+
+                    return feature.subfeatures.map((subfeature: any, subIndex: number) => {
+                      const SubfeatureIcon = iconMap[subfeature.icon] || Activity;
+                      const hasSubfeatureUrl = subfeature.url && subfeature.url.trim();
+                      const canAccessSubfeature = checkAccess(subfeature, user);
+
+                      if (!canAccessSubfeature) {
+                        return null;
+                      }
+
+                      // Make URL relative to platform if needed
+                      let subfeatureUrl = subfeature.url;
+                      if (hasSubfeatureUrl && !subfeatureUrl.startsWith('/') && !subfeatureUrl.startsWith('http')) {
+                        subfeatureUrl = `/${platformCode}${subfeatureUrl.startsWith('/') ? '' : '/'}${subfeatureUrl}`;
+                      }
+
+                      return (
+                        <div
+                          key={`${index}-sub-${subIndex}`}
+                          onClick={(e) => {
+                            if (hasSubfeatureUrl) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (subfeatureUrl.startsWith('http')) {
+                                window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
+                              } else {
+                                router.push(subfeatureUrl);
+                              }
+                            }
+                          }}
+                          className={`opacity-0 ${hasSubfeatureUrl ? "block hover:scale-105 transition-all cursor-pointer" : "block transition-all"}`}
+                          style={{
+                            animation: `slideUp 0.4s ease-out ${subIndex * 0.1}s forwards`
+                          }}
+                          role={hasSubfeatureUrl ? "button" : undefined}
+                          tabIndex={hasSubfeatureUrl ? 0 : undefined}
+                          onKeyDown={(e) => {
+                            if ((e.key === 'Enter' || e.key === ' ') && hasSubfeatureUrl) {
+                              e.preventDefault();
+                              if (subfeatureUrl.startsWith('http')) {
+                                window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
+                              } else {
+                                router.push(subfeatureUrl);
+                              }
+                            }
+                          }}
+                        >
+                          <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300">
+                            <div
+                              className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
+                              style={{ backgroundColor: feature.backgroundColor || '#EFF6FF' }}
+                            >
+                              <SubfeatureIcon
+                                className="h-6 w-6"
+                                style={{ color: feature.iconColor || '#3B82F6' }}
+                              />
+                            </div>
+                            <h4 className="font-semibold text-gray-900 mb-2">{subfeature.title}</h4>
+                            {subfeature.description && (
+                              <p className="text-sm text-gray-600">{subfeature.description}</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* Full-width Duyurular Section for IVME Platform */}
-      {isIvmePlatform && (
-        <div className="w-full py-12 mb-8" >
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="mb-8">
-              <h3 className="text-2xl font-bold mb-2" style={{"color": "rgb(69,81,89)"}}>Duyurular</h3>
-              <div className="w-[100px] h-[5px] bg-red-600"></div>
-            </div>
-            
-            {/* Carousel Container */}
-            <div className="relative flex justify-center">
-              {/* Navigation Arrows */}
-              <button className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-red-600 hover:bg-red-700 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-              <button className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-red-600 hover:bg-red-700 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-
-              {/* Carousel Cards */}
-              <div className="flex gap-6 justify-center items-center max-w-4xl mx-auto">
-                {/* Card 1 */}
-                <div className="flex-shrink-0 w-80">
-                  <div className="relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl">
-                    {/* Glow Effect */}
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-30 blur-xl"></div>
-                    
-                    {/* Logo */}
-                    <div className="absolute top-4 right-4 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
-                      <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                        <div className="w-4 h-4 bg-white rounded-full"></div>
-                      </div>
-                    </div>
-
-                    {/* Date Banner */}
-                    <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                      <span className="text-sm font-bold uppercase">EKİM AYI</span>
-                    </div>
-
-                    {/* Main Title */}
-                    <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
-                      <div className="text-white font-bold text-lg leading-tight">
-                        <div>ARAMIZA BU AY KATILAN FİRMALAR</div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Card Description */}
-                  <div className="mt-3">
-                    <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                    <h4 className="text-gray-900 font-semibold mb-1">Bu ay aramıza hangi firmalar katıldı?</h4>
-                    <p className="text-gray-600 text-sm">15.11.2025</p>
-                  </div>
-                </div>
-
-                {/* Card 2 */}
-                <div className="flex-shrink-0 w-80">
-                  <div className="relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl">
-                    {/* Glow Effect */}
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-30 blur-xl"></div>
-                    
-                    {/* Logo */}
-                    <div className="absolute top-4 right-4 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
-                      <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                        <div className="w-4 h-4 bg-white rounded-full"></div>
-                      </div>
-                    </div>
-
-                    {/* Date Banner */}
-                    <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                      <span className="text-sm font-bold uppercase">EKİM AYI</span>
-                    </div>
-
-                    {/* Main Title */}
-                    <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
-                      <div className="text-white font-bold text-lg leading-tight">
-                        <div>Firmaların Durumlarında</div>
-                        <div>HANGİ GELİŞMELER OLDU?</div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Card Description */}
-                  <div className="mt-3">
-                    <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                    <h4 className="text-gray-900 font-semibold mb-1">Bu ay firmaların durumlarındaki gelişmeler</h4>
-                    <p className="text-gray-600 text-sm">15.11.2025</p>
-                  </div>
-                </div>
-
-                {/* Card 3 */}
-                <div className="flex-shrink-0 w-80">
-                  <div className="relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl">
-                    {/* Glow Effect */}
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-30 blur-xl"></div>
-                    
-                    {/* Logo */}
-                    <div className="absolute top-4 right-4 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
-                      <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                        <div className="w-4 h-4 bg-white rounded-full"></div>
-                      </div>
-                    </div>
-
-                    {/* Date Banner */}
-                    <div className="absolute top-20 left-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg">
-                      <span className="text-sm font-bold uppercase">EKİM AYI</span>
-                    </div>
-
-                    {/* Main Title */}
-                    <div className="absolute bottom-4 left-4 right-4 bg-blue-800 bg-opacity-90 backdrop-blur-sm rounded-lg p-4">
-                      <div className="text-white font-bold text-lg leading-tight">
-                        <div>Miras İvme'de</div>
-                        <div>BU AY HANGİ RAPORLAR EKLENDİ?</div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Card Description */}
-                  <div className="mt-3">
-                    <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                    <h4 className="text-gray-900 font-semibold mb-1">Bu ay hangi raporlar eklendi?</h4>
-                    <p className="text-gray-600 text-sm">15.11.2025</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Continue Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 scale-90">
@@ -917,8 +1057,434 @@ export default function PlatformHome() {
         )}
       </div>
 
+      {/* Full-width Duyurular Section */}
+      <div className="w-full py-12 mb-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-8">
+            <h3 className="text-2xl font-bold mb-2" style={{"color": "rgb(69,81,89)"}}>Duyurular</h3>
+            <div className="w-[100px] h-[5px] bg-red-600"></div>
+          </div>
+          
+          {announcements.length > 0 ? (
+            <>
+              {/* Carousel Container */}
+              <div className="relative flex justify-center">
+                {/* Navigation Arrows - Only show if more than 3 items */}
+                {announcements.length > 3 && (
+                  <>
+                    <button 
+                      onClick={handlePrevAnnouncement}
+                      disabled={isFirstPage}
+                      className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${
+                        isFirstPage 
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                          : 'bg-red-600 hover:bg-red-700 text-white'
+                      }`}
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <button 
+                      onClick={handleNextAnnouncement}
+                      disabled={isLastPage}
+                      className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${
+                        isLastPage 
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                          : 'bg-red-600 hover:bg-red-700 text-white'
+                      }`}
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </>
+                )}
+
+              {/* Carousel Cards */}
+              <div className="flex gap-6 justify-center items-start max-w-4xl mx-auto">
+                {announcements.slice(currentAnnouncementIndex, currentAnnouncementIndex + 3).map((announcement) => {
+                  const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
+                  return (
+                  <div 
+                    key={announcement.id} 
+                    className="flex-shrink-0 w-80 cursor-pointer transition-transform hover:scale-105"
+                    onClick={() => handleAnnouncementClick(announcement)}
+                    onMouseEnter={() => setHoveredAnnouncement(announcement.id)}
+                    onMouseLeave={() => setHoveredAnnouncement(null)}
+                  >
+                    <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${
+                      isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
+                    }`}>
+                      {/* Image Area - Top section with proper aspect ratio */}
+                      {announcement.content_image && (
+                        <div className="absolute top-0 left-0 right-0 bottom-0">
+                          <img 
+                            src={announcement.content_image} 
+                            alt={announcement.title}
+                            className="w-full h-full object-fill"
+                          />
+                          {/* Gradient overlay for text readability */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+                        </div>
+                      )}
+
+                      {/* Glow Effect */}
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-20 blur-xl"></div>
+
+                      {/* Main Title - Lower position for better image visibility */}
+                      <div className="absolute bottom-16 left-4 right-4 z-10">
+                        <div className="text-white font-bold text-xl leading-tight text-left">
+                          {announcement.title.split('\n').map((line, i) => (
+                            <div key={i}>{line}</div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Month Badge - Bottom Left, Small */}
+                      {announcement.month_title && (
+                        <div className="absolute bottom-3 left-3 bg-red-600 text-white px-3 py-1 rounded-md shadow-lg z-10">
+                          <span className="text-xs font-semibold uppercase">{announcement.month_title}</span>
+                        </div>
+                      )}
+
+                      {/* Click Indicator */}
+                      <div className="absolute bottom-3 right-3 bg-white/20 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs z-10">
+                        Detaylar →
+                      </div>
+                    </div>
+                    
+                    {/* Card Description */}
+                    <div className="mt-3">
+                      <div className="h-1 w-12 bg-red-600 mb-2"></div>
+                      <h4 className="text-gray-900 font-semibold mb-1 line-clamp-2">{announcement.content_summary || announcement.title}</h4>
+                      <p className="text-gray-600 text-sm">
+                        {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
+                      </p>
+                    </div>
+                  </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Tümünü Gör Button */}
+            {announcements.length > 3 && (
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={handleViewAllAnnouncements}
+                  className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium shadow-lg hover:shadow-xl"
+                >
+                  <Eye className="h-5 w-5" />
+                  Tüm Duyuruları Gör ({announcements.length})
+                </button>
+              </div>
+            )}
+            </>
+          ) : (
+            <div className="text-center py-12">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
+                <MessageSquare className="h-8 w-8 text-gray-400" />
+              </div>
+              <h4 className="text-lg font-medium text-gray-900 mb-2">
+                Şu anda aktif duyuru bulunmamaktadır
+              </h4>
+              <p className="text-gray-500 text-sm">
+                Yeni duyurular eklendiğinde burada görünecektir
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Announcement Detail Modal */}
+      {showAnnouncementModal && selectedAnnouncement && (
+        <div 
+          className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => setShowAnnouncementModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto animate-fade-in [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-gray-400"
+            onClick={(e) => e.stopPropagation()}
+            style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent' }}
+          >
+            {/* Modal Header */}
+            <div className="relative">
+              {selectedAnnouncement.content_image && (
+                <div className="w-full h-[500px] bg-gradient-to-br from-blue-900 to-blue-800 relative overflow-hidden">
+                  <img 
+                    src={selectedAnnouncement.content_image} 
+                    alt={selectedAnnouncement.title}
+                    className="w-full h-full object-fill"
+                  />
+                  {selectedAnnouncement.month_title && (
+                    <div className="absolute bottom-4 left-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg z-10">
+                      <span className="text-sm font-bold uppercase">{selectedAnnouncement.month_title}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Close Button */}
+              <button
+                onClick={() => setShowAnnouncementModal(false)}
+                className="absolute top-4 right-4 p-2 bg-white/90 hover:bg-white rounded-full shadow-lg transition-colors z-10 cursor-pointer"
+              >
+                <X className="h-5 w-5 text-gray-700" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6">
+              {/* Title */}
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                {selectedAnnouncement.title}
+              </h2>
+
+              {/* Date */}
+              <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
+                <Calendar className="h-4 w-4" />
+                <span>{new Date(selectedAnnouncement.creation_date).toLocaleDateString('tr-TR', { 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}</span>
+              </div>
+
+              {/* Summary */}
+              {selectedAnnouncement.content_summary && (
+                <div className="mb-4 p-4 bg-blue-50 border-l-4 border-blue-600 rounded-r-lg">
+                  <p className="text-gray-700 font-medium">{selectedAnnouncement.content_summary}</p>
+                </div>
+              )}
+
+              {/* Divider */}
+              {selectedAnnouncement.content_detail && (
+                <div className="border-t border-gray-200 my-4"></div>
+              )}
+
+              {/* Detail Content - Main content of the announcement */}
+              {selectedAnnouncement.content_detail && (
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Detaylı İçerik</h3>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <div 
+                      className="text-gray-700 leading-relaxed [&>p]:mb-4 [&>p:last-child]:mb-0 [&>p:empty]:min-h-[1em]"
+                      dangerouslySetInnerHTML={{ 
+                        __html: DOMPurify.sanitize(selectedAnnouncement.content_detail) 
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* No Detail Message */}
+              {!selectedAnnouncement.content_detail && !selectedAnnouncement.content_summary && (
+                <div className="text-center py-8 text-gray-500">
+                  <MessageSquare className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                  <p>Bu duyuru için detaylı açıklama bulunmamaktadır.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+              <button
+                onClick={() => setShowAnnouncementModal(false)}
+                className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Access Denied Modal */}
+      {showAccessDeniedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <Lock className="h-8 w-8 text-white" />
+                <h3 className="text-xl font-bold text-white">Erişim Yetkiniz Bulunamadı</h3>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6">
+              <p className="text-gray-700 text-lg mb-2">
+                Bu özelliğe erişim yetkiniz bulunmamaktadır.
+              </p>
+              <p className="text-gray-600">
+                Erişim izni almak için lütfen sistem yöneticisi ile iletişime geçiniz.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-end">
+              <button
+                onClick={() => setShowAccessDeniedModal(false)}
+                className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feature Navigation Loading Modal - Romiot Platform */}
+      {showFeatureNavigationModal && navigatingFeature && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 backdrop-blur-md">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-fade-in">
+            {/* Header with gradient */}
+            <div className="bg-gradient-to-r from-blue-800 to-orange-500 px-8 py-6">
+              <div className="flex items-center justify-center gap-4">
+                <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                <h3 className="text-2xl font-bold text-white">Yönlendiriliyor...</h3>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-8 flex flex-col items-center">
+              {navigatingFeature.imageUrl ? (
+                <div className="w-32 h-32 mb-6 flex items-center justify-center">
+                  <img
+                    src={navigatingFeature.imageUrl}
+                    alt={navigatingFeature.name}
+                    className="max-w-full max-h-full object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="w-32 h-32 mb-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
+                  <Database className="w-16 h-16 text-blue-600" />
+                </div>
+              )}
+
+              <p className="text-gray-700 text-xl text-center mb-2">
+                <span className="font-bold text-2xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                  {navigatingFeature.name}
+                </span>
+              </p>
+              <p className="text-gray-600 text-center">
+                servisine yönlendiriliyorsunuz
+              </p>
+
+              {/* Progress bar */}
+              <div className="w-full mt-6 bg-gray-200 rounded-full h-2 overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-blue-600 to-purple-600 rounded-full animate-progress"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* All Announcements Modal */}
+      {showAllAnnouncementsModal && announcements.length > 0 && (
+        <div 
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setShowAllAnnouncementsModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] animate-fade-in overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <MessageSquare className="h-6 w-6 text-white" />
+                <h3 className="text-xl font-bold text-white">Tüm Duyurular</h3>
+                <span className="px-3 py-1 bg-white/20 rounded-full text-sm text-white font-medium">
+                  {announcements.length}
+                </span>
+              </div>
+              <button
+                onClick={closeAllAnnouncementsModal}
+                className="p-2 hover:bg-white/20 rounded-full transition-colors"
+              >
+                <X className="h-5 w-5 text-white" />
+              </button>
+            </div>
+
+            {/* Modal Body - Grid */}
+            <div className="p-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-h-[65vh] overflow-y-auto px-2 md:px-4 lg:px-6 py-4">
+                {announcements.map((announcement) => {
+                  const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
+                  return (
+                    <div 
+                      key={announcement.id} 
+                      className="cursor-pointer transition-transform hover:scale-105"
+                      onClick={() => handleAnnouncementClick(announcement)}
+                      onMouseEnter={() => setHoveredAnnouncement(announcement.id)}
+                      onMouseLeave={() => setHoveredAnnouncement(null)}
+                    >
+                      <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${
+                        isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
+                      }`}>
+                        {announcement.content_image && (
+                          <div className="absolute top-0 left-0 right-0 bottom-0">
+                            <img 
+                              src={announcement.content_image} 
+                              alt={announcement.title}
+                              className="w-full h-full object-fill"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+                          </div>
+                        )}
+
+                        <div className="absolute bottom-16 left-4 right-4 z-10">
+                          <div className="text-white font-bold text-xl leading-tight text-left">
+                            {announcement.title.split('\n').map((line, i) => (
+                              <div key={i}>{line}</div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {announcement.month_title && (
+                          <div className="absolute bottom-3 left-3 bg-red-600 text-white px-3 py-1 rounded-md shadow-lg z-10">
+                            <span className="text-xs font-semibold uppercase">{announcement.month_title}</span>
+                          </div>
+                        )}
+
+                        <div className="absolute bottom-3 right-3 bg-white/20 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs z-10">
+                          Detaylar →
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="h-1 w-12 bg-red-600 mb-2"></div>
+                        <h4 className="text-gray-900 font-semibold mb-1 line-clamp-2">{announcement.content_summary || announcement.title}</h4>
+                        <p className="text-gray-600 text-sm">
+                          {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 rounded-b-2xl flex justify-end">
+              <button
+                onClick={closeAllAnnouncementsModal}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
+      
+      {/* Feedback Button */}
+      <Feedback />
     </div>
   );
 }

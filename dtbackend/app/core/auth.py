@@ -1,10 +1,13 @@
-import traceback
-from typing import Optional, Dict, Any
-import httpx
 import time
-from fastapi import Request, HTTPException, status, Response
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
+from typing import Any
+
+import httpx
+import secrets
+import socket
+from fastapi import HTTPException, Request, Response, status
+from fastapi.security import HTTPBearer
+from jose import JWTError, jwt
+
 from app.core.config import settings
 from app.schemas.user import User
 
@@ -18,15 +21,15 @@ def cleanup_token_cache():
     """Remove expired entries from token cache"""
     current_time = time.time()
     expired_tokens = []
-    
+
     for token, (data, cached_time) in token_cache.items():
         if current_time - cached_time > CACHE_DURATION:
             expired_tokens.append(token)
-    
+
     for token in expired_tokens:
         del token_cache[token]
 
-async def verify_access_token_locally(token: str) -> Optional[Dict[str, Any]]:
+async def verify_access_token_locally(token: str) -> dict[str, Any] | None:
     """
     Fast local JWT token verification (no HTTP call)
     """
@@ -36,23 +39,23 @@ async def verify_access_token_locally(token: str) -> Optional[Dict[str, Any]]:
             key="dummy_key",
             options={"verify_signature": False}
         )
-        
+
         # Check if token is expired
         if payload.get("exp") and payload.get("exp") < time.time():
             return None
-            
+
         return payload
-        
+
     except JWTError:
         return None
 
-async def verify_access_token_with_cache(token: str) -> Dict[str, Any]:
+async def verify_access_token_with_cache(token: str) -> dict[str, Any]:
     """
     Verify access token with caching and fallback to auth server
     """
     current_time = time.time()
-    
-    
+
+
     # Fallback to auth server verification (slow)
     try:
         client = await get_http_client()
@@ -62,11 +65,11 @@ async def verify_access_token_with_cache(token: str) -> Dict[str, Any]:
         )
         response.raise_for_status()
         user_data = response.json()
-        
+
         # Cache the result
         token_cache[token] = (user_data, current_time)
         return user_data
-        
+
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=status.HTTP_408_REQUEST_TIMEOUT,
@@ -80,7 +83,7 @@ async def verify_access_token_with_cache(token: str) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to verify token: {str(e)}"
+            detail=f"Failed to verify token: {e!s}"
         )
 
 # Global HTTP client for connection reuse
@@ -96,39 +99,40 @@ async def get_http_client():
                 "http://": f"http://{settings.AUTH_SERVER_PROXY_HOST}:{settings.AUTH_SERVER_PROXY_PORT}",
                 "https://": f"http://{settings.AUTH_SERVER_PROXY_HOST}:{settings.AUTH_SERVER_PROXY_PORT}"
             }
-        
+
         _http_client = httpx.AsyncClient(
             proxies=proxy_config,
             timeout=httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0),
             limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
             http2=True,  # Enable HTTP/2 for better performance
+            verify=False,
         )
-    
+
     return _http_client
 
-async def verify_access_token(token: str) -> Dict[str, Any]:
+async def verify_access_token(token: str) -> dict[str, Any]:
     """
     Verify access token with auth server
-    
+
     Args:
         token: Access token to verify
-        
+
     Returns:
         User data from auth server response
-        
+
     Raises:
         HTTPException: If verification fails
     """
     try:
         client = await get_http_client()
-        
+
         response = await client.get(
             f"{settings.AUTH_SERVER_URL}/auth/verify",
             headers={"Authorization": token}
         )
         response.raise_for_status()
         return response.json()
-            
+
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=status.HTTP_408_REQUEST_TIMEOUT,
@@ -142,19 +146,19 @@ async def verify_access_token(token: str) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to verify token: {str(e)}"
+            detail=f"Failed to verify token: {e!s}"
         )
 
-async def refresh_access_token(refresh_token: str) -> Dict[str, str]:
+async def refresh_access_token(refresh_token: str) -> dict[str, str]:
     """
     Refresh access token using refresh token
-    
+
     Args:
         refresh_token: Refresh token
-        
+
     Returns:
         Dictionary containing new access_token and refresh_token
-        
+
     Raises:
         HTTPException: If refresh fails
     """
@@ -166,15 +170,15 @@ async def refresh_access_token(refresh_token: str) -> Dict[str, str]:
                 "http://": f"http://{settings.AUTH_SERVER_PROXY_HOST}:{settings.AUTH_SERVER_PROXY_PORT}",
                 "https://": f"http://{settings.AUTH_SERVER_PROXY_HOST}:{settings.AUTH_SERVER_PROXY_PORT}"
             }
-        
-        async with httpx.AsyncClient(proxies=proxy_config) as client:
+
+        async with httpx.AsyncClient(proxies=proxy_config, verify=False) as client:
             response = await client.get(
                 f"{settings.AUTH_SERVER_URL}/auth/refresh",
                 headers={"Authorization": refresh_token}
             )
             response.raise_for_status()
             return response.json()
-            
+
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 401:
             raise HTTPException(
@@ -188,26 +192,26 @@ async def refresh_access_token(refresh_token: str) -> Dict[str, str]:
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to refresh token: {str(e)}"
+            detail=f"Failed to refresh token: {e!s}"
         )
 
-async def get_current_user_with_refresh(request: Request, response: Response) -> Optional[User]:
+async def get_current_user_with_refresh(request: Request, response: Response) -> User | None:
     """
     Get current user from cookies with automatic token refresh capability
-    
+
     Args:
         request: FastAPI request object
         response: FastAPI response object (for setting new cookies)
-        
+
     Returns:
         User object if authenticated, None otherwise
-        
+
     Raises:
         HTTPException: For authentication errors
     """
     access_token = request.cookies.get("access_token")
     refresh_token = request.cookies.get("refresh_token")
-    
+
     # If no tokens at all, user is not authenticated
     if not access_token and not refresh_token:
         raise HTTPException(
@@ -215,14 +219,14 @@ async def get_current_user_with_refresh(request: Request, response: Response) ->
             detail="Logine Yönlendiriliyor",
             headers={"redirect": "true"}
         )
-    
+
     # Try to verify access token first
     if access_token:
         try:
             user_data = await verify_access_token_with_cache(access_token)
             user = User.from_jwt_payload(user_data)
             return user
-            
+
         except HTTPException as e:
             # If access token failed and it's a 401, try refresh token
             if e.status_code == 401 and refresh_token:
@@ -232,7 +236,7 @@ async def get_current_user_with_refresh(request: Request, response: Response) ->
 
                     # Set new cookies
                     cookie_domain = None if settings.COOKIE_DOMAIN == "localhost" else settings.COOKIE_DOMAIN
-                    
+
                     response.set_cookie(
                         key="access_token",
                         value=new_tokens["access_token"],
@@ -243,7 +247,7 @@ async def get_current_user_with_refresh(request: Request, response: Response) ->
                         secure=False,  # Set to True in production with HTTPS
                         samesite="lax"
                     )
-                    
+
                     response.set_cookie(
                         key="refresh_token",
                         value=new_tokens["refresh_token"],
@@ -260,13 +264,13 @@ async def get_current_user_with_refresh(request: Request, response: Response) ->
                         user_data = await verify_access_token_with_cache(new_tokens["access_token"])
                         user = User.from_jwt_payload(user_data)
                         return user
-                        
+
                     except HTTPException:
                         raise HTTPException(
                             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail="Token yenileme hatası"
                         )
-                        
+
                 except HTTPException as refresh_error:
                     if refresh_error.status_code == 401:
                         raise HTTPException(
@@ -286,15 +290,15 @@ async def get_current_user_with_refresh(request: Request, response: Response) ->
                     detail="Logine Yönlendiriliyor",
                     headers={"redirect": "true"}
                 )
-    
+
     # If we only have refresh token, try to use it
     elif refresh_token:
         try:
             new_tokens = await refresh_access_token(refresh_token)
-            
+
             # Set new cookies
             cookie_domain = None if settings.COOKIE_DOMAIN == "localhost" else settings.COOKIE_DOMAIN
-            
+
             response.set_cookie(
                 key="access_token",
                 value=new_tokens["access_token"],
@@ -305,7 +309,7 @@ async def get_current_user_with_refresh(request: Request, response: Response) ->
                 secure=False,
                 samesite="lax"
             )
-            
+
             response.set_cookie(
                 key="refresh_token",
                 value=new_tokens["refresh_token"],
@@ -320,7 +324,7 @@ async def get_current_user_with_refresh(request: Request, response: Response) ->
             user_data = await verify_access_token_with_cache(new_tokens["access_token"])
             user = User.from_jwt_payload(user_data)
             return user
-            
+
         except HTTPException as refresh_error:
             if refresh_error.status_code == 401:
                 raise HTTPException(
@@ -334,17 +338,133 @@ async def get_current_user_with_refresh(request: Request, response: Response) ->
                     detail="Bir hata oluştu"
                 )
 
+def create_random_cuid() -> str:
+    """
+    Generate a random CUID (Collision-resistant Unique Identifier)
+    
+    Returns:
+        A random CUID string in the format: c[timestamp][counter][fingerprint][random]
+    """
+    # Get timestamp in base36
+    timestamp = int(time.time() * 1000)  # milliseconds
+    timestamp_str = format(timestamp, 'x')  # hexadecimal
+    
+    # Get hostname fingerprint (first 2 chars of hostname hash)
+    try:
+        hostname = socket.gethostname()
+        hostname_hash = hash(hostname) & 0xffff  # 16-bit hash
+        fingerprint = format(hostname_hash, 'x')[:2]
+    except:
+        fingerprint = "00"
+    
+    # Generate random part (12 characters)
+    random_part = secrets.token_hex(6)  # 12 hex characters
+    
+    # Counter (simple increment, using time-based for uniqueness)
+    counter = format(int(time.time() * 1000000) % 0xffff, 'x')[:4]
+    
+    # Combine: c + timestamp + counter + fingerprint + random
+    cuid = f"c{timestamp_str}{counter}{fingerprint}{random_part}"
+    
+    return cuid
+
+async def create_secure_request() -> str:
+    """
+    Create a secure request by generating a random CUID and storing it in PocketBase saml_token collection
+    
+    Returns:
+        The generated CUID secret key
+        
+    Raises:
+        HTTPException: If PocketBase operation fails
+    """
+    # Generate random CUID
+    secret_key = create_random_cuid()
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+            auth_token = None
+            
+            # Authenticate with PocketBase admin
+            if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:
+                try:
+                    auth_response = await client.post(
+                        f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
+                        json={
+                            "identity": settings.POCKETBASE_ADMIN_EMAIL,
+                            "password": settings.POCKETBASE_ADMIN_PASSWORD
+                        }
+                    )
+                    if auth_response.status_code == 200:
+                        auth_token = auth_response.json().get("token")
+                except Exception as auth_error:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"PocketBase authentication failed: {str(auth_error)}"
+                    )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="PocketBase admin credentials not configured"
+                )
+            
+            if not auth_token:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to authenticate with PocketBase"
+                )
+            
+            # Create record in saml_token collection
+            headers = {"Authorization": auth_token}
+            
+            response = await client.post(
+                f"{settings.POCKETBASE_URL}/api/collections/saml_token/records",
+                headers=headers,
+                json={
+                    "secret_key": secret_key
+                }
+            )
+            
+            response.raise_for_status()
+            
+            return secret_key
+            
+    except httpx.HTTPStatusError as e:
+        error_detail = "Unknown error"
+        try:
+            error_response = e.response.json()
+            error_detail = error_response.get("message", str(e))
+        except:
+            error_detail = str(e)
+        
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"Failed to create secure request in PocketBase: {error_detail}"
+        )
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=status.HTTP_408_REQUEST_TIMEOUT,
+            detail="PocketBase request timeout"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create secure request: {str(e)}"
+        )
+
 async def check_authenticated(request: Request, response: Response) -> User:
     """
     Dependency to check if user is authenticated with automatic token refresh
-    
+
     Args:
         request: FastAPI request object
         response: FastAPI response object (for setting new cookies)
-        
+
     Returns:
         User object if authenticated
-        
+
     Raises:
         HTTPException: If user is not authenticated
     """

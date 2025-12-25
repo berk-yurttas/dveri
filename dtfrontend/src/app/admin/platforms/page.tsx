@@ -20,6 +20,7 @@ import {
 import { platformService } from "@/services/platform";
 import { Platform } from "@/types/platform";
 import { DeleteModal } from "@/components/ui/delete-modal";
+import AdminSidebar from "@/components/AdminSidebar";
 
 export default function AdminPlatformsPage() {
   const router = useRouter();
@@ -106,18 +107,23 @@ export default function AdminPlatformsPage() {
 
   if (loading && platforms.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-          <div className="text-lg text-gray-600">Platformlar yükleniyor...</div>
+      <div className="flex min-h-screen">
+        <AdminSidebar />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+            <div className="text-lg text-gray-600">Platformlar yükleniyor...</div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="flex min-h-screen bg-gray-50">
+      <AdminSidebar />
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Platform Yönetimi</h1>
@@ -319,21 +325,22 @@ export default function AdminPlatformsPage() {
             Toplam {filteredPlatforms.length} platform gösteriliyor
           </div>
         )}
-      </div>
 
-      {/* Delete Modal */}
-      <DeleteModal
-        isOpen={deleteModalOpen}
-        onClose={() => {
-          setDeleteModalOpen(false);
-          setPlatformToDelete(null);
-        }}
-        onConfirm={handleDeleteConfirm}
-        title="Platformu Sil"
-        description="Bu platformu silmek istediğinizden emin misiniz?"
-        itemName={platformToDelete?.display_name}
-        isDeleting={isDeleting}
-      />
+        {/* Delete Modal */}
+        <DeleteModal
+          isOpen={deleteModalOpen}
+          onClose={() => {
+            setDeleteModalOpen(false);
+            setPlatformToDelete(null);
+          }}
+          onConfirm={handleDeleteConfirm}
+          title="Platformu Sil"
+          description="Bu platformu silmek istediğinizden emin misiniz?"
+          itemName={platformToDelete?.display_name}
+          isDeleting={isDeleting}
+        />
+      </div>
+      </div>
     </div>
   );
 }

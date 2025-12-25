@@ -145,7 +145,7 @@ export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPat
       <div
         className={`fixed inset-y-0 left-0 z-40 flex h-full transition-[width] duration-300 ease-in-out ${
           mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-        } ${sidebarWidth} ${isIvmePlatform ? 'pt-[130px]' : 'pt-16'}`}
+        } ${sidebarWidth} ${isIvmePlatform ? 'pt-[85px]' : 'pt-16'}`}
       >
         <div className="flex h-full w-full flex-col bg-gray-50 overflow-hidden shadow-lg">
           {/* Platform Info Section */}

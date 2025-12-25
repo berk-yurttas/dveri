@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: 'standalone',
   images: {
-    domains: ['127.0.0.1', 'vdi-ahtapot01', '18.210.5.151', 'localhost', 'api.dicebear.com', 'korykos.aselsan.com.tr', 'portal.aselsan.com.tr'],
+    domains: ['127.0.0.1', 'vdi-ahtapot01', '18.210.5.151', '10.60.139.11', 'localhost', 'api.dicebear.com', 'korykos.aselsan.com.tr', 'portal.aselsan.com.tr'],
     remotePatterns: [
       {
         protocol: 'http',

@@ -1,6 +1,7 @@
 import React from 'react'
 import { Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { QueryData, QueryResult, FilterData } from './types'
+import { RowColorRule } from '@/types/reports'
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -29,7 +30,9 @@ const TableFilterInput = React.memo<{
   onFilterChange: (fieldName: string, value: any) => void
   setOpenPopovers: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>
   allFilters: any[]
-}>(function TableFilterInput({ filter, queryId, filters, dropdownOptions, onFilterChange, setOpenPopovers, allFilters }) {
+  onLoadMore?: (filterKey: string) => void
+  onSearch?: (filterKey: string, search: string) => void
+}>(function TableFilterInput({ filter, queryId, filters, dropdownOptions, onFilterChange, setOpenPopovers, allFilters, onLoadMore, onSearch }) {
   const filterKey = `${queryId}_${filter.fieldName}`
   
   // Initialize local values from current filter state
@@ -47,15 +50,24 @@ const TableFilterInput = React.memo<{
   const [localEndDate, setLocalEndDate] = React.useState<string>(filters[`${filterKey}_end`] || '')
   const [searchTerm, setSearchTerm] = React.useState('')
   
-  // Check if filter depends on another filter
-  const parentFilter = filter.dependsOn ? allFilters.find((f: any) => f.fieldName === filter.dependsOn) : null
-  const parentValue = parentFilter ? filters[`${queryId}_${parentFilter.fieldName}`] : null
-  const isDisabled = filter.dependsOn && (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0))
-  
+  // Dependent filters always show options; parent values are handled upstream when fetching options
+
   // Get dropdown options
-  const options = dropdownOptions[filterKey] || []
-  const filteredOptions = filter.type === 'multiselect' ? 
-    options.filter((opt: any) => opt.label.toLowerCase().includes(searchTerm.toLowerCase())) : []
+  const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
+  const options = dropdownData.options
+  const filteredOptions = filter.type === 'multiselect' ? options : []
+
+  // Debounced search
+  const searchTimeoutRef = React.useRef<NodeJS.Timeout>(null)
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+    if (onSearch && filter.type === 'multiselect') {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+      searchTimeoutRef.current = setTimeout(() => {
+        onSearch(filterKey, value)
+      }, 300)
+    }
+  }
   
   // Sync local state when filter values change externally
   React.useEffect(() => {
@@ -217,18 +229,14 @@ const TableFilterInput = React.memo<{
       {filter.type === 'dropdown' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-      {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
-          <div className={`max-h-48 overflow-y-auto border border-gray-300 rounded ${isDisabled ? 'opacity-50' : ''}`}>
+
+          <div className="max-h-48 overflow-y-auto border border-gray-300 rounded">
             <div
               onClick={(e) => {
                 e.stopPropagation()
-                if (!isDisabled) setLocalValue('')
+                setLocalValue('')
               }}
-              className={`px-3 py-2 text-xs hover:bg-orange-50 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${localValue === '' ? 'bg-orange-100 font-medium' : ''}`}
+              className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === '' ? 'bg-orange-100 font-medium' : ''}`}
             >
               Tümü
             </div>
@@ -237,14 +245,14 @@ const TableFilterInput = React.memo<{
                 key={idx}
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (!isDisabled) setLocalValue(option.value)
+                  setLocalValue(option.value)
                 }}
-                className={`px-3 py-2 text-xs hover:bg-orange-50 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${localValue === option.value ? 'bg-orange-100 font-medium' : ''}`}
+                className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === option.value ? 'bg-orange-100 font-medium' : ''}`}
               >
                 {option.label}
               </div>
             ))}
-            {options.length === 0 && !isDisabled && (
+            {options.length === 0 && (
               <div className="px-3 py-2 text-xs text-gray-500">Seçenekler yükleniyor...</div>
             )}
           </div>
@@ -254,60 +262,68 @@ const TableFilterInput = React.memo<{
       {filter.type === 'multiselect' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-          {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
-          <div className="space-y-2">
-      <input
-        type="text"
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-        placeholder="Ara..."
-        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
-        disabled={isDisabled}
-              autoFocus
-      />
-      <div className={`max-h-48 overflow-y-auto border border-gray-300 rounded p-2 space-y-1 ${isDisabled ? 'opacity-50' : ''}`}>
-        {filteredOptions.length === 0 ? (
-          <div className="px-2 py-1 text-xs text-gray-500">
-            {options.length === 0 ? (isDisabled ? 'Üst filtreyi seçin' : 'Seçenekler yükleniyor...') : 'Sonuç bulunamadı'}
-          </div>
-        ) : (
-          filteredOptions.map((option: any, idx: number) => {
-                  const selectedValues = localValue ? localValue.split(',').map((v: string) => v.trim()) : []
-                  const isChecked = selectedValues.includes(option.value)
 
-            return (
-                    <label 
-                      key={idx} 
-                      className="flex items-center gap-2 hover:bg-orange-50 p-1 rounded cursor-pointer"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                <input
-                  type="checkbox"
-                  checked={isChecked}
-                  disabled={isDisabled}
-                  onChange={(e) => {
-                          e.stopPropagation()
-                          if (e.target.checked) {
-                            const newValues = [...selectedValues, option.value]
-                            setLocalValue(newValues.join(', '))
-                    } else {
-                            const newValues = selectedValues.filter((v: string) => v !== option.value)
-                            setLocalValue(newValues.join(', '))
-                    }
-                  }}
+          <div className="space-y-2">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              placeholder="Ara..."
+              className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
+              autoFocus
+            />
+            <div
+              className="max-h-48 overflow-y-auto border border-gray-300 rounded p-2 space-y-1"
+              onScroll={(e) => {
+                const target = e.target as HTMLDivElement
+                const bottom = target.scrollHeight - target.scrollTop === target.clientHeight
+                if (bottom && dropdownData.hasMore && !dropdownData.loading && onLoadMore) {
+                  onLoadMore(filterKey)
+                }
+              }}
+            >
+              {filteredOptions.length === 0 && !dropdownData.loading ? (
+                <div className="px-2 py-1 text-xs text-gray-500">
+                  {options.length === 0 ? 'Seçenek yok' : 'Sonuç bulunamadı'}
+                </div>
+              ) : (
+                <>
+                  {filteredOptions.map((option: any, idx: number) => {
+                    const selectedValues = localValue ? localValue.split(',').map((v: string) => v.trim()) : []
+                    const isChecked = selectedValues.includes(option.value)
+
+                    return (
+                      <label
+                        key={idx}
+                        className="flex items-center gap-2 hover:bg-orange-50 p-1 rounded cursor-pointer"
                         onClick={(e) => e.stopPropagation()}
-                  className="w-3 h-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                />
-                <span className="text-xs">{option.label}</span>
-              </label>
-            )
-          })
-        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            e.stopPropagation()
+                            if (e.target.checked) {
+                              const newValues = [...selectedValues, option.value]
+                              setLocalValue(newValues.join(', '))
+                            } else {
+                              const newValues = selectedValues.filter((v: string) => v !== option.value)
+                              setLocalValue(newValues.join(', '))
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-3 h-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+                        />
+                        <span className="text-xs">{option.label}</span>
+                      </label>
+                    )
+                  })}
+                  {dropdownData.loading && (
+                    <div className="px-2 py-1 text-xs text-gray-500 text-center">Yükleniyor...</div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -337,6 +353,51 @@ const TableFilterInput = React.memo<{
   )
 })
 
+// Helper function to evaluate row color rules and return text color
+const getRowTextColor = (
+  row: any[],
+  columns: string[],
+  rules?: RowColorRule[]
+): string | undefined => {
+  if (!rules || rules.length === 0) return undefined
+
+  for (const rule of rules) {
+    const columnIndex = columns.indexOf(rule.columnName)
+    if (columnIndex === -1) continue
+
+    const cellValue = row[columnIndex]
+    const ruleValue = typeof rule.value === 'string' ? parseFloat(rule.value) : rule.value
+    const numericCellValue = typeof cellValue === 'string' ? parseFloat(cellValue) : cellValue
+
+    // Evaluate condition based on operator
+    let matches = false
+    switch (rule.operator) {
+      case '>':
+        matches = numericCellValue > ruleValue
+        break
+      case '<':
+        matches = numericCellValue < ruleValue
+        break
+      case '>=':
+        matches = numericCellValue >= ruleValue
+        break
+      case '<=':
+        matches = numericCellValue <= ruleValue
+        break
+      case '=':
+        matches = numericCellValue === ruleValue
+        break
+      case '!=':
+        matches = numericCellValue !== ruleValue
+        break
+    }
+
+    if (matches) return rule.color
+  }
+
+  return undefined
+}
+
 interface TableVisualizationProps {
   query: QueryData
   result: QueryResult
@@ -346,10 +407,12 @@ interface TableVisualizationProps {
   // Filter props
   filters: { [key: string]: any }
   openPopovers: { [key: string]: boolean }
-  dropdownOptions: { [key: string]: Array<{ value: any; label: string }> }
+  dropdownOptions: { [key: string]: { options: Array<{ value: any; label: string }>, page: number, hasMore: boolean, total: number, loading: boolean } }
   onFilterChange: (fieldName: string, value: any) => void
   onDebouncedFilterChange: (fieldName: string, value: any) => void
   setOpenPopovers: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>
+  onLoadMoreOptions?: (filterKey: string) => void
+  onSearchOptions?: (filterKey: string, search: string) => void
   // Pagination props
   currentPage: number
   pageSize: number
@@ -370,6 +433,8 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
   onFilterChange,
   onDebouncedFilterChange,
   setOpenPopovers,
+  onLoadMoreOptions,
+  onSearchOptions,
   currentPage,
   pageSize,
   totalPages,
@@ -380,11 +445,18 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
   const { columns, data } = result
 
   return (
-    <div className="overflow-x-auto shadow-xl min-h-[400px] overflow-y-auto relative">
-      <table className="w-full border-collapse relative">
-        <thead className="relative">
-          <tr className="bg-gray-50 border-b border-gray-200">
-            {columns.map((col, index) => {
+    <div style={{
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: '200px'
+    }}>
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        <table className="w-full border-collapse relative">
+          <thead className="sticky top-0 z-10 relative">
+            <tr className="bg-gray-50 border-b border-gray-200">
+              {columns.map((col, index) => {
               // Find if there's a filter for this column
               const filter = query.filters.find(f => f.fieldName === col)
               const isSorted = sorting?.column === col
@@ -419,20 +491,25 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                       <div className="relative">
                         <div
                           className="cursor-pointer hover:bg-gray-100 p-1 rounded"
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation()
-                            setOpenPopovers(prev => {
-                              const currentKey = `${query.id}_${col}`
-                              const isCurrentlyOpen = prev[currentKey]
 
-                              // Close all other popovers and toggle current one
-                              const newPopovers: { [key: string]: boolean } = {}
-                              if (!isCurrentlyOpen) {
-                                newPopovers[currentKey] = true
+                            const currentKey = `${query.id}_${col}`
+                            const isCurrentlyOpen = openPopovers[currentKey]
+
+                            // Close all popovers first
+                            setOpenPopovers({})
+
+                            if (!isCurrentlyOpen) {
+                              // Opening - reload options for dropdown/multiselect
+                              if ((filter.type === 'dropdown' || filter.type === 'multiselect') && onSearchOptions) {
+                                const filterKey = `${query.id}_${filter.fieldName}`
+                                await onSearchOptions(filterKey, '')
                               }
 
-                              return newPopovers
-                            })
+                              // Open this popover
+                              setOpenPopovers({ [currentKey]: true })
+                            }
                           }}
                         >
                           <Filter className={`h-3 w-3 ${(() => {
@@ -455,14 +532,16 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                             onClick={(e) => e.stopPropagation()}
                           >
                             <TableFilterInput
-                                  filter={filter}
+                              filter={filter}
                               queryId={query.id.toString()}
-                                  filters={filters}
-                                  dropdownOptions={dropdownOptions}
-                                  onFilterChange={onFilterChange}
+                              filters={filters}
+                              dropdownOptions={dropdownOptions}
+                              onFilterChange={onFilterChange}
                               setOpenPopovers={setOpenPopovers}
-                                  allFilters={query.filters}
-                                />
+                              allFilters={query.filters}
+                              onLoadMore={onLoadMoreOptions}
+                              onSearch={onSearchOptions}
+                            />
                           </div>
                         )}
                       </div>
@@ -474,64 +553,68 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
-          {data.map((row, rowIndex) => (
-            <tr key={rowIndex} className="hover:bg-gray-50 transition-colors">
-              {row.map((cell, cellIndex) => {
-                const cellValue = cell?.toString() || ''
-                const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
-                const showTooltip = cellValue.length > 50
+          {data.map((row, rowIndex) => {
+            // Calculate row text color based on rules
+            const rowTextColor = getRowTextColor(row, columns, query.visualization.chartOptions?.rowColorRules)
 
-                // Insert line break every 50 characters
-                const formatTooltipText = (text: string) => {
-                  const chunks = []
-                  for (let i = 0; i < text.length; i += 50) {
-                    chunks.push(text.substring(i, i + 50))
+            return (
+              <tr key={rowIndex} className="hover:bg-gray-50 transition-colors">
+                {row.map((cell, cellIndex) => {
+                  const cellValue = cell?.toString() || ''
+                  const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
+                  const showTooltip = cellValue.length > 50
+
+                  // Insert line break every 50 characters
+                  const formatTooltipText = (text: string) => {
+                    const chunks = []
+                    for (let i = 0; i < text.length; i += 50) {
+                      chunks.push(text.substring(i, i + 50))
+                    }
+                    return chunks.join('\n')
                   }
-                  return chunks.join('\n')
-                }
 
-                return (
-                  <td key={cellIndex} className="px-3 py-2 text-xs text-gray-800 whitespace-nowrap">
-                    {showTooltip ? (
-                      <div className="relative group">
-                        <span className="cursor-help">{displayValue}</span>
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 max-w-xs whitespace-pre-wrap">
-                          {formatTooltipText(cellValue)}
-                          <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                  return (
+                    <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: rowTextColor || '#1f2937' }}>
+                      {showTooltip ? (
+                        <div className="relative group">
+                          <span className="cursor-help">{displayValue}</span>
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 max-w-xs whitespace-pre-wrap">
+                            {formatTooltipText(cellValue)}
+                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <span>{displayValue}</span>
-                    )}
-                  </td>
-                )
-              })}
-            </tr>
-          ))}
+                      ) : (
+                        <span>{displayValue}</span>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            )
+          })}
         </tbody>
       </table>
+      </div>
 
       {/* Pagination Controls */}
-      <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <div className="text-xs text-gray-600">
-            {((currentPage - 1) * pageSize + 1)}-{Math.min(currentPage * pageSize, totalRows)} / {totalRows}
-          </div>
+      <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center flex-wrap gap-3 flex-shrink-0">
+        <div className="text-xs text-gray-600">
+          {((currentPage - 1) * pageSize + 1)}-{Math.min(currentPage * pageSize, totalRows)} / {totalRows}
+        </div>
 
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-600">Sayfa:</span>
-            <select
-              value={pageSize}
-              onChange={(e) => onPageSizeChange(parseInt(e.target.value))}
-              className="px-2 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-orange-500 focus:border-orange-500 outline-none"
-            >
-              <option value={10}>10</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-              <option value={200}>200</option>
-            </select>
-          </div>
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-gray-600">Sayfa:</span>
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSizeChange(parseInt(e.target.value))}
+            className="px-2 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-orange-500 focus:border-orange-500 outline-none"
+          >
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+          </select>
         </div>
 
         {totalPages > 1 && (

@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, validator
-from typing import Optional, Dict, Any
 from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field, validator
 
 
 class PlatformBase(BaseModel):
@@ -8,18 +9,24 @@ class PlatformBase(BaseModel):
     code: str = Field(..., min_length=1, max_length=50, description="Unique platform code (e.g., 'deriniz', 'app2')")
     name: str = Field(..., min_length=1, max_length=255, description="Platform name")
     display_name: str = Field(..., min_length=1, max_length=255, description="Display name for UI")
-    description: Optional[str] = Field(None, description="Platform description")
-    
+    description: str | None = Field(None, description="Platform description")
+
     # Database configuration
     db_type: str = Field(default="clickhouse", description="Database type: clickhouse, mssql, postgresql")
-    db_config: Optional[Dict[str, Any]] = Field(None, description="Database connection configuration")
-    
+    db_config: dict[str, Any] | None = Field(None, description="Database connection configuration")
+
     # Branding
-    logo_url: Optional[str] = Field(None, max_length=255, description="URL to platform logo")
-    theme_config: Optional[Dict[str, Any]] = Field(None, description="Theme configuration (colors, etc.)")
-    
+    logo_url: str | None = Field(None, max_length=255, description="URL to platform logo")
+    theme_config: dict[str, Any] | None = Field(
+        None, 
+        description="Theme configuration (colors, features, etc.). "
+                    "Features can include subfeatures: features[].subfeatures[]"
+    )
+
     # Status
     is_active: bool = Field(default=True, description="Whether platform is active")
+    allowed_departments: list[str] | None = Field(default=[], description="Departments allowed to access this platform")
+    allowed_users: list[str] | None = Field(default=[], description="Users allowed to access this platform")
 
     @validator('code')
     def validate_code(cls, v):
@@ -27,7 +34,7 @@ class PlatformBase(BaseModel):
         if not v.replace('_', '').replace('-', '').isalnum():
             raise ValueError('Platform code must be alphanumeric (with - or _ allowed)')
         return v.lower()  # Always lowercase
-    
+
     @validator('db_type')
     def validate_db_type(cls, v):
         """Validate database type"""
@@ -44,14 +51,16 @@ class PlatformCreate(PlatformBase):
 
 class PlatformUpdate(BaseModel):
     """Schema for updating a platform (all fields optional)"""
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    display_name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    db_type: Optional[str] = None
-    db_config: Optional[Dict[str, Any]] = None
-    logo_url: Optional[str] = Field(None, max_length=255)
-    theme_config: Optional[Dict[str, Any]] = None
-    is_active: Optional[bool] = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    display_name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    db_type: str | None = None
+    db_config: dict[str, Any] | None = None
+    logo_url: str | None = Field(None, max_length=255)
+    theme_config: dict[str, Any] | None = None
+    is_active: bool | None = None
+    allowed_departments: list[str] | None = None
+    allowed_users: list[str] | None = None
 
     @validator('db_type')
     def validate_db_type(cls, v):
@@ -68,8 +77,10 @@ class Platform(PlatformBase):
     """Full platform schema with all fields"""
     id: int
     created_at: datetime
-    updated_at: Optional[datetime] = None
-    
+    updated_at: datetime | None = None
+    allowed_departments: list[str] | None = []
+    allowed_users: list[str] | None = []
+
     class Config:
         from_attributes = True
 
@@ -80,13 +91,15 @@ class PlatformList(BaseModel):
     code: str
     name: str
     display_name: str
-    description: Optional[str] = None
+    description: str | None = None
     db_type: str
-    logo_url: Optional[str] = None
-    theme_config: Optional[Dict[str, Any]] = None
+    logo_url: str | None = None
+    theme_config: dict[str, Any] | None = None
     is_active: bool
     created_at: datetime
-    
+    allowed_departments: list[str] | None = []
+    allowed_users: list[str] | None = []
+
     class Config:
         from_attributes = True
 
@@ -105,8 +118,8 @@ class PlatformConnectionTest(BaseModel):
     """Schema for testing platform database connection"""
     success: bool
     message: str
-    connection_time_ms: Optional[float] = None
-    error: Optional[str] = None
+    connection_time_ms: float | None = None
+    error: str | None = None
 
 
 class PlatformWithStats(Platform):

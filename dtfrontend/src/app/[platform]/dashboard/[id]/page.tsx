@@ -14,10 +14,13 @@ import { Calendar, User, Eye, EyeOff,
   Map as MapIcon, Camera, Music, Heart, Star, Target, Gauge, Cpu,
   Wifi, Battery, HardDrive, Smartphone, Plus, Layout, Edit, Trash2, X
 } from "lucide-react";
-import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget } from "@/components/widgets";
+import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget } from "@/components/widgets";
 import { DateInput } from "@/components/ui/date-input";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
+import { Feedback } from "@/components/feedback/feedback";
+import { useUser } from "@/contexts/user-context";
+import { isAdmin } from "@/lib/utils";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -107,6 +110,10 @@ const renderWidgetContent = (widget: any, index: number, dateFrom: string, dateT
       return <AbsenteeismWidget widgetId={widget.id || `widget-${index}`} />;
     case 'pending_work':
       return <PendingWorkWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'kablaj_uretim_rate':
+      return <KablajUretimRateWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'aselsan_sivas':
+      return <AselsanSivasWidget widgetId={widget.id || `widget-${index}`} />;
     default:
       // Fallback widget display
       const config = widget.config || {};
@@ -134,6 +141,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const { updateDashboardInList, removeDashboardFromList } = useDashboards();
   const { dateFrom, dateTo, setDateFrom, setDateTo } = useFilters();
+  const { user } = useUser();
 
   // Modal states
   const [isEditNameModalOpen, setIsEditNameModalOpen] = useState(false);
@@ -325,46 +333,48 @@ export default function DashboardPage() {
               />
             )}
           </button>
-          <div className="relative" ref={dropdownRef}>
-            <button 
-              className="h-8 w-8 p-0 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-700"
-              onClick={() => setIsSettingsDropdownOpen(!isSettingsDropdownOpen)}
-            >
-              <Settings className="h-4 w-4" />
-            </button>
-            
-            {/* Settings Dropdown */}
-            {isSettingsDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
-                <div className="py-1">
-                  <button
-                    onClick={() => {
-                      setIsSettingsDropdownOpen(false);
-                      if (subplatform) {
-                        router.push(`/${platformCode}/dashboard/${dashboard.id}/edit?subplatform=${subplatform}`);
-                      } else {
-                        router.push(`/${platformCode}/dashboard/${dashboard.id}/edit`);
-                      }
-                    }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    <Edit className="h-4 w-4 mr-2" />
-                    Düzenle
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsSettingsDropdownOpen(false);
-                      setIsDeleteDialogOpen(true);
-                    }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Sil
-                  </button>
+          {isAdmin(user) && (
+            <div className="relative" ref={dropdownRef}>
+              <button
+                className="h-8 w-8 p-0 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-700"
+                onClick={() => setIsSettingsDropdownOpen(!isSettingsDropdownOpen)}
+              >
+                <Settings className="h-4 w-4" />
+              </button>
+
+              {/* Settings Dropdown */}
+              {isSettingsDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+                  <div className="py-1">
+                    <button
+                      onClick={() => {
+                        setIsSettingsDropdownOpen(false);
+                        if (subplatform) {
+                          router.push(`/${platformCode}/dashboard/${dashboard.id}/edit?subplatform=${subplatform}`);
+                        } else {
+                          router.push(`/${platformCode}/dashboard/${dashboard.id}/edit`);
+                        }
+                      }}
+                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      <Edit className="h-4 w-4 mr-2" />
+                      Düzenle
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsSettingsDropdownOpen(false);
+                        setIsDeleteDialogOpen(true);
+                      }}
+                      className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Sil
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {dashboard.owner_name && (
@@ -574,6 +584,9 @@ export default function DashboardPage() {
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
+      
+      {/* Feedback Button */}
+      <Feedback />
     </div>
   );
 }

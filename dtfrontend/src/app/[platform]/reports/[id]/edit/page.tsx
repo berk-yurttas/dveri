@@ -14,6 +14,7 @@ import { BarChart, Bar, LineChart as RechartsLineChart, Line, PieChart as Rechar
 
 // Import types from the types file
 import { QueryConfig, FilterConfig, ReportConfig, VisualizationConfig, NestedQueryConfig } from '@/types/reports'
+import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 
 const VISUALIZATION_OPTIONS = [
   { value: 'table', label: 'Tablo', icon: Table },
@@ -26,6 +27,7 @@ const VISUALIZATION_OPTIONS = [
   { value: 'pareto', label: 'Pareto Grafiği', icon: BarChart3 },
   { value: 'boxplot', label: 'Box Plot', icon: BarChart3 },
   { value: 'histogram', label: 'Histogram', icon: BarChart3 },
+  { value: 'card', label: 'Kart Görünümü', icon: Database },
 ] as const
 
 const FILTER_TYPES = [
@@ -210,6 +212,122 @@ const ChartPreview = ({
   const renderChart = () => {
     switch (visualization.type) {
       case 'bar':
+        const showLineOverlay = visualization.chartOptions?.showLineOverlay && visualization.chartOptions?.lineYAxis
+        const legendFields = visualization.chartOptions?.legendFields || []
+        const useLegendFieldValues = visualization.chartOptions?.useLegendFieldValues ?? false
+
+        // Custom legend formatter to show field values instead of field names
+        const renderLegend = (props: any) => {
+          if (!useLegendFieldValues || legendFields.length === 0) {
+            return <Legend {...props} />
+          }
+
+          // Get unique values from the first legend field
+          const firstLegendField = legendFields[0]
+          const uniqueValues = [...new Set(chartData.map((item: any) => item[firstLegendField]).filter((v: any) => v != null))]
+
+          return (
+            <div className="flex flex-wrap gap-4 justify-center mt-4">
+              {uniqueValues.map((value: any, index: number) => (
+                <div key={index} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded"
+                    style={{ backgroundColor: colors[index % colors.length] }}
+                  />
+                  <span className="text-sm text-slate-700">{String(value)}</span>
+                </div>
+              ))}
+            </div>
+          )
+        }
+
+        // Custom legend content for Recharts
+        const CustomLegend = (props: any) => {
+          if (!useLegendFieldValues || legendFields.length === 0) {
+            return null // Let Recharts handle default legend
+          }
+
+          const firstLegendField = legendFields[0]
+          const uniqueValues = [...new Set(chartData.map((item: any) => item[firstLegendField]).filter((v: any) => v != null))]
+
+          return (
+            <div className="flex flex-wrap gap-4 justify-center mt-4">
+              {uniqueValues.map((value: any, index: number) => (
+                <div key={index} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded"
+                    style={{ backgroundColor: colors[index % colors.length] }}
+                  />
+                  <span className="text-sm text-slate-700">{String(value)}</span>
+                </div>
+              ))}
+            </div>
+          )
+        }
+
+        if (showLineOverlay) {
+          return (
+            <ResponsiveContainer width="100%" height={400}>
+              <ComposedChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis
+                  dataKey={visualization.xAxis || columns[0]}
+                  tick={{ fontSize: 12 }}
+                  stroke="#64748b"
+                />
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 12 }}
+                  stroke="#64748b"
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 12 }}
+                  stroke="#64748b"
+                />
+                <Tooltip
+                  content={(visualization.chartOptions?.tooltipFields?.length ?? 0) > 0 ? <CustomTooltip /> : undefined}
+                  contentStyle={(visualization.chartOptions?.tooltipFields?.length ?? 0) === 0 ? {
+                    backgroundColor: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '12px'
+                  } : undefined}
+                />
+                {visualization.showLegend && (useLegendFieldValues && legendFields.length > 0 ? <CustomLegend /> : <Legend />)}
+                {legendFields.length > 0 ? (
+                  legendFields.map((field, index) => (
+                    <Bar
+                      key={field}
+                      yAxisId="left"
+                      dataKey={field}
+                      fill={colors[index % colors.length]}
+                      radius={[4, 4, 0, 0]}
+                      name={useLegendFieldValues ? undefined : field}
+                    />
+                  ))
+                ) : (
+                  <Bar
+                    yAxisId="left"
+                    dataKey={visualization.yAxis || columns[1]}
+                    fill={colors[0]}
+                    radius={[4, 4, 0, 0]}
+                  />
+                )}
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey={visualization.chartOptions?.lineYAxis}
+                  stroke={colors[legendFields.length % colors.length] || '#10B981'}
+                  strokeWidth={3}
+                  dot={{ r: 4 }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )
+        }
+
         return (
           <ResponsiveContainer width="100%" height={400}>
             <BarChart data={chartData}>
@@ -232,12 +350,24 @@ const ChartPreview = ({
                   fontSize: '12px'
                 } : undefined}
               />
-              {visualization.showLegend && <Legend />}
-              <Bar
-                dataKey={visualization.yAxis || columns[1]}
-                fill={colors[0]}
-                radius={[4, 4, 0, 0]}
-              />
+              {visualization.showLegend && (useLegendFieldValues && legendFields.length > 0 ? <CustomLegend /> : <Legend />)}
+              {legendFields.length > 0 ? (
+                legendFields.map((field, index) => (
+                  <Bar
+                    key={field}
+                    dataKey={field}
+                    fill={colors[index % colors.length]}
+                    radius={[4, 4, 0, 0]}
+                    name={useLegendFieldValues ? undefined : field}
+                  />
+                ))
+              ) : (
+                <Bar
+                  dataKey={visualization.yAxis || columns[1]}
+                  fill={colors[0]}
+                  radius={[4, 4, 0, 0]}
+                />
+              )}
             </BarChart>
           </ResponsiveContainer>
         )
@@ -385,6 +515,62 @@ const ChartPreview = ({
                 {renderNestedQueryInfo(visualization.chartOptions.nestedQueries)}
               </div>
             )}
+          </div>
+        )
+
+      case 'card':
+        // Card visualization preview
+        const cardData = chartData[0] || {}
+        const primaryField = visualization.valueField || columns[0]
+        const secondaryField = visualization.labelField || columns[1]
+        const primaryValue = cardData[primaryField]
+        const secondaryValue = secondaryField ? cardData[secondaryField] : null
+
+        const formatNumber = (value: any): string => {
+          if (value === null || value === undefined) return '-'
+          if (typeof value === 'number') {
+            return value.toLocaleString('tr-TR', { maximumFractionDigits: 2 })
+          }
+          return String(value)
+        }
+
+        const bgColor = visualization.chartOptions?.backgroundColor || colors[0]
+
+        return (
+          <div className="flex items-center justify-center w-full h-full min-h-[300px]">
+            <div
+              className="relative rounded-2xl shadow-lg p-8 flex flex-col items-center justify-center min-w-[300px] min-h-[200px]"
+              style={{
+                backgroundColor: bgColor,
+                background: `linear-gradient(135deg, ${bgColor} 0%, ${bgColor}dd 100%)`
+              }}
+            >
+              <div className="text-center mb-4">
+                <div
+                  className="font-bold text-white drop-shadow-lg"
+                  style={{ fontSize: '3.5rem' }}
+                >
+                  {formatNumber(primaryValue)}
+                </div>
+              </div>
+              {secondaryValue !== null && (
+                <div className="text-center">
+                  <div
+                    className="text-white/90 font-medium"
+                    style={{ fontSize: '1.25rem' }}
+                  >
+                    {formatNumber(secondaryValue)}
+                  </div>
+                </div>
+              )}
+              {visualization.title && (
+                <div className="absolute top-4 left-4 right-4">
+                  <div className="text-white/70 text-sm font-semibold uppercase tracking-wider">
+                    {visualization.title}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )
 
@@ -736,7 +922,7 @@ const NestedQueryBuilder = ({
                               >
                                 <option value="">Bağımsız</option>
                                 {(nestedQuery.filters || [])
-                                  .filter((f, i) => i < filterIndex && (f.type === 'dropdown' || f.type === 'multiselect'))
+                                  .filter((f, i) => i != filterIndex && (f.type === 'dropdown' || f.type === 'multiselect'))
                                   .map((f) => (
                                     <option key={f.id} value={f.fieldName}>
                                       {f.displayName}
@@ -893,12 +1079,16 @@ export default function EditReportPage() {
   const reportId = params.id as string
   const searchParams = useSearchParams()
   const subplatform = searchParams.get('subplatform')
-  const [report, setReport] = useState<ReportConfig>({
+  const [report, setReport] = useState<ReportConfig & { layoutConfig?: any[] }>({
     name: '',
     description: '',
     queries: [],
     tags: [],
-    globalFilters: []
+    globalFilters: [],
+    layoutConfig: [],
+    color: '#3B82F6',  // Default blue color
+    isDirectLink: false,
+    directLink: ''
   })
 
   const [originalReport, setOriginalReport] = useState<SavedReport | null>(null)
@@ -925,25 +1115,8 @@ export default function EditReportPage() {
     setLoadingDropdownOptions(prev => ({ ...prev, [filterKey]: true }))
 
     try {
-      // Replace dependent filter placeholders in the dropdown query
-      let modifiedSql = filter.dropdownQuery
-
-      if (filter.dependsOn) {
-        const dependentValue = currentFilterValues[filter.dependsOn]
-        if (dependentValue) {
-          // Replace {{field_name}} with the actual value
-          const placeholder = `{{${filter.dependsOn}}}`
-          const replacement = Array.isArray(dependentValue)
-            ? `(${dependentValue.map(v => `'${v}'`).join(',')})`
-            : `'${dependentValue}'`
-          modifiedSql = modifiedSql.replace(new RegExp(placeholder, 'g'), replacement)
-        } else {
-          // If dependent value is not set, clear options
-          setDropdownOptions(prev => ({ ...prev, [filterKey]: [] }))
-          setLoadingDropdownOptions(prev => ({ ...prev, [filterKey]: false }))
-          return
-        }
-      }
+      const dependentValue = filter.dependsOn ? currentFilterValues[filter.dependsOn] : undefined
+      const modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn || '', dependentValue)
 
       const result = await reportsService.previewQuery({
         sql_query: modifiedSql,
@@ -991,12 +1164,17 @@ export default function EditReportPage() {
         const reportData = await reportsService.getReportById(reportId)
         setOriginalReport(reportData)
         
-        // Convert SavedReport to ReportConfig format
-        const convertedReport: ReportConfig = {
+        // Convert SavedReport to ReportConfig format, preserving layoutConfig
+        const convertedReport: ReportConfig & { layoutConfig?: any[] } = {
           name: reportData.name,
           description: reportData.description,
           tags: reportData.tags,
           globalFilters: (reportData as any).globalFilters || [],
+          layoutConfig: reportData.layoutConfig || [],  // Preserve the layout configuration
+          color: reportData.color || '#3B82F6',  // Preserve the color or use default
+          is_public: reportData.is_public || false,  // Preserve the public status
+          isDirectLink: (reportData as any).isDirectLink || false,
+          directLink: (reportData as any).directLink || '',
           queries: reportData.queries.map((query, index) => ({
             id: query.id?.toString() || generateId(),
             name: query.name,
@@ -1014,7 +1192,7 @@ export default function EditReportPage() {
             }))
           }))
         }
-        
+
         setReport(convertedReport)
       } catch (err: any) {
         console.error("Error loading report:", err)
@@ -1161,15 +1339,33 @@ export default function EditReportPage() {
           smooth: false,
           showDots: true,
           nestedQueries: [],
-          clickable: false
+          clickable: false,
+          backgroundColor: '#3B82F6'
         }
       },
       filters: []
     }
-    setReport(prev => ({
-      ...prev,
-      queries: [...prev.queries, newQuery]
-    }))
+
+    setReport(prev => {
+      const newQueries = [...prev.queries, newQuery]
+
+      // Add a default layout entry for the new query
+      const newLayoutEntry = {
+        i: newQuery.id,
+        x: (prev.queries.length % 2) * 2, // Alternate left/right (2 columns each)
+        y: Math.floor(prev.queries.length / 2) * 4, // Stack vertically
+        w: 2, // 2 columns width
+        h: 4, // 4 rows height
+        minW: 1,
+        minH: 2
+      }
+
+      return {
+        ...prev,
+        queries: newQueries,
+        layoutConfig: [...(prev.layoutConfig || []), newLayoutEntry]
+      }
+    })
     setActiveQueryIndex(report.queries.length)
   }
 
@@ -1194,10 +1390,21 @@ export default function EditReportPage() {
   }
 
   const removeQuery = (index: number) => {
-    setReport(prev => ({
-      ...prev,
-      queries: prev.queries.filter((_, i) => i !== index)
-    }))
+    setReport(prev => {
+      const queryToRemove = prev.queries[index]
+      const newQueries = prev.queries.filter((_, i) => i !== index)
+
+      // Also remove the layout entry for this query
+      const newLayoutConfig = (prev.layoutConfig || []).filter(
+        (layout: any) => layout.i !== queryToRemove.id
+      )
+
+      return {
+        ...prev,
+        queries: newQueries,
+        layoutConfig: newLayoutConfig
+      }
+    })
     if (activeQueryIndex >= index && activeQueryIndex > 0) {
       setActiveQueryIndex(activeQueryIndex - 1)
     }
@@ -1426,22 +1633,77 @@ export default function EditReportPage() {
       return
     }
 
-    if (report.queries.length === 0) {
-      alert('En az bir sorgu ekleyin.')
-      return
-    }
-
-    for (const query of report.queries) {
-      if (!query.sql.trim()) {
-        alert(`"${query.name}" sorgusu için SQL yazın.`)
+    // Validate based on report type
+    if (report.isDirectLink) {
+      // Direct link mode: validate direct link
+      if (!report.directLink || !report.directLink.trim()) {
+        alert('Lütfen rapor bağlantısını girin.')
         return
+      }
+      // Basic URL validation
+      try {
+        new URL(report.directLink.trim())
+      } catch {
+        alert('Lütfen geçerli bir URL girin.')
+        return
+      }
+    } else {
+      // Normal mode: validate queries
+      if (report.queries.length === 0) {
+        alert('En az bir sorgu ekleyin.')
+        return
+      }
+
+      for (const query of report.queries) {
+        if (!query.sql.trim()) {
+          alert(`"${query.name}" sorgusu için SQL yazın.`)
+          return
+        }
       }
     }
 
     try {
+      // Don't send layoutConfig to preserve it unchanged
+      const { layoutConfig, ...reportWithoutLayout } = report
+
+      // Clean query and filter IDs (remove non-integer IDs as they're client-side only)
+      const cleanedReport = {
+        ...reportWithoutLayout,
+        queries: reportWithoutLayout.queries.map((query: any) => {
+          const { id: queryId, ...queryWithoutId } = query
+          const cleanedQuery: any = {
+            ...queryWithoutId,
+            filters: query.filters.map((filter: any) => {
+              const { id, ...filterWithoutId } = filter
+              // Only include id if it's a valid integer (existing filter from backend)
+              const isValidFilterId = typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))
+              if (isValidFilterId) {
+                return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
+              }
+              return filterWithoutId
+            })
+          }
+          // Only include query id if it's a valid integer (existing query from backend)
+          const isValidQueryId = typeof queryId === 'number' || (typeof queryId === 'string' && /^\d+$/.test(queryId))
+          if (isValidQueryId) {
+            cleanedQuery.id = typeof queryId === 'number' ? queryId : parseInt(queryId, 10)
+          }
+          return cleanedQuery
+        }),
+        globalFilters: reportWithoutLayout.globalFilters?.map((filter: any) => {
+          const { id, ...filterWithoutId } = filter
+          // Only include id if it's a valid integer (existing filter from backend)
+          const isValidFilterId = typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))
+          if (isValidFilterId) {
+            return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
+          }
+          return filterWithoutId
+        }) || []
+      }
+
       // Send the updated report to the backend using the full update endpoint
-      console.log('Updating report:', report)
-      const updatedReport = await reportsService.updateReportFull(reportId, report)
+      console.log('Updating report:', cleanedReport)
+      const updatedReport = await reportsService.updateReportFull(reportId, cleanedReport)
       console.log('Report updated successfully:', updatedReport)
 
       // Clear the cache for this report to ensure fresh data on redirect
@@ -1538,23 +1800,109 @@ export default function EditReportPage() {
                     className="h-9"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reportColor" className="text-sm">Rapor Rengi</Label>
+                  <div className="flex gap-2">
+                    <input
+                      type="color"
+                      id="reportColor"
+                      value={report.color || '#3B82F6'}
+                      onChange={(e) => setReport(prev => ({ ...prev, color: e.target.value }))}
+                      className="w-12 h-9 rounded cursor-pointer border-2 border-slate-200"
+                    />
+                    <Input
+                      value={report.color || '#3B82F6'}
+                      onChange={(e) => setReport(prev => ({ ...prev, color: e.target.value }))}
+                      placeholder="#3B82F6"
+                      className="h-9 flex-1"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reportPublic" className="text-sm">Görünürlük</Label>
+                  <div className="flex items-center space-x-2 h-9">
+                    <Checkbox
+                      id="reportPublic"
+                      checked={report.is_public || false}
+                      onCheckedChange={(checked) => setReport(prev => ({ ...prev, is_public: !!checked }))}
+                    />
+                    <Label htmlFor="reportPublic" className="text-sm font-normal cursor-pointer">
+                      Herkese Açık
+                    </Label>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Direct Link Mode Switch */}
+              <div className="pt-4 border-t border-slate-200/50">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <Label htmlFor="directLinkMode" className="text-sm font-semibold text-slate-700">
+                      Rapor Tipi
+                    </Label>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Normal rapor oluşturma veya dış bağlantı kullanma
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Label htmlFor="directLinkMode" className="text-sm text-slate-600">
+                      Normal Rapor
+                    </Label>
+                    <button
+                      type="button"
+                      id="directLinkMode"
+                      onClick={() => setReport(prev => ({ 
+                        ...prev, 
+                        isDirectLink: !prev.isDirectLink,
+                        directLink: !prev.isDirectLink ? '' : prev.directLink
+                      }))}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        report.isDirectLink ? 'bg-blue-600' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          report.isDirectLink ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                    <Label htmlFor="directLinkMode" className="text-sm text-slate-600">
+                      Dış Bağlantı
+                    </Label>
+                  </div>
+                </div>
+                
+                {/* Direct Link Input - shown when isDirectLink is true */}
+                {report.isDirectLink && (
+                  <div className="space-y-2 mt-4 p-4 bg-blue-50/50 rounded-lg border border-blue-200">
+                    <Label htmlFor="directLink" className="text-sm font-semibold text-slate-700">
+                      Rapor Bağlantısı *
+                    </Label>
+                    <Input
+                      id="directLink"
+                      value={report.directLink || ''}
+                      onChange={(e) => setReport(prev => ({ ...prev, directLink: e.target.value }))}
+                      placeholder="https://example.com/report"
+                      className="h-9"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Dış rapor sayfasının tam URL adresini girin
+                    </p>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
 
-          {/* Global Filters Section */}
+          {/* Global Filters Section - Hidden when isDirectLink is true */}
+          {!report.isDirectLink && (
+          <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300">
           <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300">
             <CardHeader className="pb-3 pt-3 px-4 border-b border-slate-300/50">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
-                  <Filter className="w-4 h-4 text-orange-600" />
-                  Global Filtreler ({(report.globalFilters || []).length})
-                </CardTitle>
-                <Button onClick={addGlobalFilter} size="sm" className="h-8 text-xs bg-orange-600 hover:bg-orange-700 text-white">
-                  <Plus className="w-3 h-3 mr-1" />
-                  Filtre Ekle
-                </Button>
-              </div>
+              <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
+                <Filter className="w-4 h-4 text-orange-600" />
+                Global Filtreler ({(report.globalFilters || []).length})
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-4">
               {(!report.globalFilters || report.globalFilters.length === 0) ? (
@@ -1572,7 +1920,7 @@ export default function EditReportPage() {
               ) : (
                 <div className="space-y-3">
                   {report.globalFilters.map((filter, filterIndex) => (
-                    <div key={`edit_global_filter_${filterIndex}_${filter.fieldName || filterIndex}`} className="p-4 bg-orange-50/50 border border-orange-200 rounded-lg">
+                    <div key={filter.id || `edit_global_filter_${filterIndex}`} className="p-4 bg-orange-50/50 border border-orange-200 rounded-lg">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <Filter className="w-4 h-4 text-orange-600" />
@@ -1659,12 +2007,18 @@ export default function EditReportPage() {
                       </div>
                     </div>
                   ))}
+                  <Button onClick={addGlobalFilter} size="sm" className="w-full h-8 text-xs bg-orange-600 hover:bg-orange-700 text-white">
+                    <Plus className="w-3 h-3 mr-1" />
+                    Filtre Ekle
+                  </Button>
                 </div>
               )}
             </CardContent>
           </Card>
+          )}
 
-          {/* Queries Section */}
+          {/* Queries Section - Hidden when isDirectLink is true */}
+          {!report.isDirectLink && (
           <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300">
             <CardHeader className="pb-3 pt-3 px-4 border-b border-slate-300/50">
               <div className="flex items-center justify-between">
@@ -1699,8 +2053,12 @@ export default function EditReportPage() {
                 <TabsList className="grid w-full bg-slate-100 p-1 rounded-lg" style={{ gridTemplateColumns: `repeat(${report.queries.length}, minmax(0, 1fr))` }}>
                   {report.queries.map((query, index) => (
                     <div key={query.id} className="relative">
-                      <TabsTrigger value={index.toString()} className="w-full data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-blue-700 data-[state=active]:font-semibold data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900 transition-all">
-                        {query.name}
+                      <TabsTrigger
+                        value={index.toString()}
+                        className="w-full data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-blue-700 data-[state=active]:font-semibold data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900 transition-all overflow-hidden"
+                        title={query.name}
+                      >
+                        <span className="block truncate px-6">{query.name}</span>
                       </TabsTrigger>
                       {report.queries.length > 1 && (
                         <button
@@ -1745,7 +2103,27 @@ export default function EditReportPage() {
                           </Label>
                           <Textarea
                             value={query.sql}
-                            onChange={(e) => updateQuery(queryIndex, { sql: e.target.value })}
+                            onChange={(e) => {
+                              const newSql = e.target.value
+                              updateQuery(queryIndex, { sql: newSql })
+
+                              // Clean up tooltip fields that are no longer available
+                              const newAvailableFields = extractFieldsFromSQL(newSql)
+                              const currentTooltipFields = query.visualization.chartOptions?.tooltipFields || []
+                              const validTooltipFields = currentTooltipFields.filter(field =>
+                                newAvailableFields.includes(field)
+                              )
+
+                              // Only update if fields were removed
+                              if (validTooltipFields.length !== currentTooltipFields.length) {
+                                updateVisualization(queryIndex, {
+                                  chartOptions: {
+                                    ...query.visualization.chartOptions,
+                                    tooltipFields: validTooltipFields
+                                  }
+                                })
+                              }
+                            }}
                             placeholder="SELECT column1, column2 FROM table_name WHERE condition"
                             className="min-h-[400px] font-mono text-xs bg-slate-50/50"
                           />
@@ -1840,6 +2218,191 @@ export default function EditReportPage() {
                                       </Select>
                                     </div>
                                   </div>
+
+                                  {/* Legend Fields for Bar Chart */}
+                                  {query.visualization.type === 'bar' && (
+                                    <div className="space-y-2">
+                                      <Label className="text-sm">Legend Alanları (Çoklu Seri)</Label>
+                                      <div className="space-y-1 max-h-32 overflow-y-auto bg-white p-2 rounded border border-gray-200">
+                                        {availableFields.length > 0 ? (
+                                          availableFields.map((field) => (
+                                            <div key={field} className="flex items-center space-x-2">
+                                              <Checkbox
+                                                id={`legend-field-${query.id}-${field}`}
+                                                checked={query.visualization.chartOptions?.legendFields?.includes(field) ?? false}
+                                                onCheckedChange={(checked) => {
+                                                  const currentFields = query.visualization.chartOptions?.legendFields || []
+                                                  const newFields = checked
+                                                    ? [...currentFields, field]
+                                                    : currentFields.filter(f => f !== field)
+                                                  updateVisualization(queryIndex, {
+                                                    chartOptions: {
+                                                      ...query.visualization.chartOptions,
+                                                      legendFields: newFields
+                                                    }
+                                                  })
+                                                }}
+                                              />
+                                              <Label htmlFor={`legend-field-${query.id}-${field}`} className="text-xs">
+                                                {field}
+                                              </Label>
+                                            </div>
+                                          ))
+                                        ) : (
+                                          <p className="text-xs text-gray-500 text-center py-1">Alan bulunamadı</p>
+                                        )}
+                                      </div>
+                                      {query.visualization.chartOptions?.legendFields && query.visualization.chartOptions.legendFields.length > 0 && (
+                                        <div className="flex items-center space-x-2 pt-2 border-t border-gray-200">
+                                          <Checkbox
+                                            id={`use-legend-values-${query.id}`}
+                                            checked={query.visualization.chartOptions?.useLegendFieldValues ?? false}
+                                            onCheckedChange={(checked) => {
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  useLegendFieldValues: !!checked
+                                                }
+                                              })
+                                            }}
+                                          />
+                                          <Label htmlFor={`use-legend-values-${query.id}`} className="text-xs">
+                                            Legend'de alan değerlerini göster (alan adı yerine)
+                                          </Label>
+                                        </div>
+                                      )}
+                                      <p className="text-xs text-slate-500">
+                                        Seçilen alanlar ayrı barlar olarak gösterilecek
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  {/* Line Overlay for Bar Charts */}
+                                  {query.visualization.type === 'bar' && (
+                                    <div className="mt-3 space-y-3 p-3 bg-cyan-50/50 rounded-lg border border-cyan-200">
+                                      <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                          id={`line-overlay-${query.id}`}
+                                          checked={query.visualization.chartOptions?.showLineOverlay ?? false}
+                                          onCheckedChange={(checked) => {
+                                            updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                showLineOverlay: checked,
+                                                lineYAxis: checked ? query.visualization.chartOptions?.lineYAxis : undefined
+                                              }
+                                            })
+                                          }}
+                                        />
+                                        <Label htmlFor={`line-overlay-${query.id}`} className="text-sm font-semibold text-cyan-900">
+                                          Çizgi Grafik Ekle (Sağ Y Ekseni)
+                                        </Label>
+                                      </div>
+
+                                      {query.visualization.chartOptions?.showLineOverlay && (
+                                        <div className="space-y-2">
+                                          <Label className="text-sm">Çizgi Y Ekseni Alanı</Label>
+                                          <Select
+                                            value={query.visualization.chartOptions?.lineYAxis || ''}
+                                            onValueChange={(value) => updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                lineYAxis: value
+                                              }
+                                            })}
+                                            placeholder="Çizgi için Y ekseni seçin"
+                                          >
+                                            {availableFields.map((field) => (
+                                              <option key={field} value={field}>{field}</option>
+                                            ))}
+                                          </Select>
+                                          <p className="text-xs text-cyan-700">
+                                            Çizgi grafik sağ Y ekseninde gösterilecek
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Reference Line Configuration */}
+                                  {(query.visualization.type === 'bar' || query.visualization.type === 'line') && (
+                                    <div className="mt-3 space-y-3 p-3 bg-amber-50/50 rounded-lg border border-amber-200">
+                                      <Label className="text-sm font-semibold text-amber-900">
+                                        Referans Çizgisi
+                                      </Label>
+
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div className="col-span-2 space-y-2">
+                                          <Label className="text-sm">Alan Seç</Label>
+                                          <Select
+                                            value={query.visualization.chartOptions?.referenceLineField || ''}
+                                            onValueChange={(value) => updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                referenceLineField: value || undefined
+                                              }
+                                            })}
+                                            placeholder="Referans çizgisi için alan seçin"
+                                          >
+                                            <option value="">Seçilmedi</option>
+                                            {availableFields.map((field) => (
+                                              <option key={field} value={field}>{field}</option>
+                                            ))}
+                                          </Select>
+                                          <p className="text-xs text-amber-700">
+                                            Seçilen alanın değeri yatay çizgi olarak gösterilecek
+                                          </p>
+                                        </div>
+
+                                        {query.visualization.chartOptions?.referenceLineField && (
+                                          <>
+                                            <div className="space-y-2">
+                                              <Label className="text-sm">Etiket</Label>
+                                              <Input
+                                                value={query.visualization.chartOptions?.referenceLineLabel || ''}
+                                                onChange={(e) => updateVisualization(queryIndex, {
+                                                  chartOptions: {
+                                                    ...query.visualization.chartOptions,
+                                                    referenceLineLabel: e.target.value
+                                                  }
+                                                })}
+                                                placeholder="Referans çizgisi etiketi"
+                                                className="h-9 text-xs"
+                                              />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                              <Label className="text-sm">Renk</Label>
+                                              <div className="flex gap-2">
+                                                <input
+                                                  type="color"
+                                                  value={query.visualization.chartOptions?.referenceLineColor || '#EF4444'}
+                                                  onChange={(e) => updateVisualization(queryIndex, {
+                                                    chartOptions: {
+                                                      ...query.visualization.chartOptions,
+                                                      referenceLineColor: e.target.value
+                                                    }
+                                                  })}
+                                                  className="w-10 h-9 rounded cursor-pointer border-2 border-slate-200"
+                                                />
+                                                <Input
+                                                  value={query.visualization.chartOptions?.referenceLineColor || '#EF4444'}
+                                                  onChange={(e) => updateVisualization(queryIndex, {
+                                                    chartOptions: {
+                                                      ...query.visualization.chartOptions,
+                                                      referenceLineColor: e.target.value
+                                                    }
+                                                  })}
+                                                  placeholder="#EF4444"
+                                                  className="h-9 flex-1 text-xs"
+                                                />
+                                              </div>
+                                            </div>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
 
                                   {/* Clickable Bar Configuration */}
                                   {query.visualization.type === 'bar' && (
@@ -2015,7 +2578,7 @@ export default function EditReportPage() {
                                               </div>
 
                                               {/* Chart Axes Configuration (only show for chart types) */}
-                                              {query.visualization.chartOptions?.nestedQueries?.[0]?.visualizationType && 
+                                              {query.visualization.chartOptions?.nestedQueries?.[0]?.visualizationType &&
                                                query.visualization.chartOptions.nestedQueries[0].visualizationType !== 'table' && (
                                                 <div className="grid grid-cols-2 gap-2">
                                                   {/* X Axis */}
@@ -2112,6 +2675,65 @@ export default function EditReportPage() {
                                                   )}
                                                 </div>
                                               )}
+
+                                              {/* Line Overlay for Nested Bar Chart */}
+                                              {query.visualization.chartOptions?.nestedQueries?.[0]?.visualizationType === 'bar' && (
+                                                <div className="mt-2 space-y-2 p-3 bg-cyan-50/50 rounded-lg border border-cyan-200">
+                                                  <div className="flex items-center space-x-2">
+                                                    <Checkbox
+                                                      id={`nested-line-overlay-${query.id}`}
+                                                      checked={query.visualization.chartOptions?.nestedQueries?.[0]?.showLineOverlay ?? false}
+                                                      onCheckedChange={(checked) => {
+                                                        const currentQueries = query.visualization.chartOptions?.nestedQueries || []
+                                                        if (currentQueries.length > 0) {
+                                                          const updated = [...currentQueries]
+                                                          updated[0] = {
+                                                            ...updated[0],
+                                                            showLineOverlay: checked,
+                                                            lineYAxis: checked ? updated[0].lineYAxis : undefined
+                                                          }
+                                                          updateVisualization(queryIndex, {
+                                                            chartOptions: {
+                                                              ...query.visualization.chartOptions,
+                                                              nestedQueries: updated
+                                                            }
+                                                          })
+                                                        }
+                                                      }}
+                                                    />
+                                                    <Label htmlFor={`nested-line-overlay-${query.id}`} className="text-xs font-semibold text-cyan-900">
+                                                      Çizgi Grafik Ekle (Sağ Y Ekseni)
+                                                    </Label>
+                                                  </div>
+
+                                                  {query.visualization.chartOptions?.nestedQueries?.[0]?.showLineOverlay && (
+                                                    <div className="space-y-2">
+                                                      <Label className="text-xs">Çizgi Y Ekseni Alanı</Label>
+                                                      <Input
+                                                        value={query.visualization.chartOptions?.nestedQueries?.[0]?.lineYAxis || ''}
+                                                        onChange={(e) => {
+                                                          const currentQueries = query.visualization.chartOptions?.nestedQueries || []
+                                                          if (currentQueries.length > 0) {
+                                                            const updated = [...currentQueries]
+                                                            updated[0] = { ...updated[0], lineYAxis: e.target.value }
+                                                            updateVisualization(queryIndex, {
+                                                              chartOptions: {
+                                                                ...query.visualization.chartOptions,
+                                                                nestedQueries: updated
+                                                              }
+                                                            })
+                                                          }
+                                                        }}
+                                                        placeholder="Çizgi için Y ekseni alanı"
+                                                        className="text-xs h-8"
+                                                      />
+                                                      <p className="text-xs text-cyan-700">
+                                                        Çizgi grafik sağ Y ekseninde gösterilecek
+                                                      </p>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              )}
                                             </div>
                                           )}
                                         </div>
@@ -2146,6 +2768,76 @@ export default function EditReportPage() {
                                         <option key={field} value={field}>{field}</option>
                                       ))}
                                     </Select>
+                                  </div>
+                                </div>
+                              )}
+
+                              {query.visualization.type === 'card' && (
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="space-y-2">
+                                    <Label className="text-sm">Ana Değer Alanı (Büyük)</Label>
+                                    <Select
+                                      value={query.visualization.valueField || ''}
+                                      onValueChange={(value) => updateVisualization(queryIndex, { valueField: value })}
+                                      placeholder="Ana değer alanı seçin"
+                                    >
+                                      {availableFields.map((field) => (
+                                        <option key={field} value={field}>{field}</option>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label className="text-sm">Alt Metin Alanı (Küçük)</Label>
+                                    <Select
+                                      value={query.visualization.labelField || ''}
+                                      onValueChange={(value) => updateVisualization(queryIndex, { labelField: value })}
+                                      placeholder="Alt metin alanı seçin"
+                                    >
+                                      {availableFields.map((field) => (
+                                        <option key={field} value={field}>{field}</option>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-2 col-span-2">
+                                    <Label className="text-sm">Kart Arkaplan Rengi</Label>
+                                    <div className="flex items-center gap-3">
+                                      <input
+                                        type="color"
+                                        value={query.visualization.chartOptions?.backgroundColor || query.visualization.colors?.[0] || '#3B82F6'}
+                                        onChange={(e) => {
+                                          const color = e.target.value
+                                          updateVisualization(queryIndex, {
+                                            colors: [
+                                              color,
+                                              ...(query.visualization.colors?.slice(1) || [])
+                                            ],
+                                            chartOptions: {
+                                              ...query.visualization.chartOptions,
+                                              backgroundColor: color
+                                            }
+                                          })
+                                        }}
+                                        className="h-10 w-16 border-2 border-slate-200 rounded-lg bg-white/50 cursor-pointer"
+                                      />
+                                      <Input
+                                        value={query.visualization.chartOptions?.backgroundColor || query.visualization.colors?.[0] || '#3B82F6'}
+                                        onChange={(e) => {
+                                          const color = e.target.value
+                                          updateVisualization(queryIndex, {
+                                            colors: [
+                                              color,
+                                              ...(query.visualization.colors?.slice(1) || [])
+                                            ],
+                                            chartOptions: {
+                                              ...query.visualization.chartOptions,
+                                              backgroundColor: color
+                                            }
+                                          })
+                                        }}
+                                        placeholder="#3B82F6"
+                                        className="text-xs h-10"
+                                      />
+                                    </div>
                                   </div>
                                 </div>
                               )}
@@ -2303,6 +2995,71 @@ export default function EditReportPage() {
                                 />
                               )}
 
+                              {/* Tooltip Configuration - Available for all chart types */}
+                              {(query.visualization.type as string !== 'table' && query.visualization.type as string !== 'expandable') && (
+                                <div className="space-y-3 p-3 bg-blue-50/50 rounded-lg border border-blue-200 mt-4">
+                                  <Label className="text-sm font-semibold">Tooltip Yapılandırması</Label>
+
+                                  <div className="space-y-2">
+                                    <Label className="text-xs">Tooltip'te Gösterilecek Alanlar</Label>
+                                    <div className="space-y-2 max-h-32 overflow-y-auto">
+                                      {availableFields.map((field) => (
+                                        <div key={field} className="flex items-center space-x-2">
+                                          <Checkbox
+                                            id={`tooltip-${field}-${query.id}`}
+                                            checked={query.visualization.chartOptions?.tooltipFields?.includes(field) ?? false}
+                                            onCheckedChange={(checked) => {
+                                              const currentFields = query.visualization.chartOptions?.tooltipFields || []
+                                              const newFields = checked
+                                                ? [...currentFields, field]
+                                                : currentFields.filter(f => f !== field)
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  tooltipFields: newFields
+                                                }
+                                              })
+                                            }}
+                                          />
+                                          <Label htmlFor={`tooltip-${field}-${query.id}`} className="text-xs">
+                                            {field}
+                                          </Label>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* Field Display Names */}
+                                  {(query.visualization.chartOptions?.tooltipFields?.length ?? 0) > 0 && (
+                                    <div className="space-y-2">
+                                      <Label className="text-xs">Alan Görünen Adları</Label>
+                                      {query.visualization.chartOptions?.tooltipFields?.map((field: string) => (
+                                        <div key={field} className="flex items-center space-x-2">
+                                          <span className="text-xs text-slate-600 w-20 flex-shrink-0">{field}:</span>
+                                          <Input
+                                            value={query.visualization.chartOptions?.fieldDisplayNames?.[field] || field}
+                                            onChange={(e) => {
+                                              const currentDisplayNames = query.visualization.chartOptions?.fieldDisplayNames || {}
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  fieldDisplayNames: {
+                                                    ...currentDisplayNames,
+                                                    [field]: e.target.value
+                                                  }
+                                                }
+                                              })
+                                            }}
+                                            placeholder={`${field} için görünen ad`}
+                                            className="text-xs h-8"
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
                               {/* Common Options */}
                               <div className="flex items-center space-x-4 pt-2">
                                 <div className="flex items-center space-x-2">
@@ -2340,25 +3097,14 @@ export default function EditReportPage() {
                       <div className="space-y-2">
                         {/* Filters Section */}
                         <div className="space-y-2">
-                      <div className="flex items-center justify-between bg-orange-50 px-2 py-1.5 rounded border border-orange-200/50">
-                        <div className="flex items-center gap-1.5">
-                          <Filter className="w-3 h-3 text-orange-600" />
-                          <h3 className="text-xs font-semibold text-slate-800">Filtreler</h3>
-                          {query.filters.length > 0 && (
-                            <Badge variant="secondary" className="bg-orange-100 text-orange-700 text-[10px] px-1.5 py-0">
-                              {query.filters.length}
-                            </Badge>
-                          )}
-                        </div>
-                        <Button
-                          onClick={() => addFilter(queryIndex)}
-                          size="sm"
-                          disabled={availableFields.length === 0}
-                          className="h-6 text-[10px] px-2 bg-orange-500 hover:bg-orange-600 text-white disabled:bg-slate-300"
-                        >
-                          <Plus className="w-2.5 h-2.5 mr-0.5" />
-                          Ekle
-                        </Button>
+                      <div className="flex items-center gap-1.5 bg-orange-50 px-2 py-1.5 rounded border border-orange-200/50">
+                        <Filter className="w-3 h-3 text-orange-600" />
+                        <h3 className="text-xs font-semibold text-slate-800">Filtreler</h3>
+                        {query.filters.length > 0 && (
+                          <Badge variant="secondary" className="bg-orange-100 text-orange-700 text-[10px] px-1.5 py-0">
+                            {query.filters.length}
+                          </Badge>
+                        )}
                       </div>
 
                       {query.filters.length === 0 ? (
@@ -2480,7 +3226,7 @@ export default function EditReportPage() {
                                               >
                                                 <option value="">Bağımsız</option>
                                                 {query.filters
-                                                  .filter((f, idx) => idx < filterIndex && (f.type === 'dropdown' || f.type === 'multiselect'))
+                                                  .filter((f, idx) => idx != filterIndex && (f.type === 'dropdown' || f.type === 'multiselect'))
                                                   .map((f) => (
                                                     <option key={f.id} value={f.fieldName}>
                                                       {f.displayName}
@@ -2502,7 +3248,212 @@ export default function EditReportPage() {
                           </table>
                         </div>
                       )}
+                      <div className="p-2">
+                        <Button
+                          onClick={() => addFilter(queryIndex)}
+                          size="sm"
+                          disabled={availableFields.length === 0}
+                          className="w-full h-7 text-[10px] bg-orange-500 hover:bg-orange-600 text-white disabled:bg-slate-300"
+                        >
+                          <Plus className="w-2.5 h-2.5 mr-0.5" />
+                          Filtre Ekle
+                        </Button>
+                      </div>
                         </div>
+
+                        {/* Row Coloring Configuration - Only for Table/Expandable */}
+                        {(query.visualization.type === 'table' || query.visualization.type === 'expandable') && (
+                          <div className="space-y-2 mt-4">
+                            <div className="flex items-center gap-1.5 bg-pink-50 px-2 py-1.5 rounded border border-pink-200/50">
+                              <BarChart3 className="w-3 h-3 text-pink-600" />
+                              <h3 className="text-xs font-semibold text-slate-800">Satır Renklendirme</h3>
+                              {(query.visualization.chartOptions?.rowColorRules?.length ?? 0) > 0 && (
+                                <Badge variant="secondary" className="bg-pink-100 text-pink-700 text-[10px] px-1.5 py-0">
+                                  {query.visualization.chartOptions?.rowColorRules?.length}
+                                </Badge>
+                              )}
+                            </div>
+
+                            {(!query.visualization.chartOptions?.rowColorRules || query.visualization.chartOptions.rowColorRules.length === 0) ? (
+                              <div className="text-center py-4 border border-dashed border-slate-200 rounded bg-slate-50/50">
+                                <BarChart3 className="w-4 h-4 text-slate-400 mx-auto mb-1" />
+                                <p className="text-[10px] text-slate-500 mb-2">Henüz kural yok</p>
+                                <Button
+                                  onClick={() => {
+                                    const newRule = {
+                                      id: generateId(),
+                                      columnName: availableFields[0] || '',
+                                      operator: '>' as const,
+                                      value: '',
+                                      color: '#EF4444'
+                                    }
+                                    updateVisualization(queryIndex, {
+                                      chartOptions: {
+                                        ...query.visualization.chartOptions,
+                                        rowColorRules: [newRule]
+                                      }
+                                    })
+                                  }}
+                                  size="sm"
+                                  disabled={availableFields.length === 0}
+                                  className="h-6 text-[10px] bg-pink-500 hover:bg-pink-600 text-white"
+                                >
+                                  <Plus className="w-2.5 h-2.5 mr-0.5" />
+                                  Kural Ekle
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                {query.visualization.chartOptions.rowColorRules.map((rule, ruleIndex) => (
+                                  <div key={rule.id} className="p-2 bg-white rounded border border-pink-200">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-[10px] font-semibold text-slate-700">Kural {ruleIndex + 1}</span>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                          const updatedRules = (query.visualization.chartOptions?.rowColorRules || []).filter((_, i) => i !== ruleIndex)
+                                          updateVisualization(queryIndex, {
+                                            chartOptions: {
+                                              ...query.visualization.chartOptions,
+                                              rowColorRules: updatedRules
+                                            }
+                                          })
+                                        }}
+                                        className="h-5 w-5 p-0 text-red-500 hover:bg-red-50 hover:text-red-600"
+                                      >
+                                        <Trash2 className="w-2.5 h-2.5" />
+                                      </Button>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-1.5">
+                                      <div className="space-y-0.5">
+                                        <Label className="text-[9px] text-slate-600">Kolon</Label>
+                                        <Select
+                                          value={rule.columnName}
+                                          onValueChange={(value) => {
+                                            const updatedRules = [...(query.visualization.chartOptions?.rowColorRules || [])]
+                                            updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], columnName: value }
+                                            updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                rowColorRules: updatedRules
+                                              }
+                                            })
+                                          }}
+                                          className="h-6 text-[10px]"
+                                        >
+                                          {availableFields.map((field) => (
+                                            <option key={field} value={field}>{field}</option>
+                                          ))}
+                                        </Select>
+                                      </div>
+                                      <div className="space-y-0.5">
+                                        <Label className="text-[9px] text-slate-600">Operatör</Label>
+                                        <Select
+                                          value={rule.operator}
+                                          onValueChange={(value: string) => {
+                                            const updatedRules = [...(query.visualization.chartOptions?.rowColorRules || [])]
+                                            updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], operator: value as '>' | '<' | '>=' | '<=' | '=' | '!=' }
+                                            updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                rowColorRules: updatedRules
+                                              }
+                                            })
+                                          }}
+                                          className="h-6 text-[10px]"
+                                        >
+                                          <option value=">">{'>'}</option>
+                                          <option value="<">{'<'}</option>
+                                          <option value=">=">{'>='}</option>
+                                          <option value="<=">{'<='}</option>
+                                          <option value="=">=</option>
+                                          <option value="!=">!=</option>
+                                        </Select>
+                                      </div>
+                                      <div className="space-y-0.5">
+                                        <Label className="text-[9px] text-slate-600">Değer</Label>
+                                        <Input
+                                          value={rule.value}
+                                          onChange={(e) => {
+                                            const updatedRules = [...(query.visualization.chartOptions?.rowColorRules || [])]
+                                            updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], value: e.target.value }
+                                            updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                rowColorRules: updatedRules
+                                              }
+                                            })
+                                          }}
+                                          placeholder="50"
+                                          className="h-6 text-[10px]"
+                                        />
+                                      </div>
+                                      <div className="space-y-0.5">
+                                        <Label className="text-[9px] text-slate-600">Renk</Label>
+                                        <div className="flex gap-1">
+                                          <input
+                                            type="color"
+                                            value={rule.color}
+                                            onChange={(e) => {
+                                              const updatedRules = [...(query.visualization.chartOptions?.rowColorRules || [])]
+                                              updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], color: e.target.value }
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  rowColorRules: updatedRules
+                                                }
+                                              })
+                                            }}
+                                            className="w-6 h-6 rounded cursor-pointer border border-slate-200"
+                                          />
+                                          <Input
+                                            value={rule.color}
+                                            onChange={(e) => {
+                                              const updatedRules = [...(query.visualization.chartOptions?.rowColorRules || [])]
+                                              updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], color: e.target.value }
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  rowColorRules: updatedRules
+                                                }
+                                              })
+                                            }}
+                                            placeholder="#EF4444"
+                                            className="h-6 text-[10px] flex-1"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                                <Button
+                                  onClick={() => {
+                                    const newRule = {
+                                      id: generateId(),
+                                      columnName: availableFields[0] || '',
+                                      operator: '>' as const,
+                                      value: '',
+                                      color: '#EF4444'
+                                    }
+                                    updateVisualization(queryIndex, {
+                                      chartOptions: {
+                                        ...query.visualization.chartOptions,
+                                        rowColorRules: [...(query.visualization.chartOptions?.rowColorRules || []), newRule]
+                                      }
+                                    })
+                                  }}
+                                  size="sm"
+                                  disabled={availableFields.length === 0}
+                                  className="w-full h-6 text-[10px] bg-pink-500 hover:bg-pink-600 text-white"
+                                >
+                                  <Plus className="w-2.5 h-2.5 mr-0.5" />
+                                  Kural Ekle
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -2626,6 +3577,7 @@ export default function EditReportPage() {
             )}
             </CardContent>
           </Card>
+          )}
 
           {/* Save Button */}
           <div className="flex justify-end gap-4 pt-8">
@@ -2706,33 +3658,14 @@ export default function EditReportPage() {
                   <>
                     {filter.dependsOn && !filterValues[filter.dependsOn] && (
                       <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
-                        Önce "{report.queries.find(q => q.id === activeQueryForFilters)?.filters.find(f => f.fieldName === filter.dependsOn)?.displayName}" filtresini seçin
+                        Üst filtre seçilmedi; tüm seçenekler listeleniyor
                       </div>
                     )}
                     <Select
                       value={filterValues[filter.fieldName] || ''}
-                      onValueChange={(value) => {
-                        setFilterValues(prev => {
-                          const newValues = { ...prev, [filter.fieldName]: value }
-
-                          // Reload dependent filters
-                          const currentQuery = report.queries.find(q => q.id === activeQueryForFilters)
-                          if (currentQuery) {
-                            currentQuery.filters.forEach(f => {
-                              if (f.dependsOn === filter.fieldName) {
-                                // Clear dependent filter value
-                                newValues[f.fieldName] = ''
-                                // Reload options
-                                loadDropdownOptions(f, newValues)
-                              }
-                            })
-                          }
-
-                          return newValues
-                        })
-                      }}
+                      onValueChange={(value) => setFilterValues(prev => ({ ...prev, [filter.fieldName]: value }))}
                       placeholder={`${filter.displayName} seçin`}
-                      disabled={!!(filter.dependsOn && !filterValues[filter.dependsOn])}
+                      disabled={filter.dependsOn && !!filterValues[filter.dependsOn] || false}
                     >
                       <option value="">Seçin...</option>
                       {loadingDropdownOptions[filter.fieldName] ? (
@@ -2810,7 +3743,7 @@ export default function EditReportPage() {
               </div>
               <div className="space-y-2">
                 <DialogTitle className="text-xl font-bold text-emerald-600">
-                  🐟 Fener balığınız size yol gösteriyor!
+                  {platformCode === 'deriniz' ? '🐟 Fener balığınız size yol gösteriyor!' : '✨ Başarılı!'}
                 </DialogTitle>
                 <p className="text-slate-600">
                   Rapor başarıyla güncellendi

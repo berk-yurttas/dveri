@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import {
   Play,
@@ -28,17 +29,28 @@ import {
   Settings,
   ArrowUp,
   ArrowDown,
-  Search
+  Search,
+  Layout,
+  Save,
+  XCircle,
+  FileDown,
+  Maximize2,
+  Shield
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
 import { reportsService } from '@/services/reports'
 import { DeleteModal } from '@/components/ui/delete-modal'
+import { DepartmentSelectModal } from '@/components/reports/department-select-modal'
 import { api } from '@/lib/api'
+import { Responsive, WidthProvider, Layout as GridLayout } from 'react-grid-layout'
+import 'react-grid-layout/css/styles.css'
+import 'react-resizable/css/styles.css'
 
 // Note: Recharts imports kept for potential direct use in table/expandable visualizations if needed
 import { MirasAssistant } from '@/components/chatbot/miras-assistant'
+import { Feedback } from '@/components/feedback/feedback'
 import {
   BarVisualization,
   LineVisualization,
@@ -49,9 +61,13 @@ import {
   BoxPlotVisualization,
   HistogramVisualization,
   TableVisualization,
-  ExpandableTableVisualization
+  ExpandableTableVisualization,
+  CardVisualization
 } from '@/components/visualizations'
 import { GlobalFilters } from '@/components/reports/GlobalFilters'
+import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
+import { useUser } from '@/contexts/user-context'
+import { isAdmin } from '@/lib/utils'
 
 const VISUALIZATION_ICONS = {
   table: Table,
@@ -64,9 +80,12 @@ const VISUALIZATION_ICONS = {
   pareto: BarChart3,
   boxplot: BarChart3,
   histogram: BarChart3,
+  card: Database,
 }
 
 const DEFAULT_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#84CC16', '#F97316']
+
+const ResponsiveGridLayout = WidthProvider(Responsive)
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -98,6 +117,10 @@ interface ReportData {
   updated_at: string | null
   queries: QueryData[]
   globalFilters?: FilterData[]
+  layoutConfig?: any[]
+  color?: string
+  allowedDepartments?: string[]
+  allowedUsers?: string[]
 }
 
 interface QueryData {
@@ -105,7 +128,7 @@ interface QueryData {
   name: string
   sql: string
   visualization: {
-    type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram'
+    type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram' | 'card'
     xAxis?: string
     yAxis?: string
     labelField?: string
@@ -169,13 +192,20 @@ export default function ReportDetailPage() {
   const reportId = params.id as string
   const searchParams = useSearchParams()
   const subplatform = searchParams.get('subplatform')
+  const { user } = useUser()
   const [report, setReport] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<FilterState>({})
   const [queryResults, setQueryResults] = useState<QueryResultState>({})
   const [openPopovers, setOpenPopovers] = useState<{[key: string]: boolean}>({})
-  const [dropdownOptions, setDropdownOptions] = useState<{[key: string]: Array<{value: any, label: string}>}>({})
+  const [dropdownOptions, setDropdownOptions] = useState<{[key: string]: {
+    options: Array<{value: any, label: string}>,
+    page: number,
+    hasMore: boolean,
+    total: number,
+    loading: boolean
+  }}>({})
   const [searchTerms, setSearchTerms] = useState<{[key: string]: string}>({})
   const [dropdownOpen, setDropdownOpen] = useState<{[key: string]: boolean}>({})
   const [isExporting, setIsExporting] = useState(false)
@@ -187,11 +217,19 @@ export default function ReportDetailPage() {
   const [nestedData, setNestedData] = useState<{[key: string]: {columns: string[], data: any[], loading: boolean, nestedQueries?: any[], filters?: any[]}}>({})
   const [nestedFilters, setNestedFilters] = useState<{[key: string]: any}>({})
   const [nestedFilterPopovers, setNestedFilterPopovers] = useState<{[key: string]: boolean}>({})
+  const [fullscreenQuery, setFullscreenQuery] = useState<QueryData | null>(null)
+  const [isMounted, setIsMounted] = useState(false)
   const [nestedFilterPositions, setNestedFilterPositions] = useState<{[key: string]: { top: number, left: number } }>({})
   const [nestedSorting, setNestedSorting] = useState<{[rowKey: string]: {column: string, direction: 'asc' | 'desc'} | null}>({})
   const [nestedPagination, setNestedPagination] = useState<{[rowKey: string]: {currentPage: number, pageSize: number}}>({})
   const [filterOperators, setFilterOperators] = useState<{[key: string]: string}>({})
   const [operatorMenuOpen, setOperatorMenuOpen] = useState<{[key: string]: boolean}>({})
+  const [isLayoutEditMode, setIsLayoutEditMode] = useState(false)
+  const [gridLayout, setGridLayout] = useState<GridLayout[]>([])
+  const [isSavingLayout, setIsSavingLayout] = useState(false)
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
+  const [authorizedDepartments, setAuthorizedDepartments] = useState<string[]>([])
+  const [authorizedUsers, setAuthorizedUsers] = useState<string[]>([])
 
   // Debounce timeout refs for each filter
   const debounceTimeouts = useRef<{[key: string]: NodeJS.Timeout}>({})
@@ -200,6 +238,81 @@ export default function ReportDetailPage() {
   const currentReportIdRef = useRef<string | null>(null)
   const isLoadingRef = useRef(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Generate default layout for queries
+  const generateDefaultLayout = (queries: QueryData[]): GridLayout[] => {
+    return queries.map((query, index) => {
+      return {
+        i: query.id.toString(),
+        x: (index % 2) * 2, // Always 2 columns, alternating left/right
+        y: Math.floor(index / 2) * 4, // 4 rows per item (500px / 120px rowHeight ≈ 4.16)
+        w: 2, // Always 2 column width
+        h: 4, // 4 rows height (≈480px)
+        minW: 1,
+        minH: 2, // Minimum 2 rows (≈240px)
+      }
+    })
+  }
+
+  // Handle layout change
+  const handleLayoutChange = (newLayout: GridLayout[]) => {
+    setGridLayout(newLayout)
+  }
+
+  // Save layout
+  const handleSaveLayout = async () => {
+    if (!report) return
+
+    setIsSavingLayout(true)
+    try {
+      // Save layout to backend
+      await reportsService.updateReport(report.id.toString(), {
+        layoutConfig: gridLayout
+      })
+      // Also keep in localStorage as backup
+      localStorage.setItem(`report_layout_${report.id}`, JSON.stringify(gridLayout))
+      setIsLayoutEditMode(false)
+    } catch (error) {
+      console.error('Error saving layout:', error)
+    } finally {
+      setIsSavingLayout(false)
+    }
+  }
+
+  // Cancel layout editing
+  const handleCancelLayoutEdit = () => {
+    // Restore original layout
+    // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
+    if (report) {
+      if (report.layoutConfig && report.layoutConfig.length > 0) {
+        setGridLayout(report.layoutConfig)
+      } else {
+        const savedLayout = localStorage.getItem(`report_layout_${report.id}`)
+        if (savedLayout) {
+          setGridLayout(JSON.parse(savedLayout))
+        } else {
+          setGridLayout(generateDefaultLayout(report.queries))
+        }
+      }
+    }
+    setIsLayoutEditMode(false)
+  }
+
+  // Save authorized departments and users
+  const handleSaveDepartments = async (departments: string[], users: string[]) => {
+    try {
+      setAuthorizedDepartments(departments)
+      setAuthorizedUsers(users)
+      
+      await reportsService.updateReport(reportId, {
+        allowedDepartments: departments,
+        allowedUsers: users
+      })
+    } catch (error) {
+      console.error('Failed to save departments:', error)
+      alert('Yetkilendirme kaydedilirken hata oluştu.')
+    }
+  }
 
   // Fetch report details using the reports service
   const fetchReportDetails = async () => {
@@ -212,37 +325,58 @@ export default function ReportDetailPage() {
   }
 
   // Load dropdown options for dropdown/multiselect filters
-  const loadDropdownOptions = async (query: QueryData, filter: FilterData, currentFilterValues?: FilterState) => {
+  const loadDropdownOptions = async (
+    query: QueryData,
+    filter: FilterData,
+    currentFilterValues?: FilterState,
+    page: number = 1,
+    search: string = "",
+    append: boolean = false
+  ) => {
     if (filter.type !== 'dropdown' && filter.type !== 'multiselect') return
     if (!filter.dropdownQuery) return
 
     const key = `${query.id}_${filter.fieldName}`
 
+    // Set loading state
+    if (!append) {
+      setDropdownOptions(prev => ({
+        ...prev,
+        [key]: {
+          options: [],
+          page: 1,
+          hasMore: false,
+          total: 0,
+          loading: true
+        }
+      }))
+    } else {
+      setDropdownOptions(prev => ({
+        ...prev,
+        [key]: {
+          ...prev[key],
+          loading: true
+        }
+      }))
+    }
+
     try {
-      // If this filter depends on another filter, check if the parent has a value
       if (filter.dependsOn) {
-        // For global filters (query.id === 0), use global_ prefix
         const parentKey = query.id === 0 ? `global_${filter.dependsOn}` : `${query.id}_${filter.dependsOn}`
         const parentValue = currentFilterValues ? currentFilterValues[parentKey] : filters[parentKey]
 
-        // If parent doesn't have a value, clear this filter's options
-        if (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0)) {
-          setDropdownOptions(prev => ({
-            ...prev,
-            [key]: []
-          }))
-          return
+        let modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn, parentValue)
+
+        // Add search filter if provided
+        if (search) {
+          // Wrap the query in a subquery and add WHERE clause for search
+          // Remove trailing semicolon
+          modifiedSql = modifiedSql.replace(/;\s*$/, '').trim()
+
+          // Add search condition - search in both value and label columns
+          modifiedSql = `SELECT * FROM (${modifiedSql}) AS search_subquery WHERE CAST(search_subquery.value AS TEXT) ILIKE '%${search}%' OR CAST(search_subquery.label AS TEXT) ILIKE '%${search}%'`
         }
 
-        // Replace {{field_name}} placeholders with parent value
-        let modifiedSql = filter.dropdownQuery
-        const placeholder = `{{${filter.dependsOn}}}`
-        const replacement = Array.isArray(parentValue)
-          ? `(${parentValue.map((v: any) => `'${v}'`).join(',')})`
-          : `'${parentValue}'`
-        modifiedSql = modifiedSql.replace(new RegExp(placeholder, 'g'), replacement)
-
-        // Execute the modified query
         const result = await reportsService.previewQuery({
           sql_query: modifiedSql,
           limit: 1000
@@ -254,19 +388,30 @@ export default function ReportDetailPage() {
             label: row[1] || String(row[0])
           }))
 
-          // Deduplicate options based on value
           const uniqueOptions = options.filter((option, index, self) =>
             index === self.findIndex((o) => o.value === option.value)
           )
 
           setDropdownOptions(prev => ({
             ...prev,
-            [key]: uniqueOptions
+            [key]: {
+              options: uniqueOptions,
+              page: 1,
+              hasMore: false,
+              total: uniqueOptions.length,
+              loading: false
+            }
           }))
         } else {
           setDropdownOptions(prev => ({
             ...prev,
-            [key]: []
+            [key]: {
+              options: [],
+              page: 1,
+              hasMore: false,
+              total: 0,
+              loading: false
+            }
           }))
         }
       } else {
@@ -274,8 +419,20 @@ export default function ReportDetailPage() {
         // For global filters (query.id === 0), use preview query instead
         if (query.id === 0 && filter.dropdownQuery) {
           // Global filter - execute the dropdown query directly
+          let sqlQuery = filter.dropdownQuery
+
+          // Add search filter if provided
+          if (search) {
+            // Wrap the query in a subquery and add WHERE clause for search
+            // Remove trailing semicolon
+            sqlQuery = sqlQuery.replace(/;\s*$/, '').trim()
+
+            // Add search condition - search in both value and label columns
+            sqlQuery = `SELECT * FROM (${sqlQuery}) AS search_subquery WHERE CAST(search_subquery.value AS TEXT) ILIKE '%${search}%' OR CAST(search_subquery.label AS TEXT) ILIKE '%${search}%'`
+          }
+
           const result = await reportsService.previewQuery({
-            sql_query: filter.dropdownQuery,
+            sql_query: sqlQuery,
             limit: 1000
           })
 
@@ -292,30 +449,94 @@ export default function ReportDetailPage() {
 
             setDropdownOptions(prev => ({
               ...prev,
-              [key]: uniqueOptions
+              [key]: {
+                options: uniqueOptions,
+                page: 1,
+                hasMore: false,
+                total: uniqueOptions.length,
+                loading: false
+              }
             }))
           } else {
             setDropdownOptions(prev => ({
               ...prev,
-              [key]: []
+              [key]: {
+                options: [],
+                page: 1,
+                hasMore: false,
+                total: 0,
+                loading: false
+              }
             }))
           }
         } else {
-          // Query-specific filter - use the API endpoint
-          const response = await reportsService.getFilterOptions(reportId, query.id, filter.fieldName)
-          setDropdownOptions(prev => ({
-            ...prev,
-            [key]: response.options
-          }))
+          // Query-specific filter - use the API endpoint with pagination
+          const response = await reportsService.getFilterOptions(reportId, query.id, filter.fieldName, page, 50, search)
+
+          setDropdownOptions(prev => {
+            const existingOptions = append && prev[key] ? prev[key].options : []
+            return {
+              ...prev,
+              [key]: {
+                options: append ? [...existingOptions, ...response.options] : response.options,
+                page: response.page,
+                hasMore: response.has_more,
+                total: response.total,
+                loading: false
+              }
+            }
+          })
         }
       }
     } catch (err) {
       console.error(`Failed to load dropdown options for ${filter.fieldName}:`, err)
       setDropdownOptions(prev => ({
         ...prev,
-        [key]: []
+        [key]: {
+          options: [],
+          page: 1,
+          hasMore: false,
+          total: 0,
+          loading: false
+        }
       }))
     }
+  }
+
+  // Handle loading more options for a dropdown filter
+  const handleLoadMoreOptions = async (filterKey: string) => {
+    const dropdownData = dropdownOptions[filterKey]
+    if (!dropdownData || dropdownData.loading || !dropdownData.hasMore) return
+
+    // Parse filterKey to get query and filter info
+    const parts = filterKey.split('_')
+    const queryId = parseInt(parts[0])
+    const fieldName = parts.slice(1).join('_')
+
+    // Find the query and filter
+    const query = report?.queries.find(q => q.id === queryId)
+    if (!query) return
+
+    const filter = query.filters.find(f => f.fieldName === fieldName)
+    if (!filter) return
+
+    const currentSearch = searchTerms[filterKey] || ''
+    await loadDropdownOptions(query, filter, filters, dropdownData.page + 1, currentSearch, true)
+  }
+
+  // Handle searching options for a dropdown filter
+  const handleSearchOptions = async (filterKey: string, search: string) => {
+    const parts = filterKey.split('_')
+    const queryId = parseInt(parts[0])
+    const fieldName = parts.slice(1).join('_')
+
+    const query = report?.queries.find(q => q.id === queryId)
+    if (!query) return
+
+    const filter = query.filters.find(f => f.fieldName === fieldName)
+    if (!filter) return
+
+    await loadDropdownOptions(query, filter, filters, 1, search, false)
   }
 
   // Execute a single query with custom filters and sorting
@@ -475,13 +696,15 @@ export default function ReportDetailPage() {
       }
 
       const response = await reportsService.executeReport(request)
-      
+
       if (response.success && response.results.length > 0) {
         const result = response.results[0]
+        // For pagination, we don't know exact total pages anymore (no COUNT query)
+        // We only know if there are more pages via has_more flag
         const totalPages = (query.visualization.type === 'table' || query.visualization.type === 'expandable')
-          ? Math.ceil(result.total_rows / pageSize)
+          ? (result.has_more ? page + 1 : page)  // If has_more, show at least one more page
           : 1
-          
+
         setQueryResults(prev => ({
           ...prev,
           [query.id]: {
@@ -663,13 +886,15 @@ export default function ReportDetailPage() {
       }
 
       const response = await reportsService.executeReport(request)
-      
+
       if (response.success && response.results.length > 0) {
         const result = response.results[0]
+        // For pagination, we don't know exact total pages anymore (no COUNT query)
+        // We only know if there are more pages via has_more flag
         const totalPages = (query.visualization.type === 'table' || query.visualization.type === 'expandable')
-          ? Math.ceil(result.total_rows / pageSize)
+          ? (result.has_more ? page + 1 : page)  // If has_more, show at least one more page
           : 1
-          
+
         setQueryResults(prev => ({
           ...prev,
           [query.id]: {
@@ -706,15 +931,19 @@ export default function ReportDetailPage() {
 
   // Execute all queries with initial empty filters
   const executeAllQueries = async (reportData: ReportData, initialFilters: FilterState) => {
-    for (const query of reportData.queries) {
-      await executeQueryWithFilters(query, reportData.id, initialFilters)
-    }
+    await Promise.all(
+      reportData.queries.map(query =>
+        executeQueryWithFilters(query, reportData.id, initialFilters)
+      )
+    )
   }
 
   // Set locale for date inputs
   useEffect(() => {
     // Set the document locale to Turkish for proper date formatting
     document.documentElement.lang = 'tr-TR'
+    // Set mounted flag for portal rendering
+    setIsMounted(true)
   }, [])
 
   // Close all popovers when scrolling or clicking outside
@@ -739,21 +968,18 @@ export default function ReportDetailPage() {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element
 
-      // Check if clicking on an input field (text, number, date)
-      const isInputField = target.tagName === 'INPUT' && (target as HTMLInputElement).type !== 'checkbox'
-
-      // Close dropdown filters and operator menus when clicking outside or on an input field
+      // Close dropdown filters and operator menus when clicking outside
       const isInsideDropdown = target.closest('.filter-dropdown-container')
-      const isInsideDropdownMenu = target.closest('.absolute.z-50')
+      const isInsideDropdownMenu = target.closest('.dropdown-menu')
 
-      if (!isInsideDropdown && !isInsideDropdownMenu) {
-        setDropdownOpen({})
-        setOperatorMenuOpen({})
-      } else if (isInputField) {
-        // Close all dropdowns when clicking on any input field
-        setDropdownOpen({})
-        setOperatorMenuOpen({})
+      // If click is inside dropdown container or menu, don't close anything
+      if (isInsideDropdown || isInsideDropdownMenu) {
+        return
       }
+
+      // Only close if clicking completely outside
+      setDropdownOpen({})
+      setOperatorMenuOpen({})
 
       // Close table filter popovers when clicking outside any filter area
       const isInsideAnyTableFilter = target.closest('th.relative') || target.closest('.absolute.top-full') || target.closest('.nested-filter-popover')
@@ -814,6 +1040,14 @@ export default function ReportDetailPage() {
         }
 
         setReport(reportData)
+
+        // Initialize authorized departments and users
+        if (reportData.allowedDepartments) {
+            setAuthorizedDepartments(reportData.allowedDepartments)
+        }
+        if (reportData.allowedUsers) {
+            setAuthorizedUsers(reportData.allowedUsers)
+        }
 
         // Initialize filter state and load dropdown options
         const initialFilters: FilterState = {}
@@ -881,16 +1115,47 @@ export default function ReportDetailPage() {
         })
         setQueryResults(initialResults)
 
-        // Load dropdown options in parallel
-        await Promise.all(dropdownPromises)
+        // Load dropdown options and execute queries in parallel
+        await Promise.all([
+          ...dropdownPromises,
+          executeAllQueries(reportData, initialFilters)
+        ])
 
         // Check again if reportId changed
         if (currentReportIdRef.current !== reportId) {
           return
         }
 
-        // Execute all queries with initial filters
-        await executeAllQueries(reportData, initialFilters)
+        // Initialize grid layout
+        // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
+        if (reportData.layoutConfig && reportData.layoutConfig.length > 0) {
+          // Validate and fix layout config - ensure all entries have valid query IDs
+          const validQueryIds = new Set(reportData.queries.map(q => q.id.toString()))
+          const validatedLayout = reportData.layoutConfig
+            .filter((layout: any) => validQueryIds.has(layout.i.toString()))
+            .map((layout: any) => ({
+              ...layout,
+              // Ensure minimum dimensions to prevent invisible widgets
+              w: Math.max(layout.w || 2, 1),
+              h: Math.max(layout.h || 4, 2),
+              minW: 1,
+              minH: 2
+            }))
+
+          // If we have valid layout for all queries, use it, otherwise regenerate
+          if (validatedLayout.length === reportData.queries.length) {
+            setGridLayout(validatedLayout)
+          } else {
+            setGridLayout(generateDefaultLayout(reportData.queries))
+          }
+        } else {
+          const savedLayout = localStorage.getItem(`report_layout_${reportData.id}`)
+          if (savedLayout) {
+            setGridLayout(JSON.parse(savedLayout))
+          } else {
+            setGridLayout(generateDefaultLayout(reportData.queries))
+          }
+        }
 
       } catch (err) {
         if (currentReportIdRef.current === reportId) {
@@ -899,8 +1164,8 @@ export default function ReportDetailPage() {
       } finally {
         if (currentReportIdRef.current === reportId) {
           setLoading(false)
+          isLoadingRef.current = false
         }
-        isLoadingRef.current = false
       }
     }
 
@@ -1217,33 +1482,191 @@ export default function ReportDetailPage() {
   // Excel export functionality with chart images
   const exportToExcel = async () => {
     if (!report) return
-    
+
     try {
       setIsExporting(true)
-      
+
       // Create a new workbook
       const workbook = new ExcelJS.Workbook()
       workbook.creator = 'DT Report System'
       workbook.created = new Date()
-      
+
       // Process each query
       for (const query of report.queries) {
-        const queryState = queryResults[query.id]
-        if (!queryState?.result) continue
-        
-        const { result } = queryState
-        const { columns, data } = result
-        
+        let columns: string[] = []
+        let data: any[][] = []
+
+        // For table/expandable visualizations, fetch ALL data without pagination
+        if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
+          try {
+            // Prepare global filters
+            const globalFilters = (report?.globalFilters || [])
+              .map(filter => {
+                if (filter.type === 'date') {
+                  const startKey = `global_${filter.fieldName}_start`
+                  const endKey = `global_${filter.fieldName}_end`
+                  const startValue = filters[startKey]
+                  const endValue = filters[endKey]
+
+                  if (startValue && endValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: [startValue, endValue],
+                      operator: 'BETWEEN'
+                    }
+                  } else if (startValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: startValue,
+                      operator: '>='
+                    }
+                  } else if (endValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: endValue,
+                      operator: '<='
+                    }
+                  }
+                  return null
+                } else {
+                  const key = `global_${filter.fieldName}`
+                  const value = filters[key]
+
+                  if (filter.type === 'multiselect') {
+                    if (Array.isArray(value) && value.length > 0) {
+                      return {
+                        field_name: filter.fieldName,
+                        value: value,
+                        operator: 'IN'
+                      }
+                    }
+                  } else if (value && value !== '') {
+                    const operatorKey = `global_${filter.fieldName}_operator`
+                    const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
+
+                    return {
+                      field_name: filter.fieldName,
+                      value: value,
+                      operator: operator
+                    }
+                  }
+                  return null
+                }
+              })
+              .filter(Boolean)
+
+            // Prepare query filters
+            const queryFilters = query.filters
+              .map(filter => {
+                if (filter.type === 'date') {
+                  const startKey = `${query.id}_${filter.fieldName}_start`
+                  const endKey = `${query.id}_${filter.fieldName}_end`
+                  const startValue = filters[startKey]
+                  const endValue = filters[endKey]
+
+                  if (startValue && endValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: [startValue, endValue],
+                      operator: 'BETWEEN'
+                    }
+                  } else if (startValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: startValue,
+                      operator: '>='
+                    }
+                  } else if (endValue) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: endValue,
+                      operator: '<='
+                    }
+                  }
+                  return null
+                } else {
+                  const key = `${query.id}_${filter.fieldName}`
+                  const value = filters[key]
+
+                  if (filter.type === 'multiselect') {
+                    if (Array.isArray(value) && value.length > 0) {
+                      return {
+                        field_name: filter.fieldName,
+                        value: value,
+                        operator: 'IN'
+                      }
+                    }
+                  } else if (value && value !== '') {
+                    const operatorKey = `${query.id}_${filter.fieldName}_operator`
+                    const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
+
+                    return {
+                      field_name: filter.fieldName,
+                      value: value,
+                      operator: operator
+                    }
+                  }
+                  return null
+                }
+              })
+              .filter(Boolean)
+
+            // Merge filters
+            const allFilters = [...globalFilters, ...queryFilters]
+
+            // Get current sorting state for this query
+            const currentSort = sorting[query.id]
+
+            // Execute query with high limit to get all data
+            const request = {
+              report_id: report.id,
+              query_id: query.id,
+              filters: allFilters,
+              limit: 1000000, // Very high limit to get all data
+              ...(currentSort && {
+                sort_by: currentSort.column,
+                sort_direction: currentSort.direction
+              })
+            }
+
+            const response = await reportsService.executeReport(request)
+
+            if (response.success && response.results.length > 0) {
+              const result = response.results[0]
+              columns = result.columns
+              data = result.data
+            }
+          } catch (err) {
+            console.error(`Failed to fetch all data for query ${query.id}:`, err)
+            // Fallback to current paginated data if fetch fails
+            const queryState = queryResults[query.id]
+            if (queryState?.result) {
+              columns = queryState.result.columns
+              data = queryState.result.data
+            }
+          }
+        } else {
+          // For charts, use current result data
+          const queryState = queryResults[query.id]
+          if (!queryState?.result) continue
+
+          columns = queryState.result.columns
+          data = queryState.result.data
+        }
+
+        if (columns.length === 0) continue
+
         // Create worksheet
-        const worksheet = workbook.addWorksheet(query.name.substring(0, 31))
-        
+        const worksheetName = (query.name || `Query_${query.id}`).substring(0, 31)
+        const worksheet = workbook.addWorksheet(worksheetName)
+
         if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
           // For table visualizations, export raw data
           worksheet.addRow(columns)
           data.forEach(row => {
             worksheet.addRow(row)
           })
-          
+
           // Style the header row
           const headerRow = worksheet.getRow(1)
           headerRow.font = { bold: true }
@@ -1252,7 +1675,7 @@ export default function ReportDetailPage() {
             pattern: 'solid',
             fgColor: { argb: 'FFE6F3FF' }
           }
-          
+
           // Auto-size columns
           columns.forEach((col, index) => {
             const column = worksheet.getColumn(index + 1)
@@ -1262,7 +1685,7 @@ export default function ReportDetailPage() {
             )
             column.width = Math.min(maxLength + 2, 50)
           })
-          
+
         } else {
           // For chart visualizations, add data and chart image
           
@@ -1336,19 +1759,302 @@ export default function ReportDetailPage() {
     }
   }
 
+  // Export single query to Excel
+  const exportSingleQueryToExcel = async (query: QueryData) => {
+    if (!report) return
+
+    try {
+      setIsExporting(true)
+
+      let columns: string[] = []
+      let data: any[][] = []
+
+      // For table/expandable visualizations, fetch ALL data without pagination
+      if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
+        try {
+          // Prepare global filters
+          const globalFilters = (report?.globalFilters || [])
+            .map(filter => {
+              if (filter.type === 'date') {
+                const startKey = `global_${filter.fieldName}_start`
+                const endKey = `global_${filter.fieldName}_end`
+                const startValue = filters[startKey]
+                const endValue = filters[endKey]
+
+                if (startValue && endValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: [startValue, endValue],
+                    operator: 'BETWEEN'
+                  }
+                } else if (startValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: startValue,
+                    operator: '>='
+                  }
+                } else if (endValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: endValue,
+                    operator: '<='
+                  }
+                }
+                return null
+              } else {
+                const key = `global_${filter.fieldName}`
+                const value = filters[key]
+
+                if (filter.type === 'multiselect') {
+                  if (Array.isArray(value) && value.length > 0) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: value,
+                      operator: 'IN'
+                    }
+                  }
+                } else if (value && value !== '') {
+                  const operatorKey = `global_${filter.fieldName}_operator`
+                  const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
+
+                  return {
+                    field_name: filter.fieldName,
+                    value: value,
+                    operator: operator
+                  }
+                }
+                return null
+              }
+            })
+            .filter(Boolean)
+
+          // Prepare query filters
+          const queryFilters = query.filters
+            .map(filter => {
+              if (filter.type === 'date') {
+                const startKey = `${query.id}_${filter.fieldName}_start`
+                const endKey = `${query.id}_${filter.fieldName}_end`
+                const startValue = filters[startKey]
+                const endValue = filters[endKey]
+
+                if (startValue && endValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: [startValue, endValue],
+                    operator: 'BETWEEN'
+                  }
+                } else if (startValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: startValue,
+                    operator: '>='
+                  }
+                } else if (endValue) {
+                  return {
+                    field_name: filter.fieldName,
+                    value: endValue,
+                    operator: '<='
+                  }
+                }
+                return null
+              } else {
+                const key = `${query.id}_${filter.fieldName}`
+                const value = filters[key]
+
+                if (filter.type === 'multiselect') {
+                  if (Array.isArray(value) && value.length > 0) {
+                    return {
+                      field_name: filter.fieldName,
+                      value: value,
+                      operator: 'IN'
+                    }
+                  }
+                } else if (value && value !== '') {
+                  const operatorKey = `${query.id}_${filter.fieldName}_operator`
+                  const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
+
+                  return {
+                    field_name: filter.fieldName,
+                    value: value,
+                    operator: operator
+                  }
+                }
+                return null
+              }
+            })
+            .filter(Boolean)
+
+          // Merge filters
+          const allFilters = [...globalFilters, ...queryFilters]
+
+          // Get current sorting state for this query
+          const currentSort = sorting[query.id]
+
+          // Execute query with high limit to get all data
+          const request = {
+            report_id: report.id,
+            query_id: query.id,
+            filters: allFilters,
+            limit: 1000000, // Very high limit to get all data
+            ...(currentSort && {
+              sort_by: currentSort.column,
+              sort_direction: currentSort.direction
+            })
+          }
+
+          const response = await reportsService.executeReport(request)
+
+          if (response.success && response.results.length > 0) {
+            const result = response.results[0]
+            columns = result.columns
+            data = result.data
+          }
+        } catch (err) {
+          console.error(`Failed to fetch all data for query ${query.id}:`, err)
+          // Fallback to current paginated data if fetch fails
+          const queryState = queryResults[query.id]
+          if (queryState?.result) {
+            columns = queryState.result.columns
+            data = queryState.result.data
+          }
+        }
+      } else {
+        // For charts, use current result data
+        const queryState = queryResults[query.id]
+        if (!queryState?.result) {
+          alert('Sorgu sonucu bulunamadı.')
+          return
+        }
+
+        columns = queryState.result.columns
+        data = queryState.result.data
+      }
+
+      if (columns.length === 0) {
+        alert('Dışa aktarılacak veri yok.')
+        return
+      }
+
+      // Create a new workbook
+      const workbook = new ExcelJS.Workbook()
+      workbook.creator = 'DT Report System'
+      workbook.created = new Date()
+
+      // Create worksheet
+      const worksheetName = (query.name || `Query_${query.id}`).substring(0, 31)
+      const worksheet = workbook.addWorksheet(worksheetName)
+
+      if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
+        // For table visualizations, export raw data
+        worksheet.addRow(columns)
+        data.forEach(row => {
+          worksheet.addRow(row)
+        })
+
+        // Style the header row
+        const headerRow = worksheet.getRow(1)
+        headerRow.font = { bold: true }
+        headerRow.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE6F3FF' }
+        }
+
+        // Auto-size columns
+        columns.forEach((col, index) => {
+          const column = worksheet.getColumn(index + 1)
+          const maxLength = Math.max(
+            col.length,
+            ...data.map(row => String(row[index] || '').length)
+          )
+          column.width = Math.min(maxLength + 2, 50)
+        })
+
+      } else {
+        // For chart visualizations, add data and chart image
+
+        // Add title
+        worksheet.addRow([query.visualization.title || query.name])
+        worksheet.getRow(1).font = { bold: true, size: 16 }
+        worksheet.addRow([]) // Empty row
+
+        // Add data
+        worksheet.addRow(columns)
+        data.forEach(row => {
+          worksheet.addRow(row)
+        })
+
+        // Style the header row
+        const headerRow = worksheet.getRow(3)
+        headerRow.font = { bold: true }
+        headerRow.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE6F3FF' }
+        }
+
+        // Auto-size columns
+        columns.forEach((col, index) => {
+          const column = worksheet.getColumn(index + 1)
+          const maxLength = Math.max(
+            col.length,
+            ...data.map(row => String(row[index] || '').length)
+          )
+          column.width = Math.min(maxLength + 2, 30)
+        })
+
+        // Capture and add chart image
+        const chartImageBase64 = await captureChartAsImage(query.id)
+        if (chartImageBase64) {
+          try {
+            const imageId = workbook.addImage({
+              base64: chartImageBase64,
+              extension: 'png',
+            })
+
+            // Position the image to the right of the data or below it
+            const dataEndRow = data.length + 3
+            const imageStartCol = Math.max(columns.length + 2, 5) // Start after data columns
+
+            worksheet.addImage(imageId, {
+              tl: { col: imageStartCol, row: 3 }, // Top-left position
+              ext: { width: 1200, height: 400 }, // Size
+            })
+          } catch (imageError) {
+            console.error('Error adding image to worksheet:', imageError)
+          }
+        }
+      }
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-')
+      const filename = `${query.name.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}.xlsx`
+
+      // Export to file
+      const buffer = await workbook.xlsx.writeBuffer()
+      saveAs(new Blob([buffer]), filename)
+
+    } catch (error) {
+      console.error('Excel export error:', error)
+      alert('Excel dosyası oluşturulurken hata oluştu.')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   // Render filters inline above query results (for non-table visualizations)
   const renderQueryFilters = (query: QueryData) => {
     if (query.filters.length === 0) return null
 
     return (
-      <div className="mb-2">
-        <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-          <div className="flex flex-wrap items-end gap-2">
+      <div className="mb-1 mt-0.5">
+        <div className="bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200">
+          <div className="flex flex-wrap items-end gap-1">
             {query.filters.map((filter) => (
-              <div key={filter.id} className={`flex-shrink-0 ${filter.type === 'date' ? 'w-72' : 'w-48'}`}>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{filter.displayName}</label>
+              <div key={filter.id} className={`flex-shrink-0 ${filter.type === 'date' ? 'w-64' : 'w-36'}`}>
+                <label className="block text-[9px] font-medium text-gray-600 mb-0.5">{filter.displayName}</label>
               {filter.type === 'date' ? (
-                <div className="relative flex items-center gap-1 w-full">
+                <div className="relative flex items-center gap-0.5 w-full">
                   <input
                     type="date"
                     value={filters[`${query.id}_${filter.fieldName}_start`] || ''}
@@ -1359,10 +2065,10 @@ export default function ReportDetailPage() {
                     onClick={(e) => {
                       e.currentTarget.showPicker?.()
                     }}
-                    className="flex-1 px-2 py-1 pr-6 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                    className="flex-1 px-1.5 py-0.5 pr-5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
                     title="Başlangıç"
                   />
-                  <span className="text-gray-500 text-xs font-medium">-</span>
+                  <span className="text-gray-500 text-[10px]">-</span>
                   <input
                     type="date"
                     value={filters[`${query.id}_${filter.fieldName}_end`] || ''}
@@ -1373,7 +2079,7 @@ export default function ReportDetailPage() {
                     onClick={(e) => {
                       e.currentTarget.showPicker?.()
                     }}
-                    className="flex-1 px-2 py-1 pr-6 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                    className="flex-1 px-1.5 py-0.5 pr-4 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
                     title="Bitiş"
                   />
                   {(filters[`${query.id}_${filter.fieldName}_start`] || filters[`${query.id}_${filter.fieldName}_end`]) && (
@@ -1382,10 +2088,10 @@ export default function ReportDetailPage() {
                         handleFilterChange(query.id, `${filter.fieldName}_start`, '')
                         handleFilterChange(query.id, `${filter.fieldName}_end`, '')
                       }}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded z-10"
+                      className="absolute right-0.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded z-10"
                       title="Temizle"
                     >
-                      <X className="h-3 w-3" />
+                      <X className="h-2.5 w-2.5" />
                     </button>
                   )}
                 </div>
@@ -1393,39 +2099,49 @@ export default function ReportDetailPage() {
                 (() => {
                   const filterKey = `${query.id}_${filter.fieldName}`
                   const searchTerm = searchTerms[filterKey] || ''
-                  const options = dropdownOptions[filterKey] || []
-                  const filteredOptions = options.filter(opt =>
-                    opt.label.toLowerCase().includes(searchTerm.toLowerCase())
-                  )
+                  const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
+                  const options = dropdownData.options
                   const selectedValue = filters[filterKey] || ''
                   const selectedLabel = options.find(opt => opt.value === selectedValue)?.label || ''
                   const isOpen = dropdownOpen[filterKey] || false
 
                   // Check if this filter is disabled due to missing parent value
-                  const isDisabled = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
+                  const isParentMissing = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
 
                   return (
                     <div className="relative filter-dropdown-container">
-                      {isDisabled && (
-                        <div className="absolute -top-5 left-0 text-[10px] text-amber-600">
-                          Önce "{query.filters.find(f => f.fieldName === filter.dependsOn)?.displayName}" seçin
+                      {isParentMissing && (
+                        <div className="absolute -top-4 left-0 text-[9px] text-amber-600">
+                          Üst filtre seçilmedi
                         </div>
                       )}
                       <button
                         type="button"
-                        onClick={() => {
-                          if (!isDisabled) {
-                            setOperatorMenuOpen({}) // Close operator menus
-                            setDropdownOpen(prev => {
-                              const isCurrentlyOpen = prev[filterKey]
-                              // Close all other dropdowns
-                              return { [filterKey]: !isCurrentlyOpen }
-                            })
+                        onClick={async (e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setOperatorMenuOpen({})
+
+                          // Check if opening or closing
+                          const willBeOpen = !dropdownOpen[filterKey]
+
+                          if (!willBeOpen) {
+                            // Closing - just close it
+                            setDropdownOpen(prev => ({ ...prev, [filterKey]: false }))
+                            return
+                          }
+
+                          // Opening - reload options
+                          setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                          setDropdownOpen(prev => ({ ...prev, [filterKey]: true }))
+
+                          // Force reload by calling loadDropdownOptions
+                          if (filter.type === 'dropdown' || filter.type === 'multiselect') {
+                            await loadDropdownOptions(query, filter, filters, 1, '', false)
                           }
                         }}
-                        disabled={isDisabled || false}
-                        className={`w-full px-2 py-1 pr-12 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-xs bg-white text-left flex items-center justify-between ${
-                          isDisabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'hover:bg-gray-50'
+                        className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${
+                          'hover:bg-gray-50'
                         }`}
                       >
                         <span className={`truncate ${selectedValue ? 'text-gray-900' : 'text-gray-500'}`}>
@@ -1434,9 +2150,13 @@ export default function ReportDetailPage() {
                       </button>
                       {selectedValue && (
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation()
                             handleFilterChange(query.id, filter.fieldName, '')
+
+                            // Clear search and reload all options
+                            setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                            await loadDropdownOptions(query, filter, filters, 1, '', false)
 
                             // Clear and reload dependent filters
                             const newFilters = {
@@ -1450,37 +2170,41 @@ export default function ReportDetailPage() {
                                 handleFilterChange(query.id, f.fieldName, f.type === 'multiselect' ? [] : '')
                                 setDropdownOptions(prev => ({
                                   ...prev,
-                                  [`${query.id}_${f.fieldName}`]: []
+                                  [`${query.id}_${f.fieldName}`]: { options: [], page: 1, hasMore: false, total: 0, loading: false }
                                 }))
                               }
                             })
                           }}
-                          className="absolute right-6 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
+                          className="absolute right-5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
                         >
-                          <X className="h-3 w-3" />
+                          <X className="h-2.5 w-2.5" />
                         </button>
                       )}
-                      <ChevronDown className="h-3 w-3 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <ChevronDown className="h-2.5 w-2.5 text-gray-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       {isOpen && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded shadow-lg">
-                          <div className="p-1.5 border-b border-gray-200">
+                        <div className="dropdown-menu absolute z-50 w-full mt-0.5 bg-white border border-gray-300 rounded shadow-lg">
+                          <div className="p-1 border-b border-gray-200">
                             <div className="relative">
-                              <Search className="absolute left-2 top-1.5 h-3 w-3 text-gray-400" />
+                              <Search className="absolute left-1.5 top-1 h-2.5 w-2.5 text-gray-400" />
                               <input
                                 type="text"
                                 value={searchTerm}
-                                onChange={(e) => setSearchTerms(prev => ({ ...prev, [filterKey]: e.target.value }))}
+                                onChange={(e) => {
+                                  const newSearch = e.target.value
+                                  setSearchTerms(prev => ({ ...prev, [filterKey]: newSearch }))
+                                  handleSearchOptions(filterKey, newSearch)
+                                }}
                                 placeholder="Ara..."
-                                className="w-full pl-7 pr-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
                                 onClick={(e) => e.stopPropagation()}
                               />
                             </div>
                           </div>
-                          <div className="max-h-48 overflow-y-auto">
-                            {filteredOptions.length === 0 ? (
-                              <div className="px-2 py-1.5 text-xs text-gray-500">Sonuç bulunamadı</div>
+                          <div className="max-h-40 overflow-y-auto">
+                            {options.length === 0 ? (
+                              <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
                             ) : (
-                              filteredOptions.map((option, index) => (
+                              options.map((option, index) => (
                                 <div
                                   key={`${filterKey}_${option.value}_${index}`}
                                   onClick={() => {
@@ -1503,7 +2227,7 @@ export default function ReportDetailPage() {
                                       }
                                     })
                                   }}
-                                  className={`px-3 py-2 text-xs cursor-pointer hover:bg-orange-50 ${
+                                  className={`px-2 py-1 text-[10px] cursor-pointer hover:bg-orange-50 ${
                                     option.value === selectedValue ? 'bg-orange-100 font-medium' : 'text-gray-900'
                                   }`}
                                 >
@@ -1521,39 +2245,49 @@ export default function ReportDetailPage() {
                 (() => {
                   const filterKey = `${query.id}_${filter.fieldName}`
                   const searchTerm = searchTerms[filterKey] || ''
-                  const options = dropdownOptions[filterKey] || []
-                  const filteredOptions = options.filter(opt =>
-                    opt.label.toLowerCase().includes(searchTerm.toLowerCase())
-                  )
+                  const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
+                  const options = dropdownData.options
                   const currentValues = Array.isArray(filters[filterKey]) ? filters[filterKey] : []
                   const isOpen = dropdownOpen[filterKey] || false
                   const selectedCount = currentValues.length
 
                   // Check if this filter is disabled due to missing parent value
-                  const isDisabled = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
+                  const isParentMissing = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
 
                   return (
                     <div className="relative filter-dropdown-container">
-                      {isDisabled && (
-                        <div className="absolute -top-5 left-0 text-[10px] text-amber-600">
-                          Önce "{query.filters.find(f => f.fieldName === filter.dependsOn)?.displayName}" seçin
+                      {isParentMissing && (
+                        <div className="absolute -top-4 left-0 text-[9px] text-amber-600">
+                          Üst filtre seçilmedi
                         </div>
                       )}
                       <button
                         type="button"
-                        onClick={() => {
-                          if (!isDisabled) {
-                            setOperatorMenuOpen({}) // Close operator menus
-                            setDropdownOpen(prev => {
-                              const isCurrentlyOpen = prev[filterKey]
-                              // Close all other dropdowns
-                              return { [filterKey]: !isCurrentlyOpen }
-                            })
+                        onClick={async (e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setOperatorMenuOpen({})
+
+                          // Check if opening or closing
+                          const willBeOpen = !dropdownOpen[filterKey]
+
+                          if (!willBeOpen) {
+                            // Closing - just close it
+                            setDropdownOpen(prev => ({ ...prev, [filterKey]: false }))
+                            return
+                          }
+
+                          // Opening - reload options
+                          setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                          setDropdownOpen(prev => ({ ...prev, [filterKey]: true }))
+
+                          // Force reload by calling loadDropdownOptions
+                          if (filter.type === 'dropdown' || filter.type === 'multiselect') {
+                            await loadDropdownOptions(query, filter, filters, 1, '', false)
                           }
                         }}
-                        disabled={isDisabled || false}
-                        className={`w-full px-2 py-1 pr-12 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-xs bg-white text-left flex items-center justify-between ${
-                          isDisabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'hover:bg-gray-50'
+                        className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${
+                          'hover:bg-gray-50'
                         }`}
                       >
                         <span className={`truncate ${selectedCount > 0 ? 'text-gray-900' : 'text-gray-500'}`}>
@@ -1562,9 +2296,13 @@ export default function ReportDetailPage() {
                       </button>
                       {selectedCount > 0 && (
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation()
                             handleFilterChange(query.id, filter.fieldName, [])
+
+                            // Clear search and reload all options
+                            setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                            await loadDropdownOptions(query, filter, filters, 1, '', false)
 
                             // Clear and reload dependent filters
                             const newFilters = {
@@ -1578,37 +2316,41 @@ export default function ReportDetailPage() {
                                 handleFilterChange(query.id, f.fieldName, f.type === 'multiselect' ? [] : '')
                                 setDropdownOptions(prev => ({
                                   ...prev,
-                                  [`${query.id}_${f.fieldName}`]: []
+                                  [`${query.id}_${f.fieldName}`]: { options: [], page: 1, hasMore: false, total: 0, loading: false }
                                 }))
                               }
                             })
                           }}
-                          className="absolute right-6 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
+                          className="absolute right-5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
                         >
-                          <X className="h-3 w-3" />
+                          <X className="h-2.5 w-2.5" />
                         </button>
                       )}
-                      <ChevronDown className="h-3 w-3 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <ChevronDown className="h-2.5 w-2.5 text-gray-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       {isOpen && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded shadow-lg">
-                          <div className="p-1.5 border-b border-gray-200">
+                        <div className="dropdown-menu absolute z-50 w-full mt-0.5 bg-white border border-gray-300 rounded shadow-lg">
+                          <div className="p-1 border-b border-gray-200">
                             <div className="relative">
-                              <Search className="absolute left-2 top-1.5 h-3 w-3 text-gray-400" />
+                              <Search className="absolute left-1.5 top-1 h-2.5 w-2.5 text-gray-400" />
                               <input
                                 type="text"
                                 value={searchTerm}
-                                onChange={(e) => setSearchTerms(prev => ({ ...prev, [filterKey]: e.target.value }))}
+                                onChange={(e) => {
+                                  const newSearch = e.target.value
+                                  setSearchTerms(prev => ({ ...prev, [filterKey]: newSearch }))
+                                  handleSearchOptions(filterKey, newSearch)
+                                }}
                                 placeholder="Ara..."
-                                className="w-full pl-7 pr-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
                                 onClick={(e) => e.stopPropagation()}
                               />
                             </div>
                           </div>
-                          <div className="max-h-48 overflow-y-auto">
-                            {filteredOptions.length === 0 ? (
-                              <div className="px-2 py-1.5 text-xs text-gray-500">Sonuç bulunamadı</div>
+                          <div className="max-h-40 overflow-y-auto">
+                            {options.length === 0 ? (
+                              <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
                             ) : (
-                              filteredOptions.map((option, index) => {
+                              options.map((option, index) => {
                                 const isChecked = currentValues.includes(option.value)
                                 return (
                                   <div
@@ -1636,13 +2378,13 @@ export default function ReportDetailPage() {
                                         }
                                       })
                                     }}
-                                    className="px-3 py-2 text-xs cursor-pointer hover:bg-orange-50 flex items-center space-x-1.5"
+                                    className="px-2 py-1 text-[10px] cursor-pointer hover:bg-orange-50 flex items-center space-x-1"
                                   >
                                     <input
                                       type="checkbox"
                                       checked={isChecked}
                                       onChange={() => {}}
-                                      className="h-3 w-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded pointer-events-none"
+                                      className="h-2.5 w-2.5 text-orange-600 focus:ring-orange-500 border-gray-300 rounded pointer-events-none"
                                     />
                                     <span>{option.label}</span>
                                   </div>
@@ -1678,7 +2420,7 @@ export default function ReportDetailPage() {
                             const newValue = e.target.value
                             handleFilterChange(query.id, filter.fieldName, newValue)
                           }}
-                          className="w-full px-7 py-1 pr-6 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent text-xs"
+                          className="w-full h-[20px] px-7 py-1 pr-6 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent text-xs"
                           placeholder="Filtrele"
                         />
                         {/* Operator Icon Button on Input */}
@@ -1748,7 +2490,7 @@ export default function ReportDetailPage() {
                   const pageSize = queryState?.pageSize || 50
                   executeQueryWithFilters(query, report!.id, filters, 1, pageSize)
                 }}
-                className="h-[28px] px-3 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                className="h-[20px] px-3 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
               >
                 <RefreshCw className="h-3 w-3" />
                 Uygula
@@ -1830,7 +2572,9 @@ export default function ReportDetailPage() {
             if (columnIndex !== -1) {
               const value = rowData[columnIndex]
               const placeholder = `{{${field}}}`
-              processedQuery = processedQuery.replace(new RegExp(placeholder, 'g'), `'${value}'`)
+              // Escape single quotes in the value to prevent SQL injection and syntax errors
+              const escapedValue = String(value).replace(/'/g, "''")
+              processedQuery = processedQuery.replace(new RegExp(placeholder, 'g'), `'${escapedValue}'`)
             }
           })
           // Do not apply filters server-side; we will filter on client
@@ -1900,7 +2644,7 @@ export default function ReportDetailPage() {
     }
   }
 
-  const renderVisualization = (query: QueryData, result: QueryResult) => {
+  const renderVisualization = (query: QueryData, result: QueryResult, scale: number = 1) => {
     const { visualization } = query
     const { data, columns } = result
 
@@ -1948,6 +2692,8 @@ export default function ReportDetailPage() {
               handleDebouncedFilterChange(query.id, fieldName, value, query)
             }}
             setOpenPopovers={setOpenPopovers}
+            onLoadMoreOptions={handleLoadMoreOptions}
+            onSearchOptions={handleSearchOptions}
             currentPage={queryState.currentPage}
             pageSize={queryState.pageSize}
             totalPages={queryState.totalPages}
@@ -1992,6 +2738,8 @@ export default function ReportDetailPage() {
               handleDebouncedFilterChange(query.id, fieldName, value, query)
             }}
             setOpenPopovers={setOpenPopovers}
+            onLoadMoreOptions={handleLoadMoreOptions}
+            onSearchOptions={handleSearchOptions}
             currentPage={expandableQueryState.currentPage}
             pageSize={expandableQueryState.pageSize}
             totalPages={expandableQueryState.totalPages}
@@ -2011,32 +2759,36 @@ export default function ReportDetailPage() {
             setNestedSorting={setNestedSorting}
             setNestedPagination={setNestedPagination}
             onRowExpand={(query, rowIndex, rowData, nestedQueries, level, parentRowKey) => handleRowExpand(query, rowIndex, rowData, nestedQueries, level, parentRowKey)}
+            scale={scale}
           />
         )
 
       case 'bar':
-        return <BarVisualization query={query} result={result} colors={colors} />
+        return <BarVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'line':
-        return <LineVisualization query={query} result={result} colors={colors} />
+        return <LineVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'pie':
-        return <PieVisualization query={query} result={result} colors={colors} />
+        return <PieVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'area':
-        return <AreaVisualization query={query} result={result} colors={colors} />
+        return <AreaVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'scatter':
-        return <ScatterVisualization query={query} result={result} colors={colors} />
+        return <ScatterVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'boxplot':
-        return <BoxPlotVisualization query={query} result={result} colors={colors} />
+        return <BoxPlotVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'pareto':
-        return <ParetoVisualization query={query} result={result} colors={colors} />
+        return <ParetoVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'histogram':
-        return <HistogramVisualization query={query} result={result} colors={colors} />
+        return <HistogramVisualization query={query} result={result} colors={colors} scale={scale} />
+
+      case 'card':
+        return <CardVisualization query={query} result={result} colors={colors} scale={scale} />
 
       default:
         return (
@@ -2057,9 +2809,18 @@ export default function ReportDetailPage() {
 
   if (loading) {
     return (
-      <div className="container mx-auto py-8 space-y-6">
-        <div className="flex items-center justify-center">
-          <div className="h-8 w-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-6">
+          <div className="relative flex items-end justify-center h-20 space-x-2">
+            <div className="w-3 bg-blue-600 rounded-t animate-bounce" style={{ height: '40%', animationDelay: '0ms', animationDuration: '0.8s' }} />
+            <div className="w-3 bg-blue-500 rounded-t animate-bounce" style={{ height: '60%', animationDelay: '150ms', animationDuration: '0.8s' }} />
+            <div className="w-3 bg-blue-600 rounded-t animate-bounce" style={{ height: '80%', animationDelay: '300ms', animationDuration: '0.8s' }} />
+            <div className="w-3 bg-blue-500 rounded-t animate-bounce" style={{ height: '50%', animationDelay: '450ms', animationDuration: '0.8s' }} />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xl font-semibold text-gray-800">Rapor Yükleniyor</h3>
+            <p className="text-gray-600">Veriler getiriliyor ve görselleştirmeler hazırlanıyor...</p>
+          </div>
         </div>
       </div>
     )
@@ -2085,102 +2846,155 @@ export default function ReportDetailPage() {
   return (
     <div className="container min-w-full space-y-3">
       {/* Report Header */}
-      <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 px-6 py-3 space-y-2 rounded-lg shadow-md">
+      <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 px-4 py-2 space-y-1.5 rounded-lg shadow-md">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold">{report.name}</h1>
-                <div className="relative" ref={dropdownRef}>
-                  <button 
-                    className="h-8 w-8 p-0 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-700"
-                    onClick={() => setIsSettingsDropdownOpen(!isSettingsDropdownOpen)}
-                  >
-                    <Settings className="h-4 w-4" />
-                  </button>
-                  
-                  {/* Settings Dropdown */}
-                  {isSettingsDropdownOpen && (
-                    <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
-                      <div className="py-1">
-                        <button
-                          onClick={() => {
-                            setIsSettingsDropdownOpen(false);
-                            if (subplatform) {
-                              router.push(`/${platformCode}/reports/${reportId}/edit?subplatform=${subplatform}`);
-                            } else {
-                              router.push(`/${platformCode}/reports/${reportId}/edit`);
-                            }
-                          }}
-                          className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        >
-                          <Edit className="h-4 w-4 mr-2" />
-                          Düzenle
-                        </button>
-                        <button
-                          onClick={() => {
-                            setIsSettingsDropdownOpen(false);
-                            setIsDeleteDialogOpen(true);
-                          }}
-                          className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Sil
-                        </button>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold">{report.name}</h1>
+                {isAdmin(user) && (
+                  <div className="relative" ref={dropdownRef}>
+                    <button
+                      className="h-6 w-6 p-0 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-700"
+                      onClick={() => setIsSettingsDropdownOpen(!isSettingsDropdownOpen)}
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                    </button>
+
+                    {/* Settings Dropdown */}
+                    {isSettingsDropdownOpen && (
+                      <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+                        <div className="py-1">
+                          <button
+                            onClick={() => {
+                              setIsSettingsDropdownOpen(false);
+                              if (subplatform) {
+                                router.push(`/${platformCode}/reports/${reportId}/edit?subplatform=${subplatform}`);
+                              } else {
+                                router.push(`/${platformCode}/reports/${reportId}/edit`);
+                              }
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          >
+                            <Edit className="h-4 w-4 mr-2" />
+                            Düzenle
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsSettingsDropdownOpen(false);
+                              setIsAuthModalOpen(true);
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          >
+                            <Shield className="h-4 w-4 mr-2" />
+                            Yetkilendirme
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsSettingsDropdownOpen(false);
+                              setIsDeleteDialogOpen(true);
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Sil
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <p className="text-gray-600 text-sm mt-1">{report.description}</p>
+              <p className="text-gray-600 text-xs mt-0.5">{report.description}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => report && executeAllQueries(report, filters)}
-              className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-blue-700 transition-colors"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Raporu Yenile
-            </button>
-            <button
-              onClick={exportToExcel}
-              disabled={isExporting || Object.keys(queryResults).length === 0 || Object.values(queryResults).every(q => !q.result)}
-              className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              {isExporting ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Dışa Aktarılıyor...
-                </>
-              ) : (
-                <>
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  Excel'e Aktar
-                </>
-              )}
-            </button>
+          <div className="flex items-center gap-1.5">
+            {!isLayoutEditMode ? (
+              <>
+                {isAdmin(user) && (
+                  <button
+                    onClick={() => setIsLayoutEditMode(true)}
+                    className="flex items-center gap-1.5 bg-purple-600 text-white px-2.5 py-1 text-xs rounded-md hover:bg-purple-700 transition-colors"
+                  >
+                    <Layout className="h-3 w-3" />
+                    Düzen
+                  </button>
+                )}
+                <button
+                  onClick={() => report && executeAllQueries(report, filters)}
+                  className="flex items-center gap-1.5 bg-blue-600 text-white px-2.5 py-1 text-xs rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  Yenile
+                </button>
+                <button
+                  onClick={exportToExcel}
+                  disabled={isExporting || Object.keys(queryResults).length === 0 || Object.values(queryResults).every(q => !q.result)}
+                  className="flex items-center gap-1.5 bg-green-600 text-white px-2.5 py-1 text-xs rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isExporting ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Aktarılıyor...
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet className="h-3 w-3" />
+                      Excel
+                    </>
+                  )}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleSaveLayout}
+                  disabled={isSavingLayout}
+                  className="flex items-center gap-1.5 bg-green-600 text-white px-2.5 py-1 text-xs rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isSavingLayout ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Kaydediliyor...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-3 w-3" />
+                      Kaydet
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleCancelLayoutEdit}
+                  disabled={isSavingLayout}
+                  className="flex items-center gap-1.5 bg-gray-600 text-white px-2.5 py-1 text-xs rounded-md hover:bg-gray-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  <XCircle className="h-3 w-3" />
+                  İptal
+                </button>
+              </>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-gray-500">
+        <div className="flex items-center gap-2 text-[10px] text-gray-500">
           <div className="flex items-center gap-1">
-            <Calendar className="h-3 w-3" />
+            <Calendar className="h-2.5 w-2.5" />
             {new Date(report.created_at).toLocaleDateString()}
           </div>
           {report.owner_name && (
             <div className="flex items-center gap-1">
-              <User className="h-3 w-3" />
+              <User className="h-2.5 w-2.5" />
               {report.owner_name}
             </div>
           )}
           {report.is_public && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-800">
               Public
             </span>
           )}
           {report.tags && report.tags.length > 0 && report.tags.map((tag, index) => (
-            <span key={index} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white border border-gray-300 text-gray-700">
+            <span key={index} className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-white border border-gray-300 text-gray-700">
               {tag}
             </span>
           ))}
@@ -2205,26 +3019,72 @@ export default function ReportDetailPage() {
       )}
 
       {/* Queries */}
-      <div className={`grid grid-cols-1 ${
-        report.queries.length === 1 &&
-        (report.queries[0].visualization.type === 'table' || report.queries[0].visualization.type === 'expandable')
-          ? ''
-          : 'lg:grid-cols-2'
-      } gap-4`}>
+      {isLayoutEditMode && (
+        <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-2">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-800">
+              <p className="font-semibold">Düzen Düzenleme Modu</p>
+              <p className="mt-1">Widget'ları sürükleyerek taşıyabilir ve kenarlarından çekerek boyutlandırabilirsiniz. Sayfa 4 sütunlu bir ızgaraya sahiptir.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ResponsiveGridLayout
+        className="layout"
+        layouts={{ lg: gridLayout }}
+        breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+        cols={{ lg: 4, md: 4, sm: 2, xs: 1, xxs: 1 }}
+        rowHeight={120}
+        isDraggable={isLayoutEditMode}
+        isResizable={isLayoutEditMode}
+        onLayoutChange={handleLayoutChange}
+        draggableHandle=".drag-handle"
+        compactType="vertical"
+        preventCollision={false}
+      >
         {report.queries.map((query) => {
           const Icon = VISUALIZATION_ICONS[query.visualization.type] || Table
           const queryState = queryResults[query.id]
 
+          // Calculate scale based on grid layout height
+          const layoutItem = gridLayout.find((item: any) => item.i === query.id.toString())
+          const gridItemHeight = layoutItem ? layoutItem.h * 120 : 480 // h * rowHeight
+          const scale = isLayoutEditMode ? Math.min(gridItemHeight / 500, 1) : 1
+
           return (
-            <div key={query.id} className="bg-white rounded-lg shadow-md border border-gray-200" data-query-id={query.id}>
-              <div className="pb-2 px-4 pt-4">
+            <div key={query.id.toString()} className={`bg-white rounded-lg shadow-md border ${isLayoutEditMode ? 'border-blue-400 border-2' : 'border-gray-200'} h-full flex flex-col`} data-query-id={query.id}>
+              <div className={`pb-2 px-4 pt-4 flex-shrink-0 ${isLayoutEditMode ? 'drag-handle cursor-move bg-blue-50' : ''}`}>
                 <div className="flex items-center gap-2">
                   <Icon className="h-4 w-4 text-blue-600" />
                   <span className="text-base font-semibold">{query.name}</span>
+                  {isLayoutEditMode && (
+                    <span className="ml-auto text-xs text-blue-600 font-medium">Sürükle</span>
+                  )}
+                  {!isLayoutEditMode && queryState?.result && (
+                    <div className="ml-auto flex items-center gap-1">
+                      <button
+                        onClick={() => setFullscreenQuery(query)}
+                        className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
+                        title="Tam ekran göster"
+                      >
+                        <Maximize2 className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => exportSingleQueryToExcel(query)}
+                        disabled={isExporting}
+                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                        title="Excel'e aktar"
+                      >
+                        <FileDown className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="space-y-3 px-4 pb-4 relative">
+              <div className="space-y-3 px-4 pb-4 relative flex-1 overflow-hidden">
                 {/* Loading Overlay */}
                 {queryState?.loading && (
                   <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
@@ -2249,10 +3109,10 @@ export default function ReportDetailPage() {
 
                 {/* Results */}
                 {queryState?.result && (
-                  <div>
+                  <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                     {/* Show filters above charts (but not for tables) */}
                     {query.visualization.type !== 'table' && query.visualization.type !== 'expandable' && renderQueryFilters(query)}
-                    {renderVisualization(query, queryState.result)}
+                    {renderVisualization(query, queryState.result, scale)}
                   </div>
                 )}
 
@@ -2266,7 +3126,7 @@ export default function ReportDetailPage() {
             </div>
           )
         })}
-      </div>
+      </ResponsiveGridLayout>
 
       {/* Delete Confirmation Modal */}
       <DeleteModal
@@ -2279,8 +3139,116 @@ export default function ReportDetailPage() {
         isDeleting={isDeleting}
       />
 
+      {/* Department Authorization Modal */}
+      <DepartmentSelectModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSave={handleSaveDepartments}
+        initialSelectedDepartments={authorizedDepartments}
+        initialSelectedUsers={authorizedUsers}
+      />
+
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
+
+      {/* Feedback Button */}
+      <Feedback />
+
+      {/* Fullscreen Query Modal - Using Portal */}
+      {isMounted && fullscreenQuery && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-2xl w-full h-full max-w-[98vw] max-h-[98vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const vizType = fullscreenQuery.visualization.type
+                  const Icon = vizType === 'bar' ? BarChart3
+                    : vizType === 'line' ? LineChart
+                    : vizType === 'pie' ? PieChart
+                    : vizType === 'table' ? Table
+                    : vizType === 'expandable' ? Table
+                    : Database
+                  return <Icon className="h-5 w-5 text-blue-600" />
+                })()}
+                <h2 className="text-xl font-semibold">{fullscreenQuery.name}</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => exportSingleQueryToExcel(fullscreenQuery)}
+                  disabled={isExporting}
+                  className="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  title="Excel'e aktar"
+                >
+                  <FileDown className="h-4 w-4" />
+                  Excel'e Aktar
+                </button>
+                <button
+                  onClick={() => setFullscreenQuery(null)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="Kapat"
+                >
+                  <X className="h-5 w-5 text-gray-600" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-auto p-6">
+              {(() => {
+                const queryState = queryResults[fullscreenQuery.id]
+
+                if (queryState?.loading) {
+                  return (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="h-12 w-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                        <span className="text-lg font-medium text-gray-700">Rapor çalıştırılıyor...</span>
+                      </div>
+                    </div>
+                  )
+                }
+
+                if (queryState?.error) {
+                  return (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-lg">
+                        <div className="flex items-start gap-3">
+                          <AlertCircle className="h-6 w-6 text-red-400 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <h3 className="font-semibold text-red-900 mb-1">Hata Oluştu</h3>
+                            <p className="text-sm text-red-800">{queryState.error}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+
+                if (queryState?.result) {
+                  return (
+                    <div className="h-full">
+                      {fullscreenQuery.visualization.type !== 'table' && fullscreenQuery.visualization.type !== 'expandable' && renderQueryFilters(fullscreenQuery)}
+                      {renderVisualization(fullscreenQuery, queryState.result, 1)}
+                    </div>
+                  )
+                }
+
+                return (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center text-gray-500">
+                      <Database className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                      <p className="text-lg">Veri bulunamadı</p>
+                      <p className="text-sm mt-1">Farklı filtrelerle tekrar deneyin.</p>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

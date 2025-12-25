@@ -2,7 +2,9 @@ import React from 'react'
 import { createPortal } from 'react-dom'
 import { Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, ChevronDown, Loader2 } from 'lucide-react'
 import { QueryData, QueryResult } from './types'
+import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 import { reportsService } from '@/services/reports'
+import { RowColorRule } from '@/types/reports'
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -31,10 +33,12 @@ interface ExpandableTableVisualizationProps {
   // Filter props
   filters: { [key: string]: any }
   openPopovers: { [key: string]: boolean }
-  dropdownOptions: { [key: string]: Array<{ value: any; label: string }> }
+  dropdownOptions: { [key: string]: { options: Array<{ value: any; label: string }>, page: number, hasMore: boolean, total: number, loading: boolean } }
   onFilterChange: (fieldName: string, value: any) => void
   onDebouncedFilterChange: (fieldName: string, value: any) => void
   setOpenPopovers: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>
+  onLoadMoreOptions?: (filterKey: string) => void
+  onSearchOptions?: (filterKey: string, search: string) => void
   // Pagination props
   currentPage: number
   pageSize: number
@@ -56,6 +60,7 @@ interface ExpandableTableVisualizationProps {
   setNestedSorting: React.Dispatch<React.SetStateAction<{ [rowKey: string]: { column: string; direction: 'asc' | 'desc' } | null }>>
   setNestedPagination: React.Dispatch<React.SetStateAction<{ [rowKey: string]: { currentPage: number; pageSize: number } }>>
   onRowExpand: (query: QueryData, rowIndex: number, rowData: any[], nestedQueries: any[], level: number, parentRowKey: string) => void
+  scale?: number
 }
 
 // Main table filter input component with local state and Apply/Clear buttons
@@ -67,9 +72,11 @@ const MainTableFilterInput = React.memo<{
   onFilterChange: (fieldName: string, value: any) => void
   setOpenPopovers: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>
   allFilters: any[]
-}>(function MainTableFilterInput({ filter, queryId, filters, dropdownOptions, onFilterChange, setOpenPopovers, allFilters }) {
+  onLoadMore?: (filterKey: string) => void
+  onSearch?: (filterKey: string, search: string) => void
+}>(function MainTableFilterInput({ filter, queryId, filters, dropdownOptions, onFilterChange, setOpenPopovers, allFilters, onLoadMore, onSearch }) {
   const filterKey = `${queryId}_${filter.fieldName}`
-  
+
   // Initialize local values from current filter state
   const initializeLocalValue = () => {
     const storedValue = filters[filterKey]
@@ -78,22 +85,34 @@ const MainTableFilterInput = React.memo<{
     }
     return storedValue || ''
   }
-  
+
   const [localValue, setLocalValue] = React.useState<any>(initializeLocalValue())
   const [localOperator, setLocalOperator] = React.useState<string>(filters[`${filterKey}_operator`] || (filter.type === 'text' ? 'CONTAINS' : '='))
   const [localStartDate, setLocalStartDate] = React.useState<string>(filters[`${filterKey}_start`] || '')
   const [localEndDate, setLocalEndDate] = React.useState<string>(filters[`${filterKey}_end`] || '')
   const [searchTerm, setSearchTerm] = React.useState('')
-  
+
   // Check if filter depends on another filter
   const parentFilter = filter.dependsOn ? allFilters.find((f: any) => f.fieldName === filter.dependsOn) : null
   const parentValue = parentFilter ? filters[`${queryId}_${parentFilter.fieldName}`] : null
-  const isDisabled = filter.dependsOn && (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0))
-  
+  const isParentMissing = filter.dependsOn && (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0))
+
   // Get dropdown options
-  const options = dropdownOptions[filterKey] || []
-  const filteredOptions = filter.type === 'multiselect' ? 
-    options.filter((opt: any) => opt.label.toLowerCase().includes(searchTerm.toLowerCase())) : []
+  const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
+  const options = dropdownData.options
+  const filteredOptions = filter.type === 'multiselect' ? options : []
+
+  // Debounced search
+  const searchTimeoutRef = React.useRef<NodeJS.Timeout>(null)
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+    if (onSearch && filter.type === 'multiselect') {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+      searchTimeoutRef.current = setTimeout(() => {
+        onSearch(filterKey, value)
+      }, 300)
+    }
+  }
   
   // Sync local state when filter values change externally
   React.useEffect(() => {
@@ -255,18 +274,13 @@ const MainTableFilterInput = React.memo<{
       {filter.type === 'dropdown' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-          {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
-          <div className={`max-h-48 overflow-y-auto border border-gray-300 rounded ${isDisabled ? 'opacity-50' : ''}`}>
+          <div className="max-h-48 overflow-y-auto border border-gray-300 rounded">
             <div
               onClick={(e) => {
                 e.stopPropagation()
-                if (!isDisabled) setLocalValue('')
+                setLocalValue('')
               }}
-              className={`px-3 py-2 text-xs hover:bg-orange-50 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${localValue === '' ? 'bg-orange-100 font-medium' : ''}`}
+              className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === '' ? 'bg-orange-100 font-medium' : ''}`}
             >
               Tümü
             </div>
@@ -275,14 +289,14 @@ const MainTableFilterInput = React.memo<{
                 key={idx}
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (!isDisabled) setLocalValue(option.value)
+                  setLocalValue(option.value)
                 }}
-                className={`px-3 py-2 text-xs hover:bg-orange-50 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${localValue === option.value ? 'bg-orange-100 font-medium' : ''}`}
+                className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === option.value ? 'bg-orange-100 font-medium' : ''}`}
               >
                 {option.label}
               </div>
             ))}
-            {options.length === 0 && !isDisabled && (
+            {options.length === 0 && (
               <div className="px-3 py-2 text-xs text-gray-500">Seçenekler yükleniyor...</div>
             )}
           </div>
@@ -292,59 +306,66 @@ const MainTableFilterInput = React.memo<{
       {filter.type === 'multiselect' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-          {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
           <div className="space-y-2">
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               onClick={(e) => e.stopPropagation()}
               placeholder="Ara..."
               className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
-              disabled={isDisabled}
               autoFocus
             />
-            <div className={`max-h-48 overflow-y-auto border border-gray-300 rounded p-2 space-y-1 ${isDisabled ? 'opacity-50' : ''}`}>
-              {filteredOptions.length === 0 ? (
+            <div
+              className="max-h-48 overflow-y-auto border border-gray-300 rounded p-2 space-y-1"
+              onScroll={(e) => {
+                const target = e.target as HTMLDivElement
+                const bottom = target.scrollHeight - target.scrollTop === target.clientHeight
+                if (bottom && dropdownData.hasMore && !dropdownData.loading && onLoadMore) {
+                  onLoadMore(filterKey)
+                }
+              }}
+            >
+              {filteredOptions.length === 0 && !dropdownData.loading ? (
                 <div className="px-2 py-1 text-xs text-gray-500">
-                  {options.length === 0 ? (isDisabled ? 'Üst filtreyi seçin' : 'Seçenekler yükleniyor...') : 'Sonuç bulunamadı'}
+                  {options.length === 0 ? 'Seçenek yok' : 'Sonuç bulunamadı'}
                 </div>
               ) : (
-                filteredOptions.map((option: any, idx: number) => {
-                  const selectedValues = localValue ? localValue.split(',').map((v: string) => v.trim()) : []
-                  const isChecked = selectedValues.includes(option.value)
-                  
-                  return (
-                    <label 
-                      key={idx} 
-                      className="flex items-center gap-2 hover:bg-orange-50 p-1 rounded cursor-pointer"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        disabled={isDisabled}
-                        onChange={(e) => {
-                          e.stopPropagation()
-                          if (e.target.checked) {
-                            const newValues = [...selectedValues, option.value]
-                            setLocalValue(newValues.join(', '))
-                          } else {
-                            const newValues = selectedValues.filter((v: string) => v !== option.value)
-                            setLocalValue(newValues.join(', '))
-                          }
-                        }}
+                <>
+                  {filteredOptions.map((option: any, idx: number) => {
+                    const selectedValues = localValue ? localValue.split(',').map((v: string) => v.trim()) : []
+                    const isChecked = selectedValues.includes(option.value)
+
+                    return (
+                      <label
+                        key={idx}
+                        className="flex items-center gap-2 hover:bg-orange-50 p-1 rounded cursor-pointer"
                         onClick={(e) => e.stopPropagation()}
-                        className="w-3 h-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                      />
-                      <span className="text-xs">{option.label}</span>
-                    </label>
-                  )
-                })
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            e.stopPropagation()
+                            if (e.target.checked) {
+                              const newValues = [...selectedValues, option.value]
+                              setLocalValue(newValues.join(', '))
+                            } else {
+                              const newValues = selectedValues.filter((v: string) => v !== option.value)
+                              setLocalValue(newValues.join(', '))
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-3 h-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+                        />
+                        <span className="text-xs">{option.label}</span>
+                      </label>
+                    )
+                  })}
+                  {dropdownData.loading && (
+                    <div className="px-2 py-1 text-xs text-gray-500 text-center">Yükleniyor...</div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -407,43 +428,16 @@ const NestedFilterInput = React.memo<{
   const parentFilter = filter.dependsOn ? allFilters.find((f: any) => f.fieldName === filter.dependsOn) : null
   const parentFilterKey = parentFilter ? `${rowKey}_${filter.dependsOn}` : null
   const parentValue = parentFilterKey ? nestedFilters[parentFilterKey] : null
-  const isDisabled = filter.dependsOn && (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0))
+  const isParentMissing = filter.dependsOn && (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0))
 
   // Load dropdown options from server if filter has dropdownQuery and dependsOn
   const loadDropdownOptions = React.useCallback(async () => {
     if (!filter.dropdownQuery || !filter.dependsOn) return
 
-    if (!parentValue || (Array.isArray(parentValue) && parentValue.length === 0)) {
-      setDistinctValues([])
-      return
-    }
-
     setLoadingOptions(true)
     try {
-      // Replace {{dependsOn}} placeholder with actual parent value
-      let modifiedSql = filter.dropdownQuery
-      const placeholder = `{{${filter.dependsOn}}}`
-      
-      if (Array.isArray(parentValue)) {
-        // For arrays, we need to handle both = and IN operators
-        const valueList = parentValue.map((v: any) => `'${v}'`).join(',')
-        
-        // Check if the SQL uses = operator before the placeholder
-        const equalsPattern = new RegExp(`=\\s*${placeholder.replace(/[{}]/g, '\\$&')}`, 'g')
-        if (equalsPattern.test(modifiedSql)) {
-          // Replace "= {{field}}" with "IN (values)"
-          modifiedSql = modifiedSql.replace(equalsPattern, `IN (${valueList})`)
-        } else {
-          // Just replace the placeholder with the value list
-          modifiedSql = modifiedSql.replace(new RegExp(placeholder, 'g'), `(${valueList})`)
-        }
-      } else {
-        // For single values, simple replacement
-        const replacement = `'${parentValue}'`
-        modifiedSql = modifiedSql.replace(new RegExp(placeholder, 'g'), replacement)
-      }
+      const modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn, parentValue)
 
-        // Execute query using reportsService
       console.log(`Loading dependent filter options for "${filter.displayName}":`, modifiedSql)
       const response = await reportsService.previewQuery({
         sql_query: modifiedSql,
@@ -451,7 +445,6 @@ const NestedFilterInput = React.memo<{
       })
 
       if (response.success && response.data.length > 0) {
-        // Expecting [value, label] format
         const options = response.data.map((row: any[]) => ({
           value: row[0],
           label: row[1] || row[0]
@@ -693,14 +686,9 @@ const NestedFilterInput = React.memo<{
       {filter.type === 'dropdown' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-          {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
           {loadingOptions ? (
             <div className="text-xs text-gray-500 py-2">Seçenekler yükleniyor...</div>
-          ) : distinctValues.length > 0 && !isDisabled ? (
+          ) : distinctValues.length > 0 ? (
             <div className="space-y-2">
               <input
                 type="text"
@@ -743,8 +731,8 @@ const NestedFilterInput = React.memo<{
               </div>
             </div>
           ) : (
-            <div className={`text-xs py-2 ${isDisabled ? 'text-amber-600' : 'text-gray-500'}`}>
-              {isDisabled ? 'Önce bağlı filtreyi seçin' : 'Veri yükleniyor veya değer bulunamadı'}
+            <div className="text-xs py-2 text-gray-500">
+              Veri yükleniyor veya değer bulunamadı
             </div>
           )}
         </div>
@@ -753,14 +741,9 @@ const NestedFilterInput = React.memo<{
       {filter.type === 'multiselect' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
-          {isDisabled && (
-            <div className="text-[10px] text-amber-600 mb-1 bg-amber-50 p-2 rounded border border-amber-200">
-              Önce "{parentFilter?.displayName}" filtresini seçin
-            </div>
-          )}
           {loadingOptions ? (
             <div className="text-xs text-gray-500 py-2">Seçenekler yükleniyor...</div>
-          ) : distinctValues.length > 0 && !isDisabled ? (
+          ) : distinctValues.length > 0 ? (
             <div className="space-y-2">
               <input
                 type="text"
@@ -810,8 +793,8 @@ const NestedFilterInput = React.memo<{
               </div>
             </div>
           ) : (
-            <div className={`text-xs py-2 ${isDisabled ? 'text-amber-600' : 'text-gray-500'}`}>
-              {isDisabled ? 'Önce bağlı filtreyi seçin' : 'Veri yükleniyor veya değer bulunamadı'}
+            <div className="text-xs py-2 text-gray-500">
+              Veri yükleniyor veya değer bulunamadı
             </div>
           )}
         </div>
@@ -898,6 +881,51 @@ const NestedFilterInput = React.memo<{
   return true
 })
 
+// Helper function to evaluate row color rules and return text color
+const getRowTextColor = (
+  row: any[],
+  columns: string[],
+  rules?: RowColorRule[]
+): string | undefined => {
+  if (!rules || rules.length === 0) return undefined
+
+  for (const rule of rules) {
+    const columnIndex = columns.indexOf(rule.columnName)
+    if (columnIndex === -1) continue
+
+    const cellValue = row[columnIndex]
+    const ruleValue = typeof rule.value === 'string' ? parseFloat(rule.value) : rule.value
+    const numericCellValue = typeof cellValue === 'string' ? parseFloat(cellValue) : cellValue
+
+    // Evaluate condition based on operator
+    let matches = false
+    switch (rule.operator) {
+      case '>':
+        matches = numericCellValue > ruleValue
+        break
+      case '<':
+        matches = numericCellValue < ruleValue
+        break
+      case '>=':
+        matches = numericCellValue >= ruleValue
+        break
+      case '<=':
+        matches = numericCellValue <= ruleValue
+        break
+      case '=':
+        matches = numericCellValue === ruleValue
+        break
+      case '!=':
+        matches = numericCellValue !== ruleValue
+        break
+    }
+
+    if (matches) return rule.color
+  }
+
+  return undefined
+}
+
 export const ExpandableTableVisualization: React.FC<ExpandableTableVisualizationProps> = ({
   query,
   result,
@@ -909,6 +937,8 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
   onFilterChange,
   onDebouncedFilterChange,
   setOpenPopovers,
+  onLoadMoreOptions,
+  onSearchOptions,
   currentPage,
   pageSize,
   totalPages,
@@ -928,8 +958,23 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
   setNestedSorting,
   setNestedPagination,
   onRowExpand,
+  scale = 1,
 }) => {
   const { columns, data } = result
+
+  const [mainFilterPositions, setMainFilterPositions] = React.useState<Record<string, { top: number; left: number }>>({})
+
+  React.useEffect(() => {
+    setMainFilterPositions(prev => {
+      const updated = { ...prev }
+      Object.keys(prev).forEach(key => {
+        if (!openPopovers[key]) {
+          delete updated[key]
+        }
+      })
+      return updated
+    })
+  }, [openPopovers])
 
   // Helper function to filter and sort nested rows
   const getFilteredNestedRowsWithIndex = (rowKey: string, nested: { columns: string[], data: any[], filters?: any[] }) => {
@@ -1105,7 +1150,7 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
           </div>
         ) : nested?.data && nested.data.length > 0 ? (
           <div className="space-y-3">
-            <div className="overflow-x-auto max-h-[500px] overflow-y-auto border border-gray-200 rounded">
+            <div className="border border-gray-200 rounded">
               <table className="w-full border-collapse bg-white rounded shadow-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className={`${headerBgColors[colorIndex]} border-b ${headerBorderColors[colorIndex]}`}>
@@ -1240,12 +1285,14 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                     const nestedRowKey = `${rowKey}_${originalIndex}`
                     const isNestedExpanded = expandedRows[nestedRowKey]
                     const nestedNested = nestedData[nestedRowKey]
+                    // Calculate row text color for nested row based on rules
+                    const nestedRowTextColor = getRowTextColor(nestedRow, nested.columns, query.visualization.chartOptions?.rowColorRules)
 
                     return (
                       <React.Fragment key={nestedRowIndex}>
                         <tr
                           className={`hover:bg-${bgColors[colorIndex].split('-')[1]}-50/30 transition-colors ${nested.nestedQueries && nested.nestedQueries.length > 0 ? 'cursor-pointer' : ''
-                            }`}
+                            } ${isNestedExpanded ? `${bgColors[colorIndex]} font-semibold` : ''}`}
                           onClick={() => {
                             if (nested.nestedQueries && nested.nestedQueries.length > 0) {
                               onRowExpand(query, originalIndex, nestedRow, nested.nestedQueries, level, rowKey)
@@ -1267,7 +1314,7 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                             const displayValue = cellValue.length > 100 ? cellValue.substring(0, 100) + '...' : cellValue
 
                             return (
-                              <td key={cellIndex} className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">
+                              <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: nestedRowTextColor || '#374151' }}>
                                 {displayValue}
                               </td>
                             )
@@ -1295,22 +1342,20 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
 
             {/* Pagination Controls */}
             {nestedTotalPages > 1 && (
-              <div className="px-3 py-2 bg-white border border-gray-200 rounded flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-3">
-                  <div className="text-xs text-gray-600">
-                    {startIndex + 1}-{endIndex} / {nestedTotalRows}
-                  </div>
+              <div className="px-3 py-2 bg-white border border-gray-200 rounded flex items-center flex-wrap gap-3">
+                <div className="text-xs text-gray-600">
+                  {startIndex + 1}-{endIndex} / {nestedTotalRows}
+                </div>
 
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-gray-600">Sayfa:</span>
-                    <select
-                      value={nestedPageSize}
-                      onChange={(e) => handleNestedPageSizeChange(parseInt(e.target.value))}
-                      className="px-2 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                    >
-                      <option value={8}>8</option>
-                    </select>
-                  </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-gray-600">Sayfa:</span>
+                  <select
+                    value={nestedPageSize}
+                    onChange={(e) => handleNestedPageSizeChange(parseInt(e.target.value))}
+                    className="px-2 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  >
+                    <option value={8}>8</option>
+                  </select>
                 </div>
 
                 <div className="flex items-center gap-1">
@@ -1403,9 +1448,16 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
   }
 
   return (
-    <div className="overflow-x-auto shadow-xl min-h-[400px] overflow-y-auto relative">
-      <table className="w-full border-collapse relative">
-        <thead className="relative">
+    <div style={{
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: '200px'
+    }}>
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        <table className="w-full border-collapse relative">
+          <thead className="sticky top-0 z-10 relative">
           <tr className="bg-gray-50 border-b border-gray-200">
             <th className="px-3 py-1.5 text-left font-semibold text-gray-800 text-xs w-10">
               {/* Expand/Collapse column */}
@@ -1441,23 +1493,41 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
 
                     {/* Filter button */}
                     {filter && (
-                      <div className="relative">
+                      <div>
                         <div
                           className="cursor-pointer hover:bg-gray-100 p-1 rounded"
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation()
-                            setOpenPopovers(prev => {
-                              const currentKey = `${query.id}_${col}`
-                              const isCurrentlyOpen = prev[currentKey]
+                            const currentKey = `${query.id}_${col}`
+                            const isCurrentlyOpen = !!openPopovers[currentKey]
 
-                              // Close all other popovers and toggle current one
-                              const newPopovers: { [key: string]: boolean } = {}
-                              if (!isCurrentlyOpen) {
-                                newPopovers[currentKey] = true
+                            if (isCurrentlyOpen) {
+                              // Closing
+                              setMainFilterPositions(prev => {
+                                const updated = { ...prev }
+                                delete updated[currentKey]
+                                return updated
+                              })
+                              setOpenPopovers({})
+                            } else {
+                              // Opening - get rect BEFORE async operations
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+
+                              // Reload options for dropdown/multiselect
+                              if ((filter.type === 'dropdown' || filter.type === 'multiselect') && onSearchOptions) {
+                                const filterKey = `${query.id}_${filter.fieldName}`
+                                await onSearchOptions(filterKey, '')
                               }
 
-                              return newPopovers
-                            })
+                              setMainFilterPositions(prev => ({
+                                ...prev,
+                                [currentKey]: {
+                                  top: rect.bottom + 4,
+                                  left: rect.left
+                                }
+                              }))
+                              setOpenPopovers({ [currentKey]: true })
+                            }
                           }}
                         >
                           <Filter className={`h-3 w-3 ${(() => {
@@ -1474,28 +1544,44 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                           })()}`} />
                         </div>
 
-                        {openPopovers[`${query.id}_${col}`] && (
-                          <div 
-                            className={`absolute top-full mt-1 w-64 p-4 bg-white border border-gray-200 rounded-md shadow-lg z-[9999] ${index >= columns.length - 2 ? 'right-0' : 'left-0'}`}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <MainTableFilterInput
-                              filter={filter}
-                              queryId={query.id.toString()}
-                              filters={filters}
-                              dropdownOptions={dropdownOptions}
-                              onFilterChange={onFilterChange}
-                              setOpenPopovers={setOpenPopovers}
-                              allFilters={query.filters}
-                            />
-                          </div>
-                        )}
+                        {openPopovers[`${query.id}_${col}`] && typeof document !== 'undefined' && (() => {
+                          const filterKey = `${query.id}_${col}`
+                          const position = mainFilterPositions[filterKey]
+                          if (!position) return null
+
+                          const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
+                          const popoverWidth = 256
+                          const adjustedLeft = position.left + popoverWidth > viewportWidth - 16
+                            ? Math.max(16, viewportWidth - popoverWidth - 16)
+                            : position.left
+
+                          return createPortal(
+                            <div
+                              className="fixed w-64 p-4 bg-white border border-gray-200 rounded-md shadow-lg z-[10000]"
+                              style={{ top: position.top, left: adjustedLeft }}
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                            >
+                              <MainTableFilterInput
+                                filter={filter}
+                                queryId={query.id.toString()}
+                                filters={filters}
+                                dropdownOptions={dropdownOptions}
+                                onFilterChange={onFilterChange}
+                                setOpenPopovers={setOpenPopovers}
+                                allFilters={query.filters}
+                                onLoadMore={onLoadMoreOptions}
+                                onSearch={onSearchOptions}
+                              />
+                            </div>,
+                            document.body
+                          )
+                        })()}
                       </div>
                     )}
                   </div>
                 </th>
-              )
-            })}
+              )})}
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
@@ -1503,12 +1589,14 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
             const rowKey = `${query.id}_${rowIndex}`
             const isExpanded = expandedRows[rowKey]
             const nested = nestedData[rowKey]
+            // Calculate row text color based on rules
+            const rowTextColor = getRowTextColor(row, columns, query.visualization.chartOptions?.rowColorRules)
 
             return (
               <React.Fragment key={rowIndex}>
                 {/* Parent Row */}
                 <tr
-                  className="hover:bg-gray-50 transition-colors cursor-pointer"
+                  className={`hover:bg-gray-50 transition-colors cursor-pointer ${isExpanded ? 'bg-blue-50 font-bold' : ''}`}
                   onClick={() => onRowExpand(query, rowIndex, row, query.visualization.chartOptions?.nestedQueries || [], 0, '')}
                 >
                   <td className="px-3 py-2 text-xs text-gray-800">
@@ -1523,7 +1611,7 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                     const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
 
                     return (
-                      <td key={cellIndex} className="px-3 py-2 text-xs text-gray-800 whitespace-nowrap">
+                      <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: rowTextColor || '#1f2937' }}>
                         <span>{displayValue}</span>
                       </td>
                     )
@@ -1547,27 +1635,26 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
           })}
         </tbody>
       </table>
+      </div>
 
       {/* Pagination Controls for Expandable Table */}
-      <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <div className="text-xs text-gray-600">
-            {((currentPage - 1) * pageSize + 1)}-{Math.min(currentPage * pageSize, totalRows)} / {totalRows}
-          </div>
+      <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center flex-wrap gap-3 flex-shrink-0">
+        <div className="text-xs text-gray-600">
+          {((currentPage - 1) * pageSize + 1)}-{Math.min(currentPage * pageSize, totalRows)} / {totalRows}
+        </div>
 
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-600">Sayfa:</span>
-            <select
-              value={pageSize}
-              onChange={(e) => onPageSizeChange(parseInt(e.target.value))}
-              className="px-2 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            >
-              <option value={10}>10</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
-          </div>
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-gray-600">Sayfa:</span>
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSizeChange(parseInt(e.target.value))}
+            className="px-2 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          >
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
         </div>
 
         {totalPages > 1 && (

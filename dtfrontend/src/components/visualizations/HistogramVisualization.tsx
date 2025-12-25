@@ -5,7 +5,7 @@ import { VisualizationProps } from './types'
 
 const DEFAULT_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#84CC16', '#F97316']
 
-export const HistogramVisualization: React.FC<VisualizationProps> = ({ query, result, colors = DEFAULT_COLORS }) => {
+export const HistogramVisualization: React.FC<VisualizationProps> = ({ query, result, colors = DEFAULT_COLORS, scale = 1 }) => {
   const { visualization } = query
   const { data, columns } = result
 
@@ -60,7 +60,7 @@ export const HistogramVisualization: React.FC<VisualizationProps> = ({ query, re
   })
 
   return (
-    <ResponsiveContainer width="100%" height={400}>
+    <ResponsiveContainer width="100%" height={400 * scale}>
       <BarChart data={bins}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis
