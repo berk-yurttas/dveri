@@ -920,7 +920,7 @@ export default function PlatformHome() {
       {/* Continue Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 scale-90">
         {/* Dashboards Section */}
-        {!isIvmePlatform && (
+        {!isIvmePlatform && isRomiotPlatform && (
         <div className="mb-6 flex items-center justify-between">
           <div className="flex flex-col sm:flex-row sm:items-center">
             <h3 className="text-xl font-semibold text-gray-900 mb-2 sm:mb-0">Ekranlarım</h3>
@@ -942,7 +942,7 @@ export default function PlatformHome() {
         </div>
         )}
         {/* Dashboard Grid */}
-        {dashboards.length > 0 && !isIvmePlatform ? (
+        {dashboards.length > 0 && !isIvmePlatform && isRomiotPlatform ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Sort dashboards: favorites first, then sort by creation date */}
             {[...dashboards]
@@ -1014,7 +1014,7 @@ export default function PlatformHome() {
             })}
           </div>
         ) : (
-          !isIvmePlatform && (
+          !isIvmePlatform && !isRomiotPlatform && (
           <div className="text-center py-12">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Layout className="h-8 w-8 text-gray-400" />
