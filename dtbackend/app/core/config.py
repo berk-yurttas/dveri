@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     OPENPROJECT_API_TOKEN: str = Field(default_factory=lambda: os.getenv("OPENPROJECT_API_TOKEN", ""))
     OPENPROJECT_PROJECT_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_PROJECT_ID", "3")))
     OPENPROJECT_COLUMN_QUERY_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_COLUMN_QUERY_ID", "30")))
+    OPENPROJECT_PLATFORM_CUSTOM_FIELD_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_PLATFORM_CUSTOM_FIELD_ID", "2")))
+    OPENPROJECT_TALEP_SAHIBI_CUSTOM_FIELD_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_TALEP_SAHIBI_CUSTOM_FIELD_ID", "3")))
+    OPENPROJECT_BIRIM_CUSTOM_FIELD_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_BIRIM_CUSTOM_FIELD_ID", "4")))
 
     @property
     def postgres_database_url(self) -> str:
