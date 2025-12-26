@@ -920,7 +920,7 @@ export default function PlatformHome() {
       {/* Continue Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 scale-90">
         {/* Dashboards Section */}
-        {!isIvmePlatform && isRomiotPlatform && (
+        {!isIvmePlatform && !isRomiotPlatform && (
         <div className="mb-6 flex items-center justify-between">
           <div className="flex flex-col sm:flex-row sm:items-center">
             <h3 className="text-xl font-semibold text-gray-900 mb-2 sm:mb-0">Ekranlarım</h3>

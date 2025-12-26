@@ -158,6 +158,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     // For platform-specific pages, show the standard navigation
     // Hide "Ekranlarım" and "Raporlar" on atolye page
     const isAtolyePage = pathname.includes('/atolye');
+    const isRomiotPage = pathname.includes('/romiot');
     
     const baseItems = [
       {
@@ -168,18 +169,21 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     ];
 
     if (!isAtolyePage) {
-      baseItems.push(
-        {
-          title: "Ekranlarım",
-          icon: Layout,
-          href: platformCode ? `${platformPrefix}/dashboard${subplatformQuery}` : "/dashboard",
-        },
+      if (!isRomiotPage) {
+        baseItems.push(
+          {
+            title: "Ekranlarım",
+            icon: Layout,
+            href: platformCode ? `${platformPrefix}/dashboard${subplatformQuery}` : "/dashboard",
+          })
+      }
+
+      baseItems.push( 
         {
           title: "Raporlar",
           icon: BarChart3,
           href: platformCode ? `${platformPrefix}/reports${subplatformQuery}` : "/reports",
-        }
-      );
+        })
     }
 
     return baseItems;
