@@ -41,6 +41,29 @@ async def login_redirect(
         )
 
         print(f"Auth data received: {auth_data}")
+        
+        # Track login: verify token and get user info, then increment login count
+        try:
+            from app.core.auth import verify_access_token_with_cache
+            user_data = await verify_access_token_with_cache(auth_data["access_token"])
+            from app.schemas.user import User as UserSchema
+            current_user = UserSchema.from_jwt_payload(user_data)
+            
+            # Get or create user in database
+            user = await UserService.get_user_by_username(db, current_user.username)
+            if not user:
+                print(f"User not found in database, creating user: {current_user.username}")
+                user = await UserService.create_user(db, current_user.username)
+                user.name = current_user.name
+                await db.commit()
+                await db.refresh(user)
+            
+            # Increment login count and update last login timestamp
+            await UserService.increment_login_count(db, user)
+            print(f"Login tracked for user: {current_user.username}, login count: {user.login_count}")
+        except Exception as login_track_error:
+            # Don't fail the login if tracking fails, just log it
+            print(f"Warning: Failed to track login: {login_track_error}")
 
         # Create redirect response
         redirect_response = RedirectResponse(
@@ -72,6 +95,20 @@ async def login_redirect(
             secure=False,  # Set to True in production with HTTPS
             samesite="lax"
         )
+        
+        # Set session cookie (will be deleted when browser closes)
+        import secrets
+        session_id = secrets.token_urlsafe(32)
+        redirect_response.set_cookie(
+            key="session_id",
+            value=session_id,
+            domain=cookie_domain,
+            httponly=True,
+            path="/",
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax"
+            # No max_age means it's a session cookie (deleted when browser closes)
+        )
 
         print(f"Cookies set, redirecting to: {auth_data['redirect_url']}")
         return redirect_response
@@ -95,6 +132,9 @@ async def login_jwt(
 ):
     """
     Get current user information from JWT token
+    
+    Also tracks new sessions: if the session cookie is missing (new browser session),
+    increment login count to track the user opening the application.
 
     Returns:
         User object containing authenticated user information
@@ -106,9 +146,34 @@ async def login_jwt(
     if not user:
         print(f"User not found in database, creating user: {current_user.username}")
         user = await UserService.create_user(db, current_user.username)
+    
+    # Update user name
     user.name = current_user.name
     await db.commit()
     await db.refresh(user)
+    
+    # Check if this is a new session (no session cookie)
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        # New session - increment login count
+        print(f"New session detected for user: {current_user.username}, incrementing login count")
+        user = await UserService.increment_login_count(db, user)
+        
+        # Set a new session cookie (will persist until browser closes)
+        import secrets
+        new_session_id = secrets.token_urlsafe(32)
+        cookie_domain = None if settings.COOKIE_DOMAIN == "localhost" else settings.COOKIE_DOMAIN
+        
+        response.set_cookie(
+            key="session_id",
+            value=new_session_id,
+            domain=cookie_domain,
+            httponly=True,
+            path="/",
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax"
+            # No max_age means it's a session cookie (deleted when browser closes)
+        )
 
     return current_user
 

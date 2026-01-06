@@ -192,6 +192,27 @@ class UserService:
         return db_user
 
     @staticmethod
+    async def increment_login_count(db: AsyncSession, user: User) -> User:
+        """
+        Increment login count and update last login timestamp for a user
+        
+        Args:
+            db: Database session
+            user: User object to update
+            
+        Returns:
+            Updated User object
+        """
+        from sqlalchemy.sql import func
+        
+        user.login_count = (user.login_count or 0) + 1
+        user.last_login_at = func.now()
+        
+        await db.commit()
+        await db.refresh(user)
+        return user
+
+    @staticmethod
     async def retrieve_all_departments(username: str) -> List[str]:
         """
         Retrieve all departments from auth server using secure request

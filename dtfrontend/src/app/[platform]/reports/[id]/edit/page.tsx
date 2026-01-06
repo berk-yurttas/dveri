@@ -1897,7 +1897,6 @@ export default function EditReportPage() {
           {/* Global Filters Section - Hidden when isDirectLink is true */}
           {!report.isDirectLink && (
           <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300">
-          <Card className="bg-white/80 backdrop-blur-sm shadow-sm border border-slate-200/50 hover:shadow-md transition-all duration-300">
             <CardHeader className="pb-3 pt-3 px-4 border-b border-slate-300/50">
               <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
                 <Filter className="w-4 h-4 text-orange-600" />

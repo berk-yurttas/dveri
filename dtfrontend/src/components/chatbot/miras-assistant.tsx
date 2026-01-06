@@ -49,7 +49,7 @@ export function MirasAssistant() {
         >
           <img
             src="/miras_nobg.png"
-            alt="MIRAS Assistant"
+            alt="ODAK Assistant"
             className="w-full h-full object-contain"
           />
         </button>,
@@ -80,10 +80,10 @@ export function MirasAssistant() {
             <div className="bg-gradient-to-r from-blue-800 to-orange-500 p-4 rounded-t-xl flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
-                <img src="/miras_nobg.png" alt="MIRAS" className="w-16 h-10" />
+                <img src="/miras_nobg.png" alt="ODAK" className="w-16 h-10" />
               </div>
               <div>
-                <h3 className="text-white font-bold">MIRAS Assistant</h3>
+                <h3 className="text-white font-bold">ODAK Assistant</h3>
                 <p className="text-blue-100 text-xs">Yapay Zeka Asistanı</p>
               </div>
             </div>
@@ -100,7 +100,7 @@ export function MirasAssistant() {
             {chatMessages.length === 0 ? (
               <div className="text-center text-gray-500 mt-8">
                 <img src="/miras_nobg.png" alt="MIRAS" className="w-24 h-24 mx-auto mb-4 opacity-50" />
-                <p>Merhaba! Ben MIRAS Assistant.</p>
+                <p>Merhaba! Ben ODAK Assistant.</p>
                 <p className="text-sm">Size nasıl yardımcı olabilirim?</p>
               </div>
             ) : (

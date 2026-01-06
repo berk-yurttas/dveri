@@ -43,7 +43,8 @@ import {
   X,
   Lock,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  ExternalLink
 } from "lucide-react";
 import { dashboardService } from "@/services/dashboard";
 import { reportsService } from "@/services/reports";
@@ -113,6 +114,7 @@ export default function PlatformHome() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
+  const [showRomiotTooltip, setShowRomiotTooltip] = useState(false);
   const [hoveredAnnouncement, setHoveredAnnouncement] = useState<number | null>(null);
   const [showIotApps, setShowIotApps] = useState(false);
   const [showAllAnnouncementsModal, setShowAllAnnouncementsModal] = useState(false);
@@ -153,6 +155,32 @@ export default function PlatformHome() {
 
   const handleDerinizLeave = () => {
     setShowTooltip(false);
+  };
+
+  const handleRomiotHover = (event: React.MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+
+    // Check if mouse is in top right area (top 25% and right 25% of the div)
+    const isTopRight = mouseX > rect.width * 0.75 && mouseY < rect.height * 0.25;
+
+    setShowRomiotTooltip(isTopRight);
+  };
+
+  const handleRomiotMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+
+    // Check if mouse is in top right area (top 25% and right 25% of the div)
+    const isTopRight = mouseX > rect.width * 0.40 && mouseY < rect.height * 0.40;
+
+    setShowRomiotTooltip(isTopRight);
+  };
+
+  const handleRomiotLeave = () => {
+    setShowRomiotTooltip(false);
   };
 
   // Toggle feature expansion for subfeatures
@@ -285,8 +313,15 @@ export default function PlatformHome() {
     router.push(`/${platformCode}/dashboard/${id}`);
   };
 
-  const handleReportClick = (id: number) => {
-    router.push(`/${platformCode}/reports/${id}`);
+  const handleReportClick = (report: SavedReport) => {
+    // If report is a direct link, open in new tab
+    if (report.isDirectLink && report.directLink) {
+      window.open(report.directLink, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    // Otherwise, navigate to report detail page
+    router.push(`/${platformCode}/reports/${report.id}`);
   };
 
   if (loading) {
@@ -311,9 +346,9 @@ export default function PlatformHome() {
       {platformCode === 'romiot' && (
         <>
           <div
-            className="fixed pointer-events-none z-10"
+            className="fixed pointer-events-auto z-10 cursor-pointer"
             style={{
-              width: '350px',
+              width: '420px',
               height: '500px',
               backgroundImage: 'url(/romiot-bg.png)',
               backgroundSize: 'contain',
@@ -323,22 +358,68 @@ export default function PlatformHome() {
               top: '100px',
               left: '-100px',
             }}
+            onMouseMove={handleRomiotMove}
+            onMouseLeave={handleRomiotLeave}
           ></div>
+
+          {/* Tooltip */}
+          {showRomiotTooltip && (
+            <div
+              className="fixed z-50 pointer-events-none animate-fade-in"
+              style={{
+                top: '500px',
+                left: '0px',
+              }}
+            >
+              <div className="bg-gradient-to-br from-blue-600 to-purple-700 text-white rounded-xl py-4 px-6 shadow-2xl border border-blue-400/20 backdrop-blur-sm max-w-md">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
+                    <div className="w-4 h-4 bg-white rounded-full"></div>
+                  </div>
+                  <div className="font-bold text-lg tracking-wide">{platformCode.toUpperCase()}</div>
+                </div>
+
+                <div className="text-blue-100 text-sm leading-relaxed mb-3">
+                  <p className="mb-2">
+                    Mavi balinalar, dünyadaki en büyük canlılardır ve okyanus ekosisteminin taşıyıcı omurgasını oluşturur. Bu eşsiz güçten ilhamla geliştirilen ODAK IoT Platformu, tüm dijital sistemleri bir araya getiren merkezi bir omurga görevi görür.
+                  </p>
+                  <p className="mb-2 font-semibold">
+                    ODAK IoT Balinası yalnızca bir sembol değil;
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>Endüstriyel robot kollarıyla otomasyon sistemlerini,</li>
+                    <li>Bulut yapısıyla veri ekosistemini,</li>
+                    <li>5G ve 5Ghz bağlantısıyla haberleşme omurgasını,</li>
+                    <li>Kuyruğundaki dijital veri akışıyla bilgi taşıyıcılığını temsil ediyor.</li>
+                  </ul>
+                </div>
+                {/* Glowing border effect */}
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-400/30 to-purple-600/30 rounded-xl blur-sm -z-10"></div>
+              </div>
+            </div>
+          )}
 
           <div
             className="fixed pointer-events-none z-10"
             style={{
-              width: '350px',
+              width: '420px',
               height: '500px',
               backgroundImage: 'url(/romiot-bg.png)',
               backgroundSize: 'contain',
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'center',
               opacity: 0.2,
-              bottom: '700px',
+              bottom: '200px',
               right: '-100px',
             }}
-          ></div>
+          >
+            {/* Right top hover area */}
+            <div
+              className="absolute top-0 right-0 w-20 h-20 pointer-events-auto cursor-pointer"
+              onMouseEnter={handleRomiotHover}
+              onMouseLeave={handleRomiotLeave}
+            ></div>
+          </div>
         </>
       )}
 
@@ -355,7 +436,7 @@ export default function PlatformHome() {
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'center',
               opacity: 0.2,
-              top: '600px',
+              top: '200px',
               left: '-200px',
             }}
             onMouseMove={handleDerinizMove}
@@ -367,7 +448,7 @@ export default function PlatformHome() {
             <div
               className="fixed z-50 pointer-events-none animate-fade-in"
               style={{
-                bottom: '100px',
+                top: '500px',
                 left: '0px',
               }}
             >
@@ -810,7 +891,7 @@ export default function PlatformHome() {
                             }
                           }}
                         >
-                          <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300">
+                          <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300 h-[180px] flex flex-col">
                             <div
                               className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
                               style={{ backgroundColor: feature.backgroundColor || '#EFF6FF' }}
@@ -839,7 +920,7 @@ export default function PlatformHome() {
       {/* Continue Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 scale-90">
         {/* Dashboards Section */}
-        {!isIvmePlatform && (
+        {!isIvmePlatform && !isRomiotPlatform && (
         <div className="mb-6 flex items-center justify-between">
           <div className="flex flex-col sm:flex-row sm:items-center">
             <h3 className="text-xl font-semibold text-gray-900 mb-2 sm:mb-0">Ekranlarım</h3>
@@ -861,7 +942,7 @@ export default function PlatformHome() {
         </div>
         )}
         {/* Dashboard Grid */}
-        {dashboards.length > 0 && !isIvmePlatform ? (
+        {dashboards.length > 0 && !isIvmePlatform && isRomiotPlatform ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Sort dashboards: favorites first, then sort by creation date */}
             {[...dashboards]
@@ -933,7 +1014,7 @@ export default function PlatformHome() {
             })}
           </div>
         ) : (
-          !isIvmePlatform && (
+          !isIvmePlatform && !isRomiotPlatform && (
           <div className="text-center py-12">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Layout className="h-8 w-8 text-gray-400" />
@@ -951,7 +1032,7 @@ export default function PlatformHome() {
           )
         )}
         
-        {!isIvmePlatform && (
+        {!isIvmePlatform && !isRomiotPlatform && (
         // Reports Section
         <div className="mt-16">
           <div className="mb-6 flex items-center justify-between">
@@ -984,7 +1065,7 @@ export default function PlatformHome() {
               {reports.slice(0, 3).map((report) => (
                 <div
                   key={report.id}
-                  onClick={() => handleReportClick(report.id)}
+                  onClick={() => handleReportClick(report)}
                   className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-xl transition-all cursor-pointer group"
                 >
                   <div className="flex items-start justify-between mb-4">
@@ -1012,8 +1093,11 @@ export default function PlatformHome() {
                     </div>
                   </div>
                   
-                  <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                  <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors flex items-center gap-2">
                     {report.name}
+                    {report.isDirectLink && (
+                      <ExternalLink className="h-3 w-3 text-gray-400" />
+                    )}
                   </h3>
                   
                   <div className="flex items-center gap-2 text-xs text-gray-500">

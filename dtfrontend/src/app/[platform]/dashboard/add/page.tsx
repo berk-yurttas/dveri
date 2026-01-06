@@ -113,7 +113,7 @@ const renderWidgetContent = (widget: PlacedWidget, dateFrom: string, dateTo: str
     case 'pending_work':
       return <PendingWorkWidget widgetId={widget.id} />
     case 'kablaj_uretim_rate':
-      return <KablajUretimRateWidget widgetId={widget.id} />
+      return <KablajUretimRateWidget widgetId={widget.id} {...dateFilterProps} />
     case 'aselsan_sivas':
       return <AselsanSivasWidget widgetId={widget.id} />
     default:

@@ -34,12 +34,14 @@ interface WidgetData {
 
 interface KablajUretimRateWidgetProps {
   widgetId?: string
+  dateFrom?: string
+  dateTo?: string
 }
 
 // Color palette - Blue, Green, Yellow, Red sequence
 const COLORS = ['#3b82f6', '#22c55e', '#eab308', '#ef4444']
 
-export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps) {
+export function KablajUretimRateWidget({ widgetId, dateFrom, dateTo }: KablajUretimRateWidgetProps) {
   // Create unique instance identifier
   const instanceRef = useRef(widgetId || `kablaj-uretim-${Math.random().toString(36).substr(2, 9)}`)
   const instanceId = instanceRef.current
@@ -102,12 +104,49 @@ export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps
     }
   }, [selectedFirmas, selectedYears, viewMode, hedefValue, instanceId])
 
-  // Load data once on mount
+  // Load data when date filters change
   useEffect(() => {
     const loadData = async () => {
       try {
+        setLoading(true)
+        setError(null)
+
+        // Build SQL query with date filtering
+        let sqlQuery = 'SELECT "NAME", "Yıl", "Ay", "Ay Bilgi", "Miktar" FROM mes_production.kablaj_uretim_rate_takibi'
+
+        // Add date filtering based on Year and Month if provided
+        if (dateFrom || dateTo) {
+          const whereClauses: string[] = []
+
+          if (dateFrom) {
+            // Parse dateFrom to extract year and month (format: "YYYY-MM-DD HH:MM:SS")
+            const fromDate = new Date(dateFrom)
+            const fromYear = fromDate.getFullYear()
+            const fromMonth = fromDate.getMonth() + 1 // JavaScript months are 0-indexed
+
+            // Create condition: (Yıl > fromYear) OR (Yıl = fromYear AND Ay >= fromMonth)
+            whereClauses.push(`("Yıl" > ${fromYear} OR ("Yıl" = ${fromYear} AND "Ay" >= ${fromMonth}))`)
+          }
+
+          if (dateTo) {
+            // Parse dateTo to extract year and month
+            const toDate = new Date(dateTo)
+            const toYear = toDate.getFullYear()
+            const toMonth = toDate.getMonth() + 1
+
+            // Create condition: (Yıl < toYear) OR (Yıl = toYear AND Ay <= toMonth)
+            whereClauses.push(`("Yıl" < ${toYear} OR ("Yıl" = ${toYear} AND "Ay" <= ${toMonth}))`)
+          }
+
+          if (whereClauses.length > 0) {
+            sqlQuery += ' WHERE ' + whereClauses.join(' AND ')
+          }
+        }
+
+        sqlQuery += ' ORDER BY "Yıl", "Ay"'
+
         const response = await api.post<WidgetData>('/reports/preview', {
-          sql_query: 'SELECT "NAME", "Yıl", "Ay", "Ay Bilgi", "Miktar" FROM mes_production.kablaj_uretim_rate_takibi ORDER BY "Yıl", "Ay"'
+          sql_query: sqlQuery
         })
 
         if (response.success && response.data && response.data.length > 0) {
@@ -130,6 +169,11 @@ export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps
           // Extract unique year options
           const uniqueYears = Array.from(new Set(transformed.map(item => item["Yıl"]))).sort()
           setYearOptions(uniqueYears)
+        } else {
+          // No data returned - reset to empty
+          setRawData([])
+          setFirmaOptions([])
+          setYearOptions([])
         }
       } catch (err) {
         console.error(`Error loading data for ${instanceId}:`, err)
@@ -140,7 +184,7 @@ export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps
     }
 
     loadData()
-  }, [instanceId])
+  }, [instanceId, dateFrom, dateTo])
 
   // Filter data
   const filteredData = rawData.filter(item => {
@@ -210,15 +254,6 @@ export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps
         >
           Tekrar Dene
         </button>
-      </div>
-    )
-  }
-
-  // Show no data state
-  if (filteredData.length === 0) {
-    return (
-      <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
-        <p className="text-sm text-gray-500">Veri bulunamadı</p>
       </div>
     )
   }
@@ -419,7 +454,15 @@ export function KablajUretimRateWidget({ widgetId }: KablajUretimRateWidgetProps
 
       {/* Chart / Table */}
       <div className="flex-1 min-h-0">
-        {viewMode === 'table' ? (
+        {filteredData.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center">
+            <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+            </svg>
+            <p className="text-sm text-gray-500 font-medium">Seçilen filtrelere uygun veri bulunamadı</p>
+            <p className="text-xs text-gray-400 mt-1">Lütfen farklı filtre seçenekleri deneyin</p>
+          </div>
+        ) : viewMode === 'table' ? (
           <div className="h-[400px] overflow-auto">
             <table className="w-full text-sm">
               <thead className="bg-purple-100 sticky top-0">
