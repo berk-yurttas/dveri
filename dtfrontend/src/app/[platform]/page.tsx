@@ -348,7 +348,7 @@ export default function PlatformHome() {
           <div
             className="fixed pointer-events-auto z-10 cursor-pointer"
             style={{
-              width: '350px',
+              width: '420px',
               height: '500px',
               backgroundImage: 'url(/romiot-bg.png)',
               backgroundSize: 'contain',
@@ -381,10 +381,10 @@ export default function PlatformHome() {
 
                 <div className="text-blue-100 text-sm leading-relaxed mb-3">
                   <p className="mb-2">
-                    Mavi balinalar, dünyadaki en büyük canlılardır ve okyanus ekosisteminin taşıyıcı omurgasını oluşturur. Bu eşsiz güçten ilhamla geliştirilen MİRAS IoT Platformu, tüm dijital sistemleri bir araya getiren merkezi bir omurga görevi görür.
+                    Mavi balinalar, dünyadaki en büyük canlılardır ve okyanus ekosisteminin taşıyıcı omurgasını oluşturur. Bu eşsiz güçten ilhamla geliştirilen ODAK IoT Platformu, tüm dijital sistemleri bir araya getiren merkezi bir omurga görevi görür.
                   </p>
                   <p className="mb-2 font-semibold">
-                    MİRAS IoT Balinası yalnızca bir sembol değil;
+                    ODAK IoT Balinası yalnızca bir sembol değil;
                   </p>
                   <ul className="list-disc list-inside space-y-1 ml-2">
                     <li>Endüstriyel robot kollarıyla otomasyon sistemlerini,</li>
@@ -402,14 +402,14 @@ export default function PlatformHome() {
           <div
             className="fixed pointer-events-none z-10"
             style={{
-              width: '350px',
+              width: '420px',
               height: '500px',
               backgroundImage: 'url(/romiot-bg.png)',
               backgroundSize: 'contain',
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'center',
               opacity: 0.2,
-              bottom: '500px',
+              bottom: '200px',
               right: '-100px',
             }}
           >
@@ -891,7 +891,7 @@ export default function PlatformHome() {
                             }
                           }}
                         >
-                          <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300">
+                          <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300 h-[180px] flex flex-col">
                             <div
                               className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
                               style={{ backgroundColor: feature.backgroundColor || '#EFF6FF' }}
@@ -1032,7 +1032,7 @@ export default function PlatformHome() {
           )
         )}
         
-        {!isIvmePlatform && (
+        {!isIvmePlatform && !isRomiotPlatform && (
         // Reports Section
         <div className="mt-16">
           <div className="mb-6 flex items-center justify-between">

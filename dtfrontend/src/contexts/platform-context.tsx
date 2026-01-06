@@ -1,6 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import { usePathname } from 'next/navigation'
 import { platformService } from '@/services/platform'
 import { Platform } from '@/types/platform'
 
@@ -8,6 +9,7 @@ interface PlatformContextType {
   platform: Platform | null
   loading: boolean
   error: string | null
+  initialized: boolean
   setPlatformByCode: (code: string) => Promise<void>
   clearPlatform: () => void
 }
@@ -15,9 +17,11 @@ interface PlatformContextType {
 const PlatformContext = createContext<PlatformContextType | undefined>(undefined)
 
 export function PlatformProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname()
   const [platform, setPlatform] = useState<Platform | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [initialized, setInitialized] = useState(false)
 
   // Memoize fetchPlatform to prevent infinite loops
   const fetchPlatform = useCallback(async (code: string) => {
@@ -37,18 +41,35 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Load platform from localStorage on mount (only once)
+  // Extract platform code from URL and load platform
   useEffect(() => {
-    const loadPlatformFromStorage = async () => {
-      const platformCode = localStorage.getItem('platform_code')
-      if (platformCode) {
-        console.log('[PlatformContext] Initial load from storage:', platformCode)
+    const loadPlatformFromUrl = async () => {
+      if (!pathname) {
+        setInitialized(true)
+        return
+      }
+
+      // Extract platform code from URL path (e.g., /ivme/dashboard -> ivme)
+      const pathSegments = pathname.split('/').filter(Boolean)
+      const platformCode = pathSegments[0]
+
+      if (platformCode && platformCode !== platform?.code) {
+        console.log('[PlatformContext] Loading platform from URL:', platformCode)
         await fetchPlatform(platformCode)
+        setInitialized(true)
+      } else if (!platformCode) {
+        // Root page, clear platform
+        setPlatform(null)
+        setLoading(false)
+        setInitialized(true)
+      } else {
+        // Platform already loaded
+        setInitialized(true)
       }
     }
 
-    loadPlatformFromStorage()
-  }, [fetchPlatform]) // Only run on mount and when fetchPlatform changes (never)
+    loadPlatformFromUrl()
+  }, [pathname, platform?.code, fetchPlatform])
 
   // Memoize to prevent infinite loops
   const setPlatformByCode = useCallback(async (code: string) => {
@@ -59,13 +80,11 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
     }
     
     console.log('[PlatformContext] Setting platform:', code)
-    localStorage.setItem('platform_code', code)
     await fetchPlatform(code)
   }, [platform, fetchPlatform])
 
   const clearPlatform = useCallback(() => {
     console.log('[PlatformContext] Clearing platform')
-    localStorage.removeItem('platform_code')
     setPlatform(null)
     setError(null)
   }, [])
@@ -76,6 +95,7 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
         platform,
         loading,
         error,
+        initialized,
         setPlatformByCode,
         clearPlatform
       }}

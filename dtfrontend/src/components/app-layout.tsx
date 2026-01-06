@@ -21,7 +21,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, loading, logout, isAuthenticated } = useUser();
-  const { platform, setPlatformByCode, clearPlatform } = usePlatform();
+  const { platform, setPlatformByCode, clearPlatform, loading: platformLoading, initialized: platformInitialized } = usePlatform();
 
   // Extract subplatform from URL (either from path or query parameter)
   const getSubplatformFromPath = () => {
@@ -55,7 +55,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   const getTitle = () => {
     if (easterEggActive) return "Biz de DERİNİZ ;)";
     if (platform) return `${platform.display_name}`;
-    return "MİRAS";
+    return "ODAK";
   };
   const title = getTitle();
 
@@ -217,7 +217,6 @@ function AppLayoutContent({ children }: AppLayoutProps) {
           }
           
           console.log('[Navigation] Setting platform code:', platformCode);
-          localStorage.setItem('platform_code', platformCode);
           api.clearCache();
           // Update platform context immediately to set headerColor
           await setPlatformByCode(platformCode);
@@ -225,7 +224,6 @@ function AppLayoutContent({ children }: AppLayoutProps) {
         } else if (item.href === '/') {
           // Navigating to root, clear platform
           console.log('[Navigation] Clearing platform code');
-          localStorage.removeItem('platform_code');
           api.clearCache();
           clearPlatform();
           router.push(item.href);
@@ -277,11 +275,26 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     };
   }, [user, loading]);
 
+  // Show loading state while platform is being fetched (only for platform-specific pages)
+  const isPlatformPage = pathname !== '/' && pathname.split('/').filter(Boolean).length > 0;
+  
+  // Wait for platform to be initialized before showing the layout
+  if (isPlatformPage && !platformInitialized) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+          <div className="text-lg text-gray-600">Platform yükleniyor...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <AppShell
         title={title}
-        subtitle="Mikroservisli İleri Raporlama ve Analiz Sistemi"
+        subtitle="Ortak Data ile Akıllı Karar Sistemi"
         navigationItems={navigationItems}
         currentPathname={pathname}
         onNavigationItemClick={handleNavigationClick}

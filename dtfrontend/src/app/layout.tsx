@@ -8,7 +8,7 @@ import { FilterProvider } from "@/contexts/filter-context";
 import { PlatformProvider } from "@/contexts/platform-context";
 
 export const metadata: Metadata = {
-  title: "Aselsan MİRAS",
+  title: "Aselsan ODAK",
   description: "Digital Transformation Report Frontend Application",
 };
 

@@ -71,7 +71,7 @@ export function AppHeader({ title, subtitle, customActions = [], onMobileMenuCli
       {/* Header content */}
       {!isIvmePlatform && (
       <div className="relative z-10 flex items-center gap-6">
-        {isMobile && (
+        {isMobile && onMobileMenuClick && (
           <Button variant="ghost" size="icon" onClick={onMobileMenuClick} className="text-white hover:bg-white/20">
             <Menu className="h-5 w-5" />
             <span className="sr-only">Menüyü aç/kapat</span>

@@ -67,6 +67,9 @@ class User(PostgreSQLBase):
     # Since foreign keys can't span databases, we store it as a plain integer
     # without a foreign key constraint. Referential integrity must be handled in application logic.
     workshop_id = Column(Integer, nullable=True, index=True)
+    # Login tracking fields
+    login_count = Column(Integer, default=0, nullable=False)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
 
     # many-to-many through DashboardUser
     dashboards = relationship(
