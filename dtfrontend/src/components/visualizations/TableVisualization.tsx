@@ -1,4 +1,5 @@
 import React from 'react'
+import { createPortal } from 'react-dom'
 import { Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { QueryData, QueryResult, FilterData } from './types'
 import { RowColorRule } from '@/types/reports'
@@ -444,6 +445,20 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
 }) => {
   const { columns, data } = result
 
+  const [filterPositions, setFilterPositions] = React.useState<Record<string, { top: number; left: number }>>({})
+
+  React.useEffect(() => {
+    setFilterPositions(prev => {
+      const updated = { ...prev }
+      Object.keys(prev).forEach(key => {
+        if (!openPopovers[key]) {
+          delete updated[key]
+        }
+      })
+      return updated
+    })
+  }, [openPopovers])
+
   return (
     <div style={{
       width: '100%',
@@ -488,26 +503,39 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
 
                     {/* Filter button */}
                     {filter && (
-                      <div className="relative">
+                      <div>
                         <div
                           className="cursor-pointer hover:bg-gray-100 p-1 rounded"
                           onClick={async (e) => {
                             e.stopPropagation()
-
                             const currentKey = `${query.id}_${col}`
-                            const isCurrentlyOpen = openPopovers[currentKey]
+                            const isCurrentlyOpen = !!openPopovers[currentKey]
 
-                            // Close all popovers first
-                            setOpenPopovers({})
+                            if (isCurrentlyOpen) {
+                              // Closing
+                              setFilterPositions(prev => {
+                                const updated = { ...prev }
+                                delete updated[currentKey]
+                                return updated
+                              })
+                              setOpenPopovers({})
+                            } else {
+                              // Opening - get rect BEFORE async operations
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
 
-                            if (!isCurrentlyOpen) {
-                              // Opening - reload options for dropdown/multiselect
+                              // Reload options for dropdown/multiselect
                               if ((filter.type === 'dropdown' || filter.type === 'multiselect') && onSearchOptions) {
                                 const filterKey = `${query.id}_${filter.fieldName}`
                                 await onSearchOptions(filterKey, '')
                               }
 
-                              // Open this popover
+                              setFilterPositions(prev => ({
+                                ...prev,
+                                [currentKey]: {
+                                  top: rect.bottom + 4,
+                                  left: rect.left
+                                }
+                              }))
                               setOpenPopovers({ [currentKey]: true })
                             }
                           }}
@@ -526,24 +554,39 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                           })()}`} />
                         </div>
 
-                        {openPopovers[`${query.id}_${col}`] && (
-                          <div 
-                            className={`absolute top-full mt-1 w-64 p-4 bg-white border border-gray-200 rounded-md shadow-lg z-[9999] ${index >= columns.length - 2 ? 'right-0' : 'left-0'}`}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <TableFilterInput
-                              filter={filter}
-                              queryId={query.id.toString()}
-                              filters={filters}
-                              dropdownOptions={dropdownOptions}
-                              onFilterChange={onFilterChange}
-                              setOpenPopovers={setOpenPopovers}
-                              allFilters={query.filters}
-                              onLoadMore={onLoadMoreOptions}
-                              onSearch={onSearchOptions}
-                            />
-                          </div>
-                        )}
+                        {openPopovers[`${query.id}_${col}`] && typeof document !== 'undefined' && (() => {
+                          const filterKey = `${query.id}_${col}`
+                          const position = filterPositions[filterKey]
+                          if (!position) return null
+
+                          const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
+                          const popoverWidth = 256
+                          const adjustedLeft = position.left + popoverWidth > viewportWidth - 16
+                            ? Math.max(16, viewportWidth - popoverWidth - 16)
+                            : position.left
+
+                          return createPortal(
+                            <div
+                              className="fixed w-64 p-4 bg-white border border-gray-200 rounded-md shadow-lg z-[10000]"
+                              style={{ top: position.top, left: adjustedLeft }}
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                            >
+                              <TableFilterInput
+                                filter={filter}
+                                queryId={query.id.toString()}
+                                filters={filters}
+                                dropdownOptions={dropdownOptions}
+                                onFilterChange={onFilterChange}
+                                setOpenPopovers={setOpenPopovers}
+                                allFilters={query.filters}
+                                onLoadMore={onLoadMoreOptions}
+                                onSearch={onSearchOptions}
+                              />
+                            </div>,
+                            document.body
+                          )
+                        })()}
                       </div>
                     )}
                   </div>

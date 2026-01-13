@@ -252,7 +252,7 @@ async def create_user_for_station(
             if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:
                 try:
                     auth_response = await client.post(
-                        f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
+                        f"{settings.POCKETBASE_URL}/api/collections/_superusers/auth-with-password",
                         json={
                             "identity": settings.POCKETBASE_ADMIN_EMAIL,
                             "password": settings.POCKETBASE_ADMIN_PASSWORD
@@ -423,3 +423,274 @@ async def create_user_for_station(
         "message": f"User created successfully. Role: {full_role}."
     }
 
+
+@router.put("/{station_id}", response_model=StationSchema)
+async def update_station(
+    station_id: int,
+    station_data: StationCreate,
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db)
+):
+    """
+    Update a station's name.
+    Requires role 'atolye:<company>:yonetici' where company matches the station's company.
+    Station names must be unique within the same company.
+    """
+    # Check if user has yonetici role and get company
+    user_company = await check_station_yonetici_role(current_user)
+
+    # Get the station
+    station_result = await romiot_db.execute(
+        select(Station).where(Station.id == station_id)
+    )
+    station = station_result.scalar_one_or_none()
+
+    if not station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"ID {station_id} ile atölye bulunamadı"
+        )
+
+    # Verify that the station belongs to the user's company
+    if station.company != user_company:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu atölye sizin şirketinize ait değil"
+        )
+
+    # Verify that the new company matches the user's company
+    if station_data.company != user_company:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Atölye şirketi sizin şirketinizle eşleşmeli '{user_company}'"
+        )
+
+    # Check if another station with the same name exists in the company
+    if station_data.name != station.name:
+        existing_station_result = await romiot_db.execute(
+            select(Station).where(
+                and_(
+                    Station.name == station_data.name,
+                    Station.company == station_data.company,
+                    Station.id != station_id
+                )
+            )
+        )
+        existing_station = existing_station_result.scalar_one_or_none()
+
+        if existing_station:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"'{station_data.company}' şirketinde '{station_data.name}' adında bir atölye zaten mevcut"
+            )
+
+    # Update station
+    station.name = station_data.name
+    station.company = station_data.company
+
+    await romiot_db.commit()
+    await romiot_db.refresh(station)
+
+    return station
+
+
+@router.delete("/{station_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_station(
+    station_id: int,
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db)
+):
+    """
+    Delete a station.
+    Requires role 'atolye:<company>:yonetici' where company matches the station's company.
+    Cannot delete a station that has work orders.
+    """
+    # Check if user has yonetici role and get company
+    user_company = await check_station_yonetici_role(current_user)
+
+    # Get the station
+    station_result = await romiot_db.execute(
+        select(Station).where(Station.id == station_id)
+    )
+    station = station_result.scalar_one_or_none()
+
+    if not station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"ID {station_id} ile atölye bulunamadı"
+        )
+
+    # Verify that the station belongs to the user's company
+    if station.company != user_company:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu atölye sizin şirketinize ait değil"
+        )
+
+    # Check if station has work orders
+    from app.models.romiot_models import WorkOrder
+    work_orders_result = await romiot_db.execute(
+        select(WorkOrder).where(WorkOrder.station_id == station_id).limit(1)
+    )
+    has_work_orders = work_orders_result.scalar_one_or_none() is not None
+
+    if has_work_orders:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="İş emirleri olan atölye silinemez"
+        )
+
+    # Delete station
+    await romiot_db.delete(station)
+    await romiot_db.commit()
+
+    return None
+
+
+@router.get("/{station_id}/operators", response_model=list[dict])
+async def list_station_operators(
+    station_id: int,
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+    postgres_db: AsyncSession = Depends(get_postgres_db)
+):
+    """
+    List all operators assigned to a station.
+    Requires role 'atolye:<company>:yonetici' where company matches the station's company.
+    """
+    # Check if user has yonetici role and get company
+    user_company = await check_station_yonetici_role(current_user)
+
+    # Get the station
+    station_result = await romiot_db.execute(
+        select(Station).where(Station.id == station_id)
+    )
+    station = station_result.scalar_one_or_none()
+
+    if not station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"ID {station_id} ile atölye bulunamadı"
+        )
+
+    # Verify that the station belongs to the user's company
+    if station.company != user_company:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu atölye sizin şirketinize ait değil"
+        )
+
+    # Get all operators assigned to this station
+    operators_result = await postgres_db.execute(
+        select(PostgresUser).where(PostgresUser.workshop_id == station_id)
+    )
+    operators = operators_result.scalars().all()
+
+    return [
+        {
+            "id": op.id,
+            "username": op.username,
+            "name": op.name,
+            "station_id": op.workshop_id
+        }
+        for op in operators
+    ]
+
+
+class UserUpdateRequest(BaseModel):
+    name: str = Field(..., min_length=1, description="User's full name")
+    station_id: int | None = Field(None, description="Station ID (for operators only)")
+
+
+@router.put("/operators/{user_id}", response_model=dict)
+async def update_operator(
+    user_id: int,
+    user_data: UserUpdateRequest,
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+    postgres_db: AsyncSession = Depends(get_postgres_db)
+):
+    """
+    Update an operator's information.
+    Requires role 'atolye:<company>:yonetici'.
+    """
+    # Check if user has yonetici role and get company
+    user_company = await check_station_yonetici_role(current_user)
+
+    # Get the user
+    user_result = await postgres_db.execute(
+        select(PostgresUser).where(PostgresUser.id == user_id)
+    )
+    user = user_result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kullanıcı bulunamadı"
+        )
+
+    # If station_id is provided, verify it exists and belongs to the same company
+    if user_data.station_id:
+        station_result = await romiot_db.execute(
+            select(Station).where(Station.id == user_data.station_id)
+        )
+        station = station_result.scalar_one_or_none()
+
+        if not station:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"ID {user_data.station_id} ile atölye bulunamadı"
+            )
+
+        if station.company != user_company:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bu atölye sizin şirketinize ait değil"
+            )
+
+    # Update user
+    user.name = user_data.name
+    user.workshop_id = user_data.station_id
+
+    await postgres_db.commit()
+    await postgres_db.refresh(user)
+
+    return {
+        "id": user.id,
+        "username": user.username,
+        "name": user.name,
+        "station_id": user.workshop_id
+    }
+
+
+@router.delete("/operators/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_operator(
+    user_id: int,
+    current_user: User = Depends(check_authenticated),
+    postgres_db: AsyncSession = Depends(get_postgres_db)
+):
+    """
+    Delete an operator.
+    Requires role 'atolye:<company>:yonetici'.
+    Note: This only deletes from PostgreSQL. PocketBase user should be handled separately.
+    """
+    # Check if user has yonetici role
+    await check_station_yonetici_role(current_user)
+
+    # Get the user
+    user_result = await postgres_db.execute(
+        select(PostgresUser).where(PostgresUser.id == user_id)
+    )
+    user = user_result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kullanıcı bulunamadı"
+        )
+
+    # Delete user
+    await postgres_db.delete(user)
+    await postgres_db.commit()
+
+    return None
