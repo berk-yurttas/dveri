@@ -110,7 +110,7 @@ class RomiotService:
             
             points_query = f"""
                 SELECT COUNT(DISTINCT csv_adi)
-                FROM points_data.data
+                FROM point_data.points
                 WHERE csv_adi ~ '\d{{2}}-\d{{2}}-\d{{4}}'
                 AND TO_DATE(substring(csv_adi from '\d{{2}}-\d{{2}}-\d{{4}}'), 'DD-MM-YYYY') BETWEEN '{start_str}' AND '{end_str}'
             """
@@ -179,7 +179,7 @@ class RomiotService:
             # NOTE: We must escape % as %% because psycopg2 uses % for parameter formatting
             points_nok_query = f"""
                 SELECT COUNT(*)
-                FROM points_data.data
+                FROM point_data.points
                 WHERE "Sonuç" LIKE 'NOK%%'
                 AND csv_adi ~ '\d{{2}}-\d{{2}}-\d{{4}}'
                 AND TO_DATE(substring(csv_adi from '\d{{2}}-\d{{2}}-\d{{4}}'), 'DD-MM-YYYY') BETWEEN '{start_str}' AND '{end_str}'
