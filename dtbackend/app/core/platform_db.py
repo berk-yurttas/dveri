@@ -219,7 +219,7 @@ class DatabaseConnectionFactory:
             cursor.execute(query, params or {})
 
             columns = [desc[0] for desc in cursor.description]
-            data = [list(row) for row in cursor.fetchall()]
+            data = [list(row.values()) for row in cursor.fetchall()]
 
             return {
                 "columns": columns,
