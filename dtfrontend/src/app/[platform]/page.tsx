@@ -130,6 +130,9 @@ export default function PlatformHome() {
   const navigationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isIvmePlatform = platformData?.code === 'ivme';
   const isRomiotPlatform = platformCode === 'romiot';
+  const isAmomPlatform = platformCode === 'amom';
+  const [searchValue, setSearchValue] = useState('');
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
 
   const handleDerinizHover = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -247,10 +250,10 @@ export default function PlatformHome() {
   useLayoutEffect(() => {
     if (platformCode) {
       console.log('[Platform Page] Setting platform in context:', platformCode);
-      
+
       // Set platform in context (this also sets localStorage and fetches platform data)
       setPlatformByCode(platformCode);
-      
+
       // Clear cache to force fresh data fetch with new platform
       console.log('[Platform Page] Clearing API cache for platform switch');
       api.clearCache();
@@ -269,12 +272,12 @@ export default function PlatformHome() {
         ]);
         setDashboards(dashboardData);
         setReports(reportData);
-        
+
         // Fetch announcements if platform data is available
         if (platformData?.id) {
           // Don't include general announcements on platform-specific pages (includeGeneral: false)
           const announcementData = await announcementService.getAnnouncements(0, 10, platformData.id, true, false, false);
-          
+
           // Debug: Log announcement data
           console.log("📢 Fetched announcements for platform:", platformData.id, announcementData);
           announcementData.forEach((ann, idx) => {
@@ -287,7 +290,7 @@ export default function PlatformHome() {
               detailLength: ann.content_detail?.length
             });
           });
-          
+
           setAnnouncements(announcementData);
         }
       } catch (error) {
@@ -331,6 +334,508 @@ export default function PlatformHome() {
           <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
           <div className="text-lg text-gray-600">Ekranlar yükleniyor...</div>
         </div>
+      </div>
+    );
+  }
+
+  // AMOM Platform Special UI
+  if (isAmomPlatform) {
+    return (
+      <div className="min-h-screen bg-gray-50 pt-4 px-8 pb-8">
+        {/* Search Bar */}
+        <div className="max-w-4xl mx-auto mb-6">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+              placeholder="Parça numarası giriniz"
+              className="w-full px-5 py-2.5 pr-12 text-base border-2 border-gray-300 rounded-full shadow-md focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+            />
+            <button className="absolute right-1.5 top-1/2 -translate-y-1/2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* 8 Table Boxes - 4x4 Grid */}
+        <div className="max-w-7xl mx-auto mb-6">
+          <div className="grid grid-cols-4 gap-6">
+            {/* Table Box 1 - Alt Yüklenici Açık Üretim Siparişleri */}
+            <div
+              onClick={() => setSelectedTable('alt-yuklenici')}
+              className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[220px] flex flex-col"
+            >
+              <div className="bg-gradient-to-r from-slate-700 to-slate-800 px-4 py-3 flex-shrink-0">
+                <h3 className="font-bold text-white text-sm text-center leading-tight">Alt Yüklenici Açık Üretim Siparişleri</h3>
+              </div>
+              <div className="p-4 flex-1 overflow-auto">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b-2 border-slate-200">
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Parça No</th>
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Üretim Yeri</th>
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Durum</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="hover:bg-slate-50 transition-colors">
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Table Box 2 - Aselsan İçi Açık Üretim Siparişleri */}
+            <div
+              onClick={() => setSelectedTable('aselsan-ici')}
+              className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[220px] flex flex-col"
+            >
+              <div className="bg-gradient-to-r from-emerald-700 to-emerald-800 px-4 py-3 flex-shrink-0">
+                <h3 className="font-bold text-white text-sm text-center leading-tight">Aselsan İçi Açık Üretim Siparişleri</h3>
+              </div>
+              <div className="p-4 flex-1 overflow-auto">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b-2 border-emerald-200">
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Parça No</th>
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Üretim Yılı</th>
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Durum</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="hover:bg-emerald-50 transition-colors">
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Table Box 3 - Prototip Üretim ve Ahtapot Tasarım */}
+            <div
+              onClick={() => setSelectedTable('prototip-ahtapot')}
+              className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[220px] flex flex-col"
+            >
+              <div className="bg-gradient-to-r from-indigo-700 to-indigo-800 px-4 py-3 flex-shrink-0">
+                <h3 className="font-bold text-white text-sm text-center leading-tight">Prototip Üretim ve Ahtapot Tasarım Süreçlerindeki Durum</h3>
+              </div>
+              <div className="p-4 flex-1 overflow-auto">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="text-center p-3 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border-2 border-indigo-200">
+                    <div className="text-xs text-gray-700 font-semibold mb-2 uppercase tracking-wide">Prototip</div>
+                    <div className="font-bold text-2xl text-indigo-700">-</div>
+                  </div>
+                  <div className="text-center p-3 bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-lg border-2 border-emerald-200">
+                    <div className="text-xs text-gray-700 font-semibold mb-2 uppercase tracking-wide">Ahtapot</div>
+                    <div className="font-bold text-2xl text-emerald-700">-</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Table Box 4 - Deriniz'den Gelen Bilgiler */}
+            <div
+              onClick={() => setSelectedTable('deriniz')}
+              className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[220px] flex flex-col"
+            >
+              <div className="bg-gradient-to-r from-blue-700 to-blue-800 px-4 py-3 flex-shrink-0">
+                <h3 className="font-bold text-white text-sm text-center leading-tight">Deriniz&apos;den Gelen Bilgiler</h3>
+              </div>
+              <div className="p-4 flex-1 overflow-auto">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b-2 border-blue-200">
+                        <th className="py-2 px-1 text-xs font-semibold text-gray-700">A</th>
+                        <th className="py-2 px-1 text-xs font-semibold text-gray-700">B</th>
+                        <th className="py-2 px-1 text-xs font-semibold text-gray-700">C</th>
+                        <th className="py-2 px-1 text-xs font-semibold text-gray-700">D</th>
+                        <th className="py-2 px-1 text-xs font-semibold text-gray-700">E</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="hover:bg-blue-50 transition-colors">
+                        <td className="py-2 px-1 text-xs text-center text-gray-600">-</td>
+                        <td className="py-2 px-1 text-xs text-center text-gray-600">-</td>
+                        <td className="py-2 px-1 text-xs text-center text-gray-600">-</td>
+                        <td className="py-2 px-1 text-xs text-center text-gray-600">-</td>
+                        <td className="py-2 px-1 text-xs text-center text-gray-600">-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Table Box 5 - Alt Yüklenici Açık Bildirim Hataları */}
+            <div
+              onClick={() => setSelectedTable('alt-yuklenici-hatalar')}
+              className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[220px] flex flex-col"
+            >
+              <div className="bg-gradient-to-r from-rose-700 to-rose-800 px-4 py-3 flex-shrink-0">
+                <h3 className="font-bold text-white text-sm text-center leading-tight">Alt Yüklenici Açık Bildirim Hataları</h3>
+              </div>
+              <div className="p-4 flex-1 overflow-auto">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b-2 border-rose-200">
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Bildirim No</th>
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Durum</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="hover:bg-rose-50 transition-colors">
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Table Box 6 - SAP Açık Bildirim Hataları */}
+            <div
+              onClick={() => setSelectedTable('sap-hatalar')}
+              className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[220px] flex flex-col"
+            >
+              <div className="bg-gradient-to-r from-amber-700 to-amber-800 px-4 py-3 flex-shrink-0">
+                <h3 className="font-bold text-white text-sm text-center leading-tight">SAP Açık Bildirim Hataları</h3>
+              </div>
+              <div className="p-4 flex-1 overflow-auto">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b-2 border-amber-200">
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Bildirim No</th>
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Durum</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="hover:bg-amber-50 transition-colors">
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Table Box 7 - Robotlardan Gelen Verinin Servis Edilmesi */}
+            <div
+              onClick={() => setSelectedTable('robot-servis')}
+              className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[220px] flex flex-col"
+            >
+              <div className="bg-gradient-to-r from-teal-700 to-teal-800 px-4 py-3 flex-shrink-0">
+                <h3 className="font-bold text-white text-sm text-center leading-tight">Robotlardan Gelen Verinin Servis Edilmesi</h3>
+              </div>
+              <div className="p-4 flex-1 overflow-auto">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b-2 border-teal-200">
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Otomasyon ID</th>
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Durum</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="hover:bg-cyan-50 transition-colors">
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Table Box 8 - Kalifikasyon Raporlarından Gelen Bilgiler */}
+            <div
+              onClick={() => setSelectedTable('kalifikasyon')}
+              className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[220px] flex flex-col"
+            >
+              <div className="bg-gradient-to-r from-cyan-700 to-cyan-800 px-4 py-3 flex-shrink-0">
+                <h3 className="font-bold text-white text-sm text-center leading-tight">Kalifikasyon Raporlarından Gelen Bilgiler</h3>
+              </div>
+              <div className="p-4 flex-1 overflow-auto">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b-2 border-cyan-200">
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Rapor No</th>
+                        <th className="text-left py-2 px-2 text-xs font-semibold text-gray-700">Sonuç</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="hover:bg-cyan-50 transition-colors">
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                        <td className="py-2 px-2 text-xs text-gray-600">-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 5 Round Logos - Professional Design */}
+        <div className="max-w-4xl mx-auto">
+          <div className="grid grid-cols-5 gap-10">
+            {/* Logo 1 - Ahtapot Süreçleri */}
+            <div
+              className="flex flex-col items-center cursor-pointer group"
+              onClick={() => router.push('/a')}
+            >
+              <div className="relative">
+                <div className="w-28 h-28 rounded-full flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300 border-3 border-blue-200 group-hover:border-blue-400 group-hover:scale-110">
+                  <div className="w-full h-full rounded-full overflow-hidden bg-white ring-2 ring-white">
+                    <img
+                      src="/amom_icons/ahtapot.jpg"
+                      alt="Ahtapot Süreçleri"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-gray-900 text-center mt-3 group-hover:text-blue-700 transition-colors uppercase tracking-wider leading-tight">Ahtapot<br/>Süreçleri</span>
+            </div>
+
+            {/* Logo 2 - Genel Süreçler */}
+            <div
+              className="flex flex-col items-center cursor-pointer group"
+              onClick={() => router.push('/b')}
+            >
+              <div className="relative">
+                <div className="w-28 h-28 rounded-full flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300 border-3 border-slate-200 group-hover:border-slate-500 group-hover:scale-110">
+                  <div className="w-full h-full rounded-full overflow-hidden bg-white ring-2 ring-white">
+                    <img
+                      src="/amom_icons/genel.png"
+                      alt="Genel Süreçler"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-gray-900 text-center mt-3 group-hover:text-emerald-700 transition-colors uppercase tracking-wider leading-tight">Genel<br/>Süreçler</span>
+            </div>
+
+            {/* Logo 3 - Kalifikasyon Süreçleri */}
+            <div
+              className="flex flex-col items-center cursor-pointer group"
+              onClick={() => router.push('/c')}
+            >
+              <div className="relative">
+                <div className="w-28 h-28 rounded-full flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300 border-3 border-indigo-200 group-hover:border-indigo-500 group-hover:scale-110">
+                  <div className="w-full h-full rounded-full overflow-hidden bg-white ring-2 ring-white">
+                    <img
+                      src="/amom_icons/kalifikasyon.png"
+                      alt="Kalifikasyon Süreçleri"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-gray-900 text-center mt-3 group-hover:text-violet-700 transition-colors uppercase tracking-wider leading-tight">Kalifikasyon<br/>Süreçleri</span>
+            </div>
+
+            {/* Logo 4 - Prototip Süreçleri */}
+            <div
+              className="flex flex-col items-center cursor-pointer group"
+              onClick={() => router.push('/d')}
+            >
+              <div className="relative">
+                <div className="w-28 h-28 rounded-full flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300 border-3 border-amber-200 group-hover:border-amber-500 group-hover:scale-110">
+                  <div className="w-full h-full rounded-full overflow-hidden bg-white ring-2 ring-white">
+                    <img
+                      src="/amom_icons/prototip.png"
+                      alt="Prototip Süreçleri"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-gray-900 text-center mt-3 group-hover:text-amber-700 transition-colors uppercase tracking-wider leading-tight">Prototip<br/>Süreçleri</span>
+            </div>
+
+            {/* Logo 5 - Tasarım Süreçleri */}
+            <div
+              className="flex flex-col items-center cursor-pointer group"
+              onClick={() => router.push('/e')}
+            >
+              <div className="relative">
+                <div className="w-28 h-28 rounded-full flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300 border-3 border-teal-200 group-hover:border-teal-500 group-hover:scale-110">
+                  <div className="w-full h-full rounded-full overflow-hidden bg-white ring-2 ring-white">
+                    <img
+                      src="/amom_icons/tasarım.png"
+                      alt="Tasarım Süreçleri"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-gray-900 text-center mt-3 group-hover:text-teal-700 transition-colors uppercase tracking-wider leading-tight">Tasarım<br/>Süreçleri</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Table Detail Modal */}
+        {selectedTable && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={() => setSelectedTable(null)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden animate-fade-in"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className={`px-6 py-4 flex items-center justify-between ${selectedTable === 'alt-yuklenici' ? 'bg-gradient-to-r from-slate-700 to-slate-800' :
+                selectedTable === 'aselsan-ici' ? 'bg-gradient-to-r from-emerald-700 to-emerald-800' :
+                  selectedTable === 'prototip-ahtapot' ? 'bg-gradient-to-r from-indigo-700 to-indigo-800' :
+                    selectedTable === 'deriniz' ? 'bg-gradient-to-r from-blue-700 to-blue-800' :
+                      selectedTable === 'alt-yuklenici-hatalar' ? 'bg-gradient-to-r from-rose-700 to-rose-800' :
+                        selectedTable === 'sap-hatalar' ? 'bg-gradient-to-r from-amber-700 to-amber-800' :
+                          selectedTable === 'robot-servis' ? 'bg-gradient-to-r from-teal-700 to-teal-800' :
+                            'bg-gradient-to-r from-cyan-700 to-cyan-800'
+                }`}>
+                <h2 className="text-2xl font-bold text-white">
+                  {selectedTable === 'alt-yuklenici' && 'Alt Yüklenici Açık Üretim Siparişleri'}
+                  {selectedTable === 'aselsan-ici' && 'Aselsan İçi Açık Üretim Siparişleri'}
+                  {selectedTable === 'prototip-ahtapot' && 'Prototip Üretim ve Ahtapot Tasarım Süreçlerindeki Durum'}
+                  {selectedTable === 'deriniz' && 'Deriniz\'den Gelen Bilgiler'}
+                  {selectedTable === 'alt-yuklenici-hatalar' && 'Alt Yüklenici Açık Bildirim Hataları'}
+                  {selectedTable === 'sap-hatalar' && 'SAP Açık Bildirim Hataları'}
+                  {selectedTable === 'robot-servis' && 'Robotlardan Gelen Verinin Servis Edilmesi'}
+                  {selectedTable === 'kalifikasyon' && 'Kalifikasyon Raporlarından Gelen Bilgiler'}
+                </h2>
+                <button
+                  onClick={() => setSelectedTable(null)}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <X className="h-6 w-6 text-white" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 max-h-[calc(90vh-140px)] overflow-y-auto">
+                <div className="bg-gray-50 rounded-lg p-6">
+                  <p className="text-gray-600 text-center mb-4">
+                    Bu tablo için veriler henüz yüklenmedi.
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full bg-white rounded-lg shadow-sm">
+                      <thead>
+                        <tr className="border-b-2 border-gray-200">
+                          {selectedTable === 'alt-yuklenici' && (
+                            <>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Parça No</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Üretim Yeri</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Üretim Durumu</th>
+                            </>
+                          )}
+                          {selectedTable === 'aselsan-ici' && (
+                            <>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Parça No</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Üretim Yılı</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Üretim Durumu</th>
+                            </>
+                          )}
+                          {selectedTable === 'prototip-ahtapot' && (
+                            <>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Süreç Tipi</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Durum</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Açıklama</th>
+                            </>
+                          )}
+                          {selectedTable === 'deriniz' && (
+                            <>
+                              <th className="py-3 px-4 font-semibold text-gray-700">A</th>
+                              <th className="py-3 px-4 font-semibold text-gray-700">B</th>
+                              <th className="py-3 px-4 font-semibold text-gray-700">C</th>
+                              <th className="py-3 px-4 font-semibold text-gray-700">D</th>
+                              <th className="py-3 px-4 font-semibold text-gray-700">E</th>
+                            </>
+                          )}
+                          {selectedTable === 'alt-yuklenici-hatalar' && (
+                            <>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Bildirim No</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Durum</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Açıklama</th>
+                            </>
+                          )}
+                          {selectedTable === 'sap-hatalar' && (
+                            <>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Bildirim No</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Durum</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Açıklama</th>
+                            </>
+                          )}
+                          {selectedTable === 'robot-servis' && (
+                            <>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Robot ID</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Durum</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Son Güncelleme</th>
+                            </>
+                          )}
+                          {selectedTable === 'kalifikasyon' && (
+                            <>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Rapor No</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Sonuç</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Tarih</th>
+                            </>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td colSpan={selectedTable === 'deriniz' ? 5 : 3} className="py-8 text-center text-gray-500">
+                            Veri bulunmamaktadır
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                <button
+                  onClick={() => setSelectedTable(null)}
+                  className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors font-medium"
+                >
+                  Kapat
+                </button>
+                <button
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+                >
+                  Verileri Yükle
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MIRAS Assistant Chatbot */}
+        <MirasAssistant />
+
+        {/* Feedback Button */}
+        <Feedback />
       </div>
     );
   }
@@ -501,7 +1006,7 @@ export default function PlatformHome() {
       <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ${platformCode === 'deriniz' ? 'scale-90' : ''}`}>
         {/* Platform Logo - Show if exists */}
         {platformData?.theme_config?.leftLogo && (
-          <div className="mb-6" style={{position: 'absolute', top: '100px', left: '50px'}}>
+          <div className="mb-6" style={{ position: 'absolute', top: '100px', left: '50px' }}>
             <img
               src={platformData.theme_config.leftLogo}
               alt={`${platformData.display_name} Logo`}
@@ -512,7 +1017,7 @@ export default function PlatformHome() {
 
         {/* Welcome Section */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-center text-gray-900 mb-2" style={{"color": "rgb(69,81,89)"}}>
+          <h1 className="text-2xl font-bold text-center text-gray-900 mb-2" style={{ "color": "rgb(69,81,89)" }}>
             Hoş Geldiniz{user?.name ? `, ${user.name}` : ''}
           </h1>
         </div>
@@ -525,34 +1030,33 @@ export default function PlatformHome() {
         )}
 
         {/* Features Section */}
-        {platformData?.theme_config?.features && platformData.theme_config.features.length > 0  && (
+        {platformData?.theme_config?.features && platformData.theme_config.features.length > 0 && (
           <div className="mb-16">
-            <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${
-              platformData.theme_config.features.length === 4
-                ? 'lg:grid-cols-4'
-                : platformData.theme_config.features.length === 5
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${platformData.theme_config.features.length === 4
+              ? 'lg:grid-cols-4'
+              : platformData.theme_config.features.length === 5
                 ? 'lg:grid-cols-5'
                 : platformData.theme_config.features.length === 6
-                ? 'lg:grid-cols-6'
-                : 'lg:grid-cols-4'
-            }`}>
+                  ? 'lg:grid-cols-6'
+                  : 'lg:grid-cols-4'
+              }`}>
               {platformData.theme_config.features.map((feature, index) => {
                 const hasSubfeatures = feature.subfeatures && feature.subfeatures.length > 0;
-                
+
                 // Check if user has atolye role (any variant: yonetici, operator, or musteri)
                 const hasAtolyeRole = user?.role && Array.isArray(user.role) &&
-                  user.role.some((role) => 
-                    typeof role === "string" && 
-                    role.startsWith("atolye:") && 
+                  user.role.some((role) =>
+                    typeof role === "string" &&
+                    role.startsWith("atolye:") &&
                     (role.endsWith(":yonetici") || role.endsWith(":operator") || role.endsWith(":musteri"))
                   );
 
                 // Check if this is the Atölye Takip Sistemi feature
-                const isAtolyeFeature = feature.title?.toLowerCase().includes('atölye') || 
-                                       feature.title?.toLowerCase().includes('atolye') ||
-                                       feature.title?.toLowerCase().includes('takip') ||
-                                       feature.url?.includes('/atolye') ||
-                                       feature.url?.includes('atolye');
+                const isAtolyeFeature = feature.title?.toLowerCase().includes('atölye') ||
+                  feature.title?.toLowerCase().includes('atolye') ||
+                  feature.title?.toLowerCase().includes('takip') ||
+                  feature.url?.includes('/atolye') ||
+                  feature.url?.includes('atolye');
 
                 // Ensure the feature URL is correct for atolye users
                 let featureUrl = feature.url;
@@ -701,11 +1205,11 @@ export default function PlatformHome() {
                 // If feature has a URL, or if it's the atolye feature for atolye users, make it clickable
                 // Use the corrected featureUrl if it was modified for atolye feature
                 const urlToUse = featureUrl || feature.url;
-                
+
                 // If feature has subfeatures, clicking should expand/collapse
                 // Otherwise, if it has a URL, navigate to it
                 const hasUrl = urlToUse || (isAtolyeFeature && hasAtolyeRole && platformCode === 'romiot');
-                
+
                 // Check if this feature is expanded or if any feature is expanded
                 const isThisExpanded = expandedFeatures.has(index);
                 const hasAnyExpanded = expandedFeatures.size > 0;
@@ -768,11 +1272,9 @@ export default function PlatformHome() {
                         }
                       }
                     }}
-                    className={`block transition-all duration-300 rounded-lg ${
-                      hasSubfeatures || hasUrl ? 'hover:scale-105 cursor-pointer' : ''
-                    } ${shouldDim ? 'opacity-40' : 'opacity-100'} ${
-                      platformCode === 'romiot' && isHovered ? 'ring-2 ring-[#FF5620]' : ''
-                    }`}
+                    className={`block transition-all duration-300 rounded-lg ${hasSubfeatures || hasUrl ? 'hover:scale-105 cursor-pointer' : ''
+                      } ${shouldDim ? 'opacity-40' : 'opacity-100'} ${platformCode === 'romiot' && isHovered ? 'ring-2 ring-[#FF5620]' : ''
+                      }`}
                     role={hasSubfeatures || hasUrl ? "button" : undefined}
                     tabIndex={hasSubfeatures || hasUrl ? 0 : undefined}
                     onKeyDown={(e) => {
@@ -829,90 +1331,89 @@ export default function PlatformHome() {
             {platformData.theme_config.features.some((feature, index) =>
               feature.subfeatures && feature.subfeatures.length > 0 && expandedFeatures.has(index)
             ) && (
-              <div className="mt-8 opacity-0 animate-[fadeInSection_0.5s_ease-in-out_forwards]">
-                <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${
-                  platformData.theme_config.features.length === 4
+                <div className="mt-8 opacity-0 animate-[fadeInSection_0.5s_ease-in-out_forwards]">
+                  <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${platformData.theme_config.features.length === 4
                     ? 'lg:grid-cols-4'
                     : platformData.theme_config.features.length === 5
-                    ? 'lg:grid-cols-5'
-                    : platformData.theme_config.features.length === 6
-                    ? 'lg:grid-cols-6'
-                    : 'lg:grid-cols-4'
-                }`}>
-                  {platformData.theme_config.features.map((feature, index) => {
-                    const isExpanded = expandedFeatures.has(index);
-                    if (!isExpanded || !feature.subfeatures || feature.subfeatures.length === 0) {
-                      return null;
-                    }
-
-                    return feature.subfeatures.map((subfeature: any, subIndex: number) => {
-                      const SubfeatureIcon = iconMap[subfeature.icon] || Activity;
-                      const hasSubfeatureUrl = subfeature.url && subfeature.url.trim();
-                      const canAccessSubfeature = checkAccess(subfeature, user);
-
-                      if (!canAccessSubfeature) {
+                      ? 'lg:grid-cols-5'
+                      : platformData.theme_config.features.length === 6
+                        ? 'lg:grid-cols-6'
+                        : 'lg:grid-cols-4'
+                    }`}>
+                    {platformData.theme_config.features.map((feature, index) => {
+                      const isExpanded = expandedFeatures.has(index);
+                      if (!isExpanded || !feature.subfeatures || feature.subfeatures.length === 0) {
                         return null;
                       }
 
-                      // Make URL relative to platform if needed
-                      let subfeatureUrl = subfeature.url;
-                      if (hasSubfeatureUrl && !subfeatureUrl.startsWith('/') && !subfeatureUrl.startsWith('http')) {
-                        subfeatureUrl = `/${platformCode}${subfeatureUrl.startsWith('/') ? '' : '/'}${subfeatureUrl}`;
-                      }
+                      return feature.subfeatures.map((subfeature: any, subIndex: number) => {
+                        const SubfeatureIcon = iconMap[subfeature.icon] || Activity;
+                        const hasSubfeatureUrl = subfeature.url && subfeature.url.trim();
+                        const canAccessSubfeature = checkAccess(subfeature, user);
 
-                      return (
-                        <div
-                          key={`${index}-sub-${subIndex}`}
-                          onClick={(e) => {
-                            if (hasSubfeatureUrl) {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              if (subfeatureUrl.startsWith('http')) {
-                                window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
-                              } else {
-                                router.push(subfeatureUrl);
+                        if (!canAccessSubfeature) {
+                          return null;
+                        }
+
+                        // Make URL relative to platform if needed
+                        let subfeatureUrl = subfeature.url;
+                        if (hasSubfeatureUrl && !subfeatureUrl.startsWith('/') && !subfeatureUrl.startsWith('http')) {
+                          subfeatureUrl = `/${platformCode}${subfeatureUrl.startsWith('/') ? '' : '/'}${subfeatureUrl}`;
+                        }
+
+                        return (
+                          <div
+                            key={`${index}-sub-${subIndex}`}
+                            onClick={(e) => {
+                              if (hasSubfeatureUrl) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (subfeatureUrl.startsWith('http')) {
+                                  window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
+                                } else {
+                                  router.push(subfeatureUrl);
+                                }
                               }
-                            }
-                          }}
-                          className={`opacity-0 ${hasSubfeatureUrl ? "block hover:scale-105 transition-all cursor-pointer" : "block transition-all"}`}
-                          style={{
-                            animation: `slideUp 0.4s ease-out ${subIndex * 0.1}s forwards`
-                          }}
-                          role={hasSubfeatureUrl ? "button" : undefined}
-                          tabIndex={hasSubfeatureUrl ? 0 : undefined}
-                          onKeyDown={(e) => {
-                            if ((e.key === 'Enter' || e.key === ' ') && hasSubfeatureUrl) {
-                              e.preventDefault();
-                              if (subfeatureUrl.startsWith('http')) {
-                                window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
-                              } else {
-                                router.push(subfeatureUrl);
+                            }}
+                            className={`opacity-0 ${hasSubfeatureUrl ? "block hover:scale-105 transition-all cursor-pointer" : "block transition-all"}`}
+                            style={{
+                              animation: `slideUp 0.4s ease-out ${subIndex * 0.1}s forwards`
+                            }}
+                            role={hasSubfeatureUrl ? "button" : undefined}
+                            tabIndex={hasSubfeatureUrl ? 0 : undefined}
+                            onKeyDown={(e) => {
+                              if ((e.key === 'Enter' || e.key === ' ') && hasSubfeatureUrl) {
+                                e.preventDefault();
+                                if (subfeatureUrl.startsWith('http')) {
+                                  window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
+                                } else {
+                                  router.push(subfeatureUrl);
+                                }
                               }
-                            }
-                          }}
-                        >
-                          <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300 h-[180px] flex flex-col">
-                            <div
-                              className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
-                              style={{ backgroundColor: feature.backgroundColor || '#EFF6FF' }}
-                            >
-                              <SubfeatureIcon
-                                className="h-6 w-6"
-                                style={{ color: feature.iconColor || '#3B82F6' }}
-                              />
+                            }}
+                          >
+                            <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300 h-[180px] flex flex-col">
+                              <div
+                                className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
+                                style={{ backgroundColor: feature.backgroundColor || '#EFF6FF' }}
+                              >
+                                <SubfeatureIcon
+                                  className="h-6 w-6"
+                                  style={{ color: feature.iconColor || '#3B82F6' }}
+                                />
+                              </div>
+                              <h4 className="font-semibold text-gray-900 mb-2">{subfeature.title}</h4>
+                              {subfeature.description && (
+                                <p className="text-sm text-gray-600">{subfeature.description}</p>
+                              )}
                             </div>
-                            <h4 className="font-semibold text-gray-900 mb-2">{subfeature.title}</h4>
-                            {subfeature.description && (
-                              <p className="text-sm text-gray-600">{subfeature.description}</p>
-                            )}
                           </div>
-                        </div>
-                      );
-                    });
-                  })}
+                        );
+                      });
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
           </div>
         )}
       </div>
@@ -921,25 +1422,25 @@ export default function PlatformHome() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 scale-90">
         {/* Dashboards Section */}
         {!isIvmePlatform && !isRomiotPlatform && (
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex flex-col sm:flex-row sm:items-center">
-            <h3 className="text-xl font-semibold text-gray-900 mb-2 sm:mb-0">Ekranlarım</h3>
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center">
+              <h3 className="text-xl font-semibold text-gray-900 mb-2 sm:mb-0">Ekranlarım</h3>
+              <button
+                onClick={() => router.push(`/${platformCode}/dashboard`)}
+                className="text-sm text-gray-500 hover:text-blue-600 font-medium transition-colors sm:ml-4 flex items-center gap-1 mt-1"
+              >
+                <Eye className="h-4 w-4" />
+                Tüm Ekranlar
+              </button>
+            </div>
             <button
-              onClick={() => router.push(`/${platformCode}/dashboard`)}
-              className="text-sm text-gray-500 hover:text-blue-600 font-medium transition-colors sm:ml-4 flex items-center gap-1 mt-1"
+              onClick={handleCreateDashboard}
+              className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors shadow-lg"
             >
-              <Eye className="h-4 w-4" />
-              Tüm Ekranlar
+              <Plus className="h-4 w-4" />
+              Yeni Ekran
             </button>
           </div>
-          <button
-            onClick={handleCreateDashboard}
-            className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors shadow-lg"
-          >
-            <Plus className="h-4 w-4" />
-            Yeni Ekran
-          </button>
-        </div>
         )}
         {/* Dashboard Grid */}
         {dashboards.length > 0 && !isIvmePlatform && isRomiotPlatform ? (
@@ -955,189 +1456,187 @@ export default function PlatformHome() {
               })
               .slice(0, 3)
               .map((dashboard) => {
-              const config = dashboard.layout_config || {};
-              const IconComponent = iconMap[config.iconName] || Layout;
-              
-              return (
-                <div
-                  key={dashboard.id}
-                  onClick={() => handleDashboardClick(dashboard.id)}
-                  className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-xl transition-all cursor-pointer group"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className={`p-3 rounded-lg ${config.color || 'bg-gray-500'} text-white`}>
-                      <IconComponent className="h-6 w-6" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {dashboard.is_favorite && (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                          <Star className="h-3 w-3 mr-1 fill-current" />
-                          Favori
-                        </span>
-                      )}
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        dashboard.is_public 
-                          ? "bg-blue-100 text-blue-800" 
-                          : "bg-gray-100 text-gray-800"
-                      }`}>
-                        {dashboard.is_public ? (
-                          <>
-                            <Eye className="h-3 w-3 mr-1" />
-                            Herkese Açık
-                          </>
-                        ) : (
-                          <>
-                            <EyeOff className="h-3 w-3 mr-1" />
-                            Özel
-                          </>
+                const config = dashboard.layout_config || {};
+                const IconComponent = iconMap[config.iconName] || Layout;
+
+                return (
+                  <div
+                    key={dashboard.id}
+                    onClick={() => handleDashboardClick(dashboard.id)}
+                    className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-xl transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div className={`p-3 rounded-lg ${config.color || 'bg-gray-500'} text-white`}>
+                        <IconComponent className="h-6 w-6" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {dashboard.is_favorite && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                            <Star className="h-3 w-3 mr-1 fill-current" />
+                            Favori
+                          </span>
                         )}
-                      </span>
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${dashboard.is_public
+                          ? "bg-blue-100 text-blue-800"
+                          : "bg-gray-100 text-gray-800"
+                          }`}>
+                          {dashboard.is_public ? (
+                            <>
+                              <Eye className="h-3 w-3 mr-1" />
+                              Herkese Açık
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="h-3 w-3 mr-1" />
+                              Özel
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                      {dashboard.title}
+                    </h3>
+
+                    <div className="flex items-center gap-4 text-sm text-gray-500">
+                      <div className="flex items-center gap-1">
+                        <Layout className="h-4 w-4" />
+                        <span>{dashboard.widgets?.length || 0} Widget</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Calendar className="h-4 w-4" />
+                        <span>{new Date(dashboard.created_at).toLocaleDateString('tr-TR')}</span>
+                      </div>
                     </div>
                   </div>
-                  
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
-                    {dashboard.title}
-                  </h3>
-                  
-                  <div className="flex items-center gap-4 text-sm text-gray-500">
-                    <div className="flex items-center gap-1">
-                      <Layout className="h-4 w-4" />
-                      <span>{dashboard.widgets?.length || 0} Widget</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Calendar className="h-4 w-4" />
-                      <span>{new Date(dashboard.created_at).toLocaleDateString('tr-TR')}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
         ) : (
           !isIvmePlatform && !isRomiotPlatform && (
-          <div className="text-center py-12">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Layout className="h-8 w-8 text-gray-400" />
-            </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Henüz dashboard bulunmuyor</h3>
-            <p className="text-gray-500 mb-6">İlk dashboard'ınızı oluşturmak için aşağıdaki butona tıklayın.</p>
-            <button
-              onClick={handleCreateDashboard}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="h-5 w-5" />
-              İlk Dashboard'ı Oluştur
-            </button>
-          </div>
-          )
-        )}
-        
-        {!isIvmePlatform && !isRomiotPlatform && (
-        // Reports Section
-        <div className="mt-16">
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex flex-col sm:flex-row sm:items-center">
-              <h3 className="text-xl font-semibold text-gray-900 mb-2 sm:mb-0">Raporlarım</h3>
-              {reports.length > 3 && (
-                <button
-                  onClick={() => router.push(`/${platformCode}/reports`)}
-                  className="text-sm text-gray-500 hover:text-blue-600 font-medium transition-colors sm:ml-4 flex items-center gap-1 mt-1"
-                >
-                  <Eye className="h-4 w-4" />
-                  {reports.length - 3} Rapor Daha
-                </button>
-              )}
-            </div>
-            {hasDerinizAdmin && (
-              <button
-                onClick={handleCreateReport}
-                className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors shadow-lg"
-              >
-                <Plus className="h-4 w-4" />
-                Yeni Rapor
-              </button>
-            )}
-          </div>
-
-          {/* Reports Grid */}
-          {reports.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {reports.slice(0, 3).map((report) => (
-                <div
-                  key={report.id}
-                  onClick={() => handleReportClick(report)}
-                  className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-xl transition-all cursor-pointer group"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="p-3 rounded-lg bg-indigo-500 text-white">
-                      <FileText className="h-6 w-6" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        report.is_public 
-                          ? "bg-blue-100 text-blue-800" 
-                          : "bg-gray-100 text-gray-800"
-                      }`}>
-                        {report.is_public ? (
-                          <>
-                            <Eye className="h-3 w-3 mr-1" />
-                            Herkese Açık
-                          </>
-                        ) : (
-                          <>
-                            <EyeOff className="h-3 w-3 mr-1" />
-                            Özel
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors flex items-center gap-2">
-                    {report.name}
-                    {report.isDirectLink && (
-                      <ExternalLink className="h-3 w-3 text-gray-400" />
-                    )}
-                  </h3>
-                  
-                  <div className="flex items-center gap-2 text-xs text-gray-500">
-                    <div className="flex items-center gap-1">
-                      <Database className="h-3 w-3" />
-                      <span>{report.queries?.length || 0} Sorgu</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      <span>{new Date(report.created_at).toLocaleDateString('tr-TR')}</span>
-                    </div>
-                    {report.owner_name && (
-                      <div className="flex items-center gap-1">
-                        <User className="h-3 w-3" />
-                        <span className="max-w-[300px]">{report.owner_name}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
             <div className="text-center py-12">
               <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <FileText className="h-8 w-8 text-gray-400" />
+                <Layout className="h-8 w-8 text-gray-400" />
               </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Henüz rapor bulunmuyor</h3>
-              <p className="text-gray-500 mb-6">İlk raporunuzu oluşturmak için aşağıdaki butona tıklayın.</p>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Henüz dashboard bulunmuyor</h3>
+              <p className="text-gray-500 mb-6">İlk dashboard'ınızı oluşturmak için aşağıdaki butona tıklayın.</p>
+              <button
+                onClick={handleCreateDashboard}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Plus className="h-5 w-5" />
+                İlk Dashboard'ı Oluştur
+              </button>
+            </div>
+          )
+        )}
+
+        {!isIvmePlatform && !isRomiotPlatform && (
+          // Reports Section
+          <div className="mt-16">
+            <div className="mb-6 flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center">
+                <h3 className="text-xl font-semibold text-gray-900 mb-2 sm:mb-0">Raporlarım</h3>
+                {reports.length > 3 && (
+                  <button
+                    onClick={() => router.push(`/${platformCode}/reports`)}
+                    className="text-sm text-gray-500 hover:text-blue-600 font-medium transition-colors sm:ml-4 flex items-center gap-1 mt-1"
+                  >
+                    <Eye className="h-4 w-4" />
+                    {reports.length - 3} Rapor Daha
+                  </button>
+                )}
+              </div>
               {hasDerinizAdmin && (
                 <button
                   onClick={handleCreateReport}
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors shadow-lg"
                 >
-                  <Plus className="h-5 w-5" />
-                  İlk Raporu Oluştur
+                  <Plus className="h-4 w-4" />
+                  Yeni Rapor
                 </button>
               )}
             </div>
-          )}
-        </div>
+
+            {/* Reports Grid */}
+            {reports.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {reports.slice(0, 3).map((report) => (
+                  <div
+                    key={report.id}
+                    onClick={() => handleReportClick(report)}
+                    className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-xl transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="p-3 rounded-lg bg-indigo-500 text-white">
+                        <FileText className="h-6 w-6" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${report.is_public
+                          ? "bg-blue-100 text-blue-800"
+                          : "bg-gray-100 text-gray-800"
+                          }`}>
+                          {report.is_public ? (
+                            <>
+                              <Eye className="h-3 w-3 mr-1" />
+                              Herkese Açık
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="h-3 w-3 mr-1" />
+                              Özel
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+
+                    <h3 className="text-base font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors flex items-center gap-2">
+                      {report.name}
+                      {report.isDirectLink && (
+                        <ExternalLink className="h-3 w-3 text-gray-400" />
+                      )}
+                    </h3>
+
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <div className="flex items-center gap-1">
+                        <Database className="h-3 w-3" />
+                        <span>{report.queries?.length || 0} Sorgu</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        <span>{new Date(report.created_at).toLocaleDateString('tr-TR')}</span>
+                      </div>
+                      {report.owner_name && (
+                        <div className="flex items-center gap-1">
+                          <User className="h-3 w-3" />
+                          <span className="max-w-[300px]">{report.owner_name}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <FileText className="h-8 w-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Henüz rapor bulunmuyor</h3>
+                <p className="text-gray-500 mb-6">İlk raporunuzu oluşturmak için aşağıdaki butona tıklayın.</p>
+                {hasDerinizAdmin && (
+                  <button
+                    onClick={handleCreateReport}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Plus className="h-5 w-5" />
+                    İlk Raporu Oluştur
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -1145,10 +1644,10 @@ export default function PlatformHome() {
       <div className="w-full py-12 mb-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-8">
-            <h3 className="text-2xl font-bold mb-2" style={{"color": "rgb(69,81,89)"}}>Duyurular</h3>
+            <h3 className="text-2xl font-bold mb-2" style={{ "color": "rgb(69,81,89)" }}>Duyurular</h3>
             <div className="w-[100px] h-[5px] bg-red-600"></div>
           </div>
-          
+
           {announcements.length > 0 ? (
             <>
               {/* Carousel Container */}
@@ -1156,27 +1655,25 @@ export default function PlatformHome() {
                 {/* Navigation Arrows - Only show if more than 3 items */}
                 {announcements.length > 3 && (
                   <>
-                    <button 
+                    <button
                       onClick={handlePrevAnnouncement}
                       disabled={isFirstPage}
-                      className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${
-                        isFirstPage 
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                          : 'bg-red-600 hover:bg-red-700 text-white'
-                      }`}
+                      className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${isFirstPage
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-red-600 hover:bg-red-700 text-white'
+                        }`}
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
-                    <button 
+                    <button
                       onClick={handleNextAnnouncement}
                       disabled={isLastPage}
-                      className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${
-                        isLastPage 
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                          : 'bg-red-600 hover:bg-red-700 text-white'
-                      }`}
+                      className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${isLastPage
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-red-600 hover:bg-red-700 text-white'
+                        }`}
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1185,85 +1682,84 @@ export default function PlatformHome() {
                   </>
                 )}
 
-              {/* Carousel Cards */}
-              <div className="flex gap-6 justify-center items-start max-w-4xl mx-auto">
-                {announcements.slice(currentAnnouncementIndex, currentAnnouncementIndex + 3).map((announcement) => {
-                  const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
-                  return (
-                  <div 
-                    key={announcement.id} 
-                    className="flex-shrink-0 w-80 cursor-pointer transition-transform hover:scale-105"
-                    onClick={() => handleAnnouncementClick(announcement)}
-                    onMouseEnter={() => setHoveredAnnouncement(announcement.id)}
-                    onMouseLeave={() => setHoveredAnnouncement(null)}
+                {/* Carousel Cards */}
+                <div className="flex gap-6 justify-center items-start max-w-4xl mx-auto">
+                  {announcements.slice(currentAnnouncementIndex, currentAnnouncementIndex + 3).map((announcement) => {
+                    const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
+                    return (
+                      <div
+                        key={announcement.id}
+                        className="flex-shrink-0 w-80 cursor-pointer transition-transform hover:scale-105"
+                        onClick={() => handleAnnouncementClick(announcement)}
+                        onMouseEnter={() => setHoveredAnnouncement(announcement.id)}
+                        onMouseLeave={() => setHoveredAnnouncement(null)}
+                      >
+                        <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
+                          }`}>
+                          {/* Image Area - Top section with proper aspect ratio */}
+                          {announcement.content_image && (
+                            <div className="absolute top-0 left-0 right-0 bottom-0">
+                              <img
+                                src={announcement.content_image}
+                                alt={announcement.title}
+                                className="w-full h-full object-fill"
+                              />
+                              {/* Gradient overlay for text readability */}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+                            </div>
+                          )}
+
+                          {/* Glow Effect */}
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-20 blur-xl"></div>
+
+                          {/* Main Title - Lower position for better image visibility */}
+                          <div className="absolute bottom-16 left-4 right-4 z-10">
+                            <div className="text-white font-bold text-xl leading-tight text-left">
+                              {announcement.title.split('\n').map((line, i) => (
+                                <div key={i}>{line}</div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Month Badge - Bottom Left, Small */}
+                          {announcement.month_title && (
+                            <div className="absolute bottom-3 left-3 bg-red-600 text-white px-3 py-1 rounded-md shadow-lg z-10">
+                              <span className="text-xs font-semibold uppercase">{announcement.month_title}</span>
+                            </div>
+                          )}
+
+                          {/* Click Indicator */}
+                          <div className="absolute bottom-3 right-3 bg-white/20 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs z-10">
+                            Detaylar →
+                          </div>
+                        </div>
+
+                        {/* Card Description */}
+                        <div className="mt-3">
+                          <div className="h-1 w-12 bg-red-600 mb-2"></div>
+                          <h4 className="text-gray-900 font-semibold mb-1 line-clamp-2">{announcement.content_summary || announcement.title}</h4>
+                          <p className="text-gray-600 text-sm">
+                            {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Tümünü Gör Button */}
+              {announcements.length > 3 && (
+                <div className="flex justify-center mt-8">
+                  <button
+                    onClick={handleViewAllAnnouncements}
+                    className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium shadow-lg hover:shadow-xl"
                   >
-                    <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${
-                      isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
-                    }`}>
-                      {/* Image Area - Top section with proper aspect ratio */}
-                      {announcement.content_image && (
-                        <div className="absolute top-0 left-0 right-0 bottom-0">
-                          <img 
-                            src={announcement.content_image} 
-                            alt={announcement.title}
-                            className="w-full h-full object-fill"
-                          />
-                          {/* Gradient overlay for text readability */}
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
-                        </div>
-                      )}
-
-                      {/* Glow Effect */}
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-20 blur-xl"></div>
-
-                      {/* Main Title - Lower position for better image visibility */}
-                      <div className="absolute bottom-16 left-4 right-4 z-10">
-                        <div className="text-white font-bold text-xl leading-tight text-left">
-                          {announcement.title.split('\n').map((line, i) => (
-                            <div key={i}>{line}</div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Month Badge - Bottom Left, Small */}
-                      {announcement.month_title && (
-                        <div className="absolute bottom-3 left-3 bg-red-600 text-white px-3 py-1 rounded-md shadow-lg z-10">
-                          <span className="text-xs font-semibold uppercase">{announcement.month_title}</span>
-                        </div>
-                      )}
-
-                      {/* Click Indicator */}
-                      <div className="absolute bottom-3 right-3 bg-white/20 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs z-10">
-                        Detaylar →
-                      </div>
-                    </div>
-                    
-                    {/* Card Description */}
-                    <div className="mt-3">
-                      <div className="h-1 w-12 bg-red-600 mb-2"></div>
-                      <h4 className="text-gray-900 font-semibold mb-1 line-clamp-2">{announcement.content_summary || announcement.title}</h4>
-                      <p className="text-gray-600 text-sm">
-                        {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
-                      </p>
-                    </div>
-                  </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Tümünü Gör Button */}
-            {announcements.length > 3 && (
-              <div className="flex justify-center mt-8">
-                <button
-                  onClick={handleViewAllAnnouncements}
-                  className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium shadow-lg hover:shadow-xl"
-                >
-                  <Eye className="h-5 w-5" />
-                  Tüm Duyuruları Gör ({announcements.length})
-                </button>
-              </div>
-            )}
+                    <Eye className="h-5 w-5" />
+                    Tüm Duyuruları Gör ({announcements.length})
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <div className="text-center py-12">
@@ -1283,11 +1779,11 @@ export default function PlatformHome() {
 
       {/* Announcement Detail Modal */}
       {showAnnouncementModal && selectedAnnouncement && (
-        <div 
+        <div
           className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
           onClick={() => setShowAnnouncementModal(false)}
         >
-          <div 
+          <div
             className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto animate-fade-in [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-gray-400"
             onClick={(e) => e.stopPropagation()}
             style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent' }}
@@ -1296,8 +1792,8 @@ export default function PlatformHome() {
             <div className="relative">
               {selectedAnnouncement.content_image && (
                 <div className="w-full h-[500px] bg-gradient-to-br from-blue-900 to-blue-800 relative overflow-hidden">
-                  <img 
-                    src={selectedAnnouncement.content_image} 
+                  <img
+                    src={selectedAnnouncement.content_image}
                     alt={selectedAnnouncement.title}
                     className="w-full h-full object-fill"
                   />
@@ -1308,7 +1804,7 @@ export default function PlatformHome() {
                   )}
                 </div>
               )}
-              
+
               {/* Close Button */}
               <button
                 onClick={() => setShowAnnouncementModal(false)}
@@ -1328,10 +1824,10 @@ export default function PlatformHome() {
               {/* Date */}
               <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
                 <Calendar className="h-4 w-4" />
-                <span>{new Date(selectedAnnouncement.creation_date).toLocaleDateString('tr-TR', { 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
+                <span>{new Date(selectedAnnouncement.creation_date).toLocaleDateString('tr-TR', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
                 })}</span>
               </div>
 
@@ -1352,10 +1848,10 @@ export default function PlatformHome() {
                 <div className="mb-4">
                   <h3 className="text-lg font-semibold text-gray-900 mb-3">Detaylı İçerik</h3>
                   <div className="bg-gray-50 p-4 rounded-lg">
-                    <div 
+                    <div
                       className="text-gray-700 leading-relaxed [&>p]:mb-4 [&>p:last-child]:mb-0 [&>p:empty]:min-h-[1em]"
-                      dangerouslySetInnerHTML={{ 
-                        __html: DOMPurify.sanitize(selectedAnnouncement.content_detail) 
+                      dangerouslySetInnerHTML={{
+                        __html: DOMPurify.sanitize(selectedAnnouncement.content_detail)
                       }}
                     />
                   </div>
@@ -1467,11 +1963,11 @@ export default function PlatformHome() {
 
       {/* All Announcements Modal */}
       {showAllAnnouncementsModal && announcements.length > 0 && (
-        <div 
+        <div
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
           onClick={() => setShowAllAnnouncementsModal(false)}
         >
-          <div 
+          <div
             className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] animate-fade-in overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1498,20 +1994,19 @@ export default function PlatformHome() {
                 {announcements.map((announcement) => {
                   const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
                   return (
-                    <div 
-                      key={announcement.id} 
+                    <div
+                      key={announcement.id}
                       className="cursor-pointer transition-transform hover:scale-105"
                       onClick={() => handleAnnouncementClick(announcement)}
                       onMouseEnter={() => setHoveredAnnouncement(announcement.id)}
                       onMouseLeave={() => setHoveredAnnouncement(null)}
                     >
-                      <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${
-                        isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
-                      }`}>
+                      <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
+                        }`}>
                         {announcement.content_image && (
                           <div className="absolute top-0 left-0 right-0 bottom-0">
-                            <img 
-                              src={announcement.content_image} 
+                            <img
+                              src={announcement.content_image}
                               alt={announcement.title}
                               className="w-full h-full object-fill"
                             />
@@ -1566,7 +2061,7 @@ export default function PlatformHome() {
 
       {/* MIRAS Assistant Chatbot */}
       <MirasAssistant />
-      
+
       {/* Feedback Button */}
       <Feedback />
     </div>
