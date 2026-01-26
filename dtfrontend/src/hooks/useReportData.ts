@@ -81,7 +81,7 @@ export function useReportData(reportId: string) {
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<FilterState>({})
   const [queryResults, setQueryResults] = useState<QueryResultState>({})
-  const [dropdownOptions, setDropdownOptions] = useState<{[key: string]: Array<{value: any, label: string}>}>({})
+  const [dropdownOptions, setDropdownOptions] = useState<{ [key: string]: Array<{ value: any, label: string }> }>({})
 
   const currentReportIdRef = useRef<string | null>(null)
   const isLoadingRef = useRef(false)
@@ -129,7 +129,7 @@ export function useReportData(reportId: string) {
     reportId: number,
     customFilters: FilterState,
     page: number = 1,
-    pageSize: number = 10
+    pageSize: number = 200
   ) => {
     try {
       // Update loading state
@@ -300,7 +300,7 @@ export function useReportData(reportId: string) {
             loading: true,
             error: null,
             currentPage: 1,
-            pageSize: 10,
+            pageSize: 200,
             totalPages: 0
           }
         })

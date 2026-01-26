@@ -148,6 +148,7 @@ class Report(PostgreSQLBase):
     direct_link = Column(Text, nullable=True)  # Direct link URL to external report page
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     platform = relationship("Platform", back_populates="reports")  # Platform relationship
