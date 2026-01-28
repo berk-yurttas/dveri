@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     ROMIOT_POSTGRES_DB: str = Field(default_factory=lambda: os.getenv("ROMIOT_POSTGRES_DB", "romiotdb"))
     ROMIOT_POSTGRES_PORT: int = Field(default_factory=lambda: int(os.getenv("ROMIOT_POSTGRES_PORT", "5436")))
 
+    # Otomasyon Database (Port 5412)
+    OTOMASYON_DB_HOST: str = Field(default_factory=lambda: os.getenv("OTOMASYON_DB_HOST", "localhost"))
+    OTOMASYON_DB_PORT: int = Field(default_factory=lambda: int(os.getenv("OTOMASYON_DB_PORT", "5412")))
+    OTOMASYON_DB_NAME: str = Field(default_factory=lambda: os.getenv("OTOMASYON_DB_NAME", "otomasyon_db"))
+    OTOMASYON_DB_USER: str = Field(default_factory=lambda: os.getenv("OTOMASYON_DB_USER", "postgres"))
+    OTOMASYON_DB_PASSWORD: str = Field(default_factory=lambda: os.getenv("OTOMASYON_DB_PASSWORD", "postgres"))
+
     # Security
     SECRET_KEY: str = "secret"
     ALGORITHM: str = "HS256"
