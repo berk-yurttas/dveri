@@ -2,6 +2,7 @@
 export interface ReportPreviewRequest {
   sql_query: string
   limit?: number
+  db_config?: Record<string, any> | null
 }
 
 export interface ReportPreviewResponse {
@@ -143,6 +144,18 @@ export interface QueryConfig {
   filters: FilterConfig[]
 }
 
+export interface DatabaseConfig {
+  name: string
+  db_type: string
+  host: string
+  port: number
+  database: string
+  user: string
+  password: string
+  driver?: string
+  connection_string?: string
+}
+
 export interface ReportConfig {
   name: string
   description: string
@@ -155,6 +168,7 @@ export interface ReportConfig {
   allowedUsers?: string[]
   isDirectLink?: boolean  // If true, report uses direct link instead of queries
   directLink?: string  // Direct link URL to external report page
+  dbConfig?: DatabaseConfig  // Database configuration for this report (selected from platform's db_configs)
 }
 
 // Future report save/load types
@@ -173,6 +187,7 @@ export interface SavedReport extends ReportConfig {
   color?: string  // Color for report card border/theme
   allowedDepartments?: string[]
   allowedUsers?: string[]
+  dbConfig?: DatabaseConfig  // Database configuration for this report
 }
 
 // Report execution types
@@ -222,6 +237,7 @@ export interface ReportDetail {
   queries: QueryDetail[]
   allowedDepartments?: string[]
   allowedUsers?: string[]
+  dbConfig?: DatabaseConfig  // Database configuration for this report
 }
 
 export interface QueryDetail {

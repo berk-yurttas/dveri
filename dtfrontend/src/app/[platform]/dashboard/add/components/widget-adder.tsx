@@ -52,7 +52,8 @@ const platformWidgetMapping: { [key: string]: string[] } = {
     'excel-export-widget',
     'measurement-widget',
     'serialno_comparison',
-    'test_duration_analysis'
+    'test_duration_analysis',
+    'test_plan_version-widget'
   ],
   'ivme': [
     'capacity_analysis-widget',

@@ -121,6 +121,7 @@ interface ReportData {
   color?: string
   allowedDepartments?: string[]
   allowedUsers?: string[]
+  dbConfig?: Record<string, any> | null
 }
 
 interface QueryData {
@@ -2584,7 +2585,7 @@ export default function ReportDetailPage() {
           // Execute the nested query
           const response = await reportsService.previewQuery({
             sql_query: processedQuery,
-            limit: 100
+            db_config: report?.dbConfig || null
           })
           
           return {

@@ -217,6 +217,7 @@ class ReportBase(BaseModel):
     allowed_users: list[str] | None = Field([], alias="allowedUsers", description="List of usernames allowed to view this report")
     is_direct_link: bool | None = Field(False, alias="isDirectLink", description="If true, report uses direct link instead of queries")
     direct_link: str | None = Field(None, alias="directLink", description="Direct link URL to external report page")
+    db_config: dict[str, Any] | None = Field(None, alias="dbConfig", description="Database configuration for this report (selected from platform's db_configs)")
 
     class Config:
         populate_by_name = True  # Allow both field names and aliases
@@ -256,6 +257,7 @@ class ReportUpdate(BaseModel):
     allowed_users: list[str] | None = Field(None, alias="allowedUsers")
     is_direct_link: bool | None = Field(None, alias="isDirectLink")
     direct_link: str | None = Field(None, alias="directLink")
+    db_config: dict[str, Any] | None = Field(None, alias="dbConfig")
 
     class Config:
         populate_by_name = True
@@ -274,6 +276,7 @@ class ReportFullUpdate(BaseModel):
     allowed_users: list[str] | None = Field(None, alias="allowedUsers")
     is_direct_link: bool | None = Field(None, alias="isDirectLink")
     direct_link: str | None = Field(None, alias="directLink")
+    db_config: dict[str, Any] | None = Field(None, alias="dbConfig")
 
     @model_validator(mode='after')
     def validate_queries_and_direct_link(self):
@@ -326,6 +329,7 @@ class ReportList(BaseModel):
     color: str | None = "#3B82F6"
     is_direct_link: bool | None = Field(False, alias="isDirectLink")
     direct_link: str | None = Field(None, alias="directLink")
+    db_config: dict[str, Any] | None = Field(None, alias="dbConfig")
 
     class Config:
         populate_by_name = True

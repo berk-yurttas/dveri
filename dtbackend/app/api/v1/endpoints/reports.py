@@ -58,14 +58,19 @@ async def preview_report_query(
 ):
     """
     Preview the results of a SQL query for report building.
-    Supports multiple database types based on platform configuration.
+    Supports multiple database types based on platform configuration or custom db_config.
     """
     try:
         # Sanitize the SQL query
         sanitized_query = sanitize_sql_query(request.sql_query)
 
-        # Determine database type
-        db_type = platform.db_type.lower() if platform else "clickhouse"
+        # Determine database type - prioritize request's db_config
+        if request.db_config:
+            db_type = request.db_config.get('db_type', 'clickhouse').lower()
+        elif platform:
+            db_type = platform.db_type.lower()
+        else:
+            db_type = "clickhouse"
         print(sanitized_query)
         # Add LIMIT to the query if not present (database-specific)
         if db_type == "mssql":
@@ -96,12 +101,15 @@ async def preview_report_query(
                 data = []
 
         elif db_type == "postgresql":
-            # Use PostgreSQL connection (without RealDictCursor for raw data)
-            if not platform:
-                raise ValueError("Platform required for PostgreSQL queries")
+            # Use PostgreSQL connection - prioritize request's db_config
+            if request.db_config:
+                db_config = request.db_config
+            elif platform:
+                db_config = platform.db_config or {}
+            else:
+                raise ValueError("Database configuration required for PostgreSQL queries")
 
             import psycopg2
-            db_config = platform.db_config or {}
 
             # Create connection without RealDictCursor to get raw tuples
             conn = psycopg2.connect(
@@ -122,11 +130,24 @@ async def preview_report_query(
                 conn.close()
 
         elif db_type == "mssql":
-            # Use MSSQL connection
-            if not platform:
-                raise ValueError("Platform required for MSSQL queries")
-
-            conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+            # Use MSSQL connection - prioritize request's db_config
+            if request.db_config:
+                import pyodbc
+                db_config = request.db_config
+                driver = db_config.get("driver", "{ODBC Driver 17 for SQL Server}")
+                connection_string = (
+                    f"DRIVER={driver};"
+                    f"SERVER={db_config.get('host', 'localhost')},{db_config.get('port', 1433)};"
+                    f"DATABASE={db_config.get('database')};"
+                    f"UID={db_config.get('user')};"
+                    f"PWD={db_config.get('password')}"
+                )
+                conn = pyodbc.connect(connection_string)
+            elif platform:
+                conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+            else:
+                raise ValueError("Database configuration required for MSSQL queries")
+            
             cursor = conn.cursor()
 
             try:
@@ -193,19 +214,34 @@ async def preview_report_query(
 @router.get("/validate-syntax", response_model=SqlValidationResponse)
 async def validate_sql_syntax(
     query: str = Query(..., description="SQL query to validate"),
+    db_config: str | None = Query(None, description="JSON string of database configuration"),
     platform: Platform | None = Depends(get_optional_platform),
     db_client: Client = Depends(get_clickhouse_db)
 ):
     """
     Validate SQL syntax without executing the query.
-    Supports multiple database types based on platform configuration.
+    Supports multiple database types based on platform configuration or custom db_config.
     """
     try:
         # Sanitize the query
         sanitized_query = sanitize_sql_query(query)
 
-        # Determine database type
-        db_type = platform.db_type.lower() if platform else "clickhouse"
+        # Parse db_config if provided
+        import json
+        db_config_dict = None
+        if db_config:
+            try:
+                db_config_dict = json.loads(db_config)
+            except json.JSONDecodeError:
+                raise ValueError("Invalid db_config JSON")
+
+        # Determine database type - prioritize db_config
+        if db_config_dict:
+            db_type = db_config_dict.get('db_type', 'clickhouse').lower()
+        elif platform:
+            db_type = platform.db_type.lower()
+        else:
+            db_type = "clickhouse"
 
         # Use EXPLAIN to validate syntax without executing
         explain_query = f"EXPLAIN {sanitized_query}"
@@ -218,19 +254,23 @@ async def validate_sql_syntax(
             explain_plan = result
 
         elif db_type == "postgresql":
-            if not platform:
-                raise ValueError("Platform required for PostgreSQL queries")
+            # Use PostgreSQL connection - prioritize db_config
+            if db_config_dict:
+                db_config_data = db_config_dict
+            elif platform:
+                db_config_data = platform.db_config or {}
+            else:
+                raise ValueError("Database configuration required for PostgreSQL queries")
 
             import psycopg2
-            db_config = platform.db_config or {}
 
             # Create connection without RealDictCursor to get raw tuples
             conn = psycopg2.connect(
-                host=db_config.get("host", "localhost"),
-                port=int(db_config.get("port", 5432)),
-                database=db_config.get("database"),
-                user=db_config.get("user"),
-                password=db_config.get("password")
+                host=db_config_data.get("host", "localhost"),
+                port=int(db_config_data.get("port", 5432)),
+                database=db_config_data.get("database"),
+                user=db_config_data.get("user"),
+                password=db_config_data.get("password")
             )
             cursor = conn.cursor()
 
@@ -244,10 +284,23 @@ async def validate_sql_syntax(
         elif db_type == "mssql":
             # MSSQL doesn't support EXPLAIN in the same way
             # We can use SET SHOWPLAN_TEXT ON
-            if not platform:
-                raise ValueError("Platform required for MSSQL queries")
-
-            conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+            if db_config_dict:
+                import pyodbc
+                db_config_data = db_config_dict
+                driver = db_config_data.get("driver", "{ODBC Driver 17 for SQL Server}")
+                connection_string = (
+                    f"DRIVER={driver};"
+                    f"SERVER={db_config_data.get('host', 'localhost')},{db_config_data.get('port', 1433)};"
+                    f"DATABASE={db_config_data.get('database')};"
+                    f"UID={db_config_data.get('user')};"
+                    f"PWD={db_config_data.get('password')}"
+                )
+                conn = pyodbc.connect(connection_string)
+            elif platform:
+                conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+            else:
+                raise ValueError("Database configuration required for MSSQL queries")
+            
             cursor = conn.cursor()
 
             try:

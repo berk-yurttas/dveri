@@ -21,6 +21,25 @@ services:
       - sensor_default
     restart: unless-stopped
 
+  # mssql:
+  #   image: mcr.microsoft.com/mssql/server:2022-latest
+  #   env_file:
+  #     - ./etl/.env
+  #   container_name: mssql-server
+  #   ports:
+  #     - "${MSSQL_PORT}:1433"
+  #   environment:
+  #     SA_PASSWORD: ${MSSQL_PASSWORD}
+  #     ACCEPT_EULA: Y
+  #     MSSQL_PID: Express
+  #   volumes:
+  #     - mssql_data:/var/opt/mssql
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U ${MSSQL_USER} -P ${MSSQL_PASSWORD} -C -Q 'SELECT 1'"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
   romiot-postgresql:
     image: postgres:16
     container_name: romiot-postgres-db

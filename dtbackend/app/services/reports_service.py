@@ -84,6 +84,31 @@ class ConnectionPool:
             return DatabaseConnectionFactory
         else:
             raise ValueError(f"Unsupported database type for pooling: {db_type}")
+    
+    def _get_db_connection_from_config(self, db_config: dict[str, Any], db_type: str):
+        """Get a database connection from db_config dict"""
+        if db_type == "postgresql":
+            import psycopg2
+            return psycopg2.connect(
+                host=db_config.get("host", "localhost"),
+                port=int(db_config.get("port", 5432)),
+                database=db_config.get("database"),
+                user=db_config.get("user"),
+                password=db_config.get("password")
+            )
+        elif db_type == "mssql":
+            import pyodbc
+            driver = db_config.get("driver", "{ODBC Driver 17 for SQL Server}")
+            connection_string = (
+                f"DRIVER={driver};"
+                f"SERVER={db_config.get('host', 'localhost')},{db_config.get('port', 1433)};"
+                f"DATABASE={db_config.get('database')};"
+                f"UID={db_config.get('user')};"
+                f"PWD={db_config.get('password')}"
+            )
+            return pyodbc.connect(connection_string)
+        else:
+            raise ValueError(f"Unsupported database type: {db_type}")
 
 
 class ReportsService:
@@ -92,6 +117,31 @@ class ReportsService:
     def __init__(self, db: AsyncSession, clickhouse_client: Client | None = None):
         self.db = db
         self.clickhouse_client = clickhouse_client
+    
+    def _get_db_connection_from_config(self, db_config: dict[str, Any], db_type: str):
+        """Get a database connection from db_config dict"""
+        if db_type == "postgresql":
+            import psycopg2
+            return psycopg2.connect(
+                host=db_config.get("host", "localhost"),
+                port=int(db_config.get("port", 5432)),
+                database=db_config.get("database"),
+                user=db_config.get("user"),
+                password=db_config.get("password")
+            )
+        elif db_type == "mssql":
+            import pyodbc
+            driver = db_config.get("driver", "{ODBC Driver 17 for SQL Server}")
+            connection_string = (
+                f"DRIVER={driver};"
+                f"SERVER={db_config.get('host', 'localhost')},{db_config.get('port', 1433)};"
+                f"DATABASE={db_config.get('database')};"
+                f"UID={db_config.get('user')};"
+                f"PWD={db_config.get('password')}"
+            )
+            return pyodbc.connect(connection_string)
+        else:
+            raise ValueError(f"Unsupported database type: {db_type}")
 
     # Report CRUD Operations
     async def create_report(self, report_data: ReportCreate, user: UserSchema, platform: Platform | None = None) -> Report:
@@ -128,7 +178,8 @@ class ReportsService:
             allowed_departments=report_data.allowed_departments or [],
             allowed_users=report_data.allowed_users or [],
             is_direct_link=report_data.is_direct_link or False,
-            direct_link=report_data.direct_link
+            direct_link=report_data.direct_link,
+            db_config=report_data.db_config
         )
         self.db.add(db_report)
         await self.db.flush()  # Get the report ID
@@ -451,6 +502,8 @@ class ReportsService:
             db_report.is_direct_link = report_data.is_direct_link
         if report_data.direct_link is not None:
             db_report.direct_link = report_data.direct_link
+        if report_data.db_config is not None:
+            db_report.db_config = report_data.db_config
 
         await self.db.commit()
 
@@ -501,6 +554,8 @@ class ReportsService:
             db_report.is_direct_link = report_data.is_direct_link
         if report_data.direct_link is not None:
             db_report.direct_link = report_data.direct_link
+        if report_data.db_config is not None:
+            db_report.db_config = report_data.db_config
 
         # Update global filters if provided
         if report_data.global_filters is not None:
@@ -879,7 +934,7 @@ class ReportsService:
 
         return new_sql
 
-    def execute_query(self, query: ReportQuery, filter_values: list[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Platform | None = None, global_filters: list[dict[str, Any]] = None) -> QueryExecutionResult:
+    def execute_query(self, query: ReportQuery, filter_values: list[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Platform | None = None, global_filters: list[dict[str, Any]] = None, db_config: dict[str, Any] | None = None) -> QueryExecutionResult:
         """Execute a single query with optional filters
 
         Args:
@@ -893,13 +948,16 @@ class ReportsService:
             visualization_type: Type of visualization
             platform: Platform instance for database connection (optional, falls back to clickhouse_client)
             global_filters: Global filters from the report that apply to all queries
+            db_config: Database configuration from report (overrides platform db_config)
         """
         t0 = time.time()
         print(f"\n[PERF] Starting execute_query for query_id={query.id}")
 
-        # Determine database type
+        # Determine database type - prioritize report's db_config
         t1 = time.time()
-        if platform:
+        if db_config:
+            db_type = db_config.get('db_type', 'clickhouse').lower()
+        elif platform:
             db_type = platform.db_type.lower()
         else:
             # Fallback to ClickHouse for backward compatibility
@@ -1008,13 +1066,16 @@ class ReportsService:
                 print(f"[PERF] Process ClickHouse results: {(time.time() - t1) * 1000:.2f}ms")
 
             elif db_type == "postgresql":
-                # Use PostgreSQL connection pool
-                if not platform:
-                    raise ValueError("Platform required for PostgreSQL queries")
-
-                # Get connection from pool
+                # Use PostgreSQL connection - prioritize report's db_config
                 t1 = time.time()
-                conn = self._connection_pool.get_connection(platform, db_type)
+                if db_config:
+                    # Use report's db_config
+                    conn = self._get_db_connection_from_config(db_config, db_type)
+                elif platform:
+                    # Fallback to platform's connection pool
+                    conn = self._connection_pool.get_connection(platform, db_type)
+                else:
+                    raise ValueError("Database configuration required for PostgreSQL queries")
                 cursor = conn.cursor()
                 print(f"[PERF] PostgreSQL get connection: {(time.time() - t1) * 1000:.2f}ms")
 
@@ -1047,16 +1108,22 @@ class ReportsService:
 
                 finally:
                     cursor.close()
-                    # Return connection to pool instead of closing
-                    self._connection_pool.return_connection(platform, db_type, conn)
+                    # Return connection to pool or close if using report's db_config
+                    if db_config:
+                        conn.close()
+                    elif platform:
+                        self._connection_pool.return_connection(platform, db_type, conn)
 
             elif db_type == "mssql":
-                # Use MSSQL connection
-                if not platform:
-                    raise ValueError("Platform required for MSSQL queries")
-
-                # MSSQL uses factory method (no built-in pooling in pyodbc)
-                conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+                # Use MSSQL connection - prioritize report's db_config
+                if db_config:
+                    # Use report's db_config
+                    conn = self._get_db_connection_from_config(db_config, db_type)
+                elif platform:
+                    # Fallback to platform's connection
+                    conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+                else:
+                    raise ValueError("Database configuration required for MSSQL queries")
                 cursor = conn.cursor()
 
                 try:
@@ -1200,11 +1267,14 @@ class ReportsService:
         if not has_access:
             raise ValueError("Report access denied")
 
-        # Get platform for database connection
+        # Get platform for database connection (used as fallback)
         platform = report.platform
+        
+        # Get report's db_config (prioritized over platform's config)
+        report_db_config = report.db_config
 
-        # Verify we have a way to execute queries (either platform or clickhouse_client)
-        if not platform and not self.clickhouse_client:
+        # Verify we have a way to execute queries (report db_config, platform, or clickhouse_client)
+        if not report_db_config and not platform and not self.clickhouse_client:
             raise ValueError("No database connection available for this report")
 
         # Merge global filters with request filters
@@ -1230,7 +1300,8 @@ class ReportsService:
                     request.sort_by, request.sort_direction,
                     query.visualization_config.get('type', 'table'),
                     platform=platform,
-                    global_filters=report.global_filters or []
+                    global_filters=report.global_filters or [],
+                    db_config=report_db_config
                 )
                 results.append(result)
             else:
@@ -1242,7 +1313,8 @@ class ReportsService:
                         request.sort_by, request.sort_direction,
                         query.visualization_config.get('type', 'table'),
                         platform=platform,
-                        global_filters=report.global_filters or []
+                        global_filters=report.global_filters or [],
+                        db_config=report_db_config
                     )
                     results.append(result)
 
@@ -1321,11 +1393,14 @@ class ReportsService:
         if not db_filter.dropdown_query:
             return {"options": [], "total": 0, "page": page, "page_size": page_size, "has_more": False}
 
-        # Get platform from the filter's query's report
+        # Get report's db_config and platform (fallback)
+        report_db_config = db_filter.query.report.db_config if db_filter.query and db_filter.query.report else None
         platform = db_filter.query.report.platform if db_filter.query and db_filter.query.report else None
 
-        # Determine database type
-        if platform:
+        # Determine database type - prioritize report's db_config
+        if report_db_config:
+            db_type = report_db_config.get('db_type', 'clickhouse').lower()
+        elif platform:
             db_type = platform.db_type.lower()
         else:
             db_type = "clickhouse"
@@ -1368,11 +1443,14 @@ class ReportsService:
                 result = self.clickhouse_client.execute(paginated_query)
 
             elif db_type == "postgresql":
-                if not platform:
-                    raise ValueError("Platform required for PostgreSQL queries")
-
-                # Get connection from pool
-                conn = self._connection_pool.get_connection(platform, db_type)
+                # Use report's db_config or fallback to platform
+                if report_db_config:
+                    conn = self._get_db_connection_from_config(report_db_config, db_type)
+                elif platform:
+                    conn = self._connection_pool.get_connection(platform, db_type)
+                else:
+                    raise ValueError("Database configuration required for PostgreSQL queries")
+                
                 cursor = conn.cursor()
                 try:
                     # Get total count
@@ -1384,12 +1462,21 @@ class ReportsService:
                     result = cursor.fetchall()
                 finally:
                     cursor.close()
-                    self._connection_pool.return_connection(platform, db_type, conn)
+                    # Close or return to pool based on connection source
+                    if report_db_config:
+                        conn.close()
+                    elif platform:
+                        self._connection_pool.return_connection(platform, db_type, conn)
 
             elif db_type == "mssql":
-                if not platform:
-                    raise ValueError("Platform required for MSSQL queries")
-                conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+                # Use report's db_config or fallback to platform
+                if report_db_config:
+                    conn = self._get_db_connection_from_config(report_db_config, db_type)
+                elif platform:
+                    conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+                else:
+                    raise ValueError("Database configuration required for MSSQL queries")
+                
                 cursor = conn.cursor()
                 try:
                     # Get total count

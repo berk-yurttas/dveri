@@ -10,6 +10,7 @@ class WidgetQueryRequest(BaseModel):
 class ReportPreviewRequest(BaseModel):
     sql_query: str
     limit: int | None = 100
+    db_config: dict[str, Any] | None = None  # Optional database configuration to use instead of platform's default
 
 class ReportPreviewResponse(BaseModel):
     columns: list[str]
