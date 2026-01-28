@@ -199,32 +199,34 @@ export default function ReportDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<FilterState>({})
   const [queryResults, setQueryResults] = useState<QueryResultState>({})
-  const [openPopovers, setOpenPopovers] = useState<{[key: string]: boolean}>({})
-  const [dropdownOptions, setDropdownOptions] = useState<{[key: string]: {
-    options: Array<{value: any, label: string}>,
-    page: number,
-    hasMore: boolean,
-    total: number,
-    loading: boolean
-  }}>({})
-  const [searchTerms, setSearchTerms] = useState<{[key: string]: string}>({})
-  const [dropdownOpen, setDropdownOpen] = useState<{[key: string]: boolean}>({})
+  const [openPopovers, setOpenPopovers] = useState<{ [key: string]: boolean }>({})
+  const [dropdownOptions, setDropdownOptions] = useState<{
+    [key: string]: {
+      options: Array<{ value: any, label: string }>,
+      page: number,
+      hasMore: boolean,
+      total: number,
+      loading: boolean
+    }
+  }>({})
+  const [searchTerms, setSearchTerms] = useState<{ [key: string]: string }>({})
+  const [dropdownOpen, setDropdownOpen] = useState<{ [key: string]: boolean }>({})
   const [isExporting, setIsExporting] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSettingsDropdownOpen, setIsSettingsDropdownOpen] = useState(false)
-  const [sorting, setSorting] = useState<{[queryId: number]: {column: string, direction: 'asc' | 'desc'} | null}>({})
-  const [expandedRows, setExpandedRows] = useState<{[key: string]: boolean}>({})
-  const [nestedData, setNestedData] = useState<{[key: string]: {columns: string[], data: any[], loading: boolean, nestedQueries?: any[], filters?: any[]}}>({})
-  const [nestedFilters, setNestedFilters] = useState<{[key: string]: any}>({})
-  const [nestedFilterPopovers, setNestedFilterPopovers] = useState<{[key: string]: boolean}>({})
+  const [sorting, setSorting] = useState<{ [queryId: number]: { column: string, direction: 'asc' | 'desc' } | null }>({})
+  const [expandedRows, setExpandedRows] = useState<{ [key: string]: boolean }>({})
+  const [nestedData, setNestedData] = useState<{ [key: string]: { columns: string[], data: any[], loading: boolean, nestedQueries?: any[], filters?: any[] } }>({})
+  const [nestedFilters, setNestedFilters] = useState<{ [key: string]: any }>({})
+  const [nestedFilterPopovers, setNestedFilterPopovers] = useState<{ [key: string]: boolean }>({})
   const [fullscreenQuery, setFullscreenQuery] = useState<QueryData | null>(null)
   const [isMounted, setIsMounted] = useState(false)
-  const [nestedFilterPositions, setNestedFilterPositions] = useState<{[key: string]: { top: number, left: number } }>({})
-  const [nestedSorting, setNestedSorting] = useState<{[rowKey: string]: {column: string, direction: 'asc' | 'desc'} | null}>({})
-  const [nestedPagination, setNestedPagination] = useState<{[rowKey: string]: {currentPage: number, pageSize: number}}>({})
-  const [filterOperators, setFilterOperators] = useState<{[key: string]: string}>({})
-  const [operatorMenuOpen, setOperatorMenuOpen] = useState<{[key: string]: boolean}>({})
+  const [nestedFilterPositions, setNestedFilterPositions] = useState<{ [key: string]: { top: number, left: number } }>({})
+  const [nestedSorting, setNestedSorting] = useState<{ [rowKey: string]: { column: string, direction: 'asc' | 'desc' } | null }>({})
+  const [nestedPagination, setNestedPagination] = useState<{ [rowKey: string]: { currentPage: number, pageSize: number } }>({})
+  const [filterOperators, setFilterOperators] = useState<{ [key: string]: string }>({})
+  const [operatorMenuOpen, setOperatorMenuOpen] = useState<{ [key: string]: boolean }>({})
   const [isLayoutEditMode, setIsLayoutEditMode] = useState(false)
   const [gridLayout, setGridLayout] = useState<GridLayout[]>([])
   const [isSavingLayout, setIsSavingLayout] = useState(false)
@@ -233,7 +235,7 @@ export default function ReportDetailPage() {
   const [authorizedUsers, setAuthorizedUsers] = useState<string[]>([])
 
   // Debounce timeout refs for each filter
-  const debounceTimeouts = useRef<{[key: string]: NodeJS.Timeout}>({})
+  const debounceTimeouts = useRef<{ [key: string]: NodeJS.Timeout }>({})
 
   // Ref to track current reportId to prevent multiple loads
   const currentReportIdRef = useRef<string | null>(null)
@@ -304,7 +306,7 @@ export default function ReportDetailPage() {
     try {
       setAuthorizedDepartments(departments)
       setAuthorizedUsers(users)
-      
+
       await reportsService.updateReport(reportId, {
         allowedDepartments: departments,
         allowedUsers: users
@@ -541,7 +543,7 @@ export default function ReportDetailPage() {
   }
 
   // Execute a single query with custom filters and sorting
-  const executeQueryWithSorting = async (query: QueryData, reportId: number, customFilters: FilterState, page: number = 1, pageSize: number = 10, sortConfig?: {column: string, direction: 'asc' | 'desc'}) => {
+  const executeQueryWithSorting = async (query: QueryData, reportId: number, customFilters: FilterState, page: number = 1, pageSize: number = 200, sortConfig?: { column: string, direction: 'asc' | 'desc' }) => {
     try {
       // Update loading state
       setQueryResults(prev => ({
@@ -619,11 +621,11 @@ export default function ReportDetailPage() {
             const endKey = `${query.id}_${filter.fieldName}_end`
             const startValue = customFilters[startKey]
             const endValue = customFilters[endKey]
-            
+
             console.log(`Date filter debug: ${filter.fieldName}`)
             console.log(`  Start key: ${startKey} = ${startValue}`)
             console.log(`  End key: ${endKey} = ${endValue}`)
-            
+
             if (startValue && endValue) {
               // Both start and end dates provided - use BETWEEN
               console.log(`Creating BETWEEN filter: [${startValue}, ${endValue}]`)
@@ -651,7 +653,7 @@ export default function ReportDetailPage() {
           } else {
             const key = `${query.id}_${filter.fieldName}`
             const value = customFilters[key]
-            
+
             if (filter.type === 'multiselect') {
               // For multiselect, value should be an array
               if (Array.isArray(value) && value.length > 0) {
@@ -736,7 +738,7 @@ export default function ReportDetailPage() {
   }
 
   // Execute a single query with custom filters
-  const executeQueryWithFilters = async (query: QueryData, reportId: number, customFilters: FilterState, page: number = 1, pageSize: number = 10) => {
+  const executeQueryWithFilters = async (query: QueryData, reportId: number, customFilters: FilterState, page: number = 1, pageSize: number = 200) => {
     try {
       // Update loading state
       setQueryResults(prev => ({
@@ -814,11 +816,11 @@ export default function ReportDetailPage() {
             const endKey = `${query.id}_${filter.fieldName}_end`
             const startValue = customFilters[startKey]
             const endValue = customFilters[endKey]
-            
+
             console.log(`Date filter debug: ${filter.fieldName}`)
             console.log(`  Start key: ${startKey} = ${startValue}`)
             console.log(`  End key: ${endKey} = ${endValue}`)
-            
+
             if (startValue && endValue) {
               // Both start and end dates provided - use BETWEEN
               console.log(`Creating BETWEEN filter: [${startValue}, ${endValue}]`)
@@ -846,7 +848,7 @@ export default function ReportDetailPage() {
           } else {
             const key = `${query.id}_${filter.fieldName}`
             const value = customFilters[key]
-            
+
             if (filter.type === 'multiselect') {
               // For multiselect, value should be an array
               if (Array.isArray(value) && value.length > 0) {
@@ -1044,10 +1046,10 @@ export default function ReportDetailPage() {
 
         // Initialize authorized departments and users
         if (reportData.allowedDepartments) {
-            setAuthorizedDepartments(reportData.allowedDepartments)
+          setAuthorizedDepartments(reportData.allowedDepartments)
         }
         if (reportData.allowedUsers) {
-            setAuthorizedUsers(reportData.allowedUsers)
+          setAuthorizedUsers(reportData.allowedUsers)
         }
 
         // Initialize filter state and load dropdown options
@@ -1110,7 +1112,7 @@ export default function ReportDetailPage() {
             loading: true,
             error: null,
             currentPage: 1,
-            pageSize: 10,
+            pageSize: 200,
             totalPages: 0
           }
         })
@@ -1367,13 +1369,13 @@ export default function ReportDetailPage() {
   // Pagination handlers
   const handlePageChange = async (query: QueryData, newPage: number) => {
     if (!report) return
-    
+
     const queryState = queryResults[query.id]
     if (!queryState) return
-    
+
     // Get current sorting state for this query
     const currentSort = sorting[query.id]
-    
+
     if (currentSort) {
       // Use sorting function to preserve sort order
       await executeQueryWithSorting(query, report.id, filters, newPage, queryState.pageSize, currentSort)
@@ -1385,10 +1387,10 @@ export default function ReportDetailPage() {
 
   const handlePageSizeChange = async (query: QueryData, newPageSize: number) => {
     if (!report) return
-    
+
     // Get current sorting state for this query
     const currentSort = sorting[query.id]
-    
+
     if (currentSort) {
       // Use sorting function to preserve sort order
       await executeQueryWithSorting(query, report.id, filters, 1, newPageSize, currentSort)
@@ -1689,18 +1691,18 @@ export default function ReportDetailPage() {
 
         } else {
           // For chart visualizations, add data and chart image
-          
+
           // Add title
           worksheet.addRow([query.visualization.title || query.name])
           worksheet.getRow(1).font = { bold: true, size: 16 }
           worksheet.addRow([]) // Empty row
-          
+
           // Add data
           worksheet.addRow(columns)
           data.forEach(row => {
             worksheet.addRow(row)
           })
-          
+
           // Style the header row
           const headerRow = worksheet.getRow(3)
           headerRow.font = { bold: true }
@@ -1709,7 +1711,7 @@ export default function ReportDetailPage() {
             pattern: 'solid',
             fgColor: { argb: 'FFE6F3FF' }
           }
-          
+
           // Auto-size columns
           columns.forEach((col, index) => {
             const column = worksheet.getColumn(index + 1)
@@ -1719,7 +1721,7 @@ export default function ReportDetailPage() {
             )
             column.width = Math.min(maxLength + 2, 30)
           })
-          
+
           // Capture and add chart image
           const chartImageBase64 = await captureChartAsImage(query.id)
           if (chartImageBase64) {
@@ -1728,11 +1730,11 @@ export default function ReportDetailPage() {
                 base64: chartImageBase64,
                 extension: 'png',
               })
-              
+
               // Position the image to the right of the data or below it
               const dataEndRow = data.length + 3
               const imageStartCol = Math.max(columns.length + 2, 5) // Start after data columns
-              
+
               worksheet.addImage(imageId, {
                 tl: { col: imageStartCol, row: 3 }, // Top-left position
                 ext: { width: 1200, height: 400 }, // Size
@@ -1743,15 +1745,15 @@ export default function ReportDetailPage() {
           }
         }
       }
-      
+
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-')
       const filename = `${report.name.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}.xlsx`
-      
+
       // Export to file
       const buffer = await workbook.xlsx.writeBuffer()
       saveAs(new Blob([buffer]), filename)
-      
+
     } catch (error) {
       console.error('Excel export error:', error)
       alert('Excel dosyası oluşturulurken hata oluştu.')
@@ -2054,321 +2056,169 @@ export default function ReportDetailPage() {
             {query.filters.map((filter) => (
               <div key={filter.id} className={`flex-shrink-0 ${filter.type === 'date' ? 'w-64' : 'w-36'}`}>
                 <label className="block text-[9px] font-medium text-gray-600 mb-0.5">{filter.displayName}</label>
-              {filter.type === 'date' ? (
-                <div className="relative flex items-center gap-0.5 w-full">
-                  <input
-                    type="date"
-                    value={filters[`${query.id}_${filter.fieldName}_start`] || ''}
-                    onChange={(e) => {
-                      const newValue = e.target.value
-                      handleFilterChange(query.id, `${filter.fieldName}_start`, newValue)
-                    }}
-                    onClick={(e) => {
-                      e.currentTarget.showPicker?.()
-                    }}
-                    className="flex-1 px-1.5 py-0.5 pr-5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
-                    title="Başlangıç"
-                  />
-                  <span className="text-gray-500 text-[10px]">-</span>
-                  <input
-                    type="date"
-                    value={filters[`${query.id}_${filter.fieldName}_end`] || ''}
-                    onChange={(e) => {
-                      const newValue = e.target.value
-                      handleFilterChange(query.id, `${filter.fieldName}_end`, newValue)
-                    }}
-                    onClick={(e) => {
-                      e.currentTarget.showPicker?.()
-                    }}
-                    className="flex-1 px-1.5 py-0.5 pr-4 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
-                    title="Bitiş"
-                  />
-                  {(filters[`${query.id}_${filter.fieldName}_start`] || filters[`${query.id}_${filter.fieldName}_end`]) && (
-                    <button
-                      onClick={() => {
-                        handleFilterChange(query.id, `${filter.fieldName}_start`, '')
-                        handleFilterChange(query.id, `${filter.fieldName}_end`, '')
+                {filter.type === 'date' ? (
+                  <div className="relative flex items-center gap-0.5 w-full">
+                    <input
+                      type="date"
+                      value={filters[`${query.id}_${filter.fieldName}_start`] || ''}
+                      onChange={(e) => {
+                        const newValue = e.target.value
+                        handleFilterChange(query.id, `${filter.fieldName}_start`, newValue)
                       }}
-                      className="absolute right-0.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded z-10"
-                      title="Temizle"
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  )}
-                </div>
-              ) : filter.type === 'dropdown' ? (
-                (() => {
-                  const filterKey = `${query.id}_${filter.fieldName}`
-                  const searchTerm = searchTerms[filterKey] || ''
-                  const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
-                  const options = dropdownData.options
-                  const selectedValue = filters[filterKey] || ''
-                  const selectedLabel = options.find(opt => opt.value === selectedValue)?.label || ''
-                  const isOpen = dropdownOpen[filterKey] || false
-
-                  // Check if this filter is disabled due to missing parent value
-                  const isParentMissing = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
-
-                  return (
-                    <div className="relative filter-dropdown-container">
-                      {isParentMissing && (
-                        <div className="absolute -top-4 left-0 text-[9px] text-amber-600">
-                          Üst filtre seçilmedi
-                        </div>
-                      )}
+                      onClick={(e) => {
+                        e.currentTarget.showPicker?.()
+                      }}
+                      className="flex-1 px-1.5 py-0.5 pr-5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                      title="Başlangıç"
+                    />
+                    <span className="text-gray-500 text-[10px]">-</span>
+                    <input
+                      type="date"
+                      value={filters[`${query.id}_${filter.fieldName}_end`] || ''}
+                      onChange={(e) => {
+                        const newValue = e.target.value
+                        handleFilterChange(query.id, `${filter.fieldName}_end`, newValue)
+                      }}
+                      onClick={(e) => {
+                        e.currentTarget.showPicker?.()
+                      }}
+                      className="flex-1 px-1.5 py-0.5 pr-4 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                      title="Bitiş"
+                    />
+                    {(filters[`${query.id}_${filter.fieldName}_start`] || filters[`${query.id}_${filter.fieldName}_end`]) && (
                       <button
-                        type="button"
-                        onClick={async (e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          setOperatorMenuOpen({})
-
-                          // Check if opening or closing
-                          const willBeOpen = !dropdownOpen[filterKey]
-
-                          if (!willBeOpen) {
-                            // Closing - just close it
-                            setDropdownOpen(prev => ({ ...prev, [filterKey]: false }))
-                            return
-                          }
-
-                          // Opening - reload options
-                          setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
-                          setDropdownOpen(prev => ({ ...prev, [filterKey]: true }))
-
-                          // Force reload by calling loadDropdownOptions
-                          if (filter.type === 'dropdown' || filter.type === 'multiselect') {
-                            await loadDropdownOptions(query, filter, filters, 1, '', false)
-                          }
+                        onClick={() => {
+                          handleFilterChange(query.id, `${filter.fieldName}_start`, '')
+                          handleFilterChange(query.id, `${filter.fieldName}_end`, '')
                         }}
-                        className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${
-                          'hover:bg-gray-50'
-                        }`}
+                        className="absolute right-0.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded z-10"
+                        title="Temizle"
                       >
-                        <span className={`truncate ${selectedValue ? 'text-gray-900' : 'text-gray-500'}`}>
-                          {selectedValue ? selectedLabel : 'Seçin'}
-                        </span>
+                        <X className="h-2.5 w-2.5" />
                       </button>
-                      {selectedValue && (
+                    )}
+                  </div>
+                ) : filter.type === 'dropdown' ? (
+                  (() => {
+                    const filterKey = `${query.id}_${filter.fieldName}`
+                    const searchTerm = searchTerms[filterKey] || ''
+                    const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
+                    const options = dropdownData.options
+                    const selectedValue = filters[filterKey] || ''
+                    const selectedLabel = options.find(opt => opt.value === selectedValue)?.label || ''
+                    const isOpen = dropdownOpen[filterKey] || false
+
+                    // Check if this filter is disabled due to missing parent value
+                    const isParentMissing = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
+
+                    return (
+                      <div className="relative filter-dropdown-container">
+                        {isParentMissing && (
+                          <div className="absolute -top-4 left-0 text-[9px] text-amber-600">
+                            Üst filtre seçilmedi
+                          </div>
+                        )}
                         <button
+                          type="button"
                           onClick={async (e) => {
+                            e.preventDefault()
                             e.stopPropagation()
-                            handleFilterChange(query.id, filter.fieldName, '')
+                            setOperatorMenuOpen({})
 
-                            // Clear search and reload all options
-                            setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
-                            await loadDropdownOptions(query, filter, filters, 1, '', false)
+                            // Check if opening or closing
+                            const willBeOpen = !dropdownOpen[filterKey]
 
-                            // Clear and reload dependent filters
-                            const newFilters = {
-                              ...filters,
-                              [`${query.id}_${filter.fieldName}`]: ''
+                            if (!willBeOpen) {
+                              // Closing - just close it
+                              setDropdownOpen(prev => ({ ...prev, [filterKey]: false }))
+                              return
                             }
 
-                            query.filters.forEach(f => {
-                              if (f.dependsOn === filter.fieldName) {
-                                // Clear dependent filter value and options
-                                handleFilterChange(query.id, f.fieldName, f.type === 'multiselect' ? [] : '')
-                                setDropdownOptions(prev => ({
-                                  ...prev,
-                                  [`${query.id}_${f.fieldName}`]: { options: [], page: 1, hasMore: false, total: 0, loading: false }
-                                }))
-                              }
-                            })
+                            // Opening - reload options
+                            setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                            setDropdownOpen(prev => ({ ...prev, [filterKey]: true }))
+
+                            // Force reload by calling loadDropdownOptions
+                            if (filter.type === 'dropdown' || filter.type === 'multiselect') {
+                              await loadDropdownOptions(query, filter, filters, 1, '', false)
+                            }
                           }}
-                          className="absolute right-5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
+                          className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${'hover:bg-gray-50'
+                            }`}
                         >
-                          <X className="h-2.5 w-2.5" />
+                          <span className={`truncate ${selectedValue ? 'text-gray-900' : 'text-gray-500'}`}>
+                            {selectedValue ? selectedLabel : 'Seçin'}
+                          </span>
                         </button>
-                      )}
-                      <ChevronDown className="h-2.5 w-2.5 text-gray-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      {isOpen && (
-                        <div className="dropdown-menu absolute z-50 w-full mt-0.5 bg-white border border-gray-300 rounded shadow-lg">
-                          <div className="p-1 border-b border-gray-200">
-                            <div className="relative">
-                              <Search className="absolute left-1.5 top-1 h-2.5 w-2.5 text-gray-400" />
-                              <input
-                                type="text"
-                                value={searchTerm}
-                                onChange={(e) => {
-                                  const newSearch = e.target.value
-                                  setSearchTerms(prev => ({ ...prev, [filterKey]: newSearch }))
-                                  handleSearchOptions(filterKey, newSearch)
-                                }}
-                                placeholder="Ara..."
-                                className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            </div>
-                          </div>
-                          <div className="max-h-40 overflow-y-auto">
-                            {options.length === 0 ? (
-                              <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
-                            ) : (
-                              options.map((option, index) => (
-                                <div
-                                  key={`${filterKey}_${option.value}_${index}`}
-                                  onClick={() => {
-                                    const newValue = option.value
-                                    handleFilterChange(query.id, filter.fieldName, newValue)
-                                    setDropdownOpen(prev => ({ ...prev, [filterKey]: false }))
-                                    setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                        {selectedValue && (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              handleFilterChange(query.id, filter.fieldName, '')
 
-                                    // Reload dependent filters
-                                    const newFilters = {
-                                      ...filters,
-                                      [`${query.id}_${filter.fieldName}`]: newValue
-                                    }
+                              // Clear search and reload all options
+                              setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                              await loadDropdownOptions(query, filter, filters, 1, '', false)
 
-                                    query.filters.forEach(f => {
-                                      if (f.dependsOn === filter.fieldName) {
-                                        // Clear dependent filter value and reload its options
-                                        handleFilterChange(query.id, f.fieldName, f.type === 'multiselect' ? [] : '')
-                                        loadDropdownOptions(query, f, newFilters)
-                                      }
-                                    })
+                              // Clear and reload dependent filters
+                              const newFilters = {
+                                ...filters,
+                                [`${query.id}_${filter.fieldName}`]: ''
+                              }
+
+                              query.filters.forEach(f => {
+                                if (f.dependsOn === filter.fieldName) {
+                                  // Clear dependent filter value and options
+                                  handleFilterChange(query.id, f.fieldName, f.type === 'multiselect' ? [] : '')
+                                  setDropdownOptions(prev => ({
+                                    ...prev,
+                                    [`${query.id}_${f.fieldName}`]: { options: [], page: 1, hasMore: false, total: 0, loading: false }
+                                  }))
+                                }
+                              })
+                            }}
+                            className="absolute right-5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        )}
+                        <ChevronDown className="h-2.5 w-2.5 text-gray-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        {isOpen && (
+                          <div className="dropdown-menu absolute z-50 w-full mt-0.5 bg-white border border-gray-300 rounded shadow-lg">
+                            <div className="p-1 border-b border-gray-200">
+                              <div className="relative">
+                                <Search className="absolute left-1.5 top-1 h-2.5 w-2.5 text-gray-400" />
+                                <input
+                                  type="text"
+                                  value={searchTerm}
+                                  onChange={(e) => {
+                                    const newSearch = e.target.value
+                                    setSearchTerms(prev => ({ ...prev, [filterKey]: newSearch }))
+                                    handleSearchOptions(filterKey, newSearch)
                                   }}
-                                  className={`px-2 py-1 text-[10px] cursor-pointer hover:bg-orange-50 ${
-                                    option.value === selectedValue ? 'bg-orange-100 font-medium' : 'text-gray-900'
-                                  }`}
-                                >
-                                  {option.label}
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()
-              ) : filter.type === 'multiselect' ? (
-                (() => {
-                  const filterKey = `${query.id}_${filter.fieldName}`
-                  const searchTerm = searchTerms[filterKey] || ''
-                  const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
-                  const options = dropdownData.options
-                  const currentValues = Array.isArray(filters[filterKey]) ? filters[filterKey] : []
-                  const isOpen = dropdownOpen[filterKey] || false
-                  const selectedCount = currentValues.length
-
-                  // Check if this filter is disabled due to missing parent value
-                  const isParentMissing = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
-
-                  return (
-                    <div className="relative filter-dropdown-container">
-                      {isParentMissing && (
-                        <div className="absolute -top-4 left-0 text-[9px] text-amber-600">
-                          Üst filtre seçilmedi
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={async (e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          setOperatorMenuOpen({})
-
-                          // Check if opening or closing
-                          const willBeOpen = !dropdownOpen[filterKey]
-
-                          if (!willBeOpen) {
-                            // Closing - just close it
-                            setDropdownOpen(prev => ({ ...prev, [filterKey]: false }))
-                            return
-                          }
-
-                          // Opening - reload options
-                          setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
-                          setDropdownOpen(prev => ({ ...prev, [filterKey]: true }))
-
-                          // Force reload by calling loadDropdownOptions
-                          if (filter.type === 'dropdown' || filter.type === 'multiselect') {
-                            await loadDropdownOptions(query, filter, filters, 1, '', false)
-                          }
-                        }}
-                        className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${
-                          'hover:bg-gray-50'
-                        }`}
-                      >
-                        <span className={`truncate ${selectedCount > 0 ? 'text-gray-900' : 'text-gray-500'}`}>
-                          {selectedCount > 0 ? `${selectedCount} seçildi` : 'Seçin'}
-                        </span>
-                      </button>
-                      {selectedCount > 0 && (
-                        <button
-                          onClick={async (e) => {
-                            e.stopPropagation()
-                            handleFilterChange(query.id, filter.fieldName, [])
-
-                            // Clear search and reload all options
-                            setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
-                            await loadDropdownOptions(query, filter, filters, 1, '', false)
-
-                            // Clear and reload dependent filters
-                            const newFilters = {
-                              ...filters,
-                              [`${query.id}_${filter.fieldName}`]: []
-                            }
-
-                            query.filters.forEach(f => {
-                              if (f.dependsOn === filter.fieldName) {
-                                // Clear dependent filter value and options
-                                handleFilterChange(query.id, f.fieldName, f.type === 'multiselect' ? [] : '')
-                                setDropdownOptions(prev => ({
-                                  ...prev,
-                                  [`${query.id}_${f.fieldName}`]: { options: [], page: 1, hasMore: false, total: 0, loading: false }
-                                }))
-                              }
-                            })
-                          }}
-                          className="absolute right-5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
-                        >
-                          <X className="h-2.5 w-2.5" />
-                        </button>
-                      )}
-                      <ChevronDown className="h-2.5 w-2.5 text-gray-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      {isOpen && (
-                        <div className="dropdown-menu absolute z-50 w-full mt-0.5 bg-white border border-gray-300 rounded shadow-lg">
-                          <div className="p-1 border-b border-gray-200">
-                            <div className="relative">
-                              <Search className="absolute left-1.5 top-1 h-2.5 w-2.5 text-gray-400" />
-                              <input
-                                type="text"
-                                value={searchTerm}
-                                onChange={(e) => {
-                                  const newSearch = e.target.value
-                                  setSearchTerms(prev => ({ ...prev, [filterKey]: newSearch }))
-                                  handleSearchOptions(filterKey, newSearch)
-                                }}
-                                placeholder="Ara..."
-                                className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
-                                onClick={(e) => e.stopPropagation()}
-                              />
+                                  placeholder="Ara..."
+                                  className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
                             </div>
-                          </div>
-                          <div className="max-h-40 overflow-y-auto">
-                            {options.length === 0 ? (
-                              <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
-                            ) : (
-                              options.map((option, index) => {
-                                const isChecked = currentValues.includes(option.value)
-                                return (
+                            <div className="max-h-40 overflow-y-auto">
+                              {options.length === 0 ? (
+                                <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
+                              ) : (
+                                options.map((option, index) => (
                                   <div
                                     key={`${filterKey}_${option.value}_${index}`}
                                     onClick={() => {
-                                      let newValues
-                                      if (isChecked) {
-                                        newValues = currentValues.filter((v: any) => v !== option.value)
-                                      } else {
-                                        newValues = [...currentValues, option.value]
-                                      }
-                                      handleFilterChange(query.id, filter.fieldName, newValues)
+                                      const newValue = option.value
+                                      handleFilterChange(query.id, filter.fieldName, newValue)
+                                      setDropdownOpen(prev => ({ ...prev, [filterKey]: false }))
+                                      setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
 
                                       // Reload dependent filters
                                       const newFilters = {
                                         ...filters,
-                                        [`${query.id}_${filter.fieldName}`]: newValues
+                                        [`${query.id}_${filter.fieldName}`]: newValue
                                       }
 
                                       query.filters.forEach(f => {
@@ -2379,109 +2229,257 @@ export default function ReportDetailPage() {
                                         }
                                       })
                                     }}
-                                    className="px-2 py-1 text-[10px] cursor-pointer hover:bg-orange-50 flex items-center space-x-1"
+                                    className={`px-2 py-1 text-[10px] cursor-pointer hover:bg-orange-50 ${option.value === selectedValue ? 'bg-orange-100 font-medium' : 'text-gray-900'
+                                      }`}
                                   >
-                                    <input
-                                      type="checkbox"
-                                      checked={isChecked}
-                                      onChange={() => {}}
-                                      className="h-2.5 w-2.5 text-orange-600 focus:ring-orange-500 border-gray-300 rounded pointer-events-none"
-                                    />
-                                    <span>{option.label}</span>
+                                    {option.label}
                                   </div>
-                                )
-                              })
-                            )}
+                                ))
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()
-              ) : (
-                (() => {
-                  const filterKey = `${query.id}_${filter.fieldName}`
-                  const operatorKey = `${filterKey}_operator`
-                  const isNumberType = filter.type === 'number'
-                  const availableOperators = isNumberType ? NUMBER_FILTER_OPERATORS : TEXT_FILTER_OPERATORS
-                  const defaultOperator = isNumberType ? '=' : 'CONTAINS'
-                  const currentOperator = filters[operatorKey] || defaultOperator
-                  const operatorMenuKey = `${filterKey}_opMenu`
-                  const isMenuOpen = operatorMenuOpen[operatorMenuKey] || false
-                  const currentOperatorObj = availableOperators.find(op => op.value === currentOperator)
-                  const currentOperatorIcon = currentOperatorObj?.icon || (isNumberType ? '=' : '⊃')
-
-                  return (
-                    <div className="relative filter-dropdown-container">
-                      <div className="relative">
-                        <input
-                          type={isNumberType ? 'number' : 'text'}
-                          value={filters[filterKey] || ''}
-                          onChange={(e) => {
-                            const newValue = e.target.value
-                            handleFilterChange(query.id, filter.fieldName, newValue)
-                          }}
-                          className="w-full h-[20px] px-7 py-1 pr-6 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent text-xs"
-                          placeholder="Filtrele"
-                        />
-                        {/* Operator Icon Button on Input */}
-                        <button
-                          type="button"
-                          onClick={() => setOperatorMenuOpen(prev => ({ ...prev, [operatorMenuKey]: !prev[operatorMenuKey] }))}
-                          className="absolute left-1 top-1/2 -translate-y-1/2 p-0.5 text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded"
-                          title="Filtre koşulu"
-                        >
-                          <span className="text-sm font-semibold">{currentOperatorIcon}</span>
-                        </button>
-                        {/* Clear Button */}
-                        {filters[filterKey] && (
-                          <button
-                            onClick={() => handleFilterChange(query.id, filter.fieldName, '')}
-                            className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
                         )}
                       </div>
+                    )
+                  })()
+                ) : filter.type === 'multiselect' ? (
+                  (() => {
+                    const filterKey = `${query.id}_${filter.fieldName}`
+                    const searchTerm = searchTerms[filterKey] || ''
+                    const dropdownData = dropdownOptions[filterKey] || { options: [], page: 1, hasMore: false, total: 0, loading: false }
+                    const options = dropdownData.options
+                    const currentValues = Array.isArray(filters[filterKey]) ? filters[filterKey] : []
+                    const isOpen = dropdownOpen[filterKey] || false
+                    const selectedCount = currentValues.length
 
-                      {/* Operator Menu Dropdown */}
-                      {isMenuOpen && (
-                        <div className="absolute z-50 mt-1 bg-white border border-gray-300 rounded shadow-lg left-0 min-w-[180px]">
-                          <div className="py-1">
-                            {availableOperators.map((op) => (
-                              <div
-                                key={op.value}
-                                onClick={() => {
-                                  handleFilterChange(query.id, `${filter.fieldName}_operator`, op.value)
-                                  setOperatorMenuOpen(prev => ({ ...prev, [operatorMenuKey]: false }))
-                                }}
-                                className={`px-3 py-2 text-xs cursor-pointer hover:bg-gray-100 flex items-center gap-2 ${
-                                  op.value === currentOperator ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-900'
-                                }`}
-                              >
-                                <span className="text-sm font-semibold w-5">{op.icon}</span>
-                                <span>{op.label}</span>
+                    // Check if this filter is disabled due to missing parent value
+                    const isParentMissing = filter.dependsOn && !filters[`${query.id}_${filter.dependsOn}`]
+
+                    return (
+                      <div className="relative filter-dropdown-container">
+                        {isParentMissing && (
+                          <div className="absolute -top-4 left-0 text-[9px] text-amber-600">
+                            Üst filtre seçilmedi
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setOperatorMenuOpen({})
+
+                            // Check if opening or closing
+                            const willBeOpen = !dropdownOpen[filterKey]
+
+                            if (!willBeOpen) {
+                              // Closing - just close it
+                              setDropdownOpen(prev => ({ ...prev, [filterKey]: false }))
+                              return
+                            }
+
+                            // Opening - reload options
+                            setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                            setDropdownOpen(prev => ({ ...prev, [filterKey]: true }))
+
+                            // Force reload by calling loadDropdownOptions
+                            if (filter.type === 'dropdown' || filter.type === 'multiselect') {
+                              await loadDropdownOptions(query, filter, filters, 1, '', false)
+                            }
+                          }}
+                          className={`w-full px-1.5 py-0.5 pr-9 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-[10px] bg-white text-left flex items-center justify-between ${'hover:bg-gray-50'
+                            }`}
+                        >
+                          <span className={`truncate ${selectedCount > 0 ? 'text-gray-900' : 'text-gray-500'}`}>
+                            {selectedCount > 0 ? `${selectedCount} seçildi` : 'Seçin'}
+                          </span>
+                        </button>
+                        {selectedCount > 0 && (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              handleFilterChange(query.id, filter.fieldName, [])
+
+                              // Clear search and reload all options
+                              setSearchTerms(prev => ({ ...prev, [filterKey]: '' }))
+                              await loadDropdownOptions(query, filter, filters, 1, '', false)
+
+                              // Clear and reload dependent filters
+                              const newFilters = {
+                                ...filters,
+                                [`${query.id}_${filter.fieldName}`]: []
+                              }
+
+                              query.filters.forEach(f => {
+                                if (f.dependsOn === filter.fieldName) {
+                                  // Clear dependent filter value and options
+                                  handleFilterChange(query.id, f.fieldName, f.type === 'multiselect' ? [] : '')
+                                  setDropdownOptions(prev => ({
+                                    ...prev,
+                                    [`${query.id}_${f.fieldName}`]: { options: [], page: 1, hasMore: false, total: 0, loading: false }
+                                  }))
+                                }
+                              })
+                            }}
+                            className="absolute right-5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        )}
+                        <ChevronDown className="h-2.5 w-2.5 text-gray-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        {isOpen && (
+                          <div className="dropdown-menu absolute z-50 w-full mt-0.5 bg-white border border-gray-300 rounded shadow-lg">
+                            <div className="p-1 border-b border-gray-200">
+                              <div className="relative">
+                                <Search className="absolute left-1.5 top-1 h-2.5 w-2.5 text-gray-400" />
+                                <input
+                                  type="text"
+                                  value={searchTerm}
+                                  onChange={(e) => {
+                                    const newSearch = e.target.value
+                                    setSearchTerms(prev => ({ ...prev, [filterKey]: newSearch }))
+                                    handleSearchOptions(filterKey, newSearch)
+                                  }}
+                                  placeholder="Ara..."
+                                  className="dropdown-search-input w-full pl-5 pr-1.5 py-0.5 border border-gray-300 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
                               </div>
-                            ))}
-                            <div className="border-t border-gray-200 mt-1 pt-1">
-                              <div
-                                onClick={() => {
-                                  handleFilterChange(query.id, `${filter.fieldName}_operator`, defaultOperator)
-                                  handleFilterChange(query.id, filter.fieldName, '')
-                                  setOperatorMenuOpen(prev => ({ ...prev, [operatorMenuKey]: false }))
-                                }}
-                                className="px-3 py-2 text-xs cursor-pointer hover:bg-gray-100 text-gray-700"
-                              >
-                                Sıfırla
+                            </div>
+                            <div className="max-h-40 overflow-y-auto">
+                              {options.length === 0 ? (
+                                <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
+                              ) : (
+                                options.map((option, index) => {
+                                  const isChecked = currentValues.includes(option.value)
+                                  return (
+                                    <div
+                                      key={`${filterKey}_${option.value}_${index}`}
+                                      onClick={() => {
+                                        let newValues
+                                        if (isChecked) {
+                                          newValues = currentValues.filter((v: any) => v !== option.value)
+                                        } else {
+                                          newValues = [...currentValues, option.value]
+                                        }
+                                        handleFilterChange(query.id, filter.fieldName, newValues)
+
+                                        // Reload dependent filters
+                                        const newFilters = {
+                                          ...filters,
+                                          [`${query.id}_${filter.fieldName}`]: newValues
+                                        }
+
+                                        query.filters.forEach(f => {
+                                          if (f.dependsOn === filter.fieldName) {
+                                            // Clear dependent filter value and reload its options
+                                            handleFilterChange(query.id, f.fieldName, f.type === 'multiselect' ? [] : '')
+                                            loadDropdownOptions(query, f, newFilters)
+                                          }
+                                        })
+                                      }}
+                                      className="px-2 py-1 text-[10px] cursor-pointer hover:bg-orange-50 flex items-center space-x-1"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => { }}
+                                        className="h-2.5 w-2.5 text-orange-600 focus:ring-orange-500 border-gray-300 rounded pointer-events-none"
+                                      />
+                                      <span>{option.label}</span>
+                                    </div>
+                                  )
+                                })
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()
+                ) : (
+                  (() => {
+                    const filterKey = `${query.id}_${filter.fieldName}`
+                    const operatorKey = `${filterKey}_operator`
+                    const isNumberType = filter.type === 'number'
+                    const availableOperators = isNumberType ? NUMBER_FILTER_OPERATORS : TEXT_FILTER_OPERATORS
+                    const defaultOperator = isNumberType ? '=' : 'CONTAINS'
+                    const currentOperator = filters[operatorKey] || defaultOperator
+                    const operatorMenuKey = `${filterKey}_opMenu`
+                    const isMenuOpen = operatorMenuOpen[operatorMenuKey] || false
+                    const currentOperatorObj = availableOperators.find(op => op.value === currentOperator)
+                    const currentOperatorIcon = currentOperatorObj?.icon || (isNumberType ? '=' : '⊃')
+
+                    return (
+                      <div className="relative filter-dropdown-container">
+                        <div className="relative">
+                          <input
+                            type={isNumberType ? 'number' : 'text'}
+                            value={filters[filterKey] || ''}
+                            onChange={(e) => {
+                              const newValue = e.target.value
+                              handleFilterChange(query.id, filter.fieldName, newValue)
+                            }}
+                            className="w-full h-[20px] px-7 py-1 pr-6 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent text-xs"
+                            placeholder="Filtrele"
+                          />
+                          {/* Operator Icon Button on Input */}
+                          <button
+                            type="button"
+                            onClick={() => setOperatorMenuOpen(prev => ({ ...prev, [operatorMenuKey]: !prev[operatorMenuKey] }))}
+                            className="absolute left-1 top-1/2 -translate-y-1/2 p-0.5 text-gray-600 hover:text-blue-600 hover:bg-gray-50 rounded"
+                            title="Filtre koşulu"
+                          >
+                            <span className="text-sm font-semibold">{currentOperatorIcon}</span>
+                          </button>
+                          {/* Clear Button */}
+                          {filters[filterKey] && (
+                            <button
+                              onClick={() => handleFilterChange(query.id, filter.fieldName, '')}
+                              className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Operator Menu Dropdown */}
+                        {isMenuOpen && (
+                          <div className="absolute z-50 mt-1 bg-white border border-gray-300 rounded shadow-lg left-0 min-w-[180px]">
+                            <div className="py-1">
+                              {availableOperators.map((op) => (
+                                <div
+                                  key={op.value}
+                                  onClick={() => {
+                                    handleFilterChange(query.id, `${filter.fieldName}_operator`, op.value)
+                                    setOperatorMenuOpen(prev => ({ ...prev, [operatorMenuKey]: false }))
+                                  }}
+                                  className={`px-3 py-2 text-xs cursor-pointer hover:bg-gray-100 flex items-center gap-2 ${op.value === currentOperator ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-900'
+                                    }`}
+                                >
+                                  <span className="text-sm font-semibold w-5">{op.icon}</span>
+                                  <span>{op.label}</span>
+                                </div>
+                              ))}
+                              <div className="border-t border-gray-200 mt-1 pt-1">
+                                <div
+                                  onClick={() => {
+                                    handleFilterChange(query.id, `${filter.fieldName}_operator`, defaultOperator)
+                                    handleFilterChange(query.id, filter.fieldName, '')
+                                    setOperatorMenuOpen(prev => ({ ...prev, [operatorMenuKey]: false }))
+                                  }}
+                                  className="px-3 py-2 text-xs cursor-pointer hover:bg-gray-100 text-gray-700"
+                                >
+                                  Sıfırla
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()
-              )}
+                        )}
+                      </div>
+                    )
+                  })()
+                )}
               </div>
             ))}
             <div className="flex-shrink-0">
@@ -2506,46 +2504,46 @@ export default function ReportDetailPage() {
 
   // Handle expandable row click and nested query execution (recursive for multiple levels)
   const handleRowExpand = async (
-    query: QueryData, 
-    rowIndex: number, 
-    rowData: any[], 
-    nestedQueries: any[], 
+    query: QueryData,
+    rowIndex: number,
+    rowData: any[],
+    nestedQueries: any[],
     level: number = 0,
     parentRowKey: string = ''
   ) => {
     const rowKey = parentRowKey ? `${parentRowKey}_${rowIndex}` : `${query.id}_${rowIndex}`
-    
+
     // Toggle expansion
     const isExpanding = !expandedRows[rowKey]
     setExpandedRows(prev => ({ ...prev, [rowKey]: isExpanding }))
-    
+
     // If collapsing, just return
     if (!isExpanding) return
-    
+
     // If already loaded and not being forced to refetch, don't re-fetch
     if (nestedData[rowKey] && !nestedData[rowKey].loading) return
-    
+
     // Check if nested queries are configured
     if (!nestedQueries || nestedQueries.length === 0) {
       console.error('No nested queries configured')
       return
     }
-    
+
     // Get filters from the nested query configs
     const nestedQueryFilters = nestedQueries.flatMap((nq: any) => nq.filters || [])
-    
+
     // Set loading state
-    setNestedData(prev => ({ 
-      ...prev, 
-      [rowKey]: { 
-        columns: [], 
-        data: [], 
-        loading: true, 
+    setNestedData(prev => ({
+      ...prev,
+      [rowKey]: {
+        columns: [],
+        data: [],
+        loading: true,
         nestedQueries: nestedQueries,
         filters: nestedQueryFilters
-      } 
+      }
     }))
-    
+
     try {
       // Get columns from parent query or nested result
       let parentColumns: string[]
@@ -2559,14 +2557,14 @@ export default function ReportDetailPage() {
         if (!parentNestedData) return
         parentColumns = parentNestedData.columns
       }
-      
+
       // Execute all nested queries at this level
       const results = await Promise.all(
         nestedQueries.map(async (nestedQueryConfig: any) => {
           const expandableFields = nestedQueryConfig.expandableFields || []
           const nestedQueryFilters = nestedQueryConfig.filters || []
           let processedQuery = nestedQueryConfig.sql
-          
+
           // Replace parent field placeholders with actual values
           expandableFields.forEach((field: string) => {
             const columnIndex = parentColumns.indexOf(field)
@@ -2579,27 +2577,27 @@ export default function ReportDetailPage() {
             }
           })
           // Do not apply filters server-side; we will filter on client
-          
+
           console.log('Executing nested query (level', level, ') with filters:', processedQuery)
-          
+
           // Execute the nested query
           const response = await reportsService.previewQuery({
             sql_query: processedQuery,
             db_config: report?.dbConfig || null
           })
-          
+
           return {
             ...response,
             nestedQueries: nestedQueryConfig.nestedQueries || []
           }
         })
       )
-      
+
       // Combine all results
       const allColumns = results.flatMap(r => r.columns)
       const allData = results.flatMap(r => r.data)
       const combinedNestedQueries = results[0]?.nestedQueries || []
-      
+
       if (results.every(r => r.success)) {
         // Check if there's any data
         if (allData.length === 0) {
@@ -3166,10 +3164,10 @@ export default function ReportDetailPage() {
                   const vizType = fullscreenQuery.visualization.type
                   const Icon = vizType === 'bar' ? BarChart3
                     : vizType === 'line' ? LineChart
-                    : vizType === 'pie' ? PieChart
-                    : vizType === 'table' ? Table
-                    : vizType === 'expandable' ? Table
-                    : Database
+                      : vizType === 'pie' ? PieChart
+                        : vizType === 'table' ? Table
+                          : vizType === 'expandable' ? Table
+                            : Database
                   return <Icon className="h-5 w-5 text-blue-600" />
                 })()}
                 <h2 className="text-xl font-semibold">{fullscreenQuery.name}</h2>

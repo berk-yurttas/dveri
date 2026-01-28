@@ -3,6 +3,7 @@ import time
 
 from clickhouse_driver import Client
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import check_authenticated
@@ -454,7 +455,7 @@ async def get_report(
     report = await service.get_report(report_id, current_user)
 
     if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
+        return PlainTextResponse("Aradığınız Rapor Bulunamadı", status_code=404)
 
     return report
 
@@ -472,7 +473,7 @@ async def update_report(
     report = await service.update_report(report_id, report_data, current_user, is_admin=is_admin)
 
     if not report:
-        raise HTTPException(status_code=404, detail="Report not found or access denied")
+        return PlainTextResponse("Aradığınız Rapor Bulunamadı veya Erişim İzniniz Yok", status_code=404)
 
     return report
 
@@ -490,7 +491,7 @@ async def update_report_full(
     report = await service.update_report_full(report_id, report_data, current_user, is_admin=is_admin)
 
     if not report:
-        raise HTTPException(status_code=404, detail="Report not found or access denied")
+        return PlainTextResponse("Aradığınız Rapor Bulunamadı veya Erişim İzniniz Yok", status_code=404)
 
     return report
 
@@ -506,7 +507,7 @@ async def delete_report(
     success = await service.delete_report(report_id, current_user)
 
     if not success:
-        raise HTTPException(status_code=404, detail="Report not found or access denied")
+        return PlainTextResponse("Aradığınız Rapor Bulunamadı veya Erişim İzniniz Yok", status_code=404)
 
     return {"message": "Report deleted successfully"}
 

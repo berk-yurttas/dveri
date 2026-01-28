@@ -241,7 +241,7 @@ class ReportsService:
             stmt = select(Report).options(
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
-            ).where(Report.id == report_id)
+            ).where(and_(Report.id == report_id, Report.deleted_at.is_(None)))
         else:
             # Generate all parent departments for the user
             user_dept = user.department or ""
@@ -261,6 +261,7 @@ class ReportsService:
             ).where(
                 and_(
                     Report.id == report_id,
+                    Report.deleted_at.is_(None),  # Exclude deleted reports
                     or_(
                         Report.owner_id == db_user.id,
                         Report.is_public == True,
@@ -295,14 +296,16 @@ class ReportsService:
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
             ).where(
-                Report.owner_id == db_user.id
+            ).where(
+                and_(Report.owner_id == db_user.id, Report.deleted_at.is_(None))
             ).offset(skip).limit(limit)
         elif is_admin:
+            # Admin sees all reports
             # Admin sees all reports
             stmt = select(Report).options(
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
-            ).offset(skip).limit(limit)
+            ).where(Report.deleted_at.is_(None)).offset(skip).limit(limit)
         else:
             # Generate all parent departments for the user
             user_dept = user.department or ""
@@ -314,17 +317,22 @@ class ReportsService:
                     current = f"{current}_{part}" if current else part
                     dept_prefixes.append(current)
 
+            # dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
+
             dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
 
             stmt = select(Report).options(
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
             ).where(
-                or_(
-                    Report.owner_id == db_user.id,
-                    Report.is_public == True,
-                    Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
-                    Report.allowed_departments.op('&&')(dept_prefixes_array)
+                and_(
+                    Report.deleted_at.is_(None),  # Exclude deleted reports
+                    or_(
+                        Report.owner_id == db_user.id,
+                        Report.is_public == True,
+                        Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
+                        Report.allowed_departments.op('&&')(dept_prefixes_array)
+                    )
                 )
             ).offset(skip).limit(limit)
 
@@ -354,10 +362,10 @@ class ReportsService:
         is_admin = user.role and "miras:admin" in user.role
 
         if my_reports_only:
-            base_condition = Report.owner_id == db_user.id
+            base_condition = and_(Report.owner_id == db_user.id, Report.deleted_at.is_(None))
         elif is_admin:
             # Admin sees all reports - no condition needed
-            base_condition = literal(True)
+            base_condition = Report.deleted_at.is_(None)
         else:
             # Access logic:
             # 1. Owner
@@ -378,11 +386,14 @@ class ReportsService:
             # If no department, just check empty array overlap (which is false)
             dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
 
-            base_condition = or_(
-                Report.owner_id == db_user.id,
-                Report.is_public == True,
-                Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
-                Report.allowed_departments.op('&&')(dept_prefixes_array)
+            base_condition = and_(
+                Report.deleted_at.is_(None),
+                or_(
+                    Report.owner_id == db_user.id,
+                    Report.is_public == True,
+                    Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
+                    Report.allowed_departments.op('&&')(dept_prefixes_array)
+                )
             )
 
         # Build filter conditions
@@ -690,25 +701,14 @@ class ReportsService:
         if not db_report:
             return False
 
-        # Get all query IDs for this report
-        report_queries_result = await self.db.execute(
-            select(ReportQuery).where(ReportQuery.report_id == report_id)
-        )
-        report_query_ids = [query.id for query in report_queries_result.scalars().all()]
 
-        # Delete filters first, then queries, then report
-        if report_query_ids:
-            await self.db.execute(
-                delete(ReportQueryFilter).where(ReportQueryFilter.query_id.in_(report_query_ids))
-            )
-            await self.db.execute(
-                delete(ReportQuery).where(ReportQuery.id.in_(report_query_ids))
-            )
-
-        # Finally delete the report
-        await self.db.delete(db_report)
+            
+        # Soft delete: update deleted_at
+        from sqlalchemy import func
+        db_report.deleted_at = func.now()
         await self.db.commit()
         return True
+
 
     async def toggle_favorite(self, report_id: int, user: UserSchema) -> bool:
         """Toggle favorite status for a report"""
