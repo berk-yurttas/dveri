@@ -54,10 +54,17 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   // Dynamic title based on platform and easter egg
   const getTitle = () => {
     if (easterEggActive) return "Biz de DERİNİZ ;)";
+    if (platform?.code === 'amom') return "Seyir Defteri";
     if (platform) return `${platform.display_name}`;
     return "ODAK";
   };
   const title = getTitle();
+
+  const getSubtitle = () => {
+    if (platform?.code === 'amom') return "Tasarım ve Proje Akışlarının Seyri";
+    return "Ortak Data ile Akıllı Karar Sistemi";
+  };
+  const subtitle = getSubtitle();
 
   // Get header color from platform theme or use default
   const headerColor = platform?.theme_config?.headerColor || "#1e3a8a";
@@ -321,7 +328,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     <>
       <AppShell
         title={title}
-        subtitle="Ortak Data ile Akıllı Karar Sistemi"
+        subtitle={subtitle}
         navigationItems={navigationItems}
         currentPathname={pathname}
         onNavigationItemClick={handleNavigationClick}

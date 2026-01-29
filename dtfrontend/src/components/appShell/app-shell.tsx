@@ -54,6 +54,7 @@ export function AppShell({
   // Check if platform is 'ivme' for custom spacing
   const isIvmePlatform = platform?.code === 'ivme'
   const isDerinizPlatform = platform?.code === 'deriniz'
+  const isAmomPlatform = platform?.code === 'amom'
 
   useEffect(() => {
     if (isDesktop) {
@@ -249,8 +250,8 @@ export function AppShell({
 
       <AppHeader title={title} subtitle={subtitle} customActions={customHeaderActions} onMobileMenuClick={currentPathname !== '/' ? toggleMobileSidebar : undefined} onPreferencesClick={onPreferencesClick} onLogoutClick={onLogoutClick}  userInfo={userInfo} headerColor={headerColor} />
 
-      {/* Only show sidebar when not on homepage */}
-      {currentPathname !== '/' && (
+      {/* Only show sidebar when not on homepage and not on AMOM platform */}
+      {currentPathname !== '/' && !isAmomPlatform && (
         <AppSidebar
           navigationItems={navigationItems}
           currentPathname={currentPathname}
@@ -268,7 +269,7 @@ export function AppShell({
       )}
 
       <div className={`relative z-10 flex flex-1 flex-col ${
-        currentPathname === '/' ? 'md:ml-0' : 'md:ml-16'
+        currentPathname === '/' || isAmomPlatform ? 'md:ml-0' : 'md:ml-16'
       } bg-gray-50/80 backdrop-blur-sm ${
         isIvmePlatform ? 'pt-[100px]' : 'pt-16'
       }`}>
