@@ -24,9 +24,12 @@ from app.schemas.reports import (
     SqlValidationResponse,
 )
 from app.schemas.user import User
-from app.services.reports_service import ReportsService
+from app.services.reports_service import ReportsService, ConnectionPool
 
 router = APIRouter()
+
+# Get singleton connection pool instance
+_connection_pool = ConnectionPool()
 
 def sanitize_sql_query(query: str) -> str:
     """
@@ -102,24 +105,14 @@ async def preview_report_query(
                 data = []
 
         elif db_type == "postgresql":
-            # Use PostgreSQL connection - prioritize request's db_config
+            # Use PostgreSQL connection from pool - prioritize request's db_config
             if request.db_config:
-                db_config = request.db_config
+                conn = _connection_pool.get_connection(db_config=request.db_config, db_type=db_type)
             elif platform:
-                db_config = platform.db_config or {}
+                conn = _connection_pool.get_connection(platform=platform, db_type=db_type)
             else:
                 raise ValueError("Database configuration required for PostgreSQL queries")
 
-            import psycopg2
-
-            # Create connection without RealDictCursor to get raw tuples
-            conn = psycopg2.connect(
-                host=db_config.get("host", "localhost"),
-                port=int(db_config.get("port", 5432)),
-                database=db_config.get("database"),
-                user=db_config.get("user"),
-                password=db_config.get("password")
-            )
             cursor = conn.cursor()
 
             try:
@@ -128,24 +121,15 @@ async def preview_report_query(
                 data = cursor.fetchall()
             finally:
                 cursor.close()
-                conn.close()
+                # Return connection to pool
+                _connection_pool.return_connection(conn, db_config=request.db_config, platform=platform, db_type=db_type)
 
         elif db_type == "mssql":
-            # Use MSSQL connection - prioritize request's db_config
+            # Use MSSQL connection from pool - prioritize request's db_config
             if request.db_config:
-                import pyodbc
-                db_config = request.db_config
-                driver = db_config.get("driver", "{ODBC Driver 17 for SQL Server}")
-                connection_string = (
-                    f"DRIVER={driver};"
-                    f"SERVER={db_config.get('host', 'localhost')},{db_config.get('port', 1433)};"
-                    f"DATABASE={db_config.get('database')};"
-                    f"UID={db_config.get('user')};"
-                    f"PWD={db_config.get('password')}"
-                )
-                conn = pyodbc.connect(connection_string)
+                conn = _connection_pool.get_connection(db_config=request.db_config, db_type=db_type)
             elif platform:
-                conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+                conn = _connection_pool.get_connection(platform=platform, db_type=db_type)
             else:
                 raise ValueError("Database configuration required for MSSQL queries")
             
@@ -157,7 +141,8 @@ async def preview_report_query(
                 data = cursor.fetchall()
             finally:
                 cursor.close()
-                conn.close()
+                # Return connection to pool
+                _connection_pool.return_connection(conn, db_config=request.db_config, platform=platform, db_type=db_type)
         else:
             raise ValueError(f"Unsupported database type: {db_type}")
 
@@ -255,24 +240,14 @@ async def validate_sql_syntax(
             explain_plan = result
 
         elif db_type == "postgresql":
-            # Use PostgreSQL connection - prioritize db_config
+            # Use PostgreSQL connection from pool - prioritize db_config
             if db_config_dict:
-                db_config_data = db_config_dict
+                conn = _connection_pool.get_connection(db_config=db_config_dict, db_type=db_type)
             elif platform:
-                db_config_data = platform.db_config or {}
+                conn = _connection_pool.get_connection(platform=platform, db_type=db_type)
             else:
                 raise ValueError("Database configuration required for PostgreSQL queries")
 
-            import psycopg2
-
-            # Create connection without RealDictCursor to get raw tuples
-            conn = psycopg2.connect(
-                host=db_config_data.get("host", "localhost"),
-                port=int(db_config_data.get("port", 5432)),
-                database=db_config_data.get("database"),
-                user=db_config_data.get("user"),
-                password=db_config_data.get("password")
-            )
             cursor = conn.cursor()
 
             try:
@@ -280,25 +255,16 @@ async def validate_sql_syntax(
                 explain_plan = [list(row) for row in cursor.fetchall()]
             finally:
                 cursor.close()
-                conn.close()
+                # Return connection to pool
+                _connection_pool.return_connection(conn, db_config=db_config_dict, platform=platform, db_type=db_type)
 
         elif db_type == "mssql":
             # MSSQL doesn't support EXPLAIN in the same way
             # We can use SET SHOWPLAN_TEXT ON
             if db_config_dict:
-                import pyodbc
-                db_config_data = db_config_dict
-                driver = db_config_data.get("driver", "{ODBC Driver 17 for SQL Server}")
-                connection_string = (
-                    f"DRIVER={driver};"
-                    f"SERVER={db_config_data.get('host', 'localhost')},{db_config_data.get('port', 1433)};"
-                    f"DATABASE={db_config_data.get('database')};"
-                    f"UID={db_config_data.get('user')};"
-                    f"PWD={db_config_data.get('password')}"
-                )
-                conn = pyodbc.connect(connection_string)
+                conn = _connection_pool.get_connection(db_config=db_config_dict, db_type=db_type)
             elif platform:
-                conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+                conn = _connection_pool.get_connection(platform=platform, db_type=db_type)
             else:
                 raise ValueError("Database configuration required for MSSQL queries")
             
@@ -312,7 +278,8 @@ async def validate_sql_syntax(
                 cursor.execute("SET SHOWPLAN_TEXT OFF")
             finally:
                 cursor.close()
-                conn.close()
+                # Return connection to pool
+                _connection_pool.return_connection(conn, db_config=db_config_dict, platform=platform, db_type=db_type)
         else:
             raise ValueError(f"Unsupported database type: {db_type}")
 

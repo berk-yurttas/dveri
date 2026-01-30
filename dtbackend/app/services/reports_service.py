@@ -36,6 +36,7 @@ class ConnectionPool:
     _instance = None
     _lock = Lock()
     _pools: dict[str, Any] = {}
+    _clickhouse_clients: dict[str, Client] = {}
 
     def __new__(cls):
         if cls._instance is None:
@@ -44,71 +45,151 @@ class ConnectionPool:
                     cls._instance = super().__new__(cls)
         return cls._instance
 
-    def get_connection(self, platform: Platform, db_type: str):
-        """Get or create a connection pool for a platform"""
-        pool_key = f"{db_type}_{platform.id}"
+    def _get_pool_key(self, db_config: dict[str, Any], db_type: str, platform_id: int | None = None) -> str:
+        """Generate a unique key for connection pool based on db_config or platform"""
+        if platform_id:
+            return f"{db_type}_{platform_id}"
+        
+        # Create hash from db_config for custom configs
+        import hashlib
+        import json
+        config_str = json.dumps({
+            'host': db_config.get('host'),
+            'port': db_config.get('port'),
+            'database': db_config.get('database'),
+            'user': db_config.get('user'),
+            'db_type': db_type
+        }, sort_keys=True)
+        config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
+        return f"{db_type}_{config_hash}"
 
+    def get_connection(self, db_config: dict[str, Any] | None = None, platform: Platform | None = None, db_type: str | None = None):
+        """Get or create a connection from pool
+        
+        Args:
+            db_config: Database configuration dict (takes priority)
+            platform: Platform instance (fallback)
+            db_type: Database type ('postgresql', 'mssql', 'clickhouse')
+        
+        Returns:
+            Database connection from pool
+        """
+        # Determine db_type and config
+        if db_config:
+            actual_db_type = db_type or db_config.get('db_type', 'postgresql').lower()
+            actual_config = db_config
+            pool_key = self._get_pool_key(db_config, actual_db_type)
+        elif platform:
+            actual_db_type = db_type or platform.db_type.lower()
+            actual_config = platform.db_config or {}
+            pool_key = self._get_pool_key(actual_config, actual_db_type, platform.id)
+        else:
+            raise ValueError("Either db_config or platform must be provided")
+
+        # Special handling for ClickHouse (keep persistent client)
+        if actual_db_type == "clickhouse":
+            if pool_key not in self._clickhouse_clients:
+                with self._lock:
+                    if pool_key not in self._clickhouse_clients:
+                        self._clickhouse_clients[pool_key] = self._create_clickhouse_client(actual_config)
+            return self._clickhouse_clients[pool_key]
+
+        # For PostgreSQL and MSSQL, use connection pools
         if pool_key not in self._pools:
             with self._lock:
                 if pool_key not in self._pools:
-                    self._pools[pool_key] = self._create_pool(platform, db_type)
+                    self._pools[pool_key] = self._create_pool(actual_config, actual_db_type)
 
-        return self._pools[pool_key].getconn() if hasattr(self._pools[pool_key], 'getconn') else self._pools[pool_key].connect()
-
-    def return_connection(self, platform: Platform, db_type: str, conn):
-        """Return connection to pool"""
-        pool_key = f"{db_type}_{platform.id}"
-        if pool_key in self._pools and hasattr(self._pools[pool_key], 'putconn'):
-            self._pools[pool_key].putconn(conn)
+        pool = self._pools[pool_key]
+        
+        if actual_db_type == "postgresql":
+            return pool.getconn()
+        elif actual_db_type == "mssql":
+            # MSSQL doesn't have built-in pooling, create new connection
+            # (We could implement a custom pool later if needed)
+            return self._create_mssql_connection(actual_config)
         else:
-            # For non-pooled connections, just close
-            conn.close()
+            raise ValueError(f"Unsupported database type: {actual_db_type}")
 
-    def _create_pool(self, platform: Platform, db_type: str):
+    def return_connection(self, conn, db_config: dict[str, Any] | None = None, platform: Platform | None = None, db_type: str | None = None):
+        """Return connection to pool
+        
+        Args:
+            conn: Database connection to return
+            db_config: Database configuration dict (takes priority)
+            platform: Platform instance (fallback)
+            db_type: Database type
+        """
+        # Determine db_type and pool_key
+        if db_config:
+            actual_db_type = db_type or db_config.get('db_type', 'postgresql').lower()
+            pool_key = self._get_pool_key(db_config, actual_db_type)
+        elif platform:
+            actual_db_type = db_type or platform.db_type.lower()
+            actual_config = platform.db_config or {}
+            pool_key = self._get_pool_key(actual_config, actual_db_type, platform.id)
+        else:
+            # If we can't determine pool, just close the connection
+            if hasattr(conn, 'close'):
+                conn.close()
+            return
+
+        # Don't return ClickHouse clients - they stay persistent
+        if actual_db_type == "clickhouse":
+            return
+
+        # Return PostgreSQL connections to pool
+        if actual_db_type == "postgresql" and pool_key in self._pools:
+            try:
+                self._pools[pool_key].putconn(conn)
+            except Exception:
+                # If error returning to pool, just close it
+                if hasattr(conn, 'close'):
+                    conn.close()
+        else:
+            # For MSSQL and others, just close the connection
+            if hasattr(conn, 'close'):
+                conn.close()
+
+    def _create_pool(self, db_config: dict[str, Any], db_type: str):
         """Create a connection pool based on database type"""
-        db_config = platform.db_config or {}
-
         if db_type == "postgresql":
             from psycopg2 import pool
             return pool.ThreadedConnectionPool(
-                minconn=1,
-                maxconn=10,
+                minconn=2,
+                maxconn=20,
                 host=db_config.get("host", "localhost"),
                 port=int(db_config.get("port", 5432)),
                 database=db_config.get("database"),
                 user=db_config.get("user"),
                 password=db_config.get("password")
             )
-        elif db_type == "mssql":
-            # MSSQL doesn't have a built-in pool, use factory method
-            return DatabaseConnectionFactory
         else:
             raise ValueError(f"Unsupported database type for pooling: {db_type}")
-    
-    def _get_db_connection_from_config(self, db_config: dict[str, Any], db_type: str):
-        """Get a database connection from db_config dict"""
-        if db_type == "postgresql":
-            import psycopg2
-            return psycopg2.connect(
-                host=db_config.get("host", "localhost"),
-                port=int(db_config.get("port", 5432)),
-                database=db_config.get("database"),
-                user=db_config.get("user"),
-                password=db_config.get("password")
-            )
-        elif db_type == "mssql":
-            import pyodbc
-            driver = db_config.get("driver", "{ODBC Driver 17 for SQL Server}")
-            connection_string = (
-                f"DRIVER={driver};"
-                f"SERVER={db_config.get('host', 'localhost')},{db_config.get('port', 1433)};"
-                f"DATABASE={db_config.get('database')};"
-                f"UID={db_config.get('user')};"
-                f"PWD={db_config.get('password')}"
-            )
-            return pyodbc.connect(connection_string)
-        else:
-            raise ValueError(f"Unsupported database type: {db_type}")
+
+    def _create_clickhouse_client(self, db_config: dict[str, Any]) -> Client:
+        """Create a ClickHouse client"""
+        return Client(
+            host=db_config.get("host", "localhost"),
+            port=int(db_config.get("port", 9000)),
+            user=db_config.get("user", "default"),
+            password=db_config.get("password", ""),
+            database=db_config.get("database", "default"),
+            settings=db_config.get("settings", {})
+        )
+
+    def _create_mssql_connection(self, db_config: dict[str, Any]):
+        """Create an MSSQL connection"""
+        import pyodbc
+        driver = db_config.get("driver", "{ODBC Driver 17 for SQL Server}")
+        connection_string = (
+            f"DRIVER={driver};"
+            f"SERVER={db_config.get('host', 'localhost')},{db_config.get('port', 1433)};"
+            f"DATABASE={db_config.get('database')};"
+            f"UID={db_config.get('user')};"
+            f"PWD={db_config.get('password')}"
+        )
+        return pyodbc.connect(connection_string)
 
 
 class ReportsService:
@@ -119,29 +200,12 @@ class ReportsService:
         self.clickhouse_client = clickhouse_client
     
     def _get_db_connection_from_config(self, db_config: dict[str, Any], db_type: str):
-        """Get a database connection from db_config dict"""
-        if db_type == "postgresql":
-            import psycopg2
-            return psycopg2.connect(
-                host=db_config.get("host", "localhost"),
-                port=int(db_config.get("port", 5432)),
-                database=db_config.get("database"),
-                user=db_config.get("user"),
-                password=db_config.get("password")
-            )
-        elif db_type == "mssql":
-            import pyodbc
-            driver = db_config.get("driver", "{ODBC Driver 17 for SQL Server}")
-            connection_string = (
-                f"DRIVER={driver};"
-                f"SERVER={db_config.get('host', 'localhost')},{db_config.get('port', 1433)};"
-                f"DATABASE={db_config.get('database')};"
-                f"UID={db_config.get('user')};"
-                f"PWD={db_config.get('password')}"
-            )
-            return pyodbc.connect(connection_string)
-        else:
-            raise ValueError(f"Unsupported database type: {db_type}")
+        """Get a database connection from db_config dict using connection pool"""
+        return self._connection_pool.get_connection(db_config=db_config, db_type=db_type)
+    
+    def _return_connection_to_pool(self, conn, db_config: dict[str, Any] | None = None, platform: Platform | None = None, db_type: str | None = None):
+        """Return a connection to the pool"""
+        self._connection_pool.return_connection(conn, db_config=db_config, platform=platform, db_type=db_type)
 
     # Report CRUD Operations
     async def create_report(self, report_data: ReportCreate, user: UserSchema, platform: Platform | None = None) -> Report:
@@ -1069,11 +1133,11 @@ class ReportsService:
                 # Use PostgreSQL connection - prioritize report's db_config
                 t1 = time.time()
                 if db_config:
-                    # Use report's db_config
-                    conn = self._get_db_connection_from_config(db_config, db_type)
+                    # Use report's db_config with connection pool
+                    conn = self._connection_pool.get_connection(db_config=db_config, db_type=db_type)
                 elif platform:
                     # Fallback to platform's connection pool
-                    conn = self._connection_pool.get_connection(platform, db_type)
+                    conn = self._connection_pool.get_connection(platform=platform, db_type=db_type)
                 else:
                     raise ValueError("Database configuration required for PostgreSQL queries")
                 cursor = conn.cursor()
@@ -1108,20 +1172,17 @@ class ReportsService:
 
                 finally:
                     cursor.close()
-                    # Return connection to pool or close if using report's db_config
-                    if db_config:
-                        conn.close()
-                    elif platform:
-                        self._connection_pool.return_connection(platform, db_type, conn)
+                    # Return connection to pool
+                    self._connection_pool.return_connection(conn, db_config=db_config, platform=platform, db_type=db_type)
 
             elif db_type == "mssql":
                 # Use MSSQL connection - prioritize report's db_config
                 if db_config:
-                    # Use report's db_config
-                    conn = self._get_db_connection_from_config(db_config, db_type)
+                    # Use report's db_config with connection pool
+                    conn = self._connection_pool.get_connection(db_config=db_config, db_type=db_type)
                 elif platform:
-                    # Fallback to platform's connection
-                    conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+                    # Fallback to platform's connection pool
+                    conn = self._connection_pool.get_connection(platform=platform, db_type=db_type)
                 else:
                     raise ValueError("Database configuration required for MSSQL queries")
                 cursor = conn.cursor()
@@ -1151,7 +1212,8 @@ class ReportsService:
 
                 finally:
                     cursor.close()
-                    conn.close()
+                    # Return connection to pool
+                    self._connection_pool.return_connection(conn, db_config=db_config, platform=platform, db_type=db_type)
             else:
                 raise ValueError(f"Unsupported database type: {db_type}")
 
@@ -1445,9 +1507,9 @@ class ReportsService:
             elif db_type == "postgresql":
                 # Use report's db_config or fallback to platform
                 if report_db_config:
-                    conn = self._get_db_connection_from_config(report_db_config, db_type)
+                    conn = self._connection_pool.get_connection(db_config=report_db_config, db_type=db_type)
                 elif platform:
-                    conn = self._connection_pool.get_connection(platform, db_type)
+                    conn = self._connection_pool.get_connection(platform=platform, db_type=db_type)
                 else:
                     raise ValueError("Database configuration required for PostgreSQL queries")
                 
@@ -1462,18 +1524,15 @@ class ReportsService:
                     result = cursor.fetchall()
                 finally:
                     cursor.close()
-                    # Close or return to pool based on connection source
-                    if report_db_config:
-                        conn.close()
-                    elif platform:
-                        self._connection_pool.return_connection(platform, db_type, conn)
+                    # Return connection to pool
+                    self._connection_pool.return_connection(conn, db_config=report_db_config, platform=platform, db_type=db_type)
 
             elif db_type == "mssql":
                 # Use report's db_config or fallback to platform
                 if report_db_config:
-                    conn = self._get_db_connection_from_config(report_db_config, db_type)
+                    conn = self._connection_pool.get_connection(db_config=report_db_config, db_type=db_type)
                 elif platform:
-                    conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+                    conn = self._connection_pool.get_connection(platform=platform, db_type=db_type)
                 else:
                     raise ValueError("Database configuration required for MSSQL queries")
                 
@@ -1488,7 +1547,8 @@ class ReportsService:
                     result = cursor.fetchall()
                 finally:
                     cursor.close()
-                    conn.close()
+                    # Return connection to pool
+                    self._connection_pool.return_connection(conn, db_config=report_db_config, platform=platform, db_type=db_type)
             else:
                 raise ValueError(f"Unsupported database type: {db_type}")
 
