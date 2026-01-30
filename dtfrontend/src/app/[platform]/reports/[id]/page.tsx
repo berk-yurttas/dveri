@@ -242,6 +242,30 @@ export default function ReportDetailPage() {
   const isLoadingRef = useRef(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
+  // Helper function to batch promises with concurrency limit
+  const batchPromises = async <T,>(
+    promises: (() => Promise<T>)[],
+    concurrencyLimit: number = 4
+  ): Promise<T[]> => {
+    const results: T[] = []
+    const executing: Promise<void>[] = []
+    
+    for (const promiseFn of promises) {
+      const promise = promiseFn().then(result => {
+        results.push(result)
+      })
+      executing.push(promise)
+      
+      if (executing.length >= concurrencyLimit) {
+        await Promise.race(executing)
+        executing.splice(executing.findIndex(p => p === promise), 1)
+      }
+    }
+    
+    await Promise.all(executing)
+    return results
+  }
+
   // Generate default layout for queries
   const generateDefaultLayout = (queries: QueryData[]): GridLayout[] => {
     return queries.map((query, index) => {
@@ -934,11 +958,113 @@ export default function ReportDetailPage() {
 
   // Execute all queries with initial empty filters
   const executeAllQueries = async (reportData: ReportData, initialFilters: FilterState) => {
-    await Promise.all(
-      reportData.queries.map(query =>
-        executeQueryWithFilters(query, reportData.id, initialFilters)
-      )
-    )
+    // Use single batch request instead of multiple requests to avoid stalling
+    // Prepare global filters
+    const globalFilters = (reportData.globalFilters || [])
+      .map(filter => {
+        if (filter.type === 'date') {
+          const startKey = `global_${filter.fieldName}_start`
+          const endKey = `global_${filter.fieldName}_end`
+          const startValue = initialFilters[startKey]
+          const endValue = initialFilters[endKey]
+
+          if (startValue && endValue) {
+            return {
+              field_name: filter.fieldName,
+              value: [startValue, endValue],
+              operator: 'BETWEEN'
+            }
+          } else if (startValue) {
+            return {
+              field_name: filter.fieldName,
+              value: startValue,
+              operator: '>='
+            }
+          } else if (endValue) {
+            return {
+              field_name: filter.fieldName,
+              value: endValue,
+              operator: '<='
+            }
+          }
+          return null
+        } else {
+          const key = `global_${filter.fieldName}`
+          const value = initialFilters[key]
+
+          if (filter.type === 'multiselect') {
+            if (Array.isArray(value) && value.length > 0) {
+              return {
+                field_name: filter.fieldName,
+                value: value,
+                operator: 'IN'
+              }
+            }
+          } else if (value && value !== '') {
+            const operatorKey = `global_${filter.fieldName}_operator`
+            const operator = initialFilters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
+
+            return {
+              field_name: filter.fieldName,
+              value: value,
+              operator: operator
+            }
+          }
+          return null
+        }
+      })
+      .filter(Boolean)
+
+    // Execute single batch request for ALL queries (no query_id = execute all)
+    const request = {
+      report_id: reportData.id,
+      filters: globalFilters,
+      limit: 1000
+    }
+
+    try {
+      const response = await reportsService.executeReport(request)
+
+      if (response.success && response.results) {
+        // Update state for each query result
+        response.results.forEach((result: any) => {
+          const query = reportData.queries.find(q => q.id === result.query_id)
+          if (!query) return
+
+          const totalPages = (query.visualization.type === 'table' || query.visualization.type === 'expandable')
+            ? (result.has_more ? 1 + 1 : 1)
+            : 1
+
+          setQueryResults(prev => ({
+            ...prev,
+            [result.query_id]: {
+              result: result,
+              loading: false,
+              error: null,
+              currentPage: 1,
+              pageSize: 200,
+              totalPages: totalPages
+            }
+          }))
+        })
+      }
+    } catch (error) {
+      console.error('Error executing all queries:', error)
+      // Set error state for all queries
+      reportData.queries.forEach(query => {
+        setQueryResults(prev => ({
+          ...prev,
+          [query.id]: {
+            result: null,
+            loading: false,
+            error: error instanceof Error ? error.message : 'Failed to execute queries',
+            currentPage: 1,
+            pageSize: 200,
+            totalPages: 0
+          }
+        }))
+      })
+    }
   }
 
   // Set locale for date inputs
@@ -1118,11 +1244,16 @@ export default function ReportDetailPage() {
         })
         setQueryResults(initialResults)
 
-        // Load dropdown options and execute queries in parallel
-        await Promise.all([
-          ...dropdownPromises,
-          executeAllQueries(reportData, initialFilters)
-        ])
+        // Load dropdown options with batching (max 4 concurrent requests)
+        if (dropdownPromises.length > 0) {
+          await batchPromises(
+            dropdownPromises.map(p => () => p),
+            4
+          )
+        }
+
+        // Execute all queries in parallel (backend now handles this efficiently)
+        await executeAllQueries(reportData, initialFilters)
 
         // Check again if reportId changed
         if (currentReportIdRef.current !== reportId) {
@@ -3084,13 +3215,239 @@ export default function ReportDetailPage() {
               </div>
 
               <div className="space-y-3 px-4 pb-4 relative flex-1 overflow-hidden">
-                {/* Loading Overlay */}
+                {/* Loading Skeleton */}
                 {queryState?.loading && (
-                  <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
-                    <div className="flex flex-col items-center gap-3 bg-white px-6 py-4 rounded-lg shadow-lg border border-gray-200">
-                      <div className="h-8 w-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-                      <span className="text-sm font-medium text-gray-700">Rapor çalıştırılıyor...</span>
-                    </div>
+                  <div className="absolute inset-0 bg-white flex items-center justify-center z-10 rounded-lg">
+                    {(() => {
+                      const vizType = query.visualization.type
+                      
+                      // Table/Expandable Skeleton
+                      if (vizType === 'table' || vizType === 'expandable') {
+                        return (
+                          <div className="w-full h-full p-4">
+                            {/* Header Row */}
+                            <div className="flex gap-2 mb-3">
+                              {[1, 2, 3, 4, 5].map((i) => (
+                                <div 
+                                  key={i} 
+                                  className="flex-1 h-8 animate-shimmer rounded"
+                                  style={{ animationDelay: `${i * 100}ms` }} 
+                                />
+                              ))}
+                            </div>
+                            {/* Data Rows */}
+                            {[1, 2, 3, 4, 5, 6, 7, 8].map((row) => (
+                              <div key={row} className="flex gap-2 mb-2">
+                                {[1, 2, 3, 4, 5].map((col) => (
+                                  <div 
+                                    key={col} 
+                                    className="flex-1 h-6 animate-shimmer rounded"
+                                    style={{ animationDelay: `${(row * 50) + (col * 20)}ms` }}
+                                  />
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      }
+                      
+                      // Bar Chart Skeleton
+                      if (vizType === 'bar') {
+                        return (
+                          <div className="w-full h-full p-4 flex items-end justify-around gap-2">
+                            {[40, 70, 50, 85, 60, 75, 55, 90].map((height, i) => (
+                              <div 
+                                key={i} 
+                                className="flex-1 bg-gradient-to-t from-blue-300 via-blue-200 to-blue-100 rounded-t animate-pulse-wave"
+                                style={{ 
+                                  height: `${height}%`,
+                                  animationDelay: `${i * 150}ms`,
+                                  maxWidth: '60px'
+                                }}
+                              />
+                            ))}
+                          </div>
+                        )
+                      }
+                      
+                      // Line Chart Skeleton
+                      if (vizType === 'line') {
+                        return (
+                          <div className="w-full h-full p-4 flex flex-col">
+                            <div className="flex-1 relative">
+                              <svg className="w-full h-full" viewBox="0 0 400 200">
+                                {/* Grid lines */}
+                                {[0, 1, 2, 3, 4].map((i) => (
+                                  <line
+                                    key={`h-${i}`}
+                                    x1="0"
+                                    y1={i * 50}
+                                    x2="400"
+                                    y2={i * 50}
+                                    stroke="currentColor"
+                                    strokeWidth="0.5"
+                                    className="text-gray-200"
+                                  />
+                                ))}
+                                {/* Animated line */}
+                                <path
+                                  d="M 10 150 Q 60 100, 100 120 T 190 80 T 280 110 T 390 70"
+                                  stroke="currentColor"
+                                  strokeWidth="3"
+                                  fill="none"
+                                  className="text-blue-300"
+                                  strokeDasharray="5,5"
+                                >
+                                  <animate
+                                    attributeName="stroke-dashoffset"
+                                    from="0"
+                                    to="10"
+                                    dur="0.5s"
+                                    repeatCount="indefinite"
+                                  />
+                                </path>
+                                {/* Points */}
+                                {[10, 100, 190, 280, 390].map((x, i) => (
+                                  <circle
+                                    key={i}
+                                    cx={x}
+                                    cy={[150, 120, 80, 110, 70][i]}
+                                    r="4"
+                                    className="fill-blue-300 animate-pulse-wave"
+                                    style={{ animationDelay: `${i * 200}ms` }}
+                                  />
+                                ))}
+                              </svg>
+                            </div>
+                            <div className="flex gap-2 mt-2">
+                              {[1, 2, 3, 4, 5].map((i) => (
+                                <div key={i} className="flex-1 h-3 animate-shimmer rounded" style={{ animationDelay: `${i * 100}ms` }} />
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      }
+                      
+                      // Pie Chart Skeleton
+                      if (vizType === 'pie') {
+                        return (
+                          <div className="w-full h-full p-4 flex items-center justify-center">
+                            <div className="flex flex-col items-center gap-4">
+                              <div className="relative" style={{ width: '200px', height: '200px' }}>
+                                <svg viewBox="0 0 200 200" className="w-full h-full">
+                                  {/* Spinning animation */}
+                                  <animateTransform
+                                    attributeName="transform"
+                                    type="rotate"
+                                    from="0 100 100"
+                                    to="360 100 100"
+                                    dur="3s"
+                                    repeatCount="indefinite"
+                                  />
+                                  <circle
+                                    cx="100"
+                                    cy="100"
+                                    r="80"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="60"
+                                    className="text-gray-200"
+                                    strokeDasharray="125 377"
+                                    transform="rotate(-90 100 100)"
+                                  />
+                                  <circle
+                                    cx="100"
+                                    cy="100"
+                                    r="80"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="60"
+                                    className="text-blue-300 animate-pulse-wave"
+                                    strokeDasharray="94 377"
+                                    strokeDashoffset="-125"
+                                    transform="rotate(-90 100 100)"
+                                  />
+                                  <circle
+                                    cx="100"
+                                    cy="100"
+                                    r="80"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="60"
+                                    className="text-green-300 animate-pulse-wave"
+                                    strokeDasharray="63 377"
+                                    strokeDashoffset="-219"
+                                    transform="rotate(-90 100 100)"
+                                    style={{ animationDelay: '300ms' }}
+                                  />
+                                  <circle
+                                    cx="100"
+                                    cy="100"
+                                    r="80"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="60"
+                                    className="text-yellow-300 animate-pulse-wave"
+                                    strokeDasharray="95 377"
+                                    strokeDashoffset="-282"
+                                    transform="rotate(-90 100 100)"
+                                    style={{ animationDelay: '600ms' }}
+                                  />
+                                </svg>
+                              </div>
+                              {/* Legend skeleton */}
+                              <div className="flex gap-3">
+                                {[1, 2, 3, 4].map((i) => (
+                                  <div key={i} className="flex items-center gap-1">
+                                    <div className="w-3 h-3 rounded-full animate-shimmer" style={{ animationDelay: `${i * 150}ms` }} />
+                                    <div className="h-2 w-12 animate-shimmer rounded" style={{ animationDelay: `${i * 150}ms` }} />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+                      
+                      // Card Skeleton
+                      if (vizType === 'card') {
+                        return (
+                          <div className="w-full h-full p-8 flex items-center justify-center">
+                            <div className="text-center space-y-4 w-full max-w-xs">
+                              <div className="h-4 w-24 animate-shimmer rounded mx-auto" />
+                              <div className="h-20 w-full animate-shimmer rounded-lg shadow-lg" />
+                              <div className="h-3 w-32 animate-shimmer rounded mx-auto" />
+                            </div>
+                          </div>
+                        )
+                      }
+                      
+                      // Area/Scatter/Other Chart Skeleton
+                      return (
+                        <div className="w-full h-full p-4 flex flex-col">
+                          <div className="flex-1 grid grid-cols-8 gap-2 items-end">
+                            {[65, 45, 70, 55, 80, 60, 75, 85].map((height, i) => (
+                              <div 
+                                key={i} 
+                                className="bg-gradient-to-t from-indigo-300 via-indigo-200 to-transparent rounded-t animate-pulse-wave"
+                                style={{ 
+                                  height: `${height}%`,
+                                  animationDelay: `${i * 150}ms`
+                                }}
+                              />
+                            ))}
+                          </div>
+                          <div className="flex gap-3 mt-3">
+                            {[1, 2, 3, 4].map((i) => (
+                              <div key={i} className="flex items-center gap-1">
+                                <div className="w-3 h-3 animate-shimmer rounded-full" style={{ animationDelay: `${i * 100}ms` }} />
+                                <div className="h-2 w-12 animate-shimmer rounded" style={{ animationDelay: `${i * 100}ms` }} />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
 

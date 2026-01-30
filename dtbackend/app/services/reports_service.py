@@ -1,3 +1,4 @@
+import asyncio
 import re
 import time
 from threading import Lock
@@ -998,7 +999,7 @@ class ReportsService:
 
         return new_sql
 
-    def execute_query(self, query: ReportQuery, filter_values: list[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Platform | None = None, global_filters: list[dict[str, Any]] = None, db_config: dict[str, Any] | None = None) -> QueryExecutionResult:
+    async def execute_query(self, query: ReportQuery, filter_values: list[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Platform | None = None, global_filters: list[dict[str, Any]] = None, db_config: dict[str, Any] | None = None) -> QueryExecutionResult:
         """Execute a single query with optional filters
 
         Args:
@@ -1097,7 +1098,8 @@ class ReportsService:
                     # First, get the total count for pagination info
                     t1 = time.time()
                     count_sql = f"SELECT COUNT(*) FROM ({sanitized_sql}) AS subquery"
-                    count_result = self.clickhouse_client.execute(count_sql)
+                    # Run blocking operation in thread pool to not block event loop
+                    count_result = await asyncio.to_thread(self.clickhouse_client.execute, count_sql)
                     total_rows = count_result[0][0] if count_result and count_result[0] else 0
                     print(f"[PERF] ClickHouse count query: {(time.time() - t1) * 1000:.2f}ms")
 
@@ -1107,7 +1109,8 @@ class ReportsService:
                     # Add pagination to the main query
                     t1 = time.time()
                     paginated_sql = f"{sanitized_sql} LIMIT {page_size} OFFSET {offset}"
-                    result = self.clickhouse_client.execute(paginated_sql, with_column_types=True)
+                    # Run blocking operation in thread pool to not block event loop
+                    result = await asyncio.to_thread(self.clickhouse_client.execute, paginated_sql, with_column_types=True)
                     print(f"[PERF] ClickHouse paginated query: {(time.time() - t1) * 1000:.2f}ms")
                 else:
                     # Add limit only for table visualizations (non-paginated query)
@@ -1116,7 +1119,8 @@ class ReportsService:
 
                     # Execute the query
                     t1 = time.time()
-                    result = self.clickhouse_client.execute(sanitized_sql, with_column_types=True)
+                    # Run blocking operation in thread pool to not block event loop
+                    result = await asyncio.to_thread(self.clickhouse_client.execute, sanitized_sql, with_column_types=True)
                     print(f"[PERF] ClickHouse execute query: {(time.time() - t1) * 1000:.2f}ms")
 
                 # Process ClickHouse results
@@ -1134,10 +1138,10 @@ class ReportsService:
                 t1 = time.time()
                 if db_config:
                     # Use report's db_config with connection pool
-                    conn = self._connection_pool.get_connection(db_config=db_config, db_type=db_type)
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, db_config=db_config, db_type=db_type)
                 elif platform:
                     # Fallback to platform's connection pool
-                    conn = self._connection_pool.get_connection(platform=platform, db_type=db_type)
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, platform=platform, db_type=db_type)
                 else:
                     raise ValueError("Database configuration required for PostgreSQL queries")
                 cursor = conn.cursor()
@@ -1152,7 +1156,8 @@ class ReportsService:
                         # Fetch page_size + 1 rows to check if there are more pages (no COUNT needed)
                         t1 = time.time()
                         paginated_sql = f"{sanitized_sql} LIMIT {page_size + 1} OFFSET {offset}"
-                        cursor.execute(paginated_sql)
+                        # Run blocking operation in thread pool
+                        await asyncio.to_thread(cursor.execute, paginated_sql)
                         print(f"[PERF] PostgreSQL paginated query: {(time.time() - t1) * 1000:.2f}ms")
                     else:
                         # Add limit only for table visualizations (non-paginated query)
@@ -1161,28 +1166,29 @@ class ReportsService:
 
                         # Execute the query
                         t1 = time.time()
-                        cursor.execute(sanitized_sql)
+                        # Run blocking operation in thread pool
+                        await asyncio.to_thread(cursor.execute, sanitized_sql)
                         print(f"[PERF] PostgreSQL execute query: {(time.time() - t1) * 1000:.2f}ms")
 
                     # Get columns and data
                     t1 = time.time()
                     columns = [desc[0] for desc in cursor.description] if cursor.description else []
-                    data = cursor.fetchall()
+                    data = await asyncio.to_thread(cursor.fetchall)
                     print(f"[PERF] PostgreSQL fetch results: {(time.time() - t1) * 1000:.2f}ms")
 
                 finally:
                     cursor.close()
                     # Return connection to pool
-                    self._connection_pool.return_connection(conn, db_config=db_config, platform=platform, db_type=db_type)
+                    await asyncio.to_thread(self._connection_pool.return_connection, conn, db_config=db_config, platform=platform, db_type=db_type)
 
             elif db_type == "mssql":
                 # Use MSSQL connection - prioritize report's db_config
                 if db_config:
                     # Use report's db_config with connection pool
-                    conn = self._connection_pool.get_connection(db_config=db_config, db_type=db_type)
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, db_config=db_config, db_type=db_type)
                 elif platform:
                     # Fallback to platform's connection pool
-                    conn = self._connection_pool.get_connection(platform=platform, db_type=db_type)
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, platform=platform, db_type=db_type)
                 else:
                     raise ValueError("Database configuration required for MSSQL queries")
                 cursor = conn.cursor()
@@ -1196,7 +1202,8 @@ class ReportsService:
                         # Fetch page_size + 1 rows to check if there are more pages (no COUNT needed)
                         # MSSQL uses OFFSET/FETCH syntax
                         paginated_sql = f"{sanitized_sql} OFFSET {offset} ROWS FETCH NEXT {page_size + 1} ROWS ONLY"
-                        cursor.execute(paginated_sql)
+                        # Run blocking operation in thread pool
+                        await asyncio.to_thread(cursor.execute, paginated_sql)
                     else:
                         # Add TOP for table visualizations (non-paginated query)
                         if visualization_type == 'table' and 'TOP' not in sanitized_sql.upper() and 'LIMIT' not in sanitized_sql.upper():
@@ -1204,16 +1211,17 @@ class ReportsService:
                             sanitized_sql = sanitized_sql.replace("SELECT", f"SELECT TOP {limit}", 1)
 
                         # Execute the query
-                        cursor.execute(sanitized_sql)
+                        # Run blocking operation in thread pool
+                        await asyncio.to_thread(cursor.execute, sanitized_sql)
 
                     # Get columns and data
                     columns = [column[0] for column in cursor.description] if cursor.description else []
-                    data = cursor.fetchall()
+                    data = await asyncio.to_thread(cursor.fetchall)
 
                 finally:
                     cursor.close()
                     # Return connection to pool
-                    self._connection_pool.return_connection(conn, db_config=db_config, platform=platform, db_type=db_type)
+                    await asyncio.to_thread(self._connection_pool.return_connection, conn, db_config=db_config, platform=platform, db_type=db_type)
             else:
                 raise ValueError(f"Unsupported database type: {db_type}")
 
@@ -1356,7 +1364,7 @@ class ReportsService:
                 if not query:
                     raise ValueError("Query not found in report")
 
-                result = self.execute_query(
+                result = await self.execute_query(
                     query, merged_filters, request.limit,
                     request.page_size, request.page_limit,
                     request.sort_by, request.sort_direction,
@@ -1367,9 +1375,10 @@ class ReportsService:
                 )
                 results.append(result)
             else:
-                # Execute all queries
+                # Execute all queries in parallel for better performance
+                tasks = []
                 for query in report.queries:
-                    result = self.execute_query(
+                    task = self.execute_query(
                         query, merged_filters, request.limit,
                         request.page_size, request.page_limit,
                         request.sort_by, request.sort_direction,
@@ -1378,7 +1387,10 @@ class ReportsService:
                         global_filters=report.global_filters or [],
                         db_config=report_db_config
                     )
-                    results.append(result)
+                    tasks.append(task)
+                
+                # Execute all queries concurrently
+                results = await asyncio.gather(*tasks)
 
             total_execution_time = (time.time() - start_time) * 1000
             print(f"[PERF] Total execute_report time: {(time.time() - t0) * 1000:.2f}ms\n")
@@ -1497,58 +1509,58 @@ class ReportsService:
                 if not self.clickhouse_client:
                     raise ValueError("ClickHouse client not available")
 
-                # Get total count
-                total_result = self.clickhouse_client.execute(count_query)
+                # Get total count (run in thread pool to not block event loop)
+                total_result = await asyncio.to_thread(self.clickhouse_client.execute, count_query)
                 total = total_result[0][0] if total_result else 0
 
-                # Get paginated results
-                result = self.clickhouse_client.execute(paginated_query)
+                # Get paginated results (run in thread pool to not block event loop)
+                result = await asyncio.to_thread(self.clickhouse_client.execute, paginated_query)
 
             elif db_type == "postgresql":
                 # Use report's db_config or fallback to platform
                 if report_db_config:
-                    conn = self._connection_pool.get_connection(db_config=report_db_config, db_type=db_type)
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, db_config=report_db_config, db_type=db_type)
                 elif platform:
-                    conn = self._connection_pool.get_connection(platform=platform, db_type=db_type)
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, platform=platform, db_type=db_type)
                 else:
                     raise ValueError("Database configuration required for PostgreSQL queries")
                 
                 cursor = conn.cursor()
                 try:
-                    # Get total count
-                    cursor.execute(count_query)
+                    # Get total count (run in thread pool)
+                    await asyncio.to_thread(cursor.execute, count_query)
                     total = cursor.fetchone()[0]
 
-                    # Get paginated results
-                    cursor.execute(paginated_query)
-                    result = cursor.fetchall()
+                    # Get paginated results (run in thread pool)
+                    await asyncio.to_thread(cursor.execute, paginated_query)
+                    result = await asyncio.to_thread(cursor.fetchall)
                 finally:
                     cursor.close()
                     # Return connection to pool
-                    self._connection_pool.return_connection(conn, db_config=report_db_config, platform=platform, db_type=db_type)
+                    await asyncio.to_thread(self._connection_pool.return_connection, conn, db_config=report_db_config, platform=platform, db_type=db_type)
 
             elif db_type == "mssql":
                 # Use report's db_config or fallback to platform
                 if report_db_config:
-                    conn = self._connection_pool.get_connection(db_config=report_db_config, db_type=db_type)
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, db_config=report_db_config, db_type=db_type)
                 elif platform:
-                    conn = self._connection_pool.get_connection(platform=platform, db_type=db_type)
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, platform=platform, db_type=db_type)
                 else:
                     raise ValueError("Database configuration required for MSSQL queries")
                 
                 cursor = conn.cursor()
                 try:
-                    # Get total count
-                    cursor.execute(count_query)
+                    # Get total count (run in thread pool)
+                    await asyncio.to_thread(cursor.execute, count_query)
                     total = cursor.fetchone()[0]
 
-                    # Get paginated results
-                    cursor.execute(paginated_query)
-                    result = cursor.fetchall()
+                    # Get paginated results (run in thread pool)
+                    await asyncio.to_thread(cursor.execute, paginated_query)
+                    result = await asyncio.to_thread(cursor.fetchall)
                 finally:
                     cursor.close()
                     # Return connection to pool
-                    self._connection_pool.return_connection(conn, db_config=report_db_config, platform=platform, db_type=db_type)
+                    await asyncio.to_thread(self._connection_pool.return_connection, conn, db_config=report_db_config, platform=platform, db_type=db_type)
             else:
                 raise ValueError(f"Unsupported database type: {db_type}")
 
