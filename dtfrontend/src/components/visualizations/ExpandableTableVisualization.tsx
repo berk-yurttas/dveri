@@ -1356,6 +1356,20 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                   >
                     <option value={8}>8</option>
                   </select>
+                  <button
+                    onClick={() => handleNestedPageChange(nestedCurrentPage - 1)}
+                    disabled={nestedCurrentPage <= 1}
+                    className="p-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronLeft className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={() => handleNestedPageChange(nestedCurrentPage + 1)}
+                    disabled={nestedCurrentPage >= nestedTotalPages}
+                    className="p-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronRight className="h-3 w-3" />
+                  </button>
                 </div>
 
                 <div className="flex items-center gap-1">
@@ -1657,6 +1671,20 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
             <option value={100}>100</option>
             <option value={200}>200</option>
           </select>
+          <button
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage <= 1}
+            className="p-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronLeft className="h-3 w-3" />
+          </button>
+          <button
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage >= totalPages}
+            className="p-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronRight className="h-3 w-3" />
+          </button>
         </div>
 
         {totalPages > 1 && (

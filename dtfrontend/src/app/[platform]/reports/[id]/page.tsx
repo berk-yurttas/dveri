@@ -195,7 +195,7 @@ export default function ReportDetailPage() {
   const subplatform = searchParams.get('subplatform')
   const { user } = useUser()
   const [report, setReport] = useState<ReportData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [reportLoading, setReportLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<FilterState>({})
   const [queryResults, setQueryResults] = useState<QueryResultState>({})
@@ -956,115 +956,15 @@ export default function ReportDetailPage() {
     return executeQueryWithFilters(query, reportId, currentFilters)
   }
 
-  // Execute all queries with initial empty filters
+  // Execute all queries with initial empty filters - send separate requests for each query
   const executeAllQueries = async (reportData: ReportData, initialFilters: FilterState) => {
-    // Use single batch request instead of multiple requests to avoid stalling
-    // Prepare global filters
-    const globalFilters = (reportData.globalFilters || [])
-      .map(filter => {
-        if (filter.type === 'date') {
-          const startKey = `global_${filter.fieldName}_start`
-          const endKey = `global_${filter.fieldName}_end`
-          const startValue = initialFilters[startKey]
-          const endValue = initialFilters[endKey]
+    // Execute each query individually in parallel
+    const queryPromises = reportData.queries.map(query => 
+      executeQueryWithFilters(query, reportData.id, initialFilters, 1, 200)
+    )
 
-          if (startValue && endValue) {
-            return {
-              field_name: filter.fieldName,
-              value: [startValue, endValue],
-              operator: 'BETWEEN'
-            }
-          } else if (startValue) {
-            return {
-              field_name: filter.fieldName,
-              value: startValue,
-              operator: '>='
-            }
-          } else if (endValue) {
-            return {
-              field_name: filter.fieldName,
-              value: endValue,
-              operator: '<='
-            }
-          }
-          return null
-        } else {
-          const key = `global_${filter.fieldName}`
-          const value = initialFilters[key]
-
-          if (filter.type === 'multiselect') {
-            if (Array.isArray(value) && value.length > 0) {
-              return {
-                field_name: filter.fieldName,
-                value: value,
-                operator: 'IN'
-              }
-            }
-          } else if (value && value !== '') {
-            const operatorKey = `global_${filter.fieldName}_operator`
-            const operator = initialFilters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
-
-            return {
-              field_name: filter.fieldName,
-              value: value,
-              operator: operator
-            }
-          }
-          return null
-        }
-      })
-      .filter(Boolean)
-
-    // Execute single batch request for ALL queries (no query_id = execute all)
-    const request = {
-      report_id: reportData.id,
-      filters: globalFilters,
-      limit: 1000
-    }
-
-    try {
-      const response = await reportsService.executeReport(request)
-
-      if (response.success && response.results) {
-        // Update state for each query result
-        response.results.forEach((result: any) => {
-          const query = reportData.queries.find(q => q.id === result.query_id)
-          if (!query) return
-
-          const totalPages = (query.visualization.type === 'table' || query.visualization.type === 'expandable')
-            ? (result.has_more ? 1 + 1 : 1)
-            : 1
-
-          setQueryResults(prev => ({
-            ...prev,
-            [result.query_id]: {
-              result: result,
-              loading: false,
-              error: null,
-              currentPage: 1,
-              pageSize: 200,
-              totalPages: totalPages
-            }
-          }))
-        })
-      }
-    } catch (error) {
-      console.error('Error executing all queries:', error)
-      // Set error state for all queries
-      reportData.queries.forEach(query => {
-        setQueryResults(prev => ({
-          ...prev,
-          [query.id]: {
-            result: null,
-            loading: false,
-            error: error instanceof Error ? error.message : 'Failed to execute queries',
-            currentPage: 1,
-            pageSize: 200,
-            totalPages: 0
-          }
-        }))
-      })
-    }
+    // Wait for all queries to complete
+    await Promise.all(queryPromises)
   }
 
   // Set locale for date inputs
@@ -1158,7 +1058,7 @@ export default function ReportDetailPage() {
       currentReportIdRef.current = reportId
 
       try {
-        setLoading(true)
+        setReportLoading(true)
         setError(null)
 
         const reportData = await fetchReportDetails()
@@ -1168,7 +1068,36 @@ export default function ReportDetailPage() {
           return
         }
 
-        setReport(reportData)
+        // Initialize grid layout FIRST before setting report state
+        // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
+        if (reportData.layoutConfig && reportData.layoutConfig.length > 0) {
+          // Validate and fix layout config - ensure all entries have valid query IDs
+          const validQueryIds = new Set(reportData.queries.map(q => q.id.toString()))
+          const validatedLayout = reportData.layoutConfig
+            .filter((layout: any) => validQueryIds.has(layout.i.toString()))
+            .map((layout: any) => ({
+              ...layout,
+              // Ensure minimum dimensions to prevent invisible widgets
+              w: Math.max(layout.w || 2, 1),
+              h: Math.max(layout.h || 4, 2),
+              minW: 1,
+              minH: 2
+            }))
+
+          // If we have valid layout for all queries, use it, otherwise regenerate
+          if (validatedLayout.length === reportData.queries.length) {
+            setGridLayout(validatedLayout)
+          } else {
+            setGridLayout(generateDefaultLayout(reportData.queries))
+          }
+        } else {
+          const savedLayout = localStorage.getItem(`report_layout_${reportData.id}`)
+          if (savedLayout) {
+            setGridLayout(JSON.parse(savedLayout))
+          } else {
+            setGridLayout(generateDefaultLayout(reportData.queries))
+          }
+        }
 
         // Initialize authorized departments and users
         if (reportData.allowedDepartments) {
@@ -1244,6 +1173,10 @@ export default function ReportDetailPage() {
         })
         setQueryResults(initialResults)
 
+        // Set report state - this will trigger the component to render with the layout
+        setReport(reportData)
+        setReportLoading(false)
+
         // Load dropdown options with batching (max 4 concurrent requests)
         if (dropdownPromises.length > 0) {
           await batchPromises(
@@ -1260,44 +1193,13 @@ export default function ReportDetailPage() {
           return
         }
 
-        // Initialize grid layout
-        // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
-        if (reportData.layoutConfig && reportData.layoutConfig.length > 0) {
-          // Validate and fix layout config - ensure all entries have valid query IDs
-          const validQueryIds = new Set(reportData.queries.map(q => q.id.toString()))
-          const validatedLayout = reportData.layoutConfig
-            .filter((layout: any) => validQueryIds.has(layout.i.toString()))
-            .map((layout: any) => ({
-              ...layout,
-              // Ensure minimum dimensions to prevent invisible widgets
-              w: Math.max(layout.w || 2, 1),
-              h: Math.max(layout.h || 4, 2),
-              minW: 1,
-              minH: 2
-            }))
-
-          // If we have valid layout for all queries, use it, otherwise regenerate
-          if (validatedLayout.length === reportData.queries.length) {
-            setGridLayout(validatedLayout)
-          } else {
-            setGridLayout(generateDefaultLayout(reportData.queries))
-          }
-        } else {
-          const savedLayout = localStorage.getItem(`report_layout_${reportData.id}`)
-          if (savedLayout) {
-            setGridLayout(JSON.parse(savedLayout))
-          } else {
-            setGridLayout(generateDefaultLayout(reportData.queries))
-          }
-        }
-
       } catch (err) {
         if (currentReportIdRef.current === reportId) {
           setError(err instanceof Error ? err.message : 'Failed to load report')
+          setReportLoading(false)
         }
       } finally {
         if (currentReportIdRef.current === reportId) {
-          setLoading(false)
           isLoadingRef.current = false
         }
       }
@@ -2937,26 +2839,8 @@ export default function ReportDetailPage() {
   }
 
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center space-y-6">
-          <div className="relative flex items-end justify-center h-20 space-x-2">
-            <div className="w-3 bg-blue-600 rounded-t animate-bounce" style={{ height: '40%', animationDelay: '0ms', animationDuration: '0.8s' }} />
-            <div className="w-3 bg-blue-500 rounded-t animate-bounce" style={{ height: '60%', animationDelay: '150ms', animationDuration: '0.8s' }} />
-            <div className="w-3 bg-blue-600 rounded-t animate-bounce" style={{ height: '80%', animationDelay: '300ms', animationDuration: '0.8s' }} />
-            <div className="w-3 bg-blue-500 rounded-t animate-bounce" style={{ height: '50%', animationDelay: '450ms', animationDuration: '0.8s' }} />
-          </div>
-          <div className="space-y-2">
-            <h3 className="text-xl font-semibold text-gray-800">Rapor Yükleniyor</h3>
-            <p className="text-gray-600">Veriler getiriliyor ve görselleştirmeler hazırlanıyor...</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (error || !report) {
+  // Show error only if there's an actual error and loading is complete
+  if (error && !reportLoading) {
     return (
       <div className="container mx-auto py-8">
         <div className="bg-red-50 border border-red-200 rounded-md p-4">
@@ -2964,13 +2848,18 @@ export default function ReportDetailPage() {
             <AlertCircle className="h-5 w-5 text-red-400" />
             <div className="ml-3">
               <p className="text-sm text-red-800">
-                {error || 'Report not found'}
+                {error}
               </p>
             </div>
           </div>
         </div>
       </div>
     )
+  }
+
+  // Don't render anything if still loading report metadata
+  if (reportLoading || !report) {
+    return null
   }
 
   return (
