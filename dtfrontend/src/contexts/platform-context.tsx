@@ -53,6 +53,16 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
       const pathSegments = pathname.split('/').filter(Boolean)
       const platformCode = pathSegments[0]
 
+      const nonPlatformRoutes = new Set(['admin', 'analytics', 'statistics'])
+
+      if (platformCode && nonPlatformRoutes.has(platformCode)) {
+        setPlatform(null)
+        setError(null)
+        setLoading(false)
+        setInitialized(true)
+        return
+      }
+
       if (platformCode && platformCode !== platform?.code) {
         console.log('[PlatformContext] Loading platform from URL:', platformCode)
         await fetchPlatform(platformCode)

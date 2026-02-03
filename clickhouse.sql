@@ -200,4 +200,19 @@ CREATE TABLE REHIS_TestTanim_Test_TabloUrun
     UDKNo String
 )
 ENGINE = MergeTree
-ORDER BY UrunID;
+order by UrunID;
+
+-- Analytics Events Table
+CREATE TABLE IF NOT EXISTS Analytics_Events (
+    timestamp DateTime DEFAULT now(),
+    event_type String, -- 'pageview', 'heartbeat', 'action'
+    path String,
+    session_id String,
+    user_id Nullable(String),
+    ip String,
+    user_agent String,
+    duration UInt32 DEFAULT 0, -- Time on page in seconds (for heartbeats/page_end)
+    meta String DEFAULT '{}' -- JSON string for extra data
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (event_type, timestamp);
