@@ -214,11 +214,6 @@ function AppLayoutContent({ children }: AppLayoutProps) {
           title: "Raporlar",
           icon: BarChart3,
           href: platformCode ? `${platformPrefix}/reports${subplatformQuery}` : "/reports",
-        },
-        {
-          title: "Analizler",
-          icon: BarChart3,
-          href: "/analytics",
         }
       )
     }
