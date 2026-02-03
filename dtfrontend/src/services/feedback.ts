@@ -2,6 +2,9 @@ import { api } from '@/lib/api'
 
 export interface FeedbackCreate {
   subject: string
+  platform: string
+  talep_sahibi: string
+  birim: string
   description: string
 }
 

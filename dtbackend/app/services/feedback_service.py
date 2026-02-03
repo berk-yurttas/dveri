@@ -56,10 +56,14 @@ class FeedbackService:
                     "format": "markdown",
                     "raw": feedback_data.description
                 },
+                f"customField{settings.OPENPROJECT_PLATFORM_CUSTOM_FIELD_ID}": feedback_data.platform,
+                f"customField{settings.OPENPROJECT_TALEP_SAHIBI_CUSTOM_FIELD_ID}": feedback_data.talep_sahibi,
+                f"customField{settings.OPENPROJECT_BIRIM_CUSTOM_FIELD_ID}": feedback_data.birim,
                 "_links": {
                     "type": {"href": "/api/v3/types/1"},
                     "project": {"href": f"/api/v3/projects/{settings.OPENPROJECT_PROJECT_ID}"}
-                }
+                },
+                "_meta": {"validateCustomFields": True}
             }
             
             # Create work package using httpx (async)

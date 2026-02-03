@@ -35,7 +35,7 @@ const TableFilterInput = React.memo<{
   onSearch?: (filterKey: string, search: string) => void
 }>(function TableFilterInput({ filter, queryId, filters, dropdownOptions, onFilterChange, setOpenPopovers, allFilters, onLoadMore, onSearch }) {
   const filterKey = `${queryId}_${filter.fieldName}`
-  
+
   // Initialize local values from current filter state
   const initializeLocalValue = () => {
     const storedValue = filters[filterKey]
@@ -44,13 +44,13 @@ const TableFilterInput = React.memo<{
     }
     return storedValue || ''
   }
-  
+
   const [localValue, setLocalValue] = React.useState<any>(initializeLocalValue())
   const [localOperator, setLocalOperator] = React.useState<string>(filters[`${filterKey}_operator`] || (filter.type === 'text' ? 'CONTAINS' : '='))
   const [localStartDate, setLocalStartDate] = React.useState<string>(filters[`${filterKey}_start`] || '')
   const [localEndDate, setLocalEndDate] = React.useState<string>(filters[`${filterKey}_end`] || '')
   const [searchTerm, setSearchTerm] = React.useState('')
-  
+
   // Dependent filters always show options; parent values are handled upstream when fetching options
 
   // Get dropdown options
@@ -69,7 +69,7 @@ const TableFilterInput = React.memo<{
       }, 300)
     }
   }
-  
+
   // Sync local state when filter values change externally
   React.useEffect(() => {
     const storedValue = filters[filterKey]
@@ -78,23 +78,23 @@ const TableFilterInput = React.memo<{
     } else if (storedValue !== undefined) {
       setLocalValue(storedValue || '')
     }
-    
+
     const storedOperator = filters[`${filterKey}_operator`]
     if (storedOperator) {
       setLocalOperator(storedOperator)
     }
-    
+
     const storedStartDate = filters[`${filterKey}_start`]
     if (storedStartDate !== undefined) {
       setLocalStartDate(storedStartDate || '')
     }
-    
+
     const storedEndDate = filters[`${filterKey}_end`]
     if (storedEndDate !== undefined) {
       setLocalEndDate(storedEndDate || '')
     }
   }, [filters[filterKey], filters[`${filterKey}_operator`], filters[`${filterKey}_start`], filters[`${filterKey}_end`], filter.type, filterKey])
-  
+
   const handleApply = () => {
     if (filter.type === 'date') {
       onFilterChange(`${filter.fieldName}_start`, localStartDate)
@@ -105,27 +105,27 @@ const TableFilterInput = React.memo<{
       if (filter.type === 'multiselect' && localValue) {
         valueToStore = localValue.split(',').map((v: string) => v.trim()).filter((v: string) => v !== '')
       }
-      
+
       // Store operator first for text/number filters (before value to ensure it's available)
       if (filter.type === 'text' || filter.type === 'number') {
         onFilterChange(`${filter.fieldName}_operator`, localOperator)
       }
-      
+
       // Then store the value (this will trigger query execution)
       onFilterChange(filter.fieldName, valueToStore)
     }
-    
+
     // Close popover after a small delay to ensure all state updates complete
     setTimeout(() => setOpenPopovers({}), 50)
   }
-  
+
   const handleClear = () => {
     setLocalValue('')
     setLocalOperator(filter.type === 'text' ? 'CONTAINS' : '=')
     setLocalStartDate('')
     setLocalEndDate('')
     setSearchTerm('')
-    
+
     if (filter.type === 'date') {
       onFilterChange(`${filter.fieldName}_start`, '')
       onFilterChange(`${filter.fieldName}_end`, '')
@@ -137,7 +137,7 @@ const TableFilterInput = React.memo<{
       // Then clear the value (this will trigger query execution)
       onFilterChange(filter.fieldName, filter.type === 'multiselect' ? [] : '')
     }
-    
+
     // Close popover after a small delay to ensure all state updates complete
     setTimeout(() => setOpenPopovers({}), 50)
   }
@@ -173,7 +173,7 @@ const TableFilterInput = React.memo<{
           </div>
         </div>
       )}
-      
+
       {filter.type === 'number' && (
         <div className="space-y-2">
           <div>
@@ -203,9 +203,9 @@ const TableFilterInput = React.memo<{
           </div>
         </div>
       )}
-      
+
       {filter.type === 'date' && (
-    <div className="space-y-2">
+        <div className="space-y-2">
           <div>
             <label className="block text-xs text-gray-600 mb-1">Başlangıç</label>
             <input
@@ -226,7 +226,7 @@ const TableFilterInput = React.memo<{
           </div>
         </div>
       )}
-      
+
       {filter.type === 'dropdown' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
@@ -259,7 +259,7 @@ const TableFilterInput = React.memo<{
           </div>
         </div>
       )}
-      
+
       {filter.type === 'multiselect' && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
@@ -329,7 +329,7 @@ const TableFilterInput = React.memo<{
           </div>
         </div>
       )}
-      
+
       <div className="flex gap-2 pt-2 border-t">
         <button
           onClick={(e) => {
@@ -439,7 +439,7 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
   onLoadMoreOptions,
   onSearchOptions,
   currentPage,
-  pageSize,
+  pageSize = 200,
   totalPages,
   totalRows,
   onPageChange,
@@ -483,9 +483,9 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
           <thead className="sticky top-0 z-10 relative">
             <tr className="bg-gray-50 border-b border-gray-200">
               {columns.map((col, index) => {
-              // Find if there's a filter for this column
-              const filter = query.filters.find(f => f.fieldName === col)
-              const isSorted = sorting?.column === col
+                // Find if there's a filter for this column
+                const filter = query.filters.find(f => f.fieldName === col)
+                const isSorted = sorting?.column === col
 
               return (
                 <th key={index} className={`${currentSize.padding} text-left font-semibold text-gray-800 ${currentSize.text} relative`}>
@@ -512,120 +512,120 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                       </div>
                     </div>
 
-                    {/* Filter button */}
-                    {filter && (
-                      <div>
-                        <div
-                          className="cursor-pointer hover:bg-gray-100 p-1 rounded"
-                          onClick={async (e) => {
-                            e.stopPropagation()
-                            const currentKey = `${query.id}_${col}`
-                            const isCurrentlyOpen = !!openPopovers[currentKey]
+                      {/* Filter button */}
+                      {filter && (
+                        <div>
+                          <div
+                            className="cursor-pointer hover:bg-gray-100 p-1 rounded"
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              const currentKey = `${query.id}_${col}`
+                              const isCurrentlyOpen = !!openPopovers[currentKey]
 
-                            if (isCurrentlyOpen) {
-                              // Closing
-                              setFilterPositions(prev => {
-                                const updated = { ...prev }
-                                delete updated[currentKey]
-                                return updated
-                              })
-                              setOpenPopovers({})
-                            } else {
-                              // Opening - get rect BEFORE async operations
-                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                              if (isCurrentlyOpen) {
+                                // Closing
+                                setFilterPositions(prev => {
+                                  const updated = { ...prev }
+                                  delete updated[currentKey]
+                                  return updated
+                                })
+                                setOpenPopovers({})
+                              } else {
+                                // Opening - get rect BEFORE async operations
+                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
 
-                              // Reload options for dropdown/multiselect
-                              if ((filter.type === 'dropdown' || filter.type === 'multiselect') && onSearchOptions) {
-                                const filterKey = `${query.id}_${filter.fieldName}`
-                                await onSearchOptions(filterKey, '')
-                              }
-
-                              setFilterPositions(prev => ({
-                                ...prev,
-                                [currentKey]: {
-                                  top: rect.bottom + 4,
-                                  left: rect.left
+                                // Reload options for dropdown/multiselect
+                                if ((filter.type === 'dropdown' || filter.type === 'multiselect') && onSearchOptions) {
+                                  const filterKey = `${query.id}_${filter.fieldName}`
+                                  await onSearchOptions(filterKey, '')
                                 }
-                              }))
-                              setOpenPopovers({ [currentKey]: true })
-                            }
-                          }}
-                        >
-                          <Filter className={`h-3 w-3 ${(() => {
-                            // Check if filter is active
-                            if (filter.type === 'date') {
-                              return filters[`${query.id}_${filter.fieldName}_start`] || filters[`${query.id}_${filter.fieldName}_end`] 
-                                ? 'text-orange-600' : 'text-gray-400'
-                            } else if (filter.type === 'multiselect') {
-                              const value = filters[`${query.id}_${filter.fieldName}`]
-                              return (Array.isArray(value) && value.length > 0) ? 'text-orange-600' : 'text-gray-400'
-                            } else {
-                              return filters[`${query.id}_${filter.fieldName}`] ? 'text-orange-600' : 'text-gray-400'
-                            }
-                          })()}`} />
+
+                                setFilterPositions(prev => ({
+                                  ...prev,
+                                  [currentKey]: {
+                                    top: rect.bottom + 4,
+                                    left: rect.left
+                                  }
+                                }))
+                                setOpenPopovers({ [currentKey]: true })
+                              }
+                            }}
+                          >
+                            <Filter className={`h-3 w-3 ${(() => {
+                              // Check if filter is active
+                              if (filter.type === 'date') {
+                                return filters[`${query.id}_${filter.fieldName}_start`] || filters[`${query.id}_${filter.fieldName}_end`]
+                                  ? 'text-orange-600' : 'text-gray-400'
+                              } else if (filter.type === 'multiselect') {
+                                const value = filters[`${query.id}_${filter.fieldName}`]
+                                return (Array.isArray(value) && value.length > 0) ? 'text-orange-600' : 'text-gray-400'
+                              } else {
+                                return filters[`${query.id}_${filter.fieldName}`] ? 'text-orange-600' : 'text-gray-400'
+                              }
+                            })()}`} />
+                          </div>
+
+                          {openPopovers[`${query.id}_${col}`] && typeof document !== 'undefined' && (() => {
+                            const filterKey = `${query.id}_${col}`
+                            const position = filterPositions[filterKey]
+                            if (!position) return null
+
+                            const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
+                            const popoverWidth = 256
+                            const adjustedLeft = position.left + popoverWidth > viewportWidth - 16
+                              ? Math.max(16, viewportWidth - popoverWidth - 16)
+                              : position.left
+
+                            return createPortal(
+                              <div
+                                className="fixed w-64 p-4 bg-white border border-gray-200 rounded-md shadow-lg z-[10000]"
+                                style={{ top: position.top, left: adjustedLeft }}
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                              >
+                                <TableFilterInput
+                                  filter={filter}
+                                  queryId={query.id.toString()}
+                                  filters={filters}
+                                  dropdownOptions={dropdownOptions}
+                                  onFilterChange={onFilterChange}
+                                  setOpenPopovers={setOpenPopovers}
+                                  allFilters={query.filters}
+                                  onLoadMore={onLoadMoreOptions}
+                                  onSearch={onSearchOptions}
+                                />
+                              </div>,
+                              document.body
+                            )
+                          })()}
                         </div>
+                      )}
+                    </div>
+                  </th>
+                )
+              })}
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {data.map((row, rowIndex) => {
+              // Calculate row text color based on rules
+              const rowTextColor = getRowTextColor(row, columns, query.visualization.chartOptions?.rowColorRules)
 
-                        {openPopovers[`${query.id}_${col}`] && typeof document !== 'undefined' && (() => {
-                          const filterKey = `${query.id}_${col}`
-                          const position = filterPositions[filterKey]
-                          if (!position) return null
+              return (
+                <tr key={rowIndex} className="hover:bg-gray-50 transition-colors">
+                  {row.map((cell, cellIndex) => {
+                    const cellValue = cell?.toString() || ''
+                    const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
+                    const showTooltip = cellValue.length > 50
 
-                          const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
-                          const popoverWidth = 256
-                          const adjustedLeft = position.left + popoverWidth > viewportWidth - 16
-                            ? Math.max(16, viewportWidth - popoverWidth - 16)
-                            : position.left
-
-                          return createPortal(
-                            <div
-                              className="fixed w-64 p-4 bg-white border border-gray-200 rounded-md shadow-lg z-[10000]"
-                              style={{ top: position.top, left: adjustedLeft }}
-                              onClick={(e) => e.stopPropagation()}
-                              onMouseDown={(e) => e.stopPropagation()}
-                            >
-                              <TableFilterInput
-                                filter={filter}
-                                queryId={query.id.toString()}
-                                filters={filters}
-                                dropdownOptions={dropdownOptions}
-                                onFilterChange={onFilterChange}
-                                setOpenPopovers={setOpenPopovers}
-                                allFilters={query.filters}
-                                onLoadMore={onLoadMoreOptions}
-                                onSearch={onSearchOptions}
-                              />
-                            </div>,
-                            document.body
-                          )
-                        })()}
-                      </div>
-                    )}
-                  </div>
-                </th>
-              )
-            })}
-          </tr>
-        </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {data.map((row, rowIndex) => {
-            // Calculate row text color based on rules
-            const rowTextColor = getRowTextColor(row, columns, query.visualization.chartOptions?.rowColorRules)
-
-            return (
-              <tr key={rowIndex} className="hover:bg-gray-50 transition-colors">
-                {row.map((cell, cellIndex) => {
-                  const cellValue = cell?.toString() || ''
-                  const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
-                  const showTooltip = cellValue.length > 50
-
-                  // Insert line break every 50 characters
-                  const formatTooltipText = (text: string) => {
-                    const chunks = []
-                    for (let i = 0; i < text.length; i += 50) {
-                      chunks.push(text.substring(i, i + 50))
+                    // Insert line break every 50 characters
+                    const formatTooltipText = (text: string) => {
+                      const chunks = []
+                      for (let i = 0; i < text.length; i += 50) {
+                        chunks.push(text.substring(i, i + 50))
+                      }
+                      return chunks.join('\n')
                     }
-                    return chunks.join('\n')
-                  }
 
                   return (
                     <td key={cellIndex} className={`${currentSize.cellPadding} ${currentSize.text} whitespace-nowrap`} style={{ color: rowTextColor || '#1f2937' }}>
@@ -669,6 +669,20 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
             <option value={100}>100</option>
             <option value={200}>200</option>
           </select>
+          <button
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage <= 1}
+            className="p-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronLeft className="h-3 w-3" />
+          </button>
+          <button
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage >= totalPages}
+            className="p-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronRight className="h-3 w-3" />
+          </button>
         </div>
 
         {totalPages > 1 && (

@@ -26,8 +26,8 @@ class Platform(PostgreSQLBase):
     description = Column(Text, nullable=True)
 
     # Database configuration - supports multiple database types
-    db_type = Column(String(50), nullable=False, default='clickhouse')  # 'clickhouse', 'mssql', 'postgresql'
-    db_config = Column(JSONB, nullable=True)  # Flexible database configuration
+    db_type = Column(String(50), nullable=False, default='clickhouse')  # 'clickhouse', 'mssql', 'postgresql' (deprecated, kept for backward compatibility)
+    db_config = Column(JSONB, nullable=True)  # Flexible database configuration (deprecated, use db_configs instead)
     # Example db_config structure:
     # {
     #   "host": "localhost",
@@ -37,6 +37,31 @@ class Platform(PostgreSQLBase):
     #   "password": "ClickHouse@2024",
     #   "connection_string": "clickhouse://user:pass@host:port/db"  # Alternative to individual fields
     # }
+    
+    # New field for multiple database configurations
+    db_configs = Column(JSONB, nullable=True, default=[])  # Array of database configurations
+    # Example db_configs structure:
+    # [
+    #   {
+    #     "name": "Primary Database",
+    #     "db_type": "clickhouse",
+    #     "host": "localhost",
+    #     "port": 9000,
+    #     "database": "dt_report",
+    #     "user": "default",
+    #     "password": "ClickHouse@2024",
+    #     "is_default": true
+    #   },
+    #   {
+    #     "name": "Analytics Database",
+    #     "db_type": "postgresql",
+    #     "host": "localhost",
+    #     "port": 5432,
+    #     "database": "analytics",
+    #     "user": "postgres",
+    #     "password": "postgres"
+    #   }
+    # ]
 
     # Branding/theming configuration
     logo_url = Column(String(255), nullable=True)
@@ -83,6 +108,21 @@ class User(PostgreSQLBase):
 
     # many-to-many with platforms through UserPlatform
     user_platforms = relationship("UserPlatform", back_populates="user", cascade="all, delete-orphan")
+
+
+class AnalyticsEvent(PostgreSQLBase):
+    __tablename__ = "analytics_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    event_type = Column(String(50), nullable=False)
+    path = Column(Text, nullable=False)
+    session_id = Column(String(255), nullable=False)
+    user_id = Column(String(255), nullable=True)
+    ip = Column(String(50), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    duration = Column(Integer, nullable=False, default=0)
+    meta = Column(JSONB, nullable=True)
 
 
 class Dashboard(PostgreSQLBase):
@@ -146,8 +186,20 @@ class Report(PostgreSQLBase):
     allowed_users = Column(ARRAY(String), default=[])
     is_direct_link = Column(Boolean, default=False)  # If true, report uses direct link instead of queries
     direct_link = Column(Text, nullable=True)  # Direct link URL to external report page
+    db_config = Column(JSONB, nullable=True)  # Database configuration for this report (from platform's db_configs)
+    # Example db_config structure (single config from platform's db_configs array):
+    # {
+    #   "name": "Primary Database",
+    #   "db_type": "clickhouse",
+    #   "host": "localhost",
+    #   "port": 9000,
+    #   "database": "dt_report",
+    #   "user": "default",
+    #   "password": "ClickHouse@2024"
+    # }
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     platform = relationship("Platform", back_populates="reports")  # Platform relationship

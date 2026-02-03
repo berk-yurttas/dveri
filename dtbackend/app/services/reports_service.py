@@ -1,3 +1,4 @@
+import asyncio
 import re
 import time
 from threading import Lock
@@ -36,6 +37,7 @@ class ConnectionPool:
     _instance = None
     _lock = Lock()
     _pools: dict[str, Any] = {}
+    _clickhouse_clients: dict[str, Client] = {}
 
     def __new__(cls):
         if cls._instance is None:
@@ -44,46 +46,151 @@ class ConnectionPool:
                     cls._instance = super().__new__(cls)
         return cls._instance
 
-    def get_connection(self, platform: Platform, db_type: str):
-        """Get or create a connection pool for a platform"""
-        pool_key = f"{db_type}_{platform.id}"
+    def _get_pool_key(self, db_config: dict[str, Any], db_type: str, platform_id: int | None = None) -> str:
+        """Generate a unique key for connection pool based on db_config or platform"""
+        if platform_id:
+            return f"{db_type}_{platform_id}"
+        
+        # Create hash from db_config for custom configs
+        import hashlib
+        import json
+        config_str = json.dumps({
+            'host': db_config.get('host'),
+            'port': db_config.get('port'),
+            'database': db_config.get('database'),
+            'user': db_config.get('user'),
+            'db_type': db_type
+        }, sort_keys=True)
+        config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
+        return f"{db_type}_{config_hash}"
 
+    def get_connection(self, db_config: dict[str, Any] | None = None, platform: Platform | None = None, db_type: str | None = None):
+        """Get or create a connection from pool
+        
+        Args:
+            db_config: Database configuration dict (takes priority)
+            platform: Platform instance (fallback)
+            db_type: Database type ('postgresql', 'mssql', 'clickhouse')
+        
+        Returns:
+            Database connection from pool
+        """
+        # Determine db_type and config
+        if db_config:
+            actual_db_type = db_type or db_config.get('db_type', 'postgresql').lower()
+            actual_config = db_config
+            pool_key = self._get_pool_key(db_config, actual_db_type)
+        elif platform:
+            actual_db_type = db_type or platform.db_type.lower()
+            actual_config = platform.db_config or {}
+            pool_key = self._get_pool_key(actual_config, actual_db_type, platform.id)
+        else:
+            raise ValueError("Either db_config or platform must be provided")
+
+        # Special handling for ClickHouse (keep persistent client)
+        if actual_db_type == "clickhouse":
+            if pool_key not in self._clickhouse_clients:
+                with self._lock:
+                    if pool_key not in self._clickhouse_clients:
+                        self._clickhouse_clients[pool_key] = self._create_clickhouse_client(actual_config)
+            return self._clickhouse_clients[pool_key]
+
+        # For PostgreSQL and MSSQL, use connection pools
         if pool_key not in self._pools:
             with self._lock:
                 if pool_key not in self._pools:
-                    self._pools[pool_key] = self._create_pool(platform, db_type)
+                    self._pools[pool_key] = self._create_pool(actual_config, actual_db_type)
 
-        return self._pools[pool_key].getconn() if hasattr(self._pools[pool_key], 'getconn') else self._pools[pool_key].connect()
-
-    def return_connection(self, platform: Platform, db_type: str, conn):
-        """Return connection to pool"""
-        pool_key = f"{db_type}_{platform.id}"
-        if pool_key in self._pools and hasattr(self._pools[pool_key], 'putconn'):
-            self._pools[pool_key].putconn(conn)
+        pool = self._pools[pool_key]
+        
+        if actual_db_type == "postgresql":
+            return pool.getconn()
+        elif actual_db_type == "mssql":
+            # MSSQL doesn't have built-in pooling, create new connection
+            # (We could implement a custom pool later if needed)
+            return self._create_mssql_connection(actual_config)
         else:
-            # For non-pooled connections, just close
-            conn.close()
+            raise ValueError(f"Unsupported database type: {actual_db_type}")
 
-    def _create_pool(self, platform: Platform, db_type: str):
+    def return_connection(self, conn, db_config: dict[str, Any] | None = None, platform: Platform | None = None, db_type: str | None = None):
+        """Return connection to pool
+        
+        Args:
+            conn: Database connection to return
+            db_config: Database configuration dict (takes priority)
+            platform: Platform instance (fallback)
+            db_type: Database type
+        """
+        # Determine db_type and pool_key
+        if db_config:
+            actual_db_type = db_type or db_config.get('db_type', 'postgresql').lower()
+            pool_key = self._get_pool_key(db_config, actual_db_type)
+        elif platform:
+            actual_db_type = db_type or platform.db_type.lower()
+            actual_config = platform.db_config or {}
+            pool_key = self._get_pool_key(actual_config, actual_db_type, platform.id)
+        else:
+            # If we can't determine pool, just close the connection
+            if hasattr(conn, 'close'):
+                conn.close()
+            return
+
+        # Don't return ClickHouse clients - they stay persistent
+        if actual_db_type == "clickhouse":
+            return
+
+        # Return PostgreSQL connections to pool
+        if actual_db_type == "postgresql" and pool_key in self._pools:
+            try:
+                self._pools[pool_key].putconn(conn)
+            except Exception:
+                # If error returning to pool, just close it
+                if hasattr(conn, 'close'):
+                    conn.close()
+        else:
+            # For MSSQL and others, just close the connection
+            if hasattr(conn, 'close'):
+                conn.close()
+
+    def _create_pool(self, db_config: dict[str, Any], db_type: str):
         """Create a connection pool based on database type"""
-        db_config = platform.db_config or {}
-
         if db_type == "postgresql":
             from psycopg2 import pool
             return pool.ThreadedConnectionPool(
-                minconn=1,
-                maxconn=10,
+                minconn=2,
+                maxconn=20,
                 host=db_config.get("host", "localhost"),
                 port=int(db_config.get("port", 5432)),
                 database=db_config.get("database"),
                 user=db_config.get("user"),
                 password=db_config.get("password")
             )
-        elif db_type == "mssql":
-            # MSSQL doesn't have a built-in pool, use factory method
-            return DatabaseConnectionFactory
         else:
             raise ValueError(f"Unsupported database type for pooling: {db_type}")
+
+    def _create_clickhouse_client(self, db_config: dict[str, Any]) -> Client:
+        """Create a ClickHouse client"""
+        return Client(
+            host=db_config.get("host", "localhost"),
+            port=int(db_config.get("port", 9000)),
+            user=db_config.get("user", "default"),
+            password=db_config.get("password", ""),
+            database=db_config.get("database", "default"),
+            settings=db_config.get("settings", {})
+        )
+
+    def _create_mssql_connection(self, db_config: dict[str, Any]):
+        """Create an MSSQL connection"""
+        import pyodbc
+        driver = db_config.get("driver", "{ODBC Driver 17 for SQL Server}")
+        connection_string = (
+            f"DRIVER={driver};"
+            f"SERVER={db_config.get('host', 'localhost')},{db_config.get('port', 1433)};"
+            f"DATABASE={db_config.get('database')};"
+            f"UID={db_config.get('user')};"
+            f"PWD={db_config.get('password')}"
+        )
+        return pyodbc.connect(connection_string)
 
 
 class ReportsService:
@@ -92,6 +199,14 @@ class ReportsService:
     def __init__(self, db: AsyncSession, clickhouse_client: Client | None = None):
         self.db = db
         self.clickhouse_client = clickhouse_client
+    
+    def _get_db_connection_from_config(self, db_config: dict[str, Any], db_type: str):
+        """Get a database connection from db_config dict using connection pool"""
+        return self._connection_pool.get_connection(db_config=db_config, db_type=db_type)
+    
+    def _return_connection_to_pool(self, conn, db_config: dict[str, Any] | None = None, platform: Platform | None = None, db_type: str | None = None):
+        """Return a connection to the pool"""
+        self._connection_pool.return_connection(conn, db_config=db_config, platform=platform, db_type=db_type)
 
     # Report CRUD Operations
     async def create_report(self, report_data: ReportCreate, user: UserSchema, platform: Platform | None = None) -> Report:
@@ -128,7 +243,8 @@ class ReportsService:
             allowed_departments=report_data.allowed_departments or [],
             allowed_users=report_data.allowed_users or [],
             is_direct_link=report_data.is_direct_link or False,
-            direct_link=report_data.direct_link
+            direct_link=report_data.direct_link,
+            db_config=report_data.db_config
         )
         self.db.add(db_report)
         await self.db.flush()  # Get the report ID
@@ -190,7 +306,7 @@ class ReportsService:
             stmt = select(Report).options(
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
-            ).where(Report.id == report_id)
+            ).where(and_(Report.id == report_id, Report.deleted_at.is_(None)))
         else:
             # Generate all parent departments for the user
             user_dept = user.department or ""
@@ -210,6 +326,7 @@ class ReportsService:
             ).where(
                 and_(
                     Report.id == report_id,
+                    Report.deleted_at.is_(None),  # Exclude deleted reports
                     or_(
                         Report.owner_id == db_user.id,
                         Report.is_public == True,
@@ -244,14 +361,16 @@ class ReportsService:
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
             ).where(
-                Report.owner_id == db_user.id
+            ).where(
+                and_(Report.owner_id == db_user.id, Report.deleted_at.is_(None))
             ).offset(skip).limit(limit)
         elif is_admin:
+            # Admin sees all reports
             # Admin sees all reports
             stmt = select(Report).options(
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
-            ).offset(skip).limit(limit)
+            ).where(Report.deleted_at.is_(None)).offset(skip).limit(limit)
         else:
             # Generate all parent departments for the user
             user_dept = user.department or ""
@@ -263,17 +382,22 @@ class ReportsService:
                     current = f"{current}_{part}" if current else part
                     dept_prefixes.append(current)
 
+            # dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
+
             dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
 
             stmt = select(Report).options(
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
             ).where(
-                or_(
-                    Report.owner_id == db_user.id,
-                    Report.is_public == True,
-                    Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
-                    Report.allowed_departments.op('&&')(dept_prefixes_array)
+                and_(
+                    Report.deleted_at.is_(None),  # Exclude deleted reports
+                    or_(
+                        Report.owner_id == db_user.id,
+                        Report.is_public == True,
+                        Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
+                        Report.allowed_departments.op('&&')(dept_prefixes_array)
+                    )
                 )
             ).offset(skip).limit(limit)
 
@@ -303,10 +427,10 @@ class ReportsService:
         is_admin = user.role and "miras:admin" in user.role
 
         if my_reports_only:
-            base_condition = Report.owner_id == db_user.id
+            base_condition = and_(Report.owner_id == db_user.id, Report.deleted_at.is_(None))
         elif is_admin:
             # Admin sees all reports - no condition needed
-            base_condition = literal(True)
+            base_condition = Report.deleted_at.is_(None)
         else:
             # Access logic:
             # 1. Owner
@@ -327,11 +451,14 @@ class ReportsService:
             # If no department, just check empty array overlap (which is false)
             dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
 
-            base_condition = or_(
-                Report.owner_id == db_user.id,
-                Report.is_public == True,
-                Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
-                Report.allowed_departments.op('&&')(dept_prefixes_array)
+            base_condition = and_(
+                Report.deleted_at.is_(None),
+                or_(
+                    Report.owner_id == db_user.id,
+                    Report.is_public == True,
+                    Report.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
+                    Report.allowed_departments.op('&&')(dept_prefixes_array)
+                )
             )
 
         # Build filter conditions
@@ -451,6 +578,8 @@ class ReportsService:
             db_report.is_direct_link = report_data.is_direct_link
         if report_data.direct_link is not None:
             db_report.direct_link = report_data.direct_link
+        if report_data.db_config is not None:
+            db_report.db_config = report_data.db_config
 
         await self.db.commit()
 
@@ -501,6 +630,8 @@ class ReportsService:
             db_report.is_direct_link = report_data.is_direct_link
         if report_data.direct_link is not None:
             db_report.direct_link = report_data.direct_link
+        if report_data.db_config is not None:
+            db_report.db_config = report_data.db_config
 
         # Update global filters if provided
         if report_data.global_filters is not None:
@@ -635,25 +766,14 @@ class ReportsService:
         if not db_report:
             return False
 
-        # Get all query IDs for this report
-        report_queries_result = await self.db.execute(
-            select(ReportQuery).where(ReportQuery.report_id == report_id)
-        )
-        report_query_ids = [query.id for query in report_queries_result.scalars().all()]
 
-        # Delete filters first, then queries, then report
-        if report_query_ids:
-            await self.db.execute(
-                delete(ReportQueryFilter).where(ReportQueryFilter.query_id.in_(report_query_ids))
-            )
-            await self.db.execute(
-                delete(ReportQuery).where(ReportQuery.id.in_(report_query_ids))
-            )
-
-        # Finally delete the report
-        await self.db.delete(db_report)
+            
+        # Soft delete: update deleted_at
+        from sqlalchemy import func
+        db_report.deleted_at = func.now()
         await self.db.commit()
         return True
+
 
     async def toggle_favorite(self, report_id: int, user: UserSchema) -> bool:
         """Toggle favorite status for a report"""
@@ -879,7 +999,7 @@ class ReportsService:
 
         return new_sql
 
-    def execute_query(self, query: ReportQuery, filter_values: list[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Platform | None = None, global_filters: list[dict[str, Any]] = None) -> QueryExecutionResult:
+    async def execute_query(self, query: ReportQuery, filter_values: list[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Platform | None = None, global_filters: list[dict[str, Any]] = None, db_config: dict[str, Any] | None = None) -> QueryExecutionResult:
         """Execute a single query with optional filters
 
         Args:
@@ -893,13 +1013,16 @@ class ReportsService:
             visualization_type: Type of visualization
             platform: Platform instance for database connection (optional, falls back to clickhouse_client)
             global_filters: Global filters from the report that apply to all queries
+            db_config: Database configuration from report (overrides platform db_config)
         """
         t0 = time.time()
         print(f"\n[PERF] Starting execute_query for query_id={query.id}")
 
-        # Determine database type
+        # Determine database type - prioritize report's db_config
         t1 = time.time()
-        if platform:
+        if db_config:
+            db_type = db_config.get('db_type', 'clickhouse').lower()
+        elif platform:
             db_type = platform.db_type.lower()
         else:
             # Fallback to ClickHouse for backward compatibility
@@ -975,7 +1098,8 @@ class ReportsService:
                     # First, get the total count for pagination info
                     t1 = time.time()
                     count_sql = f"SELECT COUNT(*) FROM ({sanitized_sql}) AS subquery"
-                    count_result = self.clickhouse_client.execute(count_sql)
+                    # Run blocking operation in thread pool to not block event loop
+                    count_result = await asyncio.to_thread(self.clickhouse_client.execute, count_sql)
                     total_rows = count_result[0][0] if count_result and count_result[0] else 0
                     print(f"[PERF] ClickHouse count query: {(time.time() - t1) * 1000:.2f}ms")
 
@@ -985,7 +1109,8 @@ class ReportsService:
                     # Add pagination to the main query
                     t1 = time.time()
                     paginated_sql = f"{sanitized_sql} LIMIT {page_size} OFFSET {offset}"
-                    result = self.clickhouse_client.execute(paginated_sql, with_column_types=True)
+                    # Run blocking operation in thread pool to not block event loop
+                    result = await asyncio.to_thread(self.clickhouse_client.execute, paginated_sql, with_column_types=True)
                     print(f"[PERF] ClickHouse paginated query: {(time.time() - t1) * 1000:.2f}ms")
                 else:
                     # Add limit only for table visualizations (non-paginated query)
@@ -994,7 +1119,8 @@ class ReportsService:
 
                     # Execute the query
                     t1 = time.time()
-                    result = self.clickhouse_client.execute(sanitized_sql, with_column_types=True)
+                    # Run blocking operation in thread pool to not block event loop
+                    result = await asyncio.to_thread(self.clickhouse_client.execute, sanitized_sql, with_column_types=True)
                     print(f"[PERF] ClickHouse execute query: {(time.time() - t1) * 1000:.2f}ms")
 
                 # Process ClickHouse results
@@ -1008,13 +1134,16 @@ class ReportsService:
                 print(f"[PERF] Process ClickHouse results: {(time.time() - t1) * 1000:.2f}ms")
 
             elif db_type == "postgresql":
-                # Use PostgreSQL connection pool
-                if not platform:
-                    raise ValueError("Platform required for PostgreSQL queries")
-
-                # Get connection from pool
+                # Use PostgreSQL connection - prioritize report's db_config
                 t1 = time.time()
-                conn = self._connection_pool.get_connection(platform, db_type)
+                if db_config:
+                    # Use report's db_config with connection pool
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, db_config=db_config, db_type=db_type)
+                elif platform:
+                    # Fallback to platform's connection pool
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, platform=platform, db_type=db_type)
+                else:
+                    raise ValueError("Database configuration required for PostgreSQL queries")
                 cursor = conn.cursor()
                 print(f"[PERF] PostgreSQL get connection: {(time.time() - t1) * 1000:.2f}ms")
 
@@ -1027,7 +1156,8 @@ class ReportsService:
                         # Fetch page_size + 1 rows to check if there are more pages (no COUNT needed)
                         t1 = time.time()
                         paginated_sql = f"{sanitized_sql} LIMIT {page_size + 1} OFFSET {offset}"
-                        cursor.execute(paginated_sql)
+                        # Run blocking operation in thread pool
+                        await asyncio.to_thread(cursor.execute, paginated_sql)
                         print(f"[PERF] PostgreSQL paginated query: {(time.time() - t1) * 1000:.2f}ms")
                     else:
                         # Add limit only for table visualizations (non-paginated query)
@@ -1036,27 +1166,31 @@ class ReportsService:
 
                         # Execute the query
                         t1 = time.time()
-                        cursor.execute(sanitized_sql)
+                        # Run blocking operation in thread pool
+                        await asyncio.to_thread(cursor.execute, sanitized_sql)
                         print(f"[PERF] PostgreSQL execute query: {(time.time() - t1) * 1000:.2f}ms")
 
                     # Get columns and data
                     t1 = time.time()
                     columns = [desc[0] for desc in cursor.description] if cursor.description else []
-                    data = cursor.fetchall()
+                    data = await asyncio.to_thread(cursor.fetchall)
                     print(f"[PERF] PostgreSQL fetch results: {(time.time() - t1) * 1000:.2f}ms")
 
                 finally:
                     cursor.close()
-                    # Return connection to pool instead of closing
-                    self._connection_pool.return_connection(platform, db_type, conn)
+                    # Return connection to pool
+                    await asyncio.to_thread(self._connection_pool.return_connection, conn, db_config=db_config, platform=platform, db_type=db_type)
 
             elif db_type == "mssql":
-                # Use MSSQL connection
-                if not platform:
-                    raise ValueError("Platform required for MSSQL queries")
-
-                # MSSQL uses factory method (no built-in pooling in pyodbc)
-                conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+                # Use MSSQL connection - prioritize report's db_config
+                if db_config:
+                    # Use report's db_config with connection pool
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, db_config=db_config, db_type=db_type)
+                elif platform:
+                    # Fallback to platform's connection pool
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, platform=platform, db_type=db_type)
+                else:
+                    raise ValueError("Database configuration required for MSSQL queries")
                 cursor = conn.cursor()
 
                 try:
@@ -1068,7 +1202,8 @@ class ReportsService:
                         # Fetch page_size + 1 rows to check if there are more pages (no COUNT needed)
                         # MSSQL uses OFFSET/FETCH syntax
                         paginated_sql = f"{sanitized_sql} OFFSET {offset} ROWS FETCH NEXT {page_size + 1} ROWS ONLY"
-                        cursor.execute(paginated_sql)
+                        # Run blocking operation in thread pool
+                        await asyncio.to_thread(cursor.execute, paginated_sql)
                     else:
                         # Add TOP for table visualizations (non-paginated query)
                         if visualization_type == 'table' and 'TOP' not in sanitized_sql.upper() and 'LIMIT' not in sanitized_sql.upper():
@@ -1076,15 +1211,17 @@ class ReportsService:
                             sanitized_sql = sanitized_sql.replace("SELECT", f"SELECT TOP {limit}", 1)
 
                         # Execute the query
-                        cursor.execute(sanitized_sql)
+                        # Run blocking operation in thread pool
+                        await asyncio.to_thread(cursor.execute, sanitized_sql)
 
                     # Get columns and data
                     columns = [column[0] for column in cursor.description] if cursor.description else []
-                    data = cursor.fetchall()
+                    data = await asyncio.to_thread(cursor.fetchall)
 
                 finally:
                     cursor.close()
-                    conn.close()
+                    # Return connection to pool
+                    await asyncio.to_thread(self._connection_pool.return_connection, conn, db_config=db_config, platform=platform, db_type=db_type)
             else:
                 raise ValueError(f"Unsupported database type: {db_type}")
 
@@ -1200,11 +1337,14 @@ class ReportsService:
         if not has_access:
             raise ValueError("Report access denied")
 
-        # Get platform for database connection
+        # Get platform for database connection (used as fallback)
         platform = report.platform
+        
+        # Get report's db_config (prioritized over platform's config)
+        report_db_config = report.db_config
 
-        # Verify we have a way to execute queries (either platform or clickhouse_client)
-        if not platform and not self.clickhouse_client:
+        # Verify we have a way to execute queries (report db_config, platform, or clickhouse_client)
+        if not report_db_config and not platform and not self.clickhouse_client:
             raise ValueError("No database connection available for this report")
 
         # Merge global filters with request filters
@@ -1224,27 +1364,33 @@ class ReportsService:
                 if not query:
                     raise ValueError("Query not found in report")
 
-                result = self.execute_query(
+                result = await self.execute_query(
                     query, merged_filters, request.limit,
                     request.page_size, request.page_limit,
                     request.sort_by, request.sort_direction,
                     query.visualization_config.get('type', 'table'),
                     platform=platform,
-                    global_filters=report.global_filters or []
+                    global_filters=report.global_filters or [],
+                    db_config=report_db_config
                 )
                 results.append(result)
             else:
-                # Execute all queries
+                # Execute all queries in parallel for better performance
+                tasks = []
                 for query in report.queries:
-                    result = self.execute_query(
+                    task = self.execute_query(
                         query, merged_filters, request.limit,
                         request.page_size, request.page_limit,
                         request.sort_by, request.sort_direction,
                         query.visualization_config.get('type', 'table'),
                         platform=platform,
-                        global_filters=report.global_filters or []
+                        global_filters=report.global_filters or [],
+                        db_config=report_db_config
                     )
-                    results.append(result)
+                    tasks.append(task)
+                
+                # Execute all queries concurrently
+                results = await asyncio.gather(*tasks)
 
             total_execution_time = (time.time() - start_time) * 1000
             print(f"[PERF] Total execute_report time: {(time.time() - t0) * 1000:.2f}ms\n")
@@ -1321,11 +1467,14 @@ class ReportsService:
         if not db_filter.dropdown_query:
             return {"options": [], "total": 0, "page": page, "page_size": page_size, "has_more": False}
 
-        # Get platform from the filter's query's report
+        # Get report's db_config and platform (fallback)
+        report_db_config = db_filter.query.report.db_config if db_filter.query and db_filter.query.report else None
         platform = db_filter.query.report.platform if db_filter.query and db_filter.query.report else None
 
-        # Determine database type
-        if platform:
+        # Determine database type - prioritize report's db_config
+        if report_db_config:
+            db_type = report_db_config.get('db_type', 'clickhouse').lower()
+        elif platform:
             db_type = platform.db_type.lower()
         else:
             db_type = "clickhouse"
@@ -1360,48 +1509,58 @@ class ReportsService:
                 if not self.clickhouse_client:
                     raise ValueError("ClickHouse client not available")
 
-                # Get total count
-                total_result = self.clickhouse_client.execute(count_query)
+                # Get total count (run in thread pool to not block event loop)
+                total_result = await asyncio.to_thread(self.clickhouse_client.execute, count_query)
                 total = total_result[0][0] if total_result else 0
 
-                # Get paginated results
-                result = self.clickhouse_client.execute(paginated_query)
+                # Get paginated results (run in thread pool to not block event loop)
+                result = await asyncio.to_thread(self.clickhouse_client.execute, paginated_query)
 
             elif db_type == "postgresql":
-                if not platform:
-                    raise ValueError("Platform required for PostgreSQL queries")
-
-                # Get connection from pool
-                conn = self._connection_pool.get_connection(platform, db_type)
+                # Use report's db_config or fallback to platform
+                if report_db_config:
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, db_config=report_db_config, db_type=db_type)
+                elif platform:
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, platform=platform, db_type=db_type)
+                else:
+                    raise ValueError("Database configuration required for PostgreSQL queries")
+                
                 cursor = conn.cursor()
                 try:
-                    # Get total count
-                    cursor.execute(count_query)
+                    # Get total count (run in thread pool)
+                    await asyncio.to_thread(cursor.execute, count_query)
                     total = cursor.fetchone()[0]
 
-                    # Get paginated results
-                    cursor.execute(paginated_query)
-                    result = cursor.fetchall()
+                    # Get paginated results (run in thread pool)
+                    await asyncio.to_thread(cursor.execute, paginated_query)
+                    result = await asyncio.to_thread(cursor.fetchall)
                 finally:
                     cursor.close()
-                    self._connection_pool.return_connection(platform, db_type, conn)
+                    # Return connection to pool
+                    await asyncio.to_thread(self._connection_pool.return_connection, conn, db_config=report_db_config, platform=platform, db_type=db_type)
 
             elif db_type == "mssql":
-                if not platform:
-                    raise ValueError("Platform required for MSSQL queries")
-                conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+                # Use report's db_config or fallback to platform
+                if report_db_config:
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, db_config=report_db_config, db_type=db_type)
+                elif platform:
+                    conn = await asyncio.to_thread(self._connection_pool.get_connection, platform=platform, db_type=db_type)
+                else:
+                    raise ValueError("Database configuration required for MSSQL queries")
+                
                 cursor = conn.cursor()
                 try:
-                    # Get total count
-                    cursor.execute(count_query)
+                    # Get total count (run in thread pool)
+                    await asyncio.to_thread(cursor.execute, count_query)
                     total = cursor.fetchone()[0]
 
-                    # Get paginated results
-                    cursor.execute(paginated_query)
-                    result = cursor.fetchall()
+                    # Get paginated results (run in thread pool)
+                    await asyncio.to_thread(cursor.execute, paginated_query)
+                    result = await asyncio.to_thread(cursor.fetchall)
                 finally:
                     cursor.close()
-                    conn.close()
+                    # Return connection to pool
+                    await asyncio.to_thread(self._connection_pool.return_connection, conn, db_config=report_db_config, platform=platform, db_type=db_type)
             else:
                 raise ValueError(f"Unsupported database type: {db_type}")
 

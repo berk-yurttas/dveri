@@ -56,6 +56,7 @@ import {
 import * as XLSX from 'xlsx';
 import { dashboardService } from "@/services/dashboard";
 import { reportsService } from "@/services/reports";
+import { RomiotStats } from "@/components/dashboard/RomiotStats";
 import { announcementService } from "@/services/announcement";
 import { DashboardList } from "@/types/dashboard";
 import { SavedReport } from "@/types/reports";
@@ -139,7 +140,7 @@ export default function PlatformHome() {
   const navigationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isIvmePlatform = platformData?.code === 'ivme';
   const isRomiotPlatform = platformCode === 'romiot';
-  const isAmomPlatform = platformCode === 'amom';
+  const isSeyirPlatform = platformCode === 'seyir';
   const [searchValue, setSearchValue] = useState('');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [searchedPartNumber, setSearchedPartNumber] = useState<string | null>(null);
@@ -402,7 +403,7 @@ export default function PlatformHome() {
     });
   }, [tableData, selectedTable, currentPage, pageSize, filters, sorting]);
 
-  // Handle search for AMOM platform
+  // Handle search for Seyir platform
   const handleSearch = async () => {
     if (searchValue.trim()) {
       console.log('🔍 Parça Numarası Arama:', searchValue);
@@ -830,8 +831,10 @@ export default function PlatformHome() {
     if (platformCode) {
       console.log('[Platform Page] Setting platform in context:', platformCode);
 
+
       // Set platform in context (this also sets localStorage and fetches platform data)
       setPlatformByCode(platformCode);
+
 
       // Clear cache to force fresh data fetch with new platform
       console.log('[Platform Page] Clearing API cache for platform switch');
@@ -917,8 +920,8 @@ export default function PlatformHome() {
     );
   }
 
-  // AMOM Platform Special UI
-  if (isAmomPlatform) {
+  // Seyir Platform Special UI
+  if (isSeyirPlatform) {
     return (
       <div className="min-h-screen bg-gray-50 pt-3 px-6 pb-6 relative">
         {/* Background images - fixed position, behind content */}
@@ -1064,7 +1067,7 @@ export default function PlatformHome() {
               {/* Icon 5 - Raporlar */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => router.push('/')}
+                onClick={() => router.push('/seyir/reports')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -2039,12 +2042,12 @@ export default function PlatformHome() {
         {platformData?.theme_config?.features && platformData.theme_config.features.length > 0 && (
           <div className="mb-16">
             <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${platformData.theme_config.features.length === 4
-              ? 'lg:grid-cols-4'
-              : platformData.theme_config.features.length === 5
-                ? 'lg:grid-cols-5'
-                : platformData.theme_config.features.length === 6
-                  ? 'lg:grid-cols-6'
-                  : 'lg:grid-cols-4'
+                ? 'lg:grid-cols-4'
+                : platformData.theme_config.features.length === 5
+                  ? 'lg:grid-cols-5'
+                  : platformData.theme_config.features.length === 6
+                    ? 'lg:grid-cols-6'
+                    : 'lg:grid-cols-4'
               }`}>
               {platformData.theme_config.features.map((feature, index) => {
                 const hasSubfeatures = feature.subfeatures && feature.subfeatures.length > 0;
@@ -2339,12 +2342,12 @@ export default function PlatformHome() {
             ) && (
                 <div className="mt-8 opacity-0 animate-[fadeInSection_0.5s_ease-in-out_forwards]">
                   <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${platformData.theme_config.features.length === 4
-                    ? 'lg:grid-cols-4'
-                    : platformData.theme_config.features.length === 5
-                      ? 'lg:grid-cols-5'
-                      : platformData.theme_config.features.length === 6
-                        ? 'lg:grid-cols-6'
-                        : 'lg:grid-cols-4'
+                      ? 'lg:grid-cols-4'
+                      : platformData.theme_config.features.length === 5
+                        ? 'lg:grid-cols-5'
+                        : platformData.theme_config.features.length === 6
+                          ? 'lg:grid-cols-6'
+                          : 'lg:grid-cols-4'
                     }`}>
                     {platformData.theme_config.features.map((feature, index) => {
                       const isExpanded = expandedFeatures.has(index);
@@ -2398,7 +2401,7 @@ export default function PlatformHome() {
                               }
                             }}
                           >
-                            <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300 h-[90px] flex flex-col">
+                            <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300 h-[180px] flex flex-col">
                               <div
                                 className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
                                 style={{ backgroundColor: feature.backgroundColor || '#EFF6FF' }}
@@ -2483,8 +2486,8 @@ export default function PlatformHome() {
                           </span>
                         )}
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${dashboard.is_public
-                          ? "bg-blue-100 text-blue-800"
-                          : "bg-gray-100 text-gray-800"
+                            ? "bg-blue-100 text-blue-800"
+                            : "bg-gray-100 text-gray-800"
                           }`}>
                           {dashboard.is_public ? (
                             <>
@@ -2580,8 +2583,8 @@ export default function PlatformHome() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${report.is_public
-                          ? "bg-blue-100 text-blue-800"
-                          : "bg-gray-100 text-gray-800"
+                            ? "bg-blue-100 text-blue-800"
+                            : "bg-gray-100 text-gray-800"
                           }`}>
                           {report.is_public ? (
                             <>
@@ -2646,6 +2649,11 @@ export default function PlatformHome() {
         )}
       </div>
 
+      {/* RomIoT Stats Section */}
+      {platformCode === 'romiot' && (
+        <RomiotStats />
+      )}
+
       {/* Full-width Duyurular Section */}
       <div className="w-full py-12 mb-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -2665,8 +2673,8 @@ export default function PlatformHome() {
                       onClick={handlePrevAnnouncement}
                       disabled={isFirstPage}
                       className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${isFirstPage
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                        : 'bg-red-600 hover:bg-red-700 text-white'
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          : 'bg-red-600 hover:bg-red-700 text-white'
                         }`}
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2677,8 +2685,8 @@ export default function PlatformHome() {
                       onClick={handleNextAnnouncement}
                       disabled={isLastPage}
                       className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${isLastPage
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                        : 'bg-red-600 hover:bg-red-700 text-white'
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          : 'bg-red-600 hover:bg-red-700 text-white'
                         }`}
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

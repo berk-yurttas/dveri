@@ -99,6 +99,12 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheO
     }
   }
   
+  // Determine if this request should be queued
+  // Queue: widget data requests, report execution, filter options
+  const shouldQueue = useQueue || 
+    endpoint.includes('/reports/execute') || 
+    endpoint.includes('/filter-options')
+  
   // Main request function
   const makeRequest = async () => {
     const url = `${API_BASE_URL}${endpoint}`
@@ -185,7 +191,7 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheO
   }
   
   // Execute the request, optionally through queue
-  const executeRequest = useQueue ? withQueue(makeRequest) : makeRequest()
+  const executeRequest = shouldQueue ? withQueue(makeRequest) : makeRequest()
   
   // Register pending request for deduplication (GET requests only)
   if (isGetRequest && useCache) {

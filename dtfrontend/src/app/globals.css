@@ -109,6 +109,36 @@ body {
   }
 }
 
+/* Skeleton shimmer animation */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+  background: linear-gradient(to right, #f3f4f6 0%, #e5e7eb 20%, #f3f4f6 40%, #f3f4f6 100%);
+  background-size: 2000px 100%;
+}
+
+/* Pulse wave animation for skeleton bars */
+@keyframes pulse-wave {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-wave {
+  animation: pulse-wave 1.5s ease-in-out infinite;
+}
+
 /* TipTap Editor Styles */
 .ProseMirror {
   outline: none;

@@ -3,6 +3,7 @@ import time
 
 from clickhouse_driver import Client
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import check_authenticated
@@ -23,9 +24,12 @@ from app.schemas.reports import (
     SqlValidationResponse,
 )
 from app.schemas.user import User
-from app.services.reports_service import ReportsService
+from app.services.reports_service import ReportsService, ConnectionPool
 
 router = APIRouter()
+
+# Get singleton connection pool instance
+_connection_pool = ConnectionPool()
 
 def sanitize_sql_query(query: str) -> str:
     """
@@ -58,14 +62,19 @@ async def preview_report_query(
 ):
     """
     Preview the results of a SQL query for report building.
-    Supports multiple database types based on platform configuration.
+    Supports multiple database types based on platform configuration or custom db_config.
     """
     try:
         # Sanitize the SQL query
         sanitized_query = sanitize_sql_query(request.sql_query)
 
-        # Determine database type
-        db_type = platform.db_type.lower() if platform else "clickhouse"
+        # Determine database type - prioritize request's db_config
+        if request.db_config:
+            db_type = request.db_config.get('db_type', 'clickhouse').lower()
+        elif platform:
+            db_type = platform.db_type.lower()
+        else:
+            db_type = "clickhouse"
         print(sanitized_query)
         # Add LIMIT to the query if not present (database-specific)
         if db_type == "mssql":
@@ -96,21 +105,14 @@ async def preview_report_query(
                 data = []
 
         elif db_type == "postgresql":
-            # Use PostgreSQL connection (without RealDictCursor for raw data)
-            if not platform:
-                raise ValueError("Platform required for PostgreSQL queries")
+            # Use PostgreSQL connection from pool - prioritize request's db_config
+            if request.db_config:
+                conn = _connection_pool.get_connection(db_config=request.db_config, db_type=db_type)
+            elif platform:
+                conn = _connection_pool.get_connection(platform=platform, db_type=db_type)
+            else:
+                raise ValueError("Database configuration required for PostgreSQL queries")
 
-            import psycopg2
-            db_config = platform.db_config or {}
-
-            # Create connection without RealDictCursor to get raw tuples
-            conn = psycopg2.connect(
-                host=db_config.get("host", "localhost"),
-                port=int(db_config.get("port", 5432)),
-                database=db_config.get("database"),
-                user=db_config.get("user"),
-                password=db_config.get("password")
-            )
             cursor = conn.cursor()
 
             try:
@@ -119,14 +121,18 @@ async def preview_report_query(
                 data = cursor.fetchall()
             finally:
                 cursor.close()
-                conn.close()
+                # Return connection to pool
+                _connection_pool.return_connection(conn, db_config=request.db_config, platform=platform, db_type=db_type)
 
         elif db_type == "mssql":
-            # Use MSSQL connection
-            if not platform:
-                raise ValueError("Platform required for MSSQL queries")
-
-            conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+            # Use MSSQL connection from pool - prioritize request's db_config
+            if request.db_config:
+                conn = _connection_pool.get_connection(db_config=request.db_config, db_type=db_type)
+            elif platform:
+                conn = _connection_pool.get_connection(platform=platform, db_type=db_type)
+            else:
+                raise ValueError("Database configuration required for MSSQL queries")
+            
             cursor = conn.cursor()
 
             try:
@@ -135,7 +141,8 @@ async def preview_report_query(
                 data = cursor.fetchall()
             finally:
                 cursor.close()
-                conn.close()
+                # Return connection to pool
+                _connection_pool.return_connection(conn, db_config=request.db_config, platform=platform, db_type=db_type)
         else:
             raise ValueError(f"Unsupported database type: {db_type}")
 
@@ -193,19 +200,34 @@ async def preview_report_query(
 @router.get("/validate-syntax", response_model=SqlValidationResponse)
 async def validate_sql_syntax(
     query: str = Query(..., description="SQL query to validate"),
+    db_config: str | None = Query(None, description="JSON string of database configuration"),
     platform: Platform | None = Depends(get_optional_platform),
     db_client: Client = Depends(get_clickhouse_db)
 ):
     """
     Validate SQL syntax without executing the query.
-    Supports multiple database types based on platform configuration.
+    Supports multiple database types based on platform configuration or custom db_config.
     """
     try:
         # Sanitize the query
         sanitized_query = sanitize_sql_query(query)
 
-        # Determine database type
-        db_type = platform.db_type.lower() if platform else "clickhouse"
+        # Parse db_config if provided
+        import json
+        db_config_dict = None
+        if db_config:
+            try:
+                db_config_dict = json.loads(db_config)
+            except json.JSONDecodeError:
+                raise ValueError("Invalid db_config JSON")
+
+        # Determine database type - prioritize db_config
+        if db_config_dict:
+            db_type = db_config_dict.get('db_type', 'clickhouse').lower()
+        elif platform:
+            db_type = platform.db_type.lower()
+        else:
+            db_type = "clickhouse"
 
         # Use EXPLAIN to validate syntax without executing
         explain_query = f"EXPLAIN {sanitized_query}"
@@ -218,20 +240,14 @@ async def validate_sql_syntax(
             explain_plan = result
 
         elif db_type == "postgresql":
-            if not platform:
-                raise ValueError("Platform required for PostgreSQL queries")
+            # Use PostgreSQL connection from pool - prioritize db_config
+            if db_config_dict:
+                conn = _connection_pool.get_connection(db_config=db_config_dict, db_type=db_type)
+            elif platform:
+                conn = _connection_pool.get_connection(platform=platform, db_type=db_type)
+            else:
+                raise ValueError("Database configuration required for PostgreSQL queries")
 
-            import psycopg2
-            db_config = platform.db_config or {}
-
-            # Create connection without RealDictCursor to get raw tuples
-            conn = psycopg2.connect(
-                host=db_config.get("host", "localhost"),
-                port=int(db_config.get("port", 5432)),
-                database=db_config.get("database"),
-                user=db_config.get("user"),
-                password=db_config.get("password")
-            )
             cursor = conn.cursor()
 
             try:
@@ -239,15 +255,19 @@ async def validate_sql_syntax(
                 explain_plan = [list(row) for row in cursor.fetchall()]
             finally:
                 cursor.close()
-                conn.close()
+                # Return connection to pool
+                _connection_pool.return_connection(conn, db_config=db_config_dict, platform=platform, db_type=db_type)
 
         elif db_type == "mssql":
             # MSSQL doesn't support EXPLAIN in the same way
             # We can use SET SHOWPLAN_TEXT ON
-            if not platform:
-                raise ValueError("Platform required for MSSQL queries")
-
-            conn = DatabaseConnectionFactory.get_mssql_connection(platform)
+            if db_config_dict:
+                conn = _connection_pool.get_connection(db_config=db_config_dict, db_type=db_type)
+            elif platform:
+                conn = _connection_pool.get_connection(platform=platform, db_type=db_type)
+            else:
+                raise ValueError("Database configuration required for MSSQL queries")
+            
             cursor = conn.cursor()
 
             try:
@@ -258,7 +278,8 @@ async def validate_sql_syntax(
                 cursor.execute("SET SHOWPLAN_TEXT OFF")
             finally:
                 cursor.close()
-                conn.close()
+                # Return connection to pool
+                _connection_pool.return_connection(conn, db_config=db_config_dict, platform=platform, db_type=db_type)
         else:
             raise ValueError(f"Unsupported database type: {db_type}")
 
@@ -401,7 +422,7 @@ async def get_report(
     report = await service.get_report(report_id, current_user)
 
     if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
+        return PlainTextResponse("Aradığınız Rapor Bulunamadı", status_code=404)
 
     return report
 
@@ -419,7 +440,7 @@ async def update_report(
     report = await service.update_report(report_id, report_data, current_user, is_admin=is_admin)
 
     if not report:
-        raise HTTPException(status_code=404, detail="Report not found or access denied")
+        return PlainTextResponse("Aradığınız Rapor Bulunamadı veya Erişim İzniniz Yok", status_code=404)
 
     return report
 
@@ -437,7 +458,7 @@ async def update_report_full(
     report = await service.update_report_full(report_id, report_data, current_user, is_admin=is_admin)
 
     if not report:
-        raise HTTPException(status_code=404, detail="Report not found or access denied")
+        return PlainTextResponse("Aradığınız Rapor Bulunamadı veya Erişim İzniniz Yok", status_code=404)
 
     return report
 
@@ -453,7 +474,7 @@ async def delete_report(
     success = await service.delete_report(report_id, current_user)
 
     if not success:
-        raise HTTPException(status_code=404, detail="Report not found or access denied")
+        return PlainTextResponse("Aradığınız Rapor Bulunamadı veya Erişim İzniniz Yok", status_code=404)
 
     return {"message": "Report deleted successfully"}
 

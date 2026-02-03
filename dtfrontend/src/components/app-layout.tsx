@@ -11,6 +11,7 @@ import { usePlatform } from "@/contexts/platform-context";
 import { platformService } from "@/services/platform";
 import { Platform as PlatformType } from "@/types/platform";
 import { api } from "@/lib/api";
+import { useAnalytics } from "@/hooks/useAnalytics";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -22,6 +23,9 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   const searchParams = useSearchParams();
   const { user, loading, logout, isAuthenticated } = useUser();
   const { platform, setPlatformByCode, clearPlatform, loading: platformLoading, initialized: platformInitialized } = usePlatform();
+
+  // Initialize analytics tracking
+  useAnalytics();
 
   // Extract subplatform from URL (either from path or query parameter)
   const getSubplatformFromPath = () => {
@@ -42,11 +46,11 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   // Easter egg state
   const [keySequence, setKeySequence] = useState("");
   const [easterEggActive, setEasterEggActive] = useState(false);
-  
+
   // Platform data for root page
   const [platforms, setPlatforms] = useState<PlatformType[]>([]);
   const [platformsLoading, setPlatformsLoading] = useState(false);
-  
+
   // Under construction modal state
   const [showUnderConstructionModal, setShowUnderConstructionModal] = useState(false);
   const [underConstructionPlatform, setUnderConstructionPlatform] = useState<string>("");
@@ -54,14 +58,14 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   // Dynamic title based on platform and easter egg
   const getTitle = () => {
     if (easterEggActive) return "Biz de DERİNİZ ;)";
-    if (platform?.code === 'amom') return "Seyir Defteri";
+    if (platform?.code === 'seyir') return "Seyir Defteri";
     if (platform) return `${platform.display_name}`;
     return "ODAK";
   };
   const title = getTitle();
 
   const getSubtitle = () => {
-    if (platform?.code === 'amom') return "Tasarım ve Proje Akışlarının Dijital Seyri";
+    if (platform?.code === 'seyir') return "Tasarım ve Proje Akışlarının Dijital Seyri";
     return "Ortak Data ile Akıllı Karar Sistemi";
   };
   const subtitle = getSubtitle();
@@ -166,7 +170,8 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     // Hide "Ekranlarım" and "Raporlar" on atolye page
     const isAtolyePage = pathname.includes('/atolye');
     const isRomiotPage = pathname.includes('/romiot');
-    
+    const isSeyirPage = pathname.includes('/seyir');
+
     const baseItems = [
       {
         title: "Anasayfa",
@@ -203,7 +208,8 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     }
 
     if (!isAtolyePage) {
-      if (!isRomiotPage) {
+      // Hide "Ekranlarım" for Romiot and Seyir platforms
+      if (!isRomiotPage && !isSeyirPage) {
         baseItems.push(
           {
             title: "Ekranlarım",
@@ -212,12 +218,13 @@ function AppLayoutContent({ children }: AppLayoutProps) {
           })
       }
 
-      baseItems.push( 
+      baseItems.push(
         {
           title: "Raporlar",
           icon: BarChart3,
           href: platformCode ? `${platformPrefix}/reports${subplatformQuery}` : "/reports",
-        })
+        }
+      )
     }
 
     return baseItems;
@@ -230,26 +237,26 @@ function AppLayoutContent({ children }: AppLayoutProps) {
       const platformMatch = item.href.match(/^\/([^\/]+)/);
       if (platformMatch && platformMatch[1] !== '') {
         const potentialPlatformCode = platformMatch[1];
-        
+
         // Check if this is a platform-specific route (not root, dashboard, reports, etc.)
-        const isRootOrStandardRoute = potentialPlatformCode === '' || 
-                                      potentialPlatformCode === 'dashboard' || 
-                                      potentialPlatformCode === 'reports' ||
-                                      potentialPlatformCode === 'admin';
-        
+        const isRootOrStandardRoute = potentialPlatformCode === '' ||
+          potentialPlatformCode === 'dashboard' ||
+          potentialPlatformCode === 'reports' ||
+          potentialPlatformCode === 'admin';
+
         if (!isRootOrStandardRoute) {
           // This is a platform-specific route, check if platform is under construction
           const platformCode = potentialPlatformCode;
           const targetPlatform = platforms.find(p => p.code === platformCode);
           const isUnderConstruction = targetPlatform?.theme_config?.underConstruction || false;
-          
+
           if (isUnderConstruction) {
             // Show under construction modal instead of navigating
             setUnderConstructionPlatform(targetPlatform?.display_name || platformCode);
             setShowUnderConstructionModal(true);
             return; // Don't navigate - exit early
           }
-          
+
           console.log('[Navigation] Setting platform code:', platformCode);
           api.clearCache();
           // Update platform context immediately to set headerColor
@@ -295,7 +302,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
         avatarUrl: "/placeholder.svg?height=40&width=40",
       };
     }
-    
+
     return user ? {
       id: user.id,
       name: user.name,
@@ -311,7 +318,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
 
   // Show loading state while platform is being fetched (only for platform-specific pages)
   const isPlatformPage = pathname !== '/' && pathname.split('/').filter(Boolean).length > 0;
-  
+
   // Wait for platform to be initialized before showing the layout
   if (isPlatformPage && !platformInitialized) {
     return (
