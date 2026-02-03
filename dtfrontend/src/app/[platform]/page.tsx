@@ -1,6 +1,11 @@
 "use client"
 
+// Tasarım ve Proje Akışlarının Dijital Seyri
+// başlatmak iste..
+// yapım aşağmasında
+
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, useParams } from "next/navigation";
 import {
   BarChart3,
@@ -45,7 +50,8 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
-  Download
+  Download,
+  Search
 } from "lucide-react";
 import * as XLSX from 'xlsx';
 import { dashboardService } from "@/services/dashboard";
@@ -149,6 +155,24 @@ export default function PlatformHome() {
   const [pageSize, setPageSize] = useState(10);
   const [totalRows, setTotalRows] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Check if mounted (client-side)
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (selectedTable) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedTable]);
 
   // Convert table data to TableVisualization format
   const getTableVisualizationData = () => {
@@ -156,15 +180,31 @@ export default function PlatformHome() {
 
     switch (selectedTable) {
       case 'alt-yuklenici':
+        // Database'den gelen veri formatı
+        if (tableData.altYuklenici && Array.isArray(tableData.altYuklenici) && tableData.altYuklenici.length > 0 && Array.isArray(tableData.altYuklenici[0])) {
+          // Veri zaten array formatında (database'den geldi)
+          return {
+            columns: ['Satıcı', 'Satıcı Tanım', 'SAS', 'SAS Kalem', 'Üretim Siparişi', 'Malzeme', 'Sipariş Miktarı', 'İhtiyaç Önceliği', 'İş Emri Durumu', 'Seri No', 'Aşama', 'Aşama Durum', 'Tahmini Tamamlanma Tarihi'],
+            data: tableData.altYuklenici
+          };
+        }
+        // Fallback: dummy data formatı
         return {
-          columns: ['Sipariş', 'Kalem', 'Firma Adı', 'Adet', 'Durum', 'Teslim Tarihi'],
+          columns: ['Satıcı', 'Satıcı Tanım', 'SAS', 'SAS Kalem', 'Üretim Siparişi', 'Malzeme', 'Sipariş Miktarı', 'İhtiyaç Önceliği', 'İş Emri Durumu', 'Seri No', 'Aşama', 'Aşama Durum', 'Tahmini Tamamlanma Tarihi'],
           data: tableData.altYuklenici.map((item: any) => [
-            item.siparis,
-            item.kalem,
-            item.firmaAdi,
-            item.adet,
-            item.durum,
-            item.teslimTarihi
+            item.satici || '-',
+            item.saticiTanim || '-',
+            item.sas || '-',
+            item.sasKalem || '-',
+            item.uretimSiparisi || '-',
+            item.malzeme || '-',
+            item.siparisMiktari || '-',
+            item.ihtiyacOnceligi || '-',
+            item.isEmriDurumu || '-',
+            item.seriNo || '-',
+            item.asama || '-',
+            item.asamaDurum || '-',
+            item.tahminiTamamlanmaTarihi || '-'
           ])
         };
 
@@ -204,11 +244,27 @@ export default function PlatformHome() {
         };
 
       case 'alt-yuklenici-hatalar':
+        // Database'den gelen veri formatı
+        if (tableData.altYukleniciHatalar && Array.isArray(tableData.altYukleniciHatalar) && tableData.altYukleniciHatalar.length > 0 && Array.isArray(tableData.altYukleniciHatalar[0])) {
+          // Veri zaten array formatında (database'den geldi)
+          return {
+            columns: ['Aselsan İş Emri No', 'Aselsan Sipariş No', 'Aselsan Sipariş Kalem No', 'Firma Adı', 'Stok Kodu', 'Operasyon Tanımı', 'Durma Nedeni', 'Hata Tanımı', 'Durma Gün Sayısı'],
+            data: tableData.altYukleniciHatalar
+          };
+        }
+        // Fallback: dummy data formatı
         return {
-          columns: ['Uygunsuzluk', 'Kaç Gündür Açık'],
+          columns: ['Aselsan İş Emri No', 'Aselsan Sipariş No', 'Aselsan Sipariş Kalem No', 'Firma Adı', 'Stok Kodu', 'Operasyon Tanımı', 'Durma Nedeni', 'Hata Tanımı', 'Durma Gün Sayısı'],
           data: tableData.altYukleniciHatalar.map((item: any) => [
-            item.uygunsuzluk,
-            `${item.kacGundurAcik} gün`
+            item.aselsanIsEmriNo || '-',
+            item.aselsanSiparisNo || '-',
+            item.aselsanSiparisKalemNo || '-',
+            item.firmaAdi || '-',
+            item.stokKodu || '-',
+            item.operasyonTanimi || '-',
+            item.durmaNedeni || '-',
+            item.hataTanimi || '-',
+            item.durmaGunSayisi || '-'
           ])
         };
 
@@ -242,69 +298,6 @@ export default function PlatformHome() {
       default:
         return null;
     }
-  };
-
-  // Generate random data for tables based on part number
-  const generateTableData = (partNumber: string) => {
-    const randomStatus = () => ['Üretimde', 'Beklemede', 'Tamamlandı', 'İptal'][Math.floor(Math.random() * 4)];
-    const randomYear = () => 2020 + Math.floor(Math.random() * 6);
-    const randomLocation = () => ['ASELSAN', 'B', 'C', 'D'][Math.floor(Math.random() * 4)];
-    const randomNumber = () => Math.floor(Math.random() * 1000);
-    const randomFirma = () => ['Firma A', 'Firma B', 'Firma C', 'Firma D'][Math.floor(Math.random() * 4)];
-    const randomAtolyeName = () => ['Atölye 1', 'Atölye 2', 'Atölye 3', 'Atölye 4'][Math.floor(Math.random() * 4)];
-    const randomPerson = () => ['Ahmet Y.', 'Mehmet K.', 'Ayşe T.', 'Fatma S.'][Math.floor(Math.random() * 4)];
-    const randomDate = () => {
-      const date = new Date();
-      date.setDate(date.getDate() + Math.floor(Math.random() * 90) - 45);
-      return date.toLocaleDateString('tr-TR');
-    };
-    const randomDays = () => Math.floor(Math.random() * 90) + 1;
-
-    return {
-      altYuklenici: Array.from({ length: 5 }, (_, i) => ({
-        siparis: `SIP-${randomNumber()}`,
-        kalem: `KLM-${i + 1}`,
-        firmaAdi: randomFirma(),
-        adet: Math.floor(Math.random() * 100) + 1,
-        durum: randomStatus(),
-        teslimTarihi: randomDate()
-      })),
-      aselsanIci: Array.from({ length: 5 }, (_, i) => ({
-        isEmri: `IE-${randomNumber()}`,
-        durum: randomStatus(),
-        adet: Math.floor(Math.random() * 50) + 1,
-        atolye: randomAtolyeName(),
-        isEmriAcilisTarihi: randomDate(),
-        status: ['Aktif', 'Pasif', 'Beklemede'][Math.floor(Math.random() * 3)],
-        kacGundur: randomDays()
-      })),
-      prototipAhtapot: {
-        prototip: Math.floor(Math.random() * 50),
-        ahtapot: Math.floor(Math.random() * 30)
-      },
-      deriniz: Array.from({ length: 5 }, (_, i) => ({
-        a: `D-${randomNumber()}`,
-        b: `${randomNumber()}`,
-        c: randomStatus(),
-        d: `${randomYear()}`,
-        e: `${Math.random().toFixed(2)}`
-      })),
-      altYukleniciHatalar: Array.from({ length: 5 }, (_, i) => ({
-        uygunsuzluk: `UYG-${randomNumber()}`,
-        kacGundurAcik: randomDays()
-      })),
-      sapHatalar: Array.from({ length: 5 }, (_, i) => ({
-        bildirimTipi: ['Hata', 'Uyarı', 'Bilgi'][Math.floor(Math.random() * 3)],
-        bildirimNumarasi: `SAP-${randomNumber()}`,
-        acilisTarihi: randomDate(),
-        kiminUzerinde: randomPerson()
-      })),
-      robotServis: [],
-      kalifikasyon: Array.from({ length: 5 }, (_, i) => ({
-        raporNo: `KR-${randomNumber()}`,
-        sonuc: ['Başarılı', 'Başarısız', 'Beklemede'][Math.floor(Math.random() * 3)]
-      }))
-    };
   };
 
   // TableVisualization handlers
@@ -419,13 +412,151 @@ export default function PlatformHome() {
       setSearchedPartNumber(searchValue);
       setTableData(null); // Clear previous data
 
-      // Generate dummy data
-      setTimeout(() => {
-        const generatedData = generateTableData(searchValue);
-        setTableData(generatedData);
+      try {
+        // ==================== 1. ALT YÜKLENİCİ AÇIK ÜRETİM ====================
+        const altYukleniciQuery = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Aşama Durum", "Tahmini Tamamlanma Tarihi" FROM seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciTotalCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%') as t`;
+        const altYukleniciFilteredCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%' AND "İş Emri Durumu" != 'MES KAYDI YOKTUR') as t`;
+
+        // ==================== 2. ASELSAN İÇİ AÇIK ÜRETİM ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const aselsanIciQuery = ``; // Boş - henüz hazır değil
+        const aselsanIciTotalCountQuery = ``; // Boş
+        const aselsanIciFilteredCountQuery = ``; // Boş
+
+        // ==================== 3. PROTOTİP VE TASARIM (Yapım Aşamasında) ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const prototipQuery = ``; // Boş - yapım aşamasında
+        const prototipTotalCountQuery = ``; // Boş
+        const prototipFilteredCountQuery = ``; // Boş
+
+        // ==================== 4. TEST VERİSİ (DERİNİZ) ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const derinizQuery = ``; // Boş - henüz hazır değil
+        const derinizTotalCountQuery = ``; // Boş
+        const derinizFilteredCountQuery = ``; // Boş
+
+        // ==================== 5. ALT YÜKLENİCİ AÇIK HATA ====================
+        const altYukleniciHatalarQuery = `SELECT "Aselsan İş Emri No", "Aselsan Sipariş No", "Aselsan Sipariş Kalem No", "Firma Adı", "Stok Kodu", "Operasyon Tanımı", "Durma Nedeni", "Hata Tanımı", "Durma Gün Sayısı" FROM seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "Stok Kodu" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciHatalarTotalCountQuery = `SELECT COUNT(*) as total FROM seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "Stok Kodu" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciHatalarFilteredCountQuery = ``; // Boş - şimdilik sadece total count var
+
+        // ==================== 6. ASELSAN AÇIK HATA (SAP) ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const sapHatalarQuery = ``; // Boş - henüz hazır değil
+        const sapHatalarTotalCountQuery = ``; // Boş
+        const sapHatalarFilteredCountQuery = ``; // Boş
+
+        // ==================== 7. ROBOT VERİLERİ (Yapım Aşamasında) ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const robotQuery = ``; // Boş - yapım aşamasında
+        const robotTotalCountQuery = ``; // Boş
+        const robotFilteredCountQuery = ``; // Boş
+
+        // ==================== 8. ÜST AŞAMA (KALİFİKASYON) ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const kalifikasyonQuery = ``; // Boş - henüz hazır değil
+        const kalifikasyonTotalCountQuery = ``; // Boş
+        const kalifikasyonFilteredCountQuery = ``; // Boş
+
+        // Sadece dolu query'leri çalıştır
+        const queries = [];
+        const queryNames: string[] = [];
+
+        // Alt Yüklenici queries
+        if (altYukleniciQuery) {
+          queries.push(reportsService.previewQuery({ sql_query: altYukleniciQuery, limit: 1000 }));
+          queryNames.push('altYuklenici');
+        }
+        if (altYukleniciTotalCountQuery) {
+          queries.push(reportsService.previewQuery({ sql_query: altYukleniciTotalCountQuery, limit: 1 }));
+          queryNames.push('altYukleniciTotalCount');
+        }
+        if (altYukleniciFilteredCountQuery) {
+          queries.push(reportsService.previewQuery({ sql_query: altYukleniciFilteredCountQuery, limit: 1 }));
+          queryNames.push('altYukleniciFilteredCount');
+        }
+
+        // Alt Yüklenici Hatalar queries
+        if (altYukleniciHatalarQuery) {
+          queries.push(reportsService.previewQuery({ sql_query: altYukleniciHatalarQuery, limit: 1000 }));
+          queryNames.push('altYukleniciHatalar');
+        }
+        if (altYukleniciHatalarTotalCountQuery) {
+          queries.push(reportsService.previewQuery({ sql_query: altYukleniciHatalarTotalCountQuery, limit: 1 }));
+          queryNames.push('altYukleniciHatalarTotalCount');
+        }
+
+        // Tüm sorguları paralel çalıştır
+        const results = await Promise.all(queries);
+
+        // Sonuçları map'le
+        const resultMap: { [key: string]: any } = {};
+        queryNames.forEach((name, index) => {
+          resultMap[name] = results[index];
+        });
+
+        console.log('📦 Query sonuçları:', resultMap);
+
+        // Database'den gelen verileri set et
+        setTableData({
+          // 1. Alt Yüklenici Açık Üretim
+          altYuklenici: resultMap.altYuklenici?.data || [],
+          altYukleniciTotalCount: resultMap.altYukleniciTotalCount?.data?.[0]?.[0] || 0,
+          altYukleniciFilteredCount: resultMap.altYukleniciFilteredCount?.data?.[0]?.[0] || 0,
+
+          // 2. Aselsan İçi Açık Üretim
+          aselsanIci: [],
+          aselsanIciTotalCount: 0,
+          aselsanIciFilteredCount: 0,
+
+          // 3. Prototip ve Tasarım (Yapım Aşamasında)
+          prototip: [],
+          prototipTotalCount: 0,
+          prototipFilteredCount: 0,
+
+          // 4. Test Verisi (Deriniz)
+          deriniz: [],
+          derinizTotalCount: 0,
+          derinizFilteredCount: 0,
+
+          // 5. Alt Yüklenici Açık Hata
+          altYukleniciHatalar: resultMap.altYukleniciHatalar?.data || [],
+          altYukleniciHatalarTotalCount: resultMap.altYukleniciHatalarTotalCount?.data?.[0]?.[0] || 0,
+          altYukleniciHatalarFilteredCount: 0, // Şimdilik yok
+
+          // 6. Aselsan Açık Hata (SAP)
+          sapHatalar: [],
+          sapHatalarTotalCount: 0,
+          sapHatalarFilteredCount: 0,
+
+          // 7. Robot Verileri (Yapım Aşamasında)
+          robotServis: [],
+          robotTotalCount: 0,
+          robotFilteredCount: 0,
+
+          // 8. Üst Aşama (Kalifikasyon)
+          kalifikasyon: [],
+          kalifikasyonTotalCount: 0,
+          kalifikasyonFilteredCount: 0,
+        });
+
         setIsLoadingData(false);
-        console.log('📦 Dummy veriler üretildi:', generatedData);
-      }, 1000);
+      } catch (error) {
+        console.error('❌ Veri çekme hatası:', error);
+        // Hata durumunda boş veri set et
+        setTableData({
+          altYuklenici: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0,
+          aselsanIci: [], aselsanIciTotalCount: 0, aselsanIciFilteredCount: 0,
+          prototip: [], prototipTotalCount: 0, prototipFilteredCount: 0,
+          deriniz: [], derinizTotalCount: 0, derinizFilteredCount: 0,
+          altYukleniciHatalar: [], altYukleniciHatalarTotalCount: 0, altYukleniciHatalarFilteredCount: 0,
+          sapHatalar: [], sapHatalarTotalCount: 0, sapHatalarFilteredCount: 0,
+          robotServis: [], robotTotalCount: 0, robotFilteredCount: 0,
+          kalifikasyon: [], kalifikasyonTotalCount: 0, kalifikasyonFilteredCount: 0,
+        });
+        setIsLoadingData(false);
+      }
     } else {
       console.warn('⚠️ Lütfen bir parça numarası giriniz');
     }
@@ -447,11 +578,42 @@ export default function PlatformHome() {
 
     switch (selectedTable) {
       case 'alt-yuklenici':
-        exportData = tableData.altYuklenici.map((item: any) => ({
-          'Parça No': item.parcaNo,
-          'Üretim Yeri': item.uretimYeri,
-          'Üretim Durumu': item.durum
-        }));
+        // Database'den gelen array formatı veya dummy data formatı
+        if (Array.isArray(tableData.altYuklenici) && tableData.altYuklenici.length > 0 && Array.isArray(tableData.altYuklenici[0])) {
+          // Database formatı (array of arrays)
+          exportData = tableData.altYuklenici.map((row: any[]) => ({
+            'Satıcı': row[0] || '-',
+            'Satıcı Tanım': row[1] || '-',
+            'SAS': row[2] || '-',
+            'SAS Kalem': row[3] || '-',
+            'Üretim Siparişi': row[4] || '-',
+            'Malzeme': row[5] || '-',
+            'Sipariş Miktarı': row[6] || '-',
+            'İhtiyaç Önceliği': row[7] || '-',
+            'İş Emri Durumu': row[8] || '-',
+            'Seri No': row[9] || '-',
+            'Aşama': row[10] || '-',
+            'Aşama Durum': row[11] || '-',
+            'Tahmini Tamamlanma Tarihi': row[12] || '-'
+          }));
+        } else {
+          // Dummy data formatı (object)
+          exportData = tableData.altYuklenici.map((item: any) => ({
+            'Satıcı': item.satici || '-',
+            'Satıcı Tanım': item.saticiTanim || '-',
+            'SAS': item.sas || '-',
+            'SAS Kalem': item.sasKalem || '-',
+            'Üretim Siparişi': item.uretimSiparisi || '-',
+            'Malzeme': item.malzeme || '-',
+            'Sipariş Miktarı': item.siparisMiktari || '-',
+            'İhtiyaç Önceliği': item.ihtiyacOnceligi || '-',
+            'İş Emri Durumu': item.isEmriDurumu || '-',
+            'Seri No': item.seriNo || '-',
+            'Aşama': item.asama || '-',
+            'Aşama Durum': item.asamaDurum || '-',
+            'Tahmini Tamamlanma Tarihi': item.tahminiTamamlanmaTarihi || '-'
+          }));
+        }
         fileName = 'Alt_Yuklenici_Uretim_Siparisleri';
         break;
       case 'aselsan-ici':
@@ -480,11 +642,34 @@ export default function PlatformHome() {
         fileName = 'Deriniz_Bilgiler';
         break;
       case 'alt-yuklenici-hatalar':
-        exportData = tableData.altYukleniciHatalar.map((item: any) => ({
-          'Bildirim No': item.bildirimNo,
-          'Durum': item.durum,
-          'Açıklama': 'Hata bildirimi detayları inceleniyor'
-        }));
+        // Database'den gelen array formatı veya dummy data formatı
+        if (Array.isArray(tableData.altYukleniciHatalar) && tableData.altYukleniciHatalar.length > 0 && Array.isArray(tableData.altYukleniciHatalar[0])) {
+          // Database formatı (array of arrays)
+          exportData = tableData.altYukleniciHatalar.map((row: any[]) => ({
+            'Aselsan İş Emri No': row[0] || '-',
+            'Aselsan Sipariş No': row[1] || '-',
+            'Aselsan Sipariş Kalem No': row[2] || '-',
+            'Firma Adı': row[3] || '-',
+            'Stok Kodu': row[4] || '-',
+            'Operasyon Tanımı': row[5] || '-',
+            'Durma Nedeni': row[6] || '-',
+            'Hata Tanımı': row[7] || '-',
+            'Durma Gün Sayısı': row[8] || '-'
+          }));
+        } else {
+          // Dummy data formatı (object)
+          exportData = tableData.altYukleniciHatalar.map((item: any) => ({
+            'Aselsan İş Emri No': item.aselsanIsEmriNo || '-',
+            'Aselsan Sipariş No': item.aselsanSiparisNo || '-',
+            'Aselsan Sipariş Kalem No': item.aselsanSiparisKalemNo || '-',
+            'Firma Adı': item.firmaAdi || '-',
+            'Stok Kodu': item.stokKodu || '-',
+            'Operasyon Tanımı': item.operasyonTanimi || '-',
+            'Durma Nedeni': item.durmaNedeni || '-',
+            'Hata Tanımı': item.hataTanimi || '-',
+            'Durma Gün Sayısı': item.durmaGunSayisi || '-'
+          }));
+        }
         fileName = 'Alt_Yuklenici_Hatalar';
         break;
       case 'sap-hatalar':
@@ -735,33 +920,29 @@ export default function PlatformHome() {
   // AMOM Platform Special UI
   if (isAmomPlatform) {
     return (
-      <div className="min-h-screen bg-gray-50 pt-3 px-6 pb-6">
-        {/* Background fixed - sağ yarısı sol üst, sol yarısı sağ alt */}
+      <div className="min-h-screen bg-gray-50 pt-3 px-6 pb-6 relative">
+        {/* Background images - fixed position, behind content */}
         <div
-          className="fixed inset-0 pointer-events-none z-0"
-          style={{ opacity: 0.4 }}
+          className="fixed inset-0 pointer-events-none overflow-hidden"
+          style={{ zIndex: 1 }}
+          aria-hidden="true"
         >
           {/* ÜST - SOL | resmin SAĞ yarısı görünecek */}
           <div className="absolute top-0 left-0 w-1/2 h-1/2 overflow-hidden">
             <img
               src="/amom_icons/ahtapot.png"
               alt=""
+              className="absolute"
               style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -45%) translateX(-35%)",
-                width: "140%",
-                height: "auto",
-                maxWidth: "none",
-                WebkitMaskImage:
-                  "linear-gradient(to left, black 75%, transparent 100%)",
-                maskImage:
-                  "linear-gradient(to left, black 75%, transparent 100%)",
+                top: '50%',
+                left: '50%',
+                width: '120%',
+                transform: 'translate(-70%, -50%) translateX(-30%)',
+                opacity: 0.4,
+                WebkitMaskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
+                maskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
               }}
             />
-
-
           </div>
 
           {/* ALT - SAĞ | resmin SOL yarısı görünecek */}
@@ -769,32 +950,28 @@ export default function PlatformHome() {
             <img
               src="/amom_icons/ahtapot.png"
               alt=""
+              className="absolute"
               style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -55%) translateX(35%)",
-                width: "140%",
-                height: "auto",
-                maxWidth: "none",
-                WebkitMaskImage:
-                  "linear-gradient(to right, black 75%, transparent 100%)",
-                maskImage:
-                  "linear-gradient(to right, black 75%, transparent 100%)",
+                top: '50%',
+                left: '50%',
+                width: '120%',
+                transform: 'translate(-30%, -50%) translateX(30%)',
+                opacity: 0.4,
+                WebkitMaskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
+                maskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
               }}
             />
-
           </div>
         </div>
 
-        {/* Content */}
-        <div className="relative z-10">
+        {/* Content - above background */}
+        <div className="relative" style={{ zIndex: 2 }}>
           {/* Welcome Section */}
           <div className="mb-2 flex flex-col items-center justify-center w-full">
             <h1 className="text-2xl font-bold mb-1" style={{ color: "rgb(69,81,89)" }}>
               Hoş Geldiniz{user?.name ? `, ${user.name}` : ''}
             </h1>
-            <p className="text-sm text-gray-600">İncelemek istediğiniz süreci seçin</p>
+            <p className="text-sm text-gray-600">Başlatmak istediğiniz süreci seçin</p>
           </div>
 
           {/* Süreçler Title */}
@@ -884,16 +1061,19 @@ export default function PlatformHome() {
                 </div>
               </div>
 
-              {/* Icon 5 - Yapım Aşamasında */}
+              {/* Icon 5 - Raporlar */}
               <div
-                className="flex flex-col items-center cursor-not-allowed group"
+                className="flex flex-col items-center cursor-pointer group"
+                onClick={() => router.push('/')}
               >
-                <div className="relative">
-                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200 shadow-xl transition-all duration-300">
-                    <div className="w-full h-full rounded-lg overflow-hidden bg-white flex items-center justify-center px-2">
-                      <span className="text-gray-400 text-xs font-semibold text-center leading-tight">
-                        Yapım<br />aşamasında<br />...
-                      </span>
+                <div className="relative group-hover:scale-110 transition-all duration-300">
+                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                    <div className="w-full h-full rounded-lg overflow-hidden bg-white">
+                      <img
+                        src="/amom_icons/rapor.png"
+                        alt="Raporlar"
+                        className="w-full h-full object-cover"
+                      />
                     </div>
                   </div>
                 </div>
@@ -902,9 +1082,9 @@ export default function PlatformHome() {
           </div>
 
           {/* Professional Divider Line */}
-          <div className="w-full pt-0 pb-0 mt-0 mb-0">
+          <div className="w-full pt-0 pb-0 mt-0 mb-4">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="mb-3">
+              <div className="mb-4">
                 <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
                   Ürün Sorgulama
                 </h3>
@@ -972,10 +1152,11 @@ export default function PlatformHome() {
               {/* Table Box 1 - Alt Yüklenici Açık Üretim Siparişleri */}
               <div
                 onClick={() => setSelectedTable('alt-yuklenici')}
-                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[90px] flex flex-col"
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
               >
-                <div className="px-3 py-2 flex-shrink-0" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
-                  <h3 className="font-bold text-white text-xs text-center leading-tight">Alt Yüklenici Açık Üretim</h3>
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Alt Yüklenici Açık Üretim</h3>
+                  <Search className="w-3 h-3 text-white/70" />
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
                   {isLoadingData ? (
@@ -987,14 +1168,17 @@ export default function PlatformHome() {
                     <div className="text-center">
                       <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
-                  ) : tableData.altYuklenici.length === 0 ? (
+                  ) : tableData.altYukleniciTotalCount === 0 ? (
                     <div className="text-center">
                       <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
                     </div>
                   ) : (
                     <div className="text-center">
-                      <div className="text-3xl font-bold text-cyan-600 mb-1">{tableData.altYuklenici.length}</div>
-                      {/* <p className="text-xs text-gray-600 font-medium">Adet</p> */}
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.altYukleniciTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.altYukleniciFilteredCount}</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1003,10 +1187,11 @@ export default function PlatformHome() {
               {/* Table Box 2 - Aselsan İçi Açık Üretim Siparişleri */}
               <div
                 onClick={() => setSelectedTable('aselsan-ici')}
-                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[90px] flex flex-col"
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
               >
-                <div className="px-3 py-2 flex-shrink-0" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
-                  <h3 className="font-bold text-white text-xs text-center leading-tight">Aselsan Açık Üretim</h3>
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Aselsan Açık Üretim</h3>
+                  <Search className="w-3 h-3 text-white/70" />
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
                   {isLoadingData ? (
@@ -1018,71 +1203,79 @@ export default function PlatformHome() {
                     <div className="text-center">
                       <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
-                  ) : tableData.aselsanIci.length === 0 ? (
+                  ) : tableData.aselsanIciTotalCount === 0 ? (
                     <div className="text-center">
                       <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
                     </div>
                   ) : (
                     <div className="text-center">
-                      <div className="text-3xl font-bold text-cyan-600 mb-1">{tableData.aselsanIci.length}</div>
-                      {/* <p className="text-xs text-gray-600 font-medium">Adet</p> */}
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.aselsanIciTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.aselsanIciFilteredCount}</span>
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Table Box 3 - Prototip ve Tasarım */}
+              {/* Table Box 3 - Test Verisi */}
               <div
-                className="bg-white rounded-xl shadow-md transition-all duration-300 overflow-hidden border border-gray-100 h-[90px] flex flex-col opacity-60 cursor-not-allowed"
+                onClick={() => setSelectedTable('deriniz')}
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
+              >
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Test Verisi</h3>
+                  <Search className="w-3 h-3 text-white/70" />
+                </div>
+                <div className="p-2 flex-1 flex items-center justify-center">
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs text-gray-500">Yükleniyor...</span>
+                    </div>
+                  ) : !tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.derinizTotalCount === 0 ? (
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.derinizTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.derinizFilteredCount}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Table Box 4 - Prototip ve Tasarım */}
+              <div
+                className="bg-white rounded-xl shadow-md transition-all duration-300 overflow-hidden border border-gray-100 h-[150px] flex flex-col opacity-60 cursor-not-allowed"
               >
                 <div className="px-3 py-2 flex-shrink-0" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
                   <h3 className="font-bold text-white text-xs text-center leading-tight">Prototip ve Tasarım</h3>
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
                   <div className="text-center">
-                    <p className="text-sm font-bold text-gray-400">Hazırlanıyor...</p>
+                    <p className="text-sm font-bold text-gray-400">Yapım Aşamasında ...</p>
                   </div>
-                </div>
-              </div>
-
-              {/* Table Box 4 - Test Verisi */}
-              <div
-                onClick={() => setSelectedTable('deriniz')}
-                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[90px] flex flex-col"
-              >
-                <div className="px-3 py-2 flex-shrink-0" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
-                  <h3 className="font-bold text-white text-xs text-center leading-tight">Test Verisi</h3>
-                </div>
-                <div className="p-2 flex-1 flex items-center justify-center">
-                  {isLoadingData ? (
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
-                      <span className="text-xs text-gray-500">Yükleniyor...</span>
-                    </div>
-                  ) : !tableData ? (
-                    <div className="text-center">
-                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
-                    </div>
-                  ) : tableData.deriniz.length === 0 ? (
-                    <div className="text-center">
-                      <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <div className="text-3xl font-bold text-cyan-600 mb-1">{tableData.deriniz.length}</div>
-                      {/* <p className="text-xs text-gray-600 font-medium">Adet</p> */}
-                    </div>
-                  )}
                 </div>
               </div>
 
               {/* Table Box 5 - Alt Yüklenici Açık Hata */}
               <div
                 onClick={() => setSelectedTable('alt-yuklenici-hatalar')}
-                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[90px] flex flex-col"
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
               >
-                <div className="px-3 py-2 flex-shrink-0" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
-                  <h3 className="font-bold text-white text-xs text-center leading-tight">Alt Yüklenici Açık Hata</h3>
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Alt Yüklenici Açık Hata</h3>
+                  <Search className="w-3 h-3 text-white/70" />
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
                   {isLoadingData ? (
@@ -1094,14 +1287,17 @@ export default function PlatformHome() {
                     <div className="text-center">
                       <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
-                  ) : tableData.altYukleniciHatalar.length === 0 ? (
+                  ) : tableData.altYukleniciHatalarTotalCount === 0 ? (
                     <div className="text-center">
                       <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
                     </div>
                   ) : (
                     <div className="text-center">
-                      <div className="text-3xl font-bold text-cyan-600 mb-1">{tableData.altYukleniciHatalar.length}</div>
-                      {/* <p className="text-xs text-gray-600 font-medium">Adet</p> */}
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.altYukleniciHatalarTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.altYukleniciHatalarFilteredCount}</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1110,10 +1306,11 @@ export default function PlatformHome() {
               {/* Table Box 6 - Aselsan Açık Hata */}
               <div
                 onClick={() => setSelectedTable('sap-hatalar')}
-                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[90px] flex flex-col"
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
               >
-                <div className="px-3 py-2 flex-shrink-0" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
-                  <h3 className="font-bold text-white text-xs text-center leading-tight">Aselsan Açık Hata</h3>
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Aselsan Açık Hata</h3>
+                  <Search className="w-3 h-3 text-white/70" />
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
                   {isLoadingData ? (
@@ -1125,74 +1322,81 @@ export default function PlatformHome() {
                     <div className="text-center">
                       <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
-                  ) : tableData.sapHatalar.length === 0 ? (
+                  ) : tableData.sapHatalarTotalCount === 0 ? (
                     <div className="text-center">
                       <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
                     </div>
                   ) : (
                     <div className="text-center">
-                      <div className="text-3xl font-bold text-cyan-600 mb-1">{tableData.sapHatalar.length}</div>
-                      {/* <p className="text-xs text-gray-600 font-medium">Adet</p> */}
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.sapHatalarTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.sapHatalarFilteredCount}</span>
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Table Box 7 - Robot Verileri */}
+              {/* Table Box 7 - Üst Aşama */}
               <div
-                className="bg-white rounded-xl shadow-md transition-all duration-300 overflow-hidden border border-gray-100 h-[90px] flex flex-col opacity-60 cursor-not-allowed"
+                onClick={() => setSelectedTable('kalifikasyon')}
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
+              >
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Üst Aşama</h3>
+                  <Search className="w-3 h-3 text-white/70" />
+                </div>
+                <div className="p-2 flex-1 flex items-center justify-center">
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs text-gray-500">Yükleniyor...</span>
+                    </div>
+                  ) : !tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.kalifikasyonTotalCount === 0 ? (
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.kalifikasyonTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.kalifikasyonFilteredCount}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Table Box 8 - Robot Verileri */}
+              <div
+                className="bg-white rounded-xl shadow-md transition-all duration-300 overflow-hidden border border-gray-100 h-[150px] flex flex-col opacity-60 cursor-not-allowed"
               >
                 <div className="px-3 py-2 flex-shrink-0" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
                   <h3 className="font-bold text-white text-xs text-center leading-tight">Robot Verileri</h3>
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
                   <div className="text-center">
-                    <p className="text-sm font-bold text-gray-400">Hazırlanıyor...</p>
+                    <p className="text-sm font-bold text-gray-400">Yapım Aşamasında ...</p>
                   </div>
-                </div>
-              </div>
-
-              {/* Table Box 8 - Üst Aşama */}
-              <div
-                onClick={() => setSelectedTable('kalifikasyon')}
-                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[90px] flex flex-col"
-              >
-                <div className="px-3 py-2 flex-shrink-0" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
-                  <h3 className="font-bold text-white text-xs text-center leading-tight">Üst Aşama</h3>
-                </div>
-                <div className="p-2 flex-1 flex items-center justify-center">
-                  {isLoadingData ? (
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
-                      <span className="text-xs text-gray-500">Yükleniyor...</span>
-                    </div>
-                  ) : !tableData ? (
-                    <div className="text-center">
-                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
-                    </div>
-                  ) : tableData.kalifikasyon.length === 0 ? (
-                    <div className="text-center">
-                      <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <div className="text-3xl font-bold text-cyan-600 mb-1">{tableData.kalifikasyon.length}</div>
-                      {/* <p className="text-xs text-gray-600 font-medium">Adet</p> */}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
           </div>}
 
           {/* Table Detail Modal - Modern Design */}
-          {selectedTable && (
+          {isMounted && selectedTable && createPortal(
             <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-hidden"
               onClick={() => setSelectedTable(null)}
             >
               <div
-                className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[60vh] flex flex-col overflow-hidden border border-gray-200 transform transition-all"
+                className="bg-white rounded-3xl shadow-2xl w-[95vw] max-w-[1600px] min-h-[500px] max-h-[90vh] flex flex-col overflow-hidden border border-gray-200 transform transition-all"
                 onClick={(e) => e.stopPropagation()}
                 style={{
                   animation: 'slideUp 0.3s ease-out'
@@ -1294,6 +1498,7 @@ export default function PlatformHome() {
                         totalRows={totalRows}
                         onPageChange={handlePageChange}
                         onPageSizeChange={handlePageSizeChange}
+                        size="lg"
                       />
                     </div>
                   )}
@@ -1301,7 +1506,7 @@ export default function PlatformHome() {
 
               </div>
             </div>
-          )}
+            , document.body)}
 
           {/* Full-width Duyurular Section */}
           <div className="w-full py-6 mb-4">

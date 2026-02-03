@@ -421,6 +421,8 @@ interface TableVisualizationProps {
   totalRows: number
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
+  // Size prop for font sizes
+  size?: 'sm' | 'md' | 'lg'
 }
 
 export const TableVisualization: React.FC<TableVisualizationProps> = ({
@@ -442,8 +444,17 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
   totalRows,
   onPageChange,
   onPageSizeChange,
+  size = 'sm',
 }) => {
   const { columns, data } = result
+
+  // Size-based classes
+  const sizeClasses = {
+    sm: { text: 'text-xs', padding: 'px-3 py-1.5', cellPadding: 'px-3 py-2' },
+    md: { text: 'text-sm', padding: 'px-4 py-2', cellPadding: 'px-4 py-2.5' },
+    lg: { text: 'text-base', padding: 'px-4 py-2.5', cellPadding: 'px-4 py-3' },
+  }
+  const currentSize = sizeClasses[size]
 
   const [filterPositions, setFilterPositions] = React.useState<Record<string, { top: number; left: number }>>({})
 
@@ -477,7 +488,7 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
               const isSorted = sorting?.column === col
 
               return (
-                <th key={index} className="px-3 py-1.5 text-left font-semibold text-gray-800 text-xs relative">
+                <th key={index} className={`${currentSize.padding} text-left font-semibold text-gray-800 ${currentSize.text} relative`}>
                   <div className="flex items-center justify-between">
                     {/* Sortable column header */}
                     <div
@@ -617,7 +628,7 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                   }
 
                   return (
-                    <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: rowTextColor || '#1f2937' }}>
+                    <td key={cellIndex} className={`${currentSize.cellPadding} ${currentSize.text} whitespace-nowrap`} style={{ color: rowTextColor || '#1f2937' }}>
                       {showTooltip ? (
                         <div className="relative group">
                           <span className="cursor-help">{displayValue}</span>

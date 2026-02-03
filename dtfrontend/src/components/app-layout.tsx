@@ -61,7 +61,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   const title = getTitle();
 
   const getSubtitle = () => {
-    if (platform?.code === 'amom') return "Tasarım ve Proje Akışlarının Seyri";
+    if (platform?.code === 'amom') return "Tasarım ve Proje Akışlarının Dijital Seyri";
     return "Ortak Data ile Akıllı Karar Sistemi";
   };
   const subtitle = getSubtitle();
