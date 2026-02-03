@@ -13,7 +13,9 @@ import {
   Layout,
   Image as ImageIcon,
   Shield,
-  Users
+  Users,
+  Plus,
+  X
 } from "lucide-react";
 import { platformService } from "@/services/platform";
 import { PlatformCreate, DatabaseType } from "@/types/platform";
@@ -40,6 +42,18 @@ export default function AddPlatformPage() {
       password: "",
       settings: {}
     },
+    db_configs: [
+      {
+        name: "Primary Database",
+        db_type: "clickhouse",
+        host: "localhost",
+        port: 9000,
+        database: "",
+        user: "",
+        password: "",
+        is_default: true
+      }
+    ],
     logo_url: "",
     theme_config: {
       primaryColor: "#3B82F6",
@@ -324,90 +338,222 @@ export default function AddPlatformPage() {
               <h2 className="text-xl font-semibold text-gray-900">Veritabanı Yapılandırması</h2>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Veritabanı Tipi
-                </label>
-                <select
-                  value={formData.db_type}
-                  onChange={(e) => handleInputChange('db_type', e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="clickhouse">ClickHouse</option>
-                  <option value="mssql">Microsoft SQL Server</option>
-                  <option value="postgresql">PostgreSQL</option>
-                </select>
-              </div>
+            <div className="space-y-6">
+              {((formData as any).db_configs || []).map((dbConfig: any, index: number) => (
+                <div key={index} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+                      Veritabanı {index + 1}
+                      {dbConfig.is_default && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Varsayılan</span>
+                      )}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newDbConfigs = [...((formData as any).db_configs || [])];
+                        newDbConfigs.splice(index, 1);
+                        handleInputChange('db_configs', newDbConfigs);
+                      }}
+                      className="text-red-600 hover:text-red-700 text-sm flex items-center gap-1"
+                    >
+                      <X className="h-4 w-4" />
+                      Kaldır
+                    </button>
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Host
-                  </label>
-                  <input
-                    type="text"
-                    value={(formData.db_config as any)?.host || ""}
-                    onChange={(e) => handleDbConfigChange('host', e.target.value)}
-                    placeholder="localhost"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Yapılandırma Adı
+                      </label>
+                      <input
+                        type="text"
+                        value={dbConfig.name || ""}
+                        onChange={(e) => {
+                          const newDbConfigs = [...((formData as any).db_configs || [])];
+                          newDbConfigs[index].name = e.target.value;
+                          handleInputChange('db_configs', newDbConfigs);
+                        }}
+                        placeholder="Örn: Primary Database, Analytics DB"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={dbConfig.is_default || false}
+                        onChange={(e) => {
+                          const newDbConfigs = [...((formData as any).db_configs || [])];
+                          // Set all to false first
+                          newDbConfigs.forEach((config: any) => config.is_default = false);
+                          // Set this one to checked value
+                          newDbConfigs[index].is_default = e.target.checked;
+                          handleInputChange('db_configs', newDbConfigs);
+                        }}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Varsayılan veritabanı olarak ayarla</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Veritabanı Tipi
+                      </label>
+                      <select
+                        value={dbConfig.db_type || "clickhouse"}
+                        onChange={(e) => {
+                          const newDbConfigs = [...((formData as any).db_configs || [])];
+                          newDbConfigs[index].db_type = e.target.value;
+                          // Set default port based on db type
+                          if (!newDbConfigs[index].port) {
+                            if (e.target.value === 'clickhouse') newDbConfigs[index].port = 9000;
+                            else if (e.target.value === 'mssql') newDbConfigs[index].port = 1433;
+                            else if (e.target.value === 'postgresql') newDbConfigs[index].port = 5432;
+                          }
+                          handleInputChange('db_configs', newDbConfigs);
+                        }}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                      >
+                        <option value="clickhouse">ClickHouse</option>
+                        <option value="mssql">Microsoft SQL Server</option>
+                        <option value="postgresql">PostgreSQL</option>
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Host
+                        </label>
+                        <input
+                          type="text"
+                          value={dbConfig.host || ""}
+                          onChange={(e) => {
+                            const newDbConfigs = [...((formData as any).db_configs || [])];
+                            newDbConfigs[index].host = e.target.value;
+                            handleInputChange('db_configs', newDbConfigs);
+                          }}
+                          placeholder="localhost"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Port
+                        </label>
+                        <input
+                          type="number"
+                          value={dbConfig.port || ""}
+                          onChange={(e) => {
+                            const newDbConfigs = [...((formData as any).db_configs || [])];
+                            newDbConfigs[index].port = parseInt(e.target.value) || 0;
+                            handleInputChange('db_configs', newDbConfigs);
+                          }}
+                          placeholder="8123"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Veritabanı Adı
+                      </label>
+                      <input
+                        type="text"
+                        value={dbConfig.database || ""}
+                        onChange={(e) => {
+                          const newDbConfigs = [...((formData as any).db_configs || [])];
+                          newDbConfigs[index].database = e.target.value;
+                          handleInputChange('db_configs', newDbConfigs);
+                        }}
+                        placeholder="database_name"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Kullanıcı Adı
+                        </label>
+                        <input
+                          type="text"
+                          value={dbConfig.user || ""}
+                          onChange={(e) => {
+                            const newDbConfigs = [...((formData as any).db_configs || [])];
+                            newDbConfigs[index].user = e.target.value;
+                            handleInputChange('db_configs', newDbConfigs);
+                          }}
+                          placeholder="username"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Şifre
+                        </label>
+                        <input
+                          type="password"
+                          value={dbConfig.password || ""}
+                          onChange={(e) => {
+                            const newDbConfigs = [...((formData as any).db_configs || [])];
+                            newDbConfigs[index].password = e.target.value;
+                            handleInputChange('db_configs', newDbConfigs);
+                          }}
+                          placeholder="••••••••"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    {dbConfig.db_type === 'mssql' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          ODBC Driver (Opsiyonel)
+                        </label>
+                        <input
+                          type="text"
+                          value={dbConfig.driver || ""}
+                          onChange={(e) => {
+                            const newDbConfigs = [...((formData as any).db_configs || [])];
+                            newDbConfigs[index].driver = e.target.value;
+                            handleInputChange('db_configs', newDbConfigs);
+                          }}
+                          placeholder="ODBC Driver 17 for SQL Server"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
+              ))}
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Port
-                  </label>
-                  <input
-                    type="number"
-                    value={(formData.db_config as any)?.port || ""}
-                    onChange={(e) => handleDbConfigChange('port', parseInt(e.target.value))}
-                    placeholder="8123"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Veritabanı Adı
-                </label>
-                <input
-                  type="text"
-                  value={(formData.db_config as any)?.database || ""}
-                  onChange={(e) => handleDbConfigChange('database', e.target.value)}
-                  placeholder="database_name"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Kullanıcı Adı
-                  </label>
-                  <input
-                    type="text"
-                    value={(formData.db_config as any)?.user || ""}
-                    onChange={(e) => handleDbConfigChange('user', e.target.value)}
-                    placeholder="username"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Şifre
-                  </label>
-                  <input
-                    type="password"
-                    value={(formData.db_config as any)?.password || ""}
-                    onChange={(e) => handleDbConfigChange('password', e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const newDbConfigs = [...((formData as any).db_configs || [])];
+                  newDbConfigs.push({
+                    name: `Database ${newDbConfigs.length + 1}`,
+                    db_type: 'clickhouse',
+                    host: 'localhost',
+                    port: 9000,
+                    database: '',
+                    user: '',
+                    password: '',
+                    is_default: newDbConfigs.length === 0
+                  });
+                  handleInputChange('db_configs', newDbConfigs);
+                }}
+                className="w-full py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-gray-400 hover:text-gray-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <Plus className="h-5 w-5" />
+                Yeni Veritabanı Yapılandırması Ekle
+              </button>
             </div>
           </div>
 

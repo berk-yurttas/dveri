@@ -4,6 +4,20 @@
  * Type definitions for multi-tenant platform system
  */
 
+export interface DatabaseConfig {
+  name: string;
+  db_type: 'clickhouse' | 'mssql' | 'postgresql';
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+  driver?: string; // For MSSQL
+  connection_string?: string; // Alternative to individual fields
+  settings?: Record<string, any>; // Additional settings
+  is_default?: boolean;
+}
+
 export interface Platform {
   id: number;
   code: string;
@@ -12,6 +26,7 @@ export interface Platform {
   description: string | null;
   db_type: string;
   db_config?: Record<string, any> | null;
+  db_configs?: DatabaseConfig[];
   logo_url: string | null;
   theme_config: {
     textColor?: string;
@@ -72,6 +87,7 @@ export interface PlatformCreate {
   description?: string | null;
   db_type: string;
   db_config?: Record<string, any> | null;
+  db_configs?: DatabaseConfig[];
   logo_url?: string | null;
   theme_config?: Record<string, any> | null;
   is_active?: boolean;
@@ -85,6 +101,7 @@ export interface PlatformUpdate {
   description?: string | null;
   db_type?: string;
   db_config?: Record<string, any> | null;
+  db_configs?: DatabaseConfig[];
   logo_url?: string | null;
   theme_config?: Record<string, any> | null;
   is_active?: boolean;
@@ -100,15 +117,4 @@ export interface PlatformConnectionTest {
 }
 
 export type DatabaseType = 'clickhouse' | 'mssql' | 'postgresql';
-
-export interface DatabaseConfig {
-  host: string;
-  port: number;
-  database: string;
-  user: string;
-  password: string;
-  driver?: string; // For MSSQL
-  connection_string?: string; // Alternative to individual fields
-  settings?: Record<string, any>; // Additional settings
-}
 

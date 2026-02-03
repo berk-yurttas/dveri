@@ -8,7 +8,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/appShell/
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/appShell/ui/dialog"
 import { Plus, Trash2, Database, BarChart3, PieChart, LineChart, Table, Calendar, Filter, Hash, Type, List, Play, Loader2, ArrowLeft, ChevronDown, ChevronRight } from "lucide-react"
 import { reportsService } from '@/services/reports'
-import { ReportPreviewResponse, SavedReport } from '@/types/reports'
+import { platformService } from '@/services/platform'
+import { ReportPreviewResponse, SavedReport, DatabaseConfig } from '@/types/reports'
+import { Platform } from '@/types/platform'
 import { api } from '@/lib/api'
 import { BarChart, Bar, LineChart as RechartsLineChart, Line, PieChart as RechartsPieChart, Pie, Cell, AreaChart, Area, ScatterChart, Scatter, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
@@ -1103,9 +1105,34 @@ export default function EditReportPage() {
   const [successModalOpen, setSuccessModalOpen] = useState(false)
   const [dropdownOptions, setDropdownOptions] = useState<Record<string, Array<{value: any, label: string}>>>({})
   const [loadingDropdownOptions, setLoadingDropdownOptions] = useState<Record<string, boolean>>({})
+  
+  // Platform and database configuration state
+  const [platform, setPlatform] = useState<Platform | null>(null)
+  const [availableDatabases, setAvailableDatabases] = useState<DatabaseConfig[]>([])
+  const [selectedDbName, setSelectedDbName] = useState<string>('')
 
   // Helper function to generate unique IDs
   const generateId = () => Math.random().toString(36).substr(2, 9)
+  
+  // Load platform data and available databases
+  React.useEffect(() => {
+    const loadPlatform = async () => {
+      try {
+        const platformData = await platformService.getPlatformByCode(platformCode)
+        setPlatform(platformData)
+        
+        // Set available databases from platform's db_configs
+        const databases = platformData.db_configs || []
+        setAvailableDatabases(databases)
+      } catch (error) {
+        console.error('Error loading platform:', error)
+      }
+    }
+    
+    if (platformCode) {
+      loadPlatform()
+    }
+  }, [platformCode])
 
   // Load dropdown options for a filter
   const loadDropdownOptions = async (filter: FilterConfig, currentFilterValues: Record<string, any> = {}) => {
@@ -1175,6 +1202,7 @@ export default function EditReportPage() {
           is_public: reportData.is_public || false,  // Preserve the public status
           isDirectLink: (reportData as any).isDirectLink || false,
           directLink: (reportData as any).directLink || '',
+          dbConfig: (reportData as any).dbConfig,  // Preserve the database configuration
           queries: reportData.queries.map((query, index) => ({
             id: query.id?.toString() || generateId(),
             name: query.name,
@@ -1194,6 +1222,11 @@ export default function EditReportPage() {
         }
 
         setReport(convertedReport)
+        
+        // Set the selected database name from the report's db_config
+        if (convertedReport.dbConfig) {
+          setSelectedDbName(convertedReport.dbConfig.name)
+        }
       } catch (err: any) {
         console.error("Error loading report:", err)
         setError("Rapor yüklenemedi")
@@ -1591,7 +1624,8 @@ export default function EditReportPage() {
       
       const result = await reportsService.previewQuery({
         sql_query: finalSql,
-        limit: 100
+        limit: 100,
+        db_config: report.dbConfig || null
       })
 
       console.log('Query result:', result)
@@ -1831,6 +1865,36 @@ export default function EditReportPage() {
                     </Label>
                   </div>
                 </div>
+                
+                {/* Database Selection */}
+                {!report.isDirectLink && availableDatabases.length > 0 && (
+                  <div className="space-y-2">
+                    <Label htmlFor="databaseSelect" className="text-sm">
+                      Veritabanı Seçimi *
+                    </Label>
+                    <Select
+                      id="databaseSelect"
+                      value={selectedDbName}
+                      onValueChange={(value) => {
+                        setSelectedDbName(value)
+                        const selectedDb = availableDatabases.find(db => db.name === value)
+                        if (selectedDb) {
+                          setReport(prev => ({ ...prev, dbConfig: selectedDb }))
+                        }
+                      }}
+                      className="h-9"
+                    >
+                      {availableDatabases.map((db) => (
+                        <option key={db.name} value={db.name}>
+                          {db.name} ({db.db_type})
+                        </option>
+                      ))}
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Bu rapor seçilen veritabanından veri çekecektir
+                    </p>
+                  </div>
+                )}
               </div>
               
               {/* Direct Link Mode Switch */}

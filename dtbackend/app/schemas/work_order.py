@@ -55,3 +55,30 @@ class WorkOrderList(BaseModel):
     class Config:
         from_attributes = True
 
+
+class WorkOrderDetail(BaseModel):
+    """Schema for detailed work order information with user and station details"""
+    id: int
+    station_id: int
+    station_name: str
+    user_id: int
+    user_name: str | None = None
+    manufacturer_number: str
+    aselsan_order_number: str
+    aselsan_work_order_number: str
+    order_item_number: str
+    quantity: int
+    entrance_date: datetime | None = None
+    exit_date: datetime | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class PaginatedWorkOrderResponse(BaseModel):
+    """Schema for paginated work order response"""
+    items: list[WorkOrderDetail]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int

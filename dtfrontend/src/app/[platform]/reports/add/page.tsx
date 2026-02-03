@@ -8,7 +8,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/appShell/
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/appShell/ui/dialog"
 import { Plus, Trash2, Database, BarChart3, PieChart, LineChart, Table, Calendar, Filter, Hash, Type, List, Play, Loader2, ChevronDown, ChevronRight } from "lucide-react"
 import { reportsService } from '@/services/reports'
-import { ReportPreviewResponse } from '@/types/reports'
+import { platformService } from '@/services/platform'
+import { ReportPreviewResponse, DatabaseConfig } from '@/types/reports'
+import { Platform } from '@/types/platform'
 import { BarChart, Bar, LineChart as RechartsLineChart, Line, PieChart as RechartsPieChart, Pie, Cell, AreaChart, Area, ScatterChart, Scatter, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 // Import types from the types file
@@ -1458,9 +1460,41 @@ export default function AddReportPage() {
   const [savedReportId, setSavedReportId] = useState<number | null>(null)
   const [dropdownOptions, setDropdownOptions] = useState<Record<string, Array<{value: any, label: string}>>>({})
   const [loadingDropdownOptions, setLoadingDropdownOptions] = useState<Record<string, boolean>>({})
+  
+  // Platform and database configuration state
+  const [platform, setPlatform] = useState<Platform | null>(null)
+  const [availableDatabases, setAvailableDatabases] = useState<DatabaseConfig[]>([])
+  const [selectedDbName, setSelectedDbName] = useState<string>('')
 
   // Helper function to generate unique IDs
   const generateId = () => Math.random().toString(36).substr(2, 9)
+  
+  // Load platform data and available databases
+  React.useEffect(() => {
+    const loadPlatform = async () => {
+      try {
+        const platformData = await platformService.getPlatformByCode(platformCode)
+        setPlatform(platformData)
+        
+        // Set available databases from platform's db_configs
+        const databases = platformData.db_configs || []
+        setAvailableDatabases(databases)
+        
+        // Auto-select the default database or first one
+        if (databases.length > 0) {
+          const defaultDb = databases.find((db: DatabaseConfig) => (db as any).is_default) || databases[0]
+          setSelectedDbName(defaultDb.name)
+          setReport(prev => ({ ...prev, dbConfig: defaultDb }))
+        }
+      } catch (error) {
+        console.error('Error loading platform:', error)
+      }
+    }
+    
+    if (platformCode) {
+      loadPlatform()
+    }
+  }, [platformCode])
 
   // Load dropdown options when filter dialog opens
   React.useEffect(() => {
@@ -1867,7 +1901,8 @@ export default function AddReportPage() {
       
       const result = await reportsService.previewQuery({
         sql_query: finalSql,
-        limit: 100
+        limit: 100,
+        db_config: report.dbConfig || null
       })
 
       console.log('Query result:', result)
@@ -2076,6 +2111,36 @@ export default function AddReportPage() {
                     </Label>
                   </div>
                 </div>
+                
+                {/* Database Selection */}
+                {!report.isDirectLink && availableDatabases.length > 0 && (
+                  <div className="space-y-2">
+                    <Label htmlFor="databaseSelect" className="text-sm">
+                      Veritabanı Seçimi *
+                    </Label>
+                    <Select
+                      id="databaseSelect"
+                      value={selectedDbName}
+                      onValueChange={(value) => {
+                        setSelectedDbName(value)
+                        const selectedDb = availableDatabases.find(db => db.name === value)
+                        if (selectedDb) {
+                          setReport(prev => ({ ...prev, dbConfig: selectedDb }))
+                        }
+                      }}
+                      className="h-9"
+                    >
+                      {availableDatabases.map((db) => (
+                        <option key={db.name} value={db.name}>
+                          {db.name} ({db.db_type})
+                        </option>
+                      ))}
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Bu rapor seçilen veritabanından veri çekecektir
+                    </p>
+                  </div>
+                )}
               </div>
               
               {/* Direct Link Mode Switch */}

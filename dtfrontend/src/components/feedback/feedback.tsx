@@ -20,7 +20,7 @@ export function Feedback() {
   const [submitStatus, setSubmitStatus] = useState<"success" | "error" | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [isMounted, setIsMounted] = useState(false);
-  
+
   const { platform: currentPlatform } = usePlatform();
   const { user } = useUser();
 
@@ -36,7 +36,7 @@ export function Feedback() {
         try {
           const platformsData = await platformService.getPlatforms(0, 100, false);
           setPlatforms(platformsData);
-          
+
           // Set initial platform to current platform if available
           if (currentPlatform) {
             setSelectedPlatform(currentPlatform.code);
@@ -49,7 +49,7 @@ export function Feedback() {
           setPlatformsLoading(false);
         }
       };
-      
+
       fetchPlatforms();
     }
   }, [showFeedbackModal, currentPlatform]);
@@ -69,18 +69,22 @@ export function Feedback() {
       // Get selected platform name
       const selectedPlatformData = platforms.find(p => p.code === selectedPlatform);
       const platformName = selectedPlatformData?.display_name || selectedPlatform;
-      
+
       // Get user info
       const userName = user?.name || "Bilinmiyor";
       const userEmail = user?.email || "Bilinmiyor";
       const userDepartment = user?.department || "Bilinmiyor";
-      
-      // Append platform and user info to description
-      const fullDescription = `${description.trim()}\n\n---\nPlatform: ${platformName}\nTalep Sahibi: ${userName} - ${userEmail}\nBirim: ${userDepartment}`;
+
+
+      // Append user info to description
+      const userInfoStr = `${userName} - ${userEmail}`;
 
       const response = await feedbackService.sendFeedback({
         subject: subject.trim(),
-        description: fullDescription,
+        platform: platformName,
+        talep_sahibi: userInfoStr,
+        birim: userDepartment,
+        description: description.trim(),
       });
 
       if (response.success) {
@@ -89,7 +93,7 @@ export function Feedback() {
         setSubject("");
         setDescription("");
         setSelectedPlatform(currentPlatform?.code || "");
-        
+
         // Close modal after 2 seconds
         setTimeout(() => {
           handleCloseModal();
@@ -101,8 +105,8 @@ export function Feedback() {
     } catch (error) {
       setSubmitStatus("error");
       setStatusMessage(
-        error instanceof Error 
-          ? error.message 
+        error instanceof Error
+          ? error.message
           : "Feedback gönderilirken bir hata oluştu."
       );
     } finally {
@@ -190,11 +194,10 @@ export function Feedback() {
               {/* Status Message */}
               {submitStatus && (
                 <div
-                  className={`flex items-center gap-2 p-3 rounded-lg ${
-                    submitStatus === "success"
-                      ? "bg-green-50 text-green-800 border border-green-200"
-                      : "bg-red-50 text-red-800 border border-red-200"
-                  }`}
+                  className={`flex items-center gap-2 p-3 rounded-lg ${submitStatus === "success"
+                    ? "bg-green-50 text-green-800 border border-green-200"
+                    : "bg-red-50 text-red-800 border border-red-200"
+                    }`}
                 >
                   {submitStatus === "success" ? (
                     <CheckCircle className="w-5 h-5" />

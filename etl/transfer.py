@@ -36,14 +36,14 @@ class DataTransfer:
                 'server': server,
                 'user': user,
                 'password': password,
-                'database': 'master',
+                'database': 'REHIS_TestKayit_Test',
                 'port': port
             },
             'REHIS_TestTanim_Test': {
                 'server': server,
                 'user': user,
                 'password': password,
-                'database': 'msdb',
+                'database': 'REHIS_TestTanim_Test',
                 'port': port
             }
         }

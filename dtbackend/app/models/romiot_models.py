@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -40,3 +40,23 @@ class WorkOrder(PostgreSQLBase):
 
     # relationships
     station = relationship("Station", back_populates="work_orders")
+
+
+class QRCodeData(PostgreSQLBase):
+    """
+    Stores QR code data with a short unique code for compression.
+    This allows QR codes to contain just the short code instead of full JSON.
+    """
+    __tablename__ = "qr_code_data"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # Short unique code (10-12 characters) to be embedded in QR
+    code = Column(String(20), unique=True, nullable=False, index=True)
+    # Full JSON data
+    data = Column(Text, nullable=False)
+    # Company for filtering
+    company = Column(String(255), nullable=False, index=True)
+    # Creation timestamp
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Expiry timestamp (optional - for cleanup of old QR codes)
+    expires_at = Column(DateTime(timezone=True), nullable=True)

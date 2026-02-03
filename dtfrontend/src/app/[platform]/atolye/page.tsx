@@ -238,18 +238,42 @@ export default function AtolyePage() {
       return;
     }
 
+    setError(null);
+
+    // Log the raw QR code data
+    console.log("📱 QR Kod Okundu (Raw):", qrCodeData);
+    console.log("📏 QR Kod Uzunluğu:", qrCodeData.length);
+
     try {
-      // Try to parse as JSON
       let parsedData: QRCodeData;
+      let decodedData = qrCodeData.trim();
+      
       try {
-        parsedData = JSON.parse(qrCodeData);
-      } catch (e) {
-        setError("QR kod verisi JSON formatında değil");
+        // Split into chunks of 5 digits: 00123 = ASCII char code 123
+        const chunks = decodedData.match(/.{1,5}/g) || [];
+        console.log("📦 Chunk sayısı:", chunks.length);
+        
+        decodedData = chunks
+          .map(chunk => {
+            const charCode = parseInt(chunk, 10);
+            return String.fromCharCode(charCode);
+          })
+          .join('');
+        
+        console.log("✅ Decode Edildi:", decodedData);
+        
+        // Parse the decoded JSON
+        const response = await api.get<{ data: QRCodeData }>(
+          `/romiot/station/qr-code/retrieve/${decodedData}`
+        );
+        // Extract the data field from the response
+        parsedData = response.data;
+        console.log("✅ QR Kod Verisi Alındı:", parsedData);
+      } catch (decodeError) {
+        console.error("❌ Decode Hatası:", decodeError);
+        setError("QR kod decode edilemedi");
         return;
       }
-
-      setLoading(true);
-      setError(null);
 
       if (mode === "entrance") {
         
@@ -455,12 +479,17 @@ export default function AtolyePage() {
 
       // Append character to buffer
       if (e.key.length === 1) {
+        // Set loading on first character
+        if (qrCodeBufferRef.current.length === 0) {
+          setLoading(true);
+        }
         qrCodeBufferRef.current += e.key;
       }
 
       // If Enter key is pressed, process QR code
       if (e.key === "Enter" && qrCodeBufferRef.current.length > 0) {
         e.preventDefault();
+        setLoading(false);
         handleQRCodeScan(qrCodeBufferRef.current);
         qrCodeBufferRef.current = "";
         return;
@@ -470,7 +499,11 @@ export default function AtolyePage() {
       qrCodeTimeoutRef.current = setTimeout(() => {
         if (qrCodeBufferRef.current.length > 5) {
           // Likely a QR code (more than 5 characters, ends with Enter usually)
+          setLoading(false);
           handleQRCodeScan(qrCodeBufferRef.current);
+        } else {
+          // Not a QR code, just clear loading
+          setLoading(false);
         }
         qrCodeBufferRef.current = "";
       }, 200);
@@ -734,7 +767,7 @@ export default function AtolyePage() {
   const [generatedQRCode, setGeneratedQRCode] = useState<string | null>(null);
   const qrCodeRef = useRef<HTMLDivElement | null>(null);
 
-  const handleGenerateBarcode = (e: React.FormEvent) => {
+  const handleGenerateBarcode = async (e: React.FormEvent) => {
     e.preventDefault();
     // Validate that adet is a positive number
     if (barcodeFormData.IsEmriAdedi <= 0) {
@@ -742,10 +775,25 @@ export default function AtolyePage() {
       return;
     }
 
-    // Create QR code JSON data
-    const qrCodeJson = JSON.stringify(barcodeFormData);
-    setGeneratedQRCode(qrCodeJson);
-    setError(null);
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Generate compressed QR code via API
+      // Send data wrapped in a "data" field for future flexibility
+      const response = await api.post<{ code: string; expires_at: string | null }>(
+        "/romiot/station/qr-code/generate",
+        { data: barcodeFormData }
+      );
+
+      // Store the short code instead of full JSON
+      setGeneratedQRCode(response.code);
+    } catch (err: any) {
+      console.error("QR generation error:", err);
+      setError("QR kod oluşturulurken hata oluştu");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePrintBarcode = () => {
@@ -955,9 +1003,11 @@ export default function AtolyePage() {
     return (
       <div className="min-h-screen p-8 bg-gray-50">
         <div className="max-w-7xl mx-auto">
-          <h1 className="text-3xl font-bold text-gray-900 mb-8">
-            Atölye Yönetimi
-          </h1>
+          <div className="flex items-center justify-between mb-8">
+            <h1 className="text-3xl font-bold text-gray-900">
+              Atölye Yönetimi
+            </h1>
+          </div>
 
           {/* Success Message */}
           {successMessage && (
@@ -1444,9 +1494,20 @@ export default function AtolyePage() {
   return (
     <div className="min-h-screen p-8 bg-gray-50">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">
-          Atölye İşlemleri
-        </h1>
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">
+            Atölye İşlemleri
+          </h1>
+          <a
+            href={`${window.location.pathname}/work-orders`}
+            className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            İş Emri Detayları
+          </a>
+        </div>
 
         {/* Mode Selection Buttons */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
@@ -1528,67 +1589,48 @@ export default function AtolyePage() {
           </div>
         )}
 
-        {/* Loading Indicator */}
-        {loading && (
-          <div className="mb-4 p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
-            İşlem yapılıyor...
-          </div>
-        )}
 
-        {/* Barcode Input (for manual entry and visual feedback) */}
+        {/* Barcode Scanner Instructions or Loading */}
         {mode && (
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Barkod Manuel Giriş (veya otomatik okuyucu kullanın):
-            </label>
-            <div className="flex gap-2">
-              <input
-                ref={qrCodeInputRef}
-                type="text"
-                value={qrCodeInput}
-                onChange={(e) => setQRCodeInput(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === "Enter" && qrCodeInput) {
-                    handleQRCodeScan(qrCodeInput);
-                  }
-                }}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                placeholder="QR kod JSON verisini yapıştırın veya otomatik okuyucuyu kullanın..."
-                autoFocus={mode !== null}
-                disabled={loading}
-              />
-              <button
-                onClick={() => {
-                  // Use the data in the input field if it exists, otherwise use sample data
-                  if (qrCodeInput && qrCodeInput.trim() !== '') {
-                    handleQRCodeScan(qrCodeInput);
-                  } else {
-                    // If input is empty, populate with sample data and then scan
-                    const sampleData = JSON.stringify({
-                      UreticiFirmaNo: "TEST-MFG-001",
-                      AselsanSiparisNo: "ORD-12345",
-                      SiparisKalemi: "ITEM-001",
-                      AselsanIsEmriNo: "ASEL-2024-001",
-                      IsEmriAdedi: 10,
-                    });
-                    setQRCodeInput(sampleData);
-                    handleQRCodeScan(sampleData);
-                  }
-                }}
-                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={loading}
-                title={qrCodeInput && qrCodeInput.trim() !== '' ? "Metin alanındaki veri ile test et" : "Test için örnek veri ile dene"}
-              >
-                🧪 Test
-              </button>
-            </div>
-            <p className="mt-2 text-xs text-gray-500">
-              💡 Console'da test etmek için:{" "}
-              <code className="bg-gray-100 px-2 py-1 rounded">
-                window.testBarcodeScan(window.getSampleBarcode())
-              </code>
-            </p>
-          </div>
+          <>
+            {loading ? (
+              <div className="mb-6 p-6 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg shadow-sm">
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0">
+                    <svg className="w-12 h-12 text-green-600 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-bold text-green-900 mb-2">
+                      QR Kod İşleniyor...
+                    </h3>
+                    <p className="text-green-800 text-sm leading-relaxed">
+                      Lütfen bekleyin, QR kod verisi işleniyor ve kaydediliyor.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="mb-6 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-lg shadow-sm">
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0">
+                    <svg className="w-12 h-12 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-bold text-blue-900 mb-2">
+                      Barkod Okuyucu Hazır
+                    </h3>
+                    <p className="text-blue-800 text-sm leading-relaxed">
+                      Lütfen barkod okuyucu ile QR kodu taratın. Sistem otomatik olarak kodu algılayacak ve işleme alacaktır.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Mode Indicator */}

@@ -34,6 +34,36 @@ interface CacheOptions {
   useQueue?: boolean // Whether to use request queue (default: true for widget data)
 }
 
+/**
+ * Get platform code from URL or localStorage
+ * Priority: URL > localStorage
+ * Automatically syncs URL platform to localStorage
+ */
+function getPlatformCode(): string | null {
+  if (typeof window === 'undefined') return null
+  
+  // Try to extract platform code from URL path (e.g., /romiot/atolye -> romiot)
+  const pathMatch = window.location.pathname.match(/^\/([^\/]+)/)
+  const urlPlatformCode = pathMatch ? pathMatch[1] : null
+  
+  // Ignore root paths that aren't platform codes
+  const ignoredPaths = ['', '_next', 'api', 'static', 'login', 'logout']
+  const isValidPlatformCode = urlPlatformCode && !ignoredPaths.includes(urlPlatformCode)
+  
+  if (isValidPlatformCode) {
+    // Sync URL platform to localStorage
+    const storedPlatform = localStorage.getItem('platform_code')
+    if (storedPlatform !== urlPlatformCode) {
+      console.log(`[Platform] Syncing platform from URL: ${urlPlatformCode}`)
+      localStorage.setItem('platform_code', urlPlatformCode)
+    }
+    return urlPlatformCode
+  }
+  
+  // Fall back to localStorage
+  return localStorage.getItem('platform_code')
+}
+
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheOptions?: CacheOptions): Promise<T> {
   // Default: cache all GET requests, queue widget data requests
   const isGetRequest = options.method === 'GET' || !options.method
@@ -45,10 +75,8 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheO
     useQueue = isWidgetRequest // Default TRUE for widget data requests
   } = cacheOptions || {}
   
-  // Get platform code for cache key
-  const platformCode = typeof window !== 'undefined' 
-    ? localStorage.getItem('platform_code')
-    : null
+  // Get platform code (from URL or localStorage)
+  const platformCode = getPlatformCode()
   
   // Create cache key for GET requests (includes platform code for isolation)
   const cacheKey = createCacheKey(endpoint, undefined, platformCode)
@@ -70,6 +98,12 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheO
       }
     }
   }
+  
+  // Determine if this request should be queued
+  // Queue: widget data requests, report execution, filter options
+  const shouldQueue = useQueue || 
+    endpoint.includes('/reports/execute') || 
+    endpoint.includes('/filter-options')
   
   // Main request function
   const makeRequest = async () => {
@@ -157,7 +191,7 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheO
   }
   
   // Execute the request, optionally through queue
-  const executeRequest = useQueue ? withQueue(makeRequest) : makeRequest()
+  const executeRequest = shouldQueue ? withQueue(makeRequest) : makeRequest()
   
   // Register pending request for deduplication (GET requests only)
   if (isGetRequest && useCache) {

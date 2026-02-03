@@ -15,7 +15,7 @@ security = HTTPBearer()
 
 # Simple in-memory cache for token validation
 token_cache = {}
-CACHE_DURATION = 300  # 5 minutes
+CACHE_DURATION = 60  # 5 minutes
 
 def cleanup_token_cache():
     """Remove expired entries from token cache"""
@@ -55,6 +55,15 @@ async def verify_access_token_with_cache(token: str) -> dict[str, Any]:
     """
     current_time = time.time()
 
+    # Check cache first
+    if token in token_cache:
+        cached_data, cached_time = token_cache[token]
+        if current_time - cached_time < CACHE_DURATION:
+            return cached_data
+    
+    # Cleanup expired cache entries periodically
+    if len(token_cache) > 100:  # Prevent unbounded growth
+        cleanup_token_cache()
 
     # Fallback to auth server verification (slow)
     try:

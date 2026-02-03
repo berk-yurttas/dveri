@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { WidgetAdder } from "./components/widget-adder"
-import { CapacityAnalysisWidget, EfficiencyWidget, EmployeeCountWidget, ExcelExportWidget, GaugeWidget, KablajDuruslarWidget, MachineOeeWidget, MeasurementWidget, MekanikHatalarWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationAnalysisWidget, TestDurationWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget } from "@/components/widgets"
+import { CapacityAnalysisWidget, EfficiencyWidget, EmployeeCountWidget, ExcelExportWidget, GaugeWidget, KablajDuruslarWidget, MachineOeeWidget, MeasurementWidget, MekanikHatalarWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationAnalysisWidget, TestDurationWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget, TestPlanVersionWidget } from "@/components/widgets"
 import { dashboardService } from "@/services/dashboard"
 import { CreateDashboardRequest, PlacedWidget as PlacedWidgetType } from "@/types/dashboard"
 import { useDashboards } from "@/contexts/dashboard-context"
@@ -116,6 +116,8 @@ const renderWidgetContent = (widget: PlacedWidget, dateFrom: string, dateTo: str
       return <KablajUretimRateWidget widgetId={widget.id} {...dateFilterProps} />
     case 'aselsan_sivas':
       return <AselsanSivasWidget widgetId={widget.id} />
+    case 'test_plan_version':
+      return <TestPlanVersionWidget widgetId={widget.id} />
     default:
       return (
         <div className="flex flex-col items-center justify-center h-full">
