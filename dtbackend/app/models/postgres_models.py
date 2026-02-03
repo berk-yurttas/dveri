@@ -85,6 +85,21 @@ class User(PostgreSQLBase):
     user_platforms = relationship("UserPlatform", back_populates="user", cascade="all, delete-orphan")
 
 
+class AnalyticsEvent(PostgreSQLBase):
+    __tablename__ = "analytics_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    event_type = Column(String(50), nullable=False)
+    path = Column(Text, nullable=False)
+    session_id = Column(String(255), nullable=False)
+    user_id = Column(String(255), nullable=True)
+    ip = Column(String(50), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    duration = Column(Integer, nullable=False, default=0)
+    meta = Column(JSONB, nullable=True)
+
+
 class Dashboard(PostgreSQLBase):
     __tablename__ = "dashboards"
 

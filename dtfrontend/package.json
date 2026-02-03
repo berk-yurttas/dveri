@@ -30,6 +30,7 @@
     "@tiptap/react": "^3.10.4",
     "@tiptap/starter-kit": "^3.10.4",
     "@types/dompurify": "^3.0.5",
+    "@types/uuid": "^11.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dompurify": "^3.3.0",
@@ -42,8 +43,9 @@
     "react-dom": "19.1.0",
     "react-grid-layout": "^1.5.2",
     "react-qr-code": "^2.0.18",
-    "recharts": "^2.15.1",
+    "recharts": "^2.15.4",
     "tailwind-merge": "^3.3.1",
+    "uuid": "^13.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -54,6 +56,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-grid-layout": "^1.3.5",
+    "@types/recharts": "^2.0.1",
     "eslint": "^9",
     "eslint-config-next": "15.4.5",
     "tailwindcss": "^4",

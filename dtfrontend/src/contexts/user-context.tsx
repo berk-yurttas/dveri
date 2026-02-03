@@ -44,6 +44,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
       const userData = await api.get<User>('/users/login_jwt')
 
+      if (typeof window !== 'undefined' && userData?.username) {
+        const storedUsername = localStorage.getItem('analytics_username')
+        if (storedUsername !== userData.username) {
+          localStorage.setItem('analytics_username', userData.username)
+          console.info('[Analytics] Stored username from login:', userData.username)
+        }
+      }
+
       // Only update state if data has changed (prevents unnecessary re-renders)
       setUser(prevUser => {
         if (JSON.stringify(prevUser) === JSON.stringify(userData)) {
@@ -56,6 +64,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
       if (err.status === 401) {
         setUser(null)
         setError('Not authenticated')
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('analytics_username')
+        }
         // Don't redirect here - let the API client handle 401 redirects globally
       } else {
         setError(err.message || 'Failed to fetch user data')
@@ -74,6 +85,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
       console.error('Logout error:', err)
     } finally {
       setUser(null)
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('analytics_username')
+      }
       // Redirect to auth server login
       const currentUrl = window.location.origin
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL
