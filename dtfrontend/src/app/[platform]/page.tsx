@@ -1,6 +1,11 @@
 "use client"
 
+// Tasarım ve Proje Akışlarının Dijital Seyri
+// başlatmak iste..
+// yapım aşağmasında
+
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, useParams } from "next/navigation";
 import {
   BarChart3,
@@ -44,8 +49,11 @@ import {
   Lock,
   ChevronDown,
   ChevronRight,
-  ExternalLink
+  ExternalLink,
+  Download,
+  Search
 } from "lucide-react";
+import * as XLSX from 'xlsx';
 import { dashboardService } from "@/services/dashboard";
 import { reportsService } from "@/services/reports";
 import { RomiotStats } from "@/components/dashboard/RomiotStats";
@@ -60,6 +68,7 @@ import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 import { Feedback } from "@/components/feedback/feedback";
 import DOMPurify from 'dompurify';
 import { checkAccess } from "@/lib/utils";
+import { TableVisualization } from "@/components/visualizations/TableVisualization";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -131,6 +140,579 @@ export default function PlatformHome() {
   const navigationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isIvmePlatform = platformData?.code === 'ivme';
   const isRomiotPlatform = platformCode === 'romiot';
+  const isSeyirPlatform = platformCode === 'seyir';
+  const [searchValue, setSearchValue] = useState('');
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [searchedPartNumber, setSearchedPartNumber] = useState<string | null>(null);
+  const [tableData, setTableData] = useState<any>(null);
+  const [isLoadingData, setIsLoadingData] = useState(false);
+
+  // TableVisualization states
+  const [sorting, setSorting] = useState<{ column: string; direction: 'asc' | 'desc' } | null>(null);
+  const [filters, setFilters] = useState<{ [key: string]: any }>({});
+  const [openPopovers, setOpenPopovers] = useState<{ [key: string]: boolean }>({});
+  const [dropdownOptions, setDropdownOptions] = useState<{ [key: string]: { options: Array<{ value: any; label: string }>, page: number, hasMore: boolean, total: number, loading: boolean } }>({});
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalRows, setTotalRows] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Check if mounted (client-side)
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (selectedTable) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedTable]);
+
+  // Convert table data to TableVisualization format
+  const getTableVisualizationData = () => {
+    if (!tableData || !selectedTable) return null;
+
+    switch (selectedTable) {
+      case 'alt-yuklenici':
+        // Database'den gelen veri formatı
+        if (tableData.altYuklenici && Array.isArray(tableData.altYuklenici) && tableData.altYuklenici.length > 0 && Array.isArray(tableData.altYuklenici[0])) {
+          // Veri zaten array formatında (database'den geldi)
+          return {
+            columns: ['Satıcı', 'Satıcı Tanım', 'SAS', 'SAS Kalem', 'Üretim Siparişi', 'Malzeme', 'Sipariş Miktarı', 'İhtiyaç Önceliği', 'İş Emri Durumu', 'Seri No', 'Aşama', 'Aşama Durum', 'Tahmini Tamamlanma Tarihi'],
+            data: tableData.altYuklenici
+          };
+        }
+        // Fallback: dummy data formatı
+        return {
+          columns: ['Satıcı', 'Satıcı Tanım', 'SAS', 'SAS Kalem', 'Üretim Siparişi', 'Malzeme', 'Sipariş Miktarı', 'İhtiyaç Önceliği', 'İş Emri Durumu', 'Seri No', 'Aşama', 'Aşama Durum', 'Tahmini Tamamlanma Tarihi'],
+          data: tableData.altYuklenici.map((item: any) => [
+            item.satici || '-',
+            item.saticiTanim || '-',
+            item.sas || '-',
+            item.sasKalem || '-',
+            item.uretimSiparisi || '-',
+            item.malzeme || '-',
+            item.siparisMiktari || '-',
+            item.ihtiyacOnceligi || '-',
+            item.isEmriDurumu || '-',
+            item.seriNo || '-',
+            item.asama || '-',
+            item.asamaDurum || '-',
+            item.tahminiTamamlanmaTarihi || '-'
+          ])
+        };
+
+      case 'aselsan-ici':
+        return {
+          columns: ['İş Emri', 'Durum', 'Adet', 'Atölye', 'İş Emri Açılış Tarihi', 'Status', 'Kaç Gündür Bu Adımda'],
+          data: tableData.aselsanIci.map((item: any) => [
+            item.isEmri,
+            item.durum,
+            item.adet,
+            item.atolye,
+            item.isEmriAcilisTarihi,
+            item.status,
+            `${item.kacGundur} gün`
+          ])
+        };
+
+      case 'prototip-ahtapot':
+        return {
+          columns: ['Süreç Tipi', 'Adet', 'Açıklama'],
+          data: [
+            ['Prototip Üretim', tableData.prototipAhtapot.prototip, 'Aktif prototip üretim süreçleri'],
+            ['Ahtapot Tasarım', tableData.prototipAhtapot.ahtapot, 'Devam eden ahtapot tasarım süreçleri']
+          ]
+        };
+
+      case 'deriniz':
+        return {
+          columns: ['A', 'B', 'C', 'D', 'E'],
+          data: tableData.deriniz.map((item: any) => [
+            item.a,
+            item.b,
+            item.c,
+            item.d,
+            item.e
+          ])
+        };
+
+      case 'alt-yuklenici-hatalar':
+        // Database'den gelen veri formatı
+        if (tableData.altYukleniciHatalar && Array.isArray(tableData.altYukleniciHatalar) && tableData.altYukleniciHatalar.length > 0 && Array.isArray(tableData.altYukleniciHatalar[0])) {
+          // Veri zaten array formatında (database'den geldi)
+          return {
+            columns: ['Aselsan İş Emri No', 'Aselsan Sipariş No', 'Aselsan Sipariş Kalem No', 'Firma Adı', 'Stok Kodu', 'Operasyon Tanımı', 'Durma Nedeni', 'Hata Tanımı', 'Durma Gün Sayısı'],
+            data: tableData.altYukleniciHatalar
+          };
+        }
+        // Fallback: dummy data formatı
+        return {
+          columns: ['Aselsan İş Emri No', 'Aselsan Sipariş No', 'Aselsan Sipariş Kalem No', 'Firma Adı', 'Stok Kodu', 'Operasyon Tanımı', 'Durma Nedeni', 'Hata Tanımı', 'Durma Gün Sayısı'],
+          data: tableData.altYukleniciHatalar.map((item: any) => [
+            item.aselsanIsEmriNo || '-',
+            item.aselsanSiparisNo || '-',
+            item.aselsanSiparisKalemNo || '-',
+            item.firmaAdi || '-',
+            item.stokKodu || '-',
+            item.operasyonTanimi || '-',
+            item.durmaNedeni || '-',
+            item.hataTanimi || '-',
+            item.durmaGunSayisi || '-'
+          ])
+        };
+
+      case 'sap-hatalar':
+        return {
+          columns: ['Bildirim Tipi', 'Bildirim Numarası', 'Açılış Tarihi', 'Kimin Üzerinde'],
+          data: tableData.sapHatalar.map((item: any) => [
+            item.bildirimTipi,
+            item.bildirimNumarasi,
+            item.acilisTarihi,
+            item.kiminUzerinde
+          ])
+        };
+
+      case 'robot-servis':
+        return {
+          columns: [],
+          data: []
+        };
+
+      case 'kalifikasyon':
+        return {
+          columns: ['Rapor No', 'Sonuç', 'Tarih'],
+          data: tableData.kalifikasyon.map((item: any) => [
+            item.raporNo,
+            item.sonuc,
+            new Date().toLocaleDateString('tr-TR')
+          ])
+        };
+
+      default:
+        return null;
+    }
+  };
+
+  // TableVisualization handlers
+  const handleColumnSort = (column: string) => {
+    setSorting(prev => {
+      if (prev?.column === column) {
+        return prev.direction === 'asc'
+          ? { column, direction: 'desc' }
+          : null;
+      }
+      return { column, direction: 'asc' };
+    });
+  };
+
+  const handleFilterChange = (fieldName: string, value: any) => {
+    setFilters(prev => ({ ...prev, [fieldName]: value }));
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setCurrentPage(1);
+  };
+
+  // Generate filter definitions for each column (text search on every column)
+  const getTableVisualizationFilters = () => {
+    if (!selectedTable) return [];
+    const vizData = getTableVisualizationData();
+    if (!vizData) return [];
+    return vizData.columns.map((col: string, idx: number) => ({
+      id: idx,
+      fieldName: col,
+      displayName: col,
+      type: 'text' as const,
+      dropdownQuery: null,
+      dependsOn: null,
+      required: false,
+      query_id: 0,
+      created_at: '',
+      updated_at: null
+    }));
+  };
+
+  // Calculate pagination with client-side filter + sort
+  const [paginatedData, setPaginatedData] = useState<any>(null);
+
+  useEffect(() => {
+    const tableVizData = getTableVisualizationData();
+    if (!tableVizData) {
+      setPaginatedData(null);
+      return;
+    }
+
+    let filteredData = [...tableVizData.data];
+
+    // Apply text filters per column
+    tableVizData.columns.forEach((col: string, colIdx: number) => {
+      const filterValue = filters[col];
+      const filterOperator = filters[`${col}_operator`] || 'CONTAINS';
+      if (filterValue && filterValue !== '') {
+        const searchVal = String(filterValue).toLowerCase();
+        filteredData = filteredData.filter(row => {
+          const cellValue = String(row[colIdx] ?? '').toLowerCase();
+          switch (filterOperator) {
+            case 'CONTAINS': return cellValue.includes(searchVal);
+            case 'NOT_CONTAINS': return !cellValue.includes(searchVal);
+            case 'STARTS_WITH': return cellValue.startsWith(searchVal);
+            case 'ENDS_WITH': return cellValue.endsWith(searchVal);
+            case '=': return cellValue === searchVal;
+            case 'NOT_EQUALS': return cellValue !== searchVal;
+            default: return true;
+          }
+        });
+      }
+    });
+
+    // Apply sorting
+    if (sorting) {
+      const colIdx = tableVizData.columns.indexOf(sorting.column);
+      if (colIdx !== -1) {
+        filteredData.sort((a: any[], b: any[]) => {
+          const aVal = String(a[colIdx] ?? '').toLowerCase();
+          const bVal = String(b[colIdx] ?? '').toLowerCase();
+          return sorting.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        });
+      }
+    }
+
+    const total = filteredData.length;
+    setTotalRows(total);
+    setTotalPages(Math.ceil(total / pageSize));
+
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+
+    setPaginatedData({
+      ...tableVizData,
+      data: filteredData.slice(startIndex, endIndex)
+    });
+  }, [tableData, selectedTable, currentPage, pageSize, filters, sorting]);
+
+  // Handle search for Seyir platform
+  const handleSearch = async () => {
+    if (searchValue.trim()) {
+      console.log('🔍 Parça Numarası Arama:', searchValue);
+
+      // Set loading state
+      setIsLoadingData(true);
+      setSearchedPartNumber(searchValue);
+      setTableData(null); // Clear previous data
+
+      try {
+        // ==================== 1. ALT YÜKLENİCİ AÇIK ÜRETİM ====================
+        const altYukleniciQuery = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Aşama Durum", "Tahmini Tamamlanma Tarihi" FROM seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciTotalCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%') as t`;
+        const altYukleniciFilteredCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%' AND "İş Emri Durumu" != 'MES KAYDI YOKTUR') as t`;
+
+        // ==================== 2. ASELSAN İÇİ AÇIK ÜRETİM ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const aselsanIciQuery = ``; // Boş - henüz hazır değil
+        const aselsanIciTotalCountQuery = ``; // Boş
+        const aselsanIciFilteredCountQuery = ``; // Boş
+
+        // ==================== 3. PROTOTİP VE TASARIM (Yapım Aşamasında) ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const prototipQuery = ``; // Boş - yapım aşamasında
+        const prototipTotalCountQuery = ``; // Boş
+        const prototipFilteredCountQuery = ``; // Boş
+
+        // ==================== 4. TEST VERİSİ (DERİNİZ) ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const derinizQuery = ``; // Boş - henüz hazır değil
+        const derinizTotalCountQuery = ``; // Boş
+        const derinizFilteredCountQuery = ``; // Boş
+
+        // ==================== 5. ALT YÜKLENİCİ AÇIK HATA ====================
+        const altYukleniciHatalarQuery = `SELECT "Aselsan İş Emri No", "Aselsan Sipariş No", "Aselsan Sipariş Kalem No", "Firma Adı", "Stok Kodu", "Operasyon Tanımı", "Durma Nedeni", "Hata Tanımı", "Durma Gün Sayısı" FROM seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "Stok Kodu" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciHatalarTotalCountQuery = `SELECT COUNT(*) as total FROM seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "Stok Kodu" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciHatalarFilteredCountQuery = ``; // Boş - şimdilik sadece total count var
+
+        // ==================== 6. ASELSAN AÇIK HATA (SAP) ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const sapHatalarQuery = ``; // Boş - henüz hazır değil
+        const sapHatalarTotalCountQuery = ``; // Boş
+        const sapHatalarFilteredCountQuery = ``; // Boş
+
+        // ==================== 7. ROBOT VERİLERİ (Yapım Aşamasında) ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const robotQuery = ``; // Boş - yapım aşamasında
+        const robotTotalCountQuery = ``; // Boş
+        const robotFilteredCountQuery = ``; // Boş
+
+        // ==================== 8. ÜST AŞAMA (KALİFİKASYON) ====================
+        // TODO: Query'ler hazırlandığında doldurulacak
+        const kalifikasyonQuery = ``; // Boş - henüz hazır değil
+        const kalifikasyonTotalCountQuery = ``; // Boş
+        const kalifikasyonFilteredCountQuery = ``; // Boş
+
+        // Sadece dolu query'leri çalıştır
+        const queries = [];
+        const queryNames: string[] = [];
+
+        // Alt Yüklenici queries
+        if (altYukleniciQuery) {
+          queries.push(reportsService.previewQuery({ sql_query: altYukleniciQuery, limit: 1000 }));
+          queryNames.push('altYuklenici');
+        }
+        if (altYukleniciTotalCountQuery) {
+          queries.push(reportsService.previewQuery({ sql_query: altYukleniciTotalCountQuery, limit: 1 }));
+          queryNames.push('altYukleniciTotalCount');
+        }
+        if (altYukleniciFilteredCountQuery) {
+          queries.push(reportsService.previewQuery({ sql_query: altYukleniciFilteredCountQuery, limit: 1 }));
+          queryNames.push('altYukleniciFilteredCount');
+        }
+
+        // Alt Yüklenici Hatalar queries
+        if (altYukleniciHatalarQuery) {
+          queries.push(reportsService.previewQuery({ sql_query: altYukleniciHatalarQuery, limit: 1000 }));
+          queryNames.push('altYukleniciHatalar');
+        }
+        if (altYukleniciHatalarTotalCountQuery) {
+          queries.push(reportsService.previewQuery({ sql_query: altYukleniciHatalarTotalCountQuery, limit: 1 }));
+          queryNames.push('altYukleniciHatalarTotalCount');
+        }
+
+        // Tüm sorguları paralel çalıştır
+        const results = await Promise.all(queries);
+
+        // Sonuçları map'le
+        const resultMap: { [key: string]: any } = {};
+        queryNames.forEach((name, index) => {
+          resultMap[name] = results[index];
+        });
+
+        console.log('📦 Query sonuçları:', resultMap);
+
+        // Database'den gelen verileri set et
+        setTableData({
+          // 1. Alt Yüklenici Açık Üretim
+          altYuklenici: resultMap.altYuklenici?.data || [],
+          altYukleniciTotalCount: resultMap.altYukleniciTotalCount?.data?.[0]?.[0] || 0,
+          altYukleniciFilteredCount: resultMap.altYukleniciFilteredCount?.data?.[0]?.[0] || 0,
+
+          // 2. Aselsan İçi Açık Üretim
+          aselsanIci: [],
+          aselsanIciTotalCount: 0,
+          aselsanIciFilteredCount: 0,
+
+          // 3. Prototip ve Tasarım (Yapım Aşamasında)
+          prototip: [],
+          prototipTotalCount: 0,
+          prototipFilteredCount: 0,
+
+          // 4. Test Verisi (Deriniz)
+          deriniz: [],
+          derinizTotalCount: 0,
+          derinizFilteredCount: 0,
+
+          // 5. Alt Yüklenici Açık Hata
+          altYukleniciHatalar: resultMap.altYukleniciHatalar?.data || [],
+          altYukleniciHatalarTotalCount: resultMap.altYukleniciHatalarTotalCount?.data?.[0]?.[0] || 0,
+          altYukleniciHatalarFilteredCount: 0, // Şimdilik yok
+
+          // 6. Aselsan Açık Hata (SAP)
+          sapHatalar: [],
+          sapHatalarTotalCount: 0,
+          sapHatalarFilteredCount: 0,
+
+          // 7. Robot Verileri (Yapım Aşamasında)
+          robotServis: [],
+          robotTotalCount: 0,
+          robotFilteredCount: 0,
+
+          // 8. Üst Aşama (Kalifikasyon)
+          kalifikasyon: [],
+          kalifikasyonTotalCount: 0,
+          kalifikasyonFilteredCount: 0,
+        });
+
+        setIsLoadingData(false);
+      } catch (error) {
+        console.error('❌ Veri çekme hatası:', error);
+        // Hata durumunda boş veri set et
+        setTableData({
+          altYuklenici: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0,
+          aselsanIci: [], aselsanIciTotalCount: 0, aselsanIciFilteredCount: 0,
+          prototip: [], prototipTotalCount: 0, prototipFilteredCount: 0,
+          deriniz: [], derinizTotalCount: 0, derinizFilteredCount: 0,
+          altYukleniciHatalar: [], altYukleniciHatalarTotalCount: 0, altYukleniciHatalarFilteredCount: 0,
+          sapHatalar: [], sapHatalarTotalCount: 0, sapHatalarFilteredCount: 0,
+          robotServis: [], robotTotalCount: 0, robotFilteredCount: 0,
+          kalifikasyon: [], kalifikasyonTotalCount: 0, kalifikasyonFilteredCount: 0,
+        });
+        setIsLoadingData(false);
+      }
+    } else {
+      console.warn('⚠️ Lütfen bir parça numarası giriniz');
+    }
+  };
+
+  // Handle Enter key press
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
+
+  // Export table data to Excel
+  const handleExportToExcel = () => {
+    if (!tableData || !selectedTable) return;
+
+    let exportData: any[] = [];
+    let fileName = '';
+
+    switch (selectedTable) {
+      case 'alt-yuklenici':
+        // Database'den gelen array formatı veya dummy data formatı
+        if (Array.isArray(tableData.altYuklenici) && tableData.altYuklenici.length > 0 && Array.isArray(tableData.altYuklenici[0])) {
+          // Database formatı (array of arrays)
+          exportData = tableData.altYuklenici.map((row: any[]) => ({
+            'Satıcı': row[0] || '-',
+            'Satıcı Tanım': row[1] || '-',
+            'SAS': row[2] || '-',
+            'SAS Kalem': row[3] || '-',
+            'Üretim Siparişi': row[4] || '-',
+            'Malzeme': row[5] || '-',
+            'Sipariş Miktarı': row[6] || '-',
+            'İhtiyaç Önceliği': row[7] || '-',
+            'İş Emri Durumu': row[8] || '-',
+            'Seri No': row[9] || '-',
+            'Aşama': row[10] || '-',
+            'Aşama Durum': row[11] || '-',
+            'Tahmini Tamamlanma Tarihi': row[12] || '-'
+          }));
+        } else {
+          // Dummy data formatı (object)
+          exportData = tableData.altYuklenici.map((item: any) => ({
+            'Satıcı': item.satici || '-',
+            'Satıcı Tanım': item.saticiTanim || '-',
+            'SAS': item.sas || '-',
+            'SAS Kalem': item.sasKalem || '-',
+            'Üretim Siparişi': item.uretimSiparisi || '-',
+            'Malzeme': item.malzeme || '-',
+            'Sipariş Miktarı': item.siparisMiktari || '-',
+            'İhtiyaç Önceliği': item.ihtiyacOnceligi || '-',
+            'İş Emri Durumu': item.isEmriDurumu || '-',
+            'Seri No': item.seriNo || '-',
+            'Aşama': item.asama || '-',
+            'Aşama Durum': item.asamaDurum || '-',
+            'Tahmini Tamamlanma Tarihi': item.tahminiTamamlanmaTarihi || '-'
+          }));
+        }
+        fileName = 'Alt_Yuklenici_Uretim_Siparisleri';
+        break;
+      case 'aselsan-ici':
+        exportData = tableData.aselsanIci.map((item: any) => ({
+          'Parça No': item.parcaNo,
+          'Üretim Yılı': item.uretimYili,
+          'Üretim Durumu': item.durum
+        }));
+        fileName = 'Aselsan_Ici_Uretim_Siparisleri';
+        break;
+      case 'prototip-ahtapot':
+        exportData = [
+          { 'Süreç Tipi': 'Prototip Üretim', 'Adet': tableData.prototipAhtapot.prototip, 'Açıklama': 'Aktif prototip üretim süreçleri' },
+          { 'Süreç Tipi': 'Ahtapot Tasarım', 'Adet': tableData.prototipAhtapot.ahtapot, 'Açıklama': 'Devam eden ahtapot tasarım projeleri' }
+        ];
+        fileName = 'Prototip_Ahtapot_Durum';
+        break;
+      case 'deriniz':
+        exportData = tableData.deriniz.map((item: any) => ({
+          'A': item.a,
+          'B': item.b,
+          'C': item.c,
+          'D': item.d,
+          'E': item.e
+        }));
+        fileName = 'Deriniz_Bilgiler';
+        break;
+      case 'alt-yuklenici-hatalar':
+        // Database'den gelen array formatı veya dummy data formatı
+        if (Array.isArray(tableData.altYukleniciHatalar) && tableData.altYukleniciHatalar.length > 0 && Array.isArray(tableData.altYukleniciHatalar[0])) {
+          // Database formatı (array of arrays)
+          exportData = tableData.altYukleniciHatalar.map((row: any[]) => ({
+            'Aselsan İş Emri No': row[0] || '-',
+            'Aselsan Sipariş No': row[1] || '-',
+            'Aselsan Sipariş Kalem No': row[2] || '-',
+            'Firma Adı': row[3] || '-',
+            'Stok Kodu': row[4] || '-',
+            'Operasyon Tanımı': row[5] || '-',
+            'Durma Nedeni': row[6] || '-',
+            'Hata Tanımı': row[7] || '-',
+            'Durma Gün Sayısı': row[8] || '-'
+          }));
+        } else {
+          // Dummy data formatı (object)
+          exportData = tableData.altYukleniciHatalar.map((item: any) => ({
+            'Aselsan İş Emri No': item.aselsanIsEmriNo || '-',
+            'Aselsan Sipariş No': item.aselsanSiparisNo || '-',
+            'Aselsan Sipariş Kalem No': item.aselsanSiparisKalemNo || '-',
+            'Firma Adı': item.firmaAdi || '-',
+            'Stok Kodu': item.stokKodu || '-',
+            'Operasyon Tanımı': item.operasyonTanimi || '-',
+            'Durma Nedeni': item.durmaNedeni || '-',
+            'Hata Tanımı': item.hataTanimi || '-',
+            'Durma Gün Sayısı': item.durmaGunSayisi || '-'
+          }));
+        }
+        fileName = 'Alt_Yuklenici_Hatalar';
+        break;
+      case 'sap-hatalar':
+        exportData = tableData.sapHatalar.map((item: any) => ({
+          'Bildirim No': item.bildirimNo,
+          'Durum': item.durum,
+          'Açıklama': 'SAP sistem hatası giderilmesi devam ediyor'
+        }));
+        fileName = 'SAP_Hatalar';
+        break;
+      case 'robot-servis':
+        exportData = tableData.robotServis.map((item: any) => ({
+          'Otomasyon ID': item.otomasyonId,
+          'Durum': item.durum,
+          'Son Güncelleme': `${new Date().toLocaleDateString('tr-TR')} ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
+        }));
+        fileName = 'Robot_Servis';
+        break;
+      case 'kalifikasyon':
+        exportData = tableData.kalifikasyon.map((item: any) => ({
+          'Rapor No': item.raporNo,
+          'Sonuç': item.sonuc,
+          'Tarih': new Date().toLocaleDateString('tr-TR')
+        }));
+        fileName = 'Kalifikasyon_Raporlari';
+        break;
+    }
+
+    // Create worksheet
+    const ws = XLSX.utils.json_to_sheet(exportData);
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Veri');
+
+    // Generate filename with timestamp and part number
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const fullFileName = `${fileName}_${searchedPartNumber}_${timestamp}.xlsx`;
+
+    // Save file
+    XLSX.writeFile(wb, fullFileName);
+  };
 
   const handleDerinizHover = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -249,8 +831,10 @@ export default function PlatformHome() {
     if (platformCode) {
       console.log('[Platform Page] Setting platform in context:', platformCode);
 
+
       // Set platform in context (this also sets localStorage and fetches platform data)
       setPlatformByCode(platformCode);
+
 
       // Clear cache to force fresh data fetch with new platform
       console.log('[Platform Page] Clearing API cache for platform switch');
@@ -331,6 +915,935 @@ export default function PlatformHome() {
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
           <div className="text-lg text-gray-600">Ekranlar yükleniyor...</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Seyir Platform Special UI
+  if (isSeyirPlatform) {
+    return (
+      <div className="min-h-screen bg-gray-50 pt-3 px-6 pb-6 relative">
+        {/* Background images - fixed position, behind content */}
+        <div
+          className="fixed inset-0 pointer-events-none overflow-hidden"
+          style={{ zIndex: 1 }}
+          aria-hidden="true"
+        >
+          {/* ÜST - SOL | resmin SAĞ yarısı görünecek */}
+          <div className="absolute top-0 left-0 w-1/2 h-1/2 overflow-hidden">
+            <img
+              src="/amom_icons/ahtapot.png"
+              alt=""
+              className="absolute"
+              style={{
+                top: '50%',
+                left: '50%',
+                width: '120%',
+                transform: 'translate(-70%, -50%) translateX(-30%)',
+                opacity: 0.4,
+                WebkitMaskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
+                maskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
+              }}
+            />
+          </div>
+
+          {/* ALT - SAĞ | resmin SOL yarısı görünecek */}
+          <div className="absolute bottom-0 right-0 w-1/2 h-1/2 overflow-hidden">
+            <img
+              src="/amom_icons/ahtapot.png"
+              alt=""
+              className="absolute"
+              style={{
+                top: '50%',
+                left: '50%',
+                width: '120%',
+                transform: 'translate(-30%, -50%) translateX(30%)',
+                opacity: 0.4,
+                WebkitMaskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
+                maskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Content - above background */}
+        <div className="relative" style={{ zIndex: 2 }}>
+          {/* Welcome Section */}
+          <div className="mb-2 flex flex-col items-center justify-center w-full">
+            <h1 className="text-2xl font-bold mb-1" style={{ color: "rgb(69,81,89)" }}>
+              Hoş Geldiniz{user?.name ? `, ${user.name}` : ''}
+            </h1>
+            <p className="text-sm text-gray-600">Başlatmak istediğiniz süreci seçin</p>
+          </div>
+
+          {/* Süreçler Title */}
+          <div className="w-full">
+            <div className="max-w-7xl mx-auto px-4   lg:px-8">
+              <div className="mb-3">
+                <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
+                  Süreçler
+                </h3>
+                <div className="w-[100px] h-[5px] bg-red-600"></div>
+              </div>
+            </div>
+          </div>
+
+          {/* 5 Icons - Square Design */}
+          <div className="max-w-6xl mx-auto mb-6">
+            <div className="grid grid-cols-5 gap-4">
+              {/* Icon 1 - Genel Süreçler */}
+              <div
+                className="flex flex-col items-center cursor-pointer group"
+                onClick={() => router.push('/')}
+              >
+                <div className="relative group-hover:scale-110 transition-all duration-300">
+                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                    <div className="w-full h-full rounded-lg overflow-hidden bg-white">
+                      <img
+                        src="/amom_icons/genel.png"
+                        alt="Genel Süreçler"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Icon 2 - Kalifikasyon Süreçleri */}
+              <div
+                className="flex flex-col items-center cursor-pointer group"
+                onClick={() => router.push('/')}
+              >
+                <div className="relative group-hover:scale-110 transition-all duration-300">
+                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                    <div className="w-full h-full rounded-lg overflow-hidden bg-white">
+                      <img
+                        src="/amom_icons/kalifikasyon.png"
+                        alt="Kalifikasyon Süreçleri"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Icon 3 - Prototip Süreçleri */}
+              <div
+                className="flex flex-col items-center cursor-pointer group"
+                onClick={() => router.push('/')}
+              >
+                <div className="relative group-hover:scale-110 transition-all duration-300">
+                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                    <div className="w-full h-full rounded-lg overflow-hidden bg-white">
+                      <img
+                        src="/amom_icons/prototip.png"
+                        alt="Prototip Süreçleri"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Icon 4 - Tasarım Süreçleri */}
+              <div
+                className="flex flex-col items-center cursor-pointer group"
+                onClick={() => router.push('/')}
+              >
+                <div className="relative group-hover:scale-110 transition-all duration-300">
+                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                    <div className="w-full h-full rounded-lg overflow-hidden bg-white">
+                      <img
+                        src="/amom_icons/tasarım.png"
+                        alt="Tasarım Süreçleri"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Icon 5 - Raporlar */}
+              <div
+                className="flex flex-col items-center cursor-pointer group"
+                onClick={() => router.push('/seyir/reports')}
+              >
+                <div className="relative group-hover:scale-110 transition-all duration-300">
+                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                    <div className="w-full h-full rounded-lg overflow-hidden bg-white">
+                      <img
+                        src="/amom_icons/rapor.png"
+                        alt="Raporlar"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Professional Divider Line */}
+          <div className="w-full pt-0 pb-0 mt-0 mb-4">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="mb-4">
+                <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
+                  Ürün Sorgulama
+                </h3>
+                <div className="w-[100px] h-[5px] bg-red-600"></div>
+              </div>
+            </div>
+          </div>
+
+
+          {/* Search Bar */}
+          <div className="max-w-6xl mx-auto mb-4">
+            <div className="relative">
+              {searchedPartNumber ? (
+                // Searched state - showing searched part number as embedded chip
+                <div className="w-full px-5 py-1.5 pr-12 text-base border-2 border-cyan-500 bg-cyan-50 rounded-full shadow-md flex items-center gap-2">
+                  <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <span className="text-gray-500 text-sm">Aranan Parça:</span>
+                  <div className="px-3 py-1 bg-cyan-600 text-white rounded-full font-semibold text-sm shadow-sm">
+                    {searchedPartNumber}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setSearchedPartNumber(null);
+                      setTableData(null);
+                      setSearchValue('');
+                      setIsLoadingData(false);
+                    }}
+                    className="ml-auto p-1.5 hover:bg-cyan-200 rounded-full transition-colors"
+                    title="Aramayı temizle"
+                  >
+                    <svg className="w-4 h-4 text-cyan-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ) : (
+                // Default search input state
+                <>
+                  <input
+                    type="text"
+                    value={searchValue}
+                    onChange={(e) => setSearchValue(e.target.value)}
+                    onKeyDown={handleSearchKeyDown}
+                    placeholder="Parça numarası giriniz"
+                    className="w-full px-5 py-1.5 pr-12 text-base border-2 border-gray-300 rounded-full shadow-md focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200 transition-all"
+                  />
+                  <button
+                    onClick={handleSearch}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 bg-cyan-600 text-white p-2 rounded-full hover:bg-cyan-700 transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* 8 Table Boxes - 4x4 Grid (only after search) */}
+          {(tableData || isLoadingData) && <div className="max-w-6xl mx-auto mb-4">
+            <div className="grid grid-cols-4 gap-4">
+              {/* Table Box 1 - Alt Yüklenici Açık Üretim Siparişleri */}
+              <div
+                onClick={() => setSelectedTable('alt-yuklenici')}
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
+              >
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Alt Yüklenici Açık Üretim</h3>
+                  <Search className="w-3 h-3 text-white/70" />
+                </div>
+                <div className="p-2 flex-1 flex items-center justify-center">
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs text-gray-500">Yükleniyor...</span>
+                    </div>
+                  ) : !tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.altYukleniciTotalCount === 0 ? (
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.altYukleniciTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.altYukleniciFilteredCount}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Table Box 2 - Aselsan İçi Açık Üretim Siparişleri */}
+              <div
+                onClick={() => setSelectedTable('aselsan-ici')}
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
+              >
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Aselsan Açık Üretim</h3>
+                  <Search className="w-3 h-3 text-white/70" />
+                </div>
+                <div className="p-2 flex-1 flex items-center justify-center">
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs text-gray-500">Yükleniyor...</span>
+                    </div>
+                  ) : !tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.aselsanIciTotalCount === 0 ? (
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.aselsanIciTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.aselsanIciFilteredCount}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Table Box 3 - Test Verisi */}
+              <div
+                onClick={() => setSelectedTable('deriniz')}
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
+              >
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Test Verisi</h3>
+                  <Search className="w-3 h-3 text-white/70" />
+                </div>
+                <div className="p-2 flex-1 flex items-center justify-center">
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs text-gray-500">Yükleniyor...</span>
+                    </div>
+                  ) : !tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.derinizTotalCount === 0 ? (
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.derinizTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.derinizFilteredCount}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Table Box 4 - Prototip ve Tasarım */}
+              <div
+                className="bg-white rounded-xl shadow-md transition-all duration-300 overflow-hidden border border-gray-100 h-[150px] flex flex-col opacity-60 cursor-not-allowed"
+              >
+                <div className="px-3 py-2 flex-shrink-0" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs text-center leading-tight">Prototip ve Tasarım</h3>
+                </div>
+                <div className="p-2 flex-1 flex items-center justify-center">
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-gray-400">Yapım Aşamasında ...</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Table Box 5 - Alt Yüklenici Açık Hata */}
+              <div
+                onClick={() => setSelectedTable('alt-yuklenici-hatalar')}
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
+              >
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Alt Yüklenici Açık Hata</h3>
+                  <Search className="w-3 h-3 text-white/70" />
+                </div>
+                <div className="p-2 flex-1 flex items-center justify-center">
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs text-gray-500">Yükleniyor...</span>
+                    </div>
+                  ) : !tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.altYukleniciHatalarTotalCount === 0 ? (
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.altYukleniciHatalarTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.altYukleniciHatalarFilteredCount}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Table Box 6 - Aselsan Açık Hata */}
+              <div
+                onClick={() => setSelectedTable('sap-hatalar')}
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
+              >
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Aselsan Açık Hata</h3>
+                  <Search className="w-3 h-3 text-white/70" />
+                </div>
+                <div className="p-2 flex-1 flex items-center justify-center">
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs text-gray-500">Yükleniyor...</span>
+                    </div>
+                  ) : !tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.sapHatalarTotalCount === 0 ? (
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.sapHatalarTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.sapHatalarFilteredCount}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Table Box 7 - Üst Aşama */}
+              <div
+                onClick={() => setSelectedTable('kalifikasyon')}
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
+              >
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Üst Aşama</h3>
+                  <Search className="w-3 h-3 text-white/70" />
+                </div>
+                <div className="p-2 flex-1 flex items-center justify-center">
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs text-gray-500">Yükleniyor...</span>
+                    </div>
+                  ) : !tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.kalifikasyonTotalCount === 0 ? (
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.kalifikasyonTotalCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-green-600">{tableData.kalifikasyonFilteredCount}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Table Box 8 - Robot Verileri */}
+              <div
+                className="bg-white rounded-xl shadow-md transition-all duration-300 overflow-hidden border border-gray-100 h-[150px] flex flex-col opacity-60 cursor-not-allowed"
+              >
+                <div className="px-3 py-2 flex-shrink-0" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <h3 className="font-bold text-white text-xs text-center leading-tight">Robot Verileri</h3>
+                </div>
+                <div className="p-2 flex-1 flex items-center justify-center">
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-gray-400">Yapım Aşamasında ...</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>}
+
+          {/* Table Detail Modal - Modern Design */}
+          {isMounted && selectedTable && createPortal(
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-hidden"
+              onClick={() => setSelectedTable(null)}
+            >
+              <div
+                className="bg-white rounded-3xl shadow-2xl w-[95vw] max-w-[1600px] min-h-[500px] max-h-[90vh] flex flex-col overflow-hidden border border-gray-200 transform transition-all"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  animation: 'slideUp 0.3s ease-out'
+                }}
+              >
+                {/* Modal Header - Clean Design */}
+                <div className="relative px-6 py-3 overflow-hidden flex-shrink-0 border-b border-white/10" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                  <div className="relative flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </div>
+                      <h2 className="text-xl font-bold text-white tracking-tight">
+                        {selectedTable === 'alt-yuklenici' && 'Alt Yüklenici Açık Üretim Siparişleri'}
+                        {selectedTable === 'aselsan-ici' && 'Aselsan İçi Açık Üretim Siparişleri'}
+                        {selectedTable === 'prototip-ahtapot' && 'Prototip Üretim ve Ahtapot Tasarım Süreçlerindeki Durum'}
+                        {selectedTable === 'deriniz' && 'Deriniz\'den Gelen Bilgiler'}
+                        {selectedTable === 'alt-yuklenici-hatalar' && 'Alt Yüklenici Açık Bildirim Hataları'}
+                        {selectedTable === 'sap-hatalar' && 'SAP Açık Bildirim Hataları'}
+                        {selectedTable === 'robot-servis' && 'Robotlardan Gelen Verinin Servis Edilmesi'}
+                        {selectedTable === 'kalifikasyon' && 'Kalifikasyon Raporlarından Gelen Bilgiler'}
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {/* Export to Excel Button */}
+                      {tableData && !isLoadingData && (
+                        <button
+                          onClick={handleExportToExcel}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-white/20 hover:bg-white/30 rounded-xl transition-all hover:scale-105 backdrop-blur-sm group"
+                          title="Excel'e Aktar"
+                        >
+                          <Download className="h-5 w-5 text-white group-hover:animate-bounce" />
+                          <span className="text-white font-semibold text-sm">Excel İndir</span>
+                        </button>
+                      )}
+                      {/* Close Button */}
+                      <button
+                        onClick={() => setSelectedTable(null)}
+                        className="p-2.5 hover:bg-white/20 rounded-xl transition-all hover:scale-110 backdrop-blur-sm"
+                      >
+                        <X className="h-6 w-6 text-white" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Body */}
+                <div className="p-4 flex-1 min-h-0 overflow-y-auto bg-white">
+                  {isLoadingData && (
+                    <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 rounded-2xl p-4 mb-6 shadow-sm">
+                      <p className="text-blue-900 font-semibold animate-pulse flex items-center gap-2">
+                        <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Veriler yükleniyor...
+                      </p>
+                    </div>
+                  )}
+                  {!tableData && !isLoadingData && (
+                    <div className="text-center py-12">
+                      <div className="w-20 h-20 bg-gradient-to-br from-gray-200 to-gray-300 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-10 h-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                      </div>
+                      <p className="text-gray-500 text-lg font-medium">Lütfen bir parça numarası arayın</p>
+                    </div>
+                  )}
+                  {tableData && !isLoadingData && paginatedData && (
+                    <div className="h-full overflow-hidden">
+                      <TableVisualization
+                        query={{
+                          id: selectedTable || 'default',
+                          filters: getTableVisualizationFilters(),
+                          visualization: {}
+                        } as any}
+                        result={{
+                          columns: paginatedData.columns,
+                          data: paginatedData.data,
+                          query_id: selectedTable || 'default',
+                          query_name: selectedTable || 'Table',
+                          total_rows: totalRows,
+                          execution_time_ms: 0,
+                          success: true
+                        } as any}
+                        sorting={sorting}
+                        onColumnSort={handleColumnSort}
+                        filters={filters}
+                        openPopovers={openPopovers}
+                        dropdownOptions={dropdownOptions}
+                        onFilterChange={handleFilterChange}
+                        onDebouncedFilterChange={handleFilterChange}
+                        setOpenPopovers={setOpenPopovers}
+                        currentPage={currentPage}
+                        pageSize={pageSize}
+                        totalPages={totalPages}
+                        totalRows={totalRows}
+                        onPageChange={handlePageChange}
+                        onPageSizeChange={handlePageSizeChange}
+                        size="lg"
+                      />
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            </div>
+            , document.body)}
+
+          {/* Full-width Duyurular Section */}
+          <div className="w-full py-6 mb-4">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="mb-8">
+                <h3 className="text-2xl font-bold mb-2" style={{ "color": "rgb(69,81,89)" }}>Duyurular</h3>
+                <div className="w-[100px] h-[5px] bg-red-600"></div>
+              </div>
+
+              {announcements.length > 0 ? (
+                <>
+                  {/* Carousel Container */}
+                  <div className="relative flex justify-center">
+                    {/* Navigation Arrows - Only show if more than 3 items */}
+                    {announcements.length > 3 && (
+                      <>
+                        <button
+                          onClick={handlePrevAnnouncement}
+                          disabled={isFirstPage}
+                          className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${isFirstPage
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            : 'bg-red-600 hover:bg-red-700 text-white'
+                            }`}
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={handleNextAnnouncement}
+                          disabled={isLastPage}
+                          className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${isLastPage
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            : 'bg-red-600 hover:bg-red-700 text-white'
+                            }`}
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
+
+                    {/* Carousel Cards */}
+                    <div className="flex gap-6 justify-center items-start max-w-4xl mx-auto">
+                      {announcements.slice(currentAnnouncementIndex, currentAnnouncementIndex + 3).map((announcement) => {
+                        const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
+                        return (
+                          <div
+                            key={announcement.id}
+                            className="flex-shrink-0 w-80 cursor-pointer transition-transform hover:scale-105"
+                            onClick={() => handleAnnouncementClick(announcement)}
+                            onMouseEnter={() => setHoveredAnnouncement(announcement.id)}
+                            onMouseLeave={() => setHoveredAnnouncement(null)}
+                          >
+                            <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
+                              }`}>
+                              {/* Image Area - Top section with proper aspect ratio */}
+                              {announcement.content_image && (
+                                <div className="absolute top-0 left-0 right-0 bottom-0">
+                                  <img
+                                    src={announcement.content_image}
+                                    alt={announcement.title}
+                                    className="w-full h-full object-fill"
+                                  />
+                                  {/* Gradient overlay for text readability */}
+                                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+                                </div>
+                              )}
+
+                              {/* Glow Effect */}
+                              <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-300 to-transparent rounded-full opacity-20 blur-xl"></div>
+
+                              {/* Main Title - Lower position for better image visibility */}
+                              <div className="absolute bottom-16 left-4 right-4 z-10">
+                                <div className="text-white font-bold text-xl leading-tight text-left">
+                                  {announcement.title.split('\n').map((line, i) => (
+                                    <div key={i}>{line}</div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Month Badge - Bottom Left, Small */}
+                              {announcement.month_title && (
+                                <div className="absolute bottom-3 left-3 bg-red-600 text-white px-3 py-1 rounded-md shadow-lg z-10">
+                                  <span className="text-xs font-semibold uppercase">{announcement.month_title}</span>
+                                </div>
+                              )}
+
+                              {/* Click Indicator */}
+                              <div className="absolute bottom-3 right-3 bg-white/20 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs z-10">
+                                Detaylar →
+                              </div>
+                            </div>
+
+                            {/* Card Description */}
+                            <div className="mt-3">
+                              <div className="h-1 w-12 bg-red-600 mb-2"></div>
+                              <h4 className="text-gray-900 font-semibold mb-1 line-clamp-2">{announcement.content_summary || announcement.title}</h4>
+                              <p className="text-gray-600 text-sm">
+                                {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Tümünü Gör Button */}
+                  {announcements.length > 3 && (
+                    <div className="flex justify-center mt-8">
+                      <button
+                        onClick={handleViewAllAnnouncements}
+                        className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium shadow-lg hover:shadow-xl"
+                      >
+                        <Eye className="h-5 w-5" />
+                        Tüm Duyuruları Gör ({announcements.length})
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-12">
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
+                    <MessageSquare className="h-8 w-8 text-gray-400" />
+                  </div>
+                  <h4 className="text-lg font-medium text-gray-900 mb-2">
+                    Şu anda aktif duyuru bulunmamaktadır
+                  </h4>
+                  <p className="text-gray-500 text-sm">
+                    Yeni duyurular eklendiğinde burada görünecektir
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Announcement Detail Modal */}
+          {showAnnouncementModal && selectedAnnouncement && (
+            <div
+              className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+              onClick={() => setShowAnnouncementModal(false)}
+            >
+              <div
+                className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto animate-fade-in [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-gray-400"
+                onClick={(e) => e.stopPropagation()}
+                style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent' }}
+              >
+                {/* Modal Header */}
+                <div className="relative">
+                  {selectedAnnouncement.content_image && (
+                    <div className="w-full h-[500px] bg-gradient-to-br from-blue-900 to-blue-800 relative overflow-hidden">
+                      <img
+                        src={selectedAnnouncement.content_image}
+                        alt={selectedAnnouncement.title}
+                        className="w-full h-full object-fill"
+                      />
+                      {selectedAnnouncement.month_title && (
+                        <div className="absolute bottom-4 left-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg z-10">
+                          <span className="text-sm font-bold uppercase">{selectedAnnouncement.month_title}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Close Button */}
+                  <button
+                    onClick={() => setShowAnnouncementModal(false)}
+                    className="absolute top-4 right-4 p-2 bg-white/90 hover:bg-white rounded-full shadow-lg transition-colors z-10 cursor-pointer"
+                  >
+                    <X className="h-5 w-5 text-gray-700" />
+                  </button>
+                </div>
+
+                {/* Modal Content */}
+                <div className="p-6">
+                  {/* Title */}
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                    {selectedAnnouncement.title}
+                  </h2>
+
+                  {/* Date */}
+                  <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
+                    <Calendar className="h-4 w-4" />
+                    <span>{new Date(selectedAnnouncement.creation_date).toLocaleDateString('tr-TR', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}</span>
+                  </div>
+
+                  {/* Summary */}
+                  {selectedAnnouncement.content_summary && (
+                    <div className="mb-4 p-4 bg-blue-50 border-l-4 border-blue-600 rounded-r-lg">
+                      <p className="text-gray-700 font-medium">{selectedAnnouncement.content_summary}</p>
+                    </div>
+                  )}
+
+                  {/* Divider */}
+                  {selectedAnnouncement.content_detail && (
+                    <div className="border-t border-gray-200 my-4"></div>
+                  )}
+
+                  {/* Detail Content - Main content of the announcement */}
+                  {selectedAnnouncement.content_detail && (
+                    <div className="mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-3">Detaylı İçerik</h3>
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <div
+                          className="text-gray-700 leading-relaxed [&>p]:mb-4 [&>p:last-child]:mb-0 [&>p:empty]:min-h-[1em]"
+                          dangerouslySetInnerHTML={{
+                            __html: DOMPurify.sanitize(selectedAnnouncement.content_detail)
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* No Detail Message */}
+                  {!selectedAnnouncement.content_detail && !selectedAnnouncement.content_summary && (
+                    <div className="text-center py-8 text-gray-500">
+                      <MessageSquare className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                      <p>Bu duyuru için detaylı açıklama bulunmamaktadır.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Modal Footer */}
+                <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                  <button
+                    onClick={() => setShowAnnouncementModal(false)}
+                    className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium cursor-pointer"
+                  >
+                    Kapat
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* All Announcements Modal */}
+          {showAllAnnouncementsModal && announcements.length > 0 && (
+            <div
+              className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+              onClick={() => setShowAllAnnouncementsModal(false)}
+            >
+              <div
+                className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] animate-fade-in overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <MessageSquare className="h-6 w-6 text-white" />
+                    <h3 className="text-xl font-bold text-white">Tüm Duyurular</h3>
+                    <span className="px-3 py-1 bg-white/20 rounded-full text-sm text-white font-medium">
+                      {announcements.length}
+                    </span>
+                  </div>
+                  <button
+                    onClick={closeAllAnnouncementsModal}
+                    className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                  >
+                    <X className="h-5 w-5 text-white" />
+                  </button>
+                </div>
+
+                {/* Modal Body - Grid */}
+                <div className="p-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-h-[65vh] overflow-y-auto px-2 md:px-4 lg:px-6 py-4">
+                    {announcements.map((announcement) => {
+                      const isAnnouncementHovered = hoveredAnnouncement === announcement.id;
+                      return (
+                        <div
+                          key={announcement.id}
+                          className="cursor-pointer transition-transform hover:scale-105"
+                          onClick={() => handleAnnouncementClick(announcement)}
+                          onMouseEnter={() => setHoveredAnnouncement(announcement.id)}
+                          onMouseLeave={() => setHoveredAnnouncement(null)}
+                        >
+                          <div className={`relative bg-gradient-to-br from-blue-900 to-blue-800 rounded-xl overflow-hidden h-64 shadow-2xl transition-all ${isAnnouncementHovered ? 'ring-2 ring-[#FF5620]' : ''
+                            }`}>
+                            {announcement.content_image && (
+                              <div className="absolute top-0 left-0 right-0 bottom-0">
+                                <img
+                                  src={announcement.content_image}
+                                  alt={announcement.title}
+                                  className="w-full h-full object-fill"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+                              </div>
+                            )}
+
+                            <div className="absolute bottom-16 left-4 right-4 z-10">
+                              <div className="text-white font-bold text-xl leading-tight text-left">
+                                {announcement.title.split('\n').map((line, i) => (
+                                  <div key={i}>{line}</div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {announcement.month_title && (
+                              <div className="absolute bottom-3 left-3 bg-red-600 text-white px-3 py-1 rounded-md shadow-lg z-10">
+                                <span className="text-xs font-semibold uppercase">{announcement.month_title}</span>
+                              </div>
+                            )}
+
+                            <div className="absolute bottom-3 right-3 bg-white/20 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs z-10">
+                              Detaylar →
+                            </div>
+                          </div>
+
+                          <div className="mt-3">
+                            <div className="h-1 w-12 bg-red-600 mb-2"></div>
+                            <h4 className="text-gray-900 font-semibold mb-1 line-clamp-2">{announcement.content_summary || announcement.title}</h4>
+                            <p className="text-gray-600 text-sm">
+                              {new Date(announcement.creation_date).toLocaleDateString('tr-TR')}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MIRAS Assistant Chatbot */}
+          <MirasAssistant />
+
+          {/* Feedback Button */}
+          <Feedback />
         </div>
       </div>
     );

@@ -58,10 +58,17 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   // Dynamic title based on platform and easter egg
   const getTitle = () => {
     if (easterEggActive) return "Biz de DERİNİZ ;)";
+    if (platform?.code === 'seyir') return "Seyir Defteri";
     if (platform) return `${platform.display_name}`;
     return "ODAK";
   };
   const title = getTitle();
+
+  const getSubtitle = () => {
+    if (platform?.code === 'seyir') return "Tasarım ve Proje Akışlarının Dijital Seyri";
+    return "Ortak Data ile Akıllı Karar Sistemi";
+  };
+  const subtitle = getSubtitle();
 
   // Get header color from platform theme or use default
   const headerColor = platform?.theme_config?.headerColor || "#1e3a8a";
@@ -163,6 +170,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     // Hide "Ekranlarım" and "Raporlar" on atolye page
     const isAtolyePage = pathname.includes('/atolye');
     const isRomiotPage = pathname.includes('/romiot');
+    const isSeyirPage = pathname.includes('/seyir');
 
     const baseItems = [
       {
@@ -200,7 +208,8 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     }
 
     if (!isAtolyePage) {
-      if (!isRomiotPage) {
+      // Hide "Ekranlarım" for Romiot and Seyir platforms
+      if (!isRomiotPage && !isSeyirPage) {
         baseItems.push(
           {
             title: "Ekranlarım",
@@ -326,7 +335,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     <>
       <AppShell
         title={title}
-        subtitle="Ortak Data ile Akıllı Karar Sistemi"
+        subtitle={subtitle}
         navigationItems={navigationItems}
         currentPathname={pathname}
         onNavigationItemClick={handleNavigationClick}

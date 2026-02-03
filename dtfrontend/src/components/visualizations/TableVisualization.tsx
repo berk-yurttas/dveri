@@ -421,6 +421,8 @@ interface TableVisualizationProps {
   totalRows: number
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
+  // Size prop for font sizes
+  size?: 'sm' | 'md' | 'lg'
 }
 
 export const TableVisualization: React.FC<TableVisualizationProps> = ({
@@ -442,8 +444,17 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
   totalRows,
   onPageChange,
   onPageSizeChange,
+  size = 'sm',
 }) => {
   const { columns, data } = result
+
+  // Size-based classes
+  const sizeClasses = {
+    sm: { text: 'text-xs', padding: 'px-3 py-1.5', cellPadding: 'px-3 py-2' },
+    md: { text: 'text-sm', padding: 'px-4 py-2', cellPadding: 'px-4 py-2.5' },
+    lg: { text: 'text-base', padding: 'px-4 py-2.5', cellPadding: 'px-4 py-3' },
+  }
+  const currentSize = sizeClasses[size]
 
   const [filterPositions, setFilterPositions] = React.useState<Record<string, { top: number; left: number }>>({})
 
@@ -476,30 +487,30 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                 const filter = query.filters.find(f => f.fieldName === col)
                 const isSorted = sorting?.column === col
 
-                return (
-                  <th key={index} className="px-3 py-1.5 text-left font-semibold text-gray-800 text-xs relative">
-                    <div className="flex items-center justify-between">
-                      {/* Sortable column header */}
-                      <div
-                        className="flex items-center gap-1 cursor-pointer hover:bg-gray-100 px-1 py-0.5 rounded flex-1"
-                        onClick={() => onColumnSort(col)}
-                      >
-                        <span>{col}</span>
-                        <div className="flex flex-col">
-                          {isSorted ? (
-                            sorting.direction === 'asc' ? (
-                              <ArrowUp className="h-3 w-3 text-orange-600" />
-                            ) : (
-                              <ArrowDown className="h-3 w-3 text-orange-600" />
-                            )
+              return (
+                <th key={index} className={`${currentSize.padding} text-left font-semibold text-gray-800 ${currentSize.text} relative`}>
+                  <div className="flex items-center justify-between">
+                    {/* Sortable column header */}
+                    <div
+                      className="flex items-center gap-1 cursor-pointer hover:bg-gray-100 px-1 py-0.5 rounded flex-1"
+                      onClick={() => onColumnSort(col)}
+                    >
+                      <span>{col}</span>
+                      <div className="flex flex-col">
+                        {isSorted ? (
+                          sorting.direction === 'asc' ? (
+                            <ArrowUp className="h-3 w-3 text-orange-600" />
                           ) : (
-                            <div className="flex flex-col">
-                              <ArrowUp className="h-2 w-2 text-gray-300" />
-                              <ArrowDown className="h-2 w-2 text-gray-300 -mt-1" />
-                            </div>
-                          )}
-                        </div>
+                            <ArrowDown className="h-3 w-3 text-orange-600" />
+                          )
+                        ) : (
+                          <div className="flex flex-col">
+                            <ArrowUp className="h-2 w-2 text-gray-300" />
+                            <ArrowDown className="h-2 w-2 text-gray-300 -mt-1" />
+                          </div>
+                        )}
                       </div>
+                    </div>
 
                       {/* Filter button */}
                       {filter && (
@@ -616,27 +627,27 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                       return chunks.join('\n')
                     }
 
-                    return (
-                      <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: rowTextColor || '#1f2937' }}>
-                        {showTooltip ? (
-                          <div className="relative group">
-                            <span className="cursor-help">{displayValue}</span>
-                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 max-w-xs whitespace-pre-wrap">
-                              {formatTooltipText(cellValue)}
-                              <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
-                            </div>
+                  return (
+                    <td key={cellIndex} className={`${currentSize.cellPadding} ${currentSize.text} whitespace-nowrap`} style={{ color: rowTextColor || '#1f2937' }}>
+                      {showTooltip ? (
+                        <div className="relative group">
+                          <span className="cursor-help">{displayValue}</span>
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 max-w-xs whitespace-pre-wrap">
+                            {formatTooltipText(cellValue)}
+                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
                           </div>
-                        ) : (
-                          <span>{displayValue}</span>
-                        )}
-                      </td>
-                    )
-                  })}
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+                        </div>
+                      ) : (
+                        <span>{displayValue}</span>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
       </div>
 
       {/* Pagination Controls */}
