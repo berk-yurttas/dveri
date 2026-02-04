@@ -190,48 +190,60 @@ export default function AnalyticsPage() {
         )
     }
 
-    const renderReportTick = (data: Array<{ name: string; path?: string }>) => (props: any) => {
-        const { x = 0, y = 0, payload } = props
-        const index = payload?.index
-        const entry = typeof index === 'number' ? data[index] : null
-        const href = entry?.path ? getReportHrefFromPath(entry.path) : null
-        const label = payload?.value ?? ''
-        return (
-            <g transform={`translate(${x},${y})`}>
-                {renderWrappedTick(
-                    label,
-                    href ? () => router.push(href) : undefined,
-                    href ? 'pointer' : 'default'
-                )}
-            </g>
-        )
+    const renderReportTick = (data: Array<{ name: string; path?: string }>) => {
+        const ReportTick = (props: any) => {
+            const { x = 0, y = 0, payload } = props
+            const index = payload?.index
+            const entry = typeof index === 'number' ? data[index] : null
+            const href = entry?.path ? getReportHrefFromPath(entry.path) : null
+            const label = payload?.value ?? ''
+            return (
+                <g transform={`translate(${x},${y})`}>
+                    {renderWrappedTick(
+                        label,
+                        href ? () => router.push(href) : undefined,
+                        href ? 'pointer' : 'default'
+                    )}
+                </g>
+            )
+        }
+        ReportTick.displayName = 'ReportTick'
+        return ReportTick
     }
 
-    const renderReportComparisonTick = (data: Array<{ name: string; platformCode: string; reportId: string }>) => (props: any) => {
-        const { x = 0, y = 0, payload } = props
-        const index = payload?.index
-        const entry = typeof index === 'number' ? data[index] : null
-        const href = entry ? buildReportHref(entry) : null
-        const label = payload?.value ?? ''
-        return (
-            <g transform={`translate(${x},${y})`}>
-                {renderWrappedTick(
-                    label,
-                    href ? () => router.push(href) : undefined,
-                    href ? 'pointer' : 'default'
-                )}
-            </g>
-        )
+    const renderReportComparisonTick = (data: Array<{ name: string; platformCode: string; reportId: string }>) => {
+        const ReportComparisonTick = (props: any) => {
+            const { x = 0, y = 0, payload } = props
+            const index = payload?.index
+            const entry = typeof index === 'number' ? data[index] : null
+            const href = entry ? buildReportHref(entry) : null
+            const label = payload?.value ?? ''
+            return (
+                <g transform={`translate(${x},${y})`}>
+                    {renderWrappedTick(
+                        label,
+                        href ? () => router.push(href) : undefined,
+                        href ? 'pointer' : 'default'
+                    )}
+                </g>
+            )
+        }
+        ReportComparisonTick.displayName = 'ReportComparisonTick'
+        return ReportComparisonTick
     }
 
-    const renderSimpleTick = () => (props: any) => {
-        const { x = 0, y = 0, payload } = props
-        const label = payload?.value ?? ''
-        return (
-            <g transform={`translate(${x},${y})`}>
-                {renderWrappedTick(label)}
-            </g>
-        )
+    const renderSimpleTick = () => {
+        const SimpleTick = (props: any) => {
+            const { x = 0, y = 0, payload } = props
+            const label = payload?.value ?? ''
+            return (
+                <g transform={`translate(${x},${y})`}>
+                    {renderWrappedTick(label)}
+                </g>
+            )
+        }
+        SimpleTick.displayName = 'SimpleTick'
+        return SimpleTick
     }
 
     const normalizePath = (path: string) => {
@@ -491,7 +503,7 @@ export default function AnalyticsPage() {
         return data
     }, [userVisits])
 
-    const renderReportTimeTooltip = ({ active, payload }: any) => {
+    const ReportTimeTooltip = ({ active, payload }: any) => {
         if (!active || !payload || payload.length === 0) return null
         const data = payload[0]?.payload
         if (!data) return null
@@ -502,6 +514,7 @@ export default function AnalyticsPage() {
             </div>
         )
     }
+    ReportTimeTooltip.displayName = 'ReportTimeTooltip'
 
     const parsedReportStats = useMemo(() => {
         const reportEntries = stats.flatMap(item => {
@@ -1171,7 +1184,7 @@ export default function AnalyticsPage() {
                                             />
                                         ))}
                                     </Pie>
-                                    <Tooltip content={renderReportTimeTooltip} />
+                                    <Tooltip content={ReportTimeTooltip} />
                                     <Legend
                                         formatter={(value: any, entry: any) =>
                                             `${value} (${formatDurationDetailed(entry?.payload?.value)})`
