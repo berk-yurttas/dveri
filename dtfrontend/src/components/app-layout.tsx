@@ -189,7 +189,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
           href: platformCode ? `${platformPrefix}/atolye/work-orders` : "/atolye/work-orders",
         }
       );
-      
+
       // Add atolyeler management for yonetici role
       if (user?.role && Array.isArray(user.role)) {
         const hasYoneticiRole = user.role.some((role) =>
