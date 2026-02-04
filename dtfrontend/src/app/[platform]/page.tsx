@@ -244,30 +244,38 @@ export default function PlatformHome() {
           ])
         };
 
-      case 'alt-yuklenici-hatalar':
-        // Database'den gelen veri formatı
-        if (tableData.altYukleniciHatalar && Array.isArray(tableData.altYukleniciHatalar) && tableData.altYukleniciHatalar.length > 0 && Array.isArray(tableData.altYukleniciHatalar[0])) {
-          // Veri zaten array formatında (database'den geldi)
+      case 'alt-yuklenici-hatalar': {
+        const hatalarColumns = ['İş Emri No', 'SAS', 'Kalem', 'Firma', 'Stok Kodu', 'Operasyon Tanımı', 'Durma Nedeni', 'Hata Tanımı', 'Durma Gün Sayısı'];
+        console.log('📊 getTableVisualizationData alt-yuklenici-hatalar:', {
+          hasData: !!tableData.altYukleniciHatalar,
+          isArray: Array.isArray(tableData.altYukleniciHatalar),
+          length: tableData.altYukleniciHatalar?.length,
+          firstItem: JSON.stringify(tableData.altYukleniciHatalar?.[0]),
+          isFirstItemArray: Array.isArray(tableData.altYukleniciHatalar?.[0])
+        });
+        if (tableData.altYukleniciHatalar && Array.isArray(tableData.altYukleniciHatalar) && tableData.altYukleniciHatalar.length > 0) {
+          // Array of arrays (database formatı)
+          if (Array.isArray(tableData.altYukleniciHatalar[0])) {
+            return { columns: hatalarColumns, data: tableData.altYukleniciHatalar };
+          }
+          // Object formatı - key'leri array'e çevir
           return {
-            columns: ['Aselsan İş Emri No', 'Aselsan Sipariş No', 'Aselsan Sipariş Kalem No', 'Firma Adı', 'Stok Kodu', 'Operasyon Tanımı', 'Durma Nedeni', 'Hata Tanımı', 'Durma Gün Sayısı'],
-            data: tableData.altYukleniciHatalar
+            columns: hatalarColumns,
+            data: tableData.altYukleniciHatalar.map((item: any) => [
+              item.is_emri_no ?? item.IS_EMRI_NO ?? '-',
+              item.sas ?? item.SAS ?? '-',
+              item.kalem ?? item.KALEM ?? '-',
+              item.firma ?? item.FIRMA ?? '-',
+              item.product_code ?? item.PRODUCT_CODE ?? '-',
+              item.operation_desc ?? item.OPERATION_DESC ?? '-',
+              item.stop_description ?? item.STOP_DESCRIPTION ?? '-',
+              item.fault_description ?? item.FAULT_DESCRIPTION ?? '-',
+              item.durmgun_sayisi ?? item.DURMGUN_SAYISI ?? '-',
+            ])
           };
         }
-        // Fallback: dummy data formatı
-        return {
-          columns: ['Aselsan İş Emri No', 'Aselsan Sipariş No', 'Aselsan Sipariş Kalem No', 'Firma Adı', 'Stok Kodu', 'Operasyon Tanımı', 'Durma Nedeni', 'Hata Tanımı', 'Durma Gün Sayısı'],
-          data: tableData.altYukleniciHatalar.map((item: any) => [
-            item.aselsanIsEmriNo || '-',
-            item.aselsanSiparisNo || '-',
-            item.aselsanSiparisKalemNo || '-',
-            item.firmaAdi || '-',
-            item.stokKodu || '-',
-            item.operasyonTanimi || '-',
-            item.durmaNedeni || '-',
-            item.hataTanimi || '-',
-            item.durmaGunSayisi || '-'
-          ])
-        };
+        return { columns: hatalarColumns, data: [] };
+      }
 
       case 'sap-hatalar':
         return {
@@ -415,8 +423,8 @@ export default function PlatformHome() {
 
       try {
         // ==================== 1. ALT YÜKLENİCİ AÇIK ÜRETİM ====================
-        const altYukleniciQuery = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Aşama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%'`;
-        const altYukleniciTotalCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" mes_production.FROM seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%') as t`;
+        const altYukleniciQuery = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciTotalCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%') as t`;
         const altYukleniciFilteredCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%' AND "İş Emri Durumu" != 'MES KAYDI YOKTUR') as t`;
 
         // ==================== 2. ASELSAN İÇİ AÇIK ÜRETİM ====================
@@ -438,8 +446,8 @@ export default function PlatformHome() {
         const derinizFilteredCountQuery = ``; // Boş
 
         // ==================== 5. ALT YÜKLENİCİ AÇIK HATA ====================
-        const altYukleniciHatalarQuery = `SELECT "Aselsan İş Emri No", "Aselsan Sipariş No", "Aselsan Sipariş Kalem No", "Firma Adı", "Stok Kodu", "Operasyon Tanımı", "Durma Nedeni", "Hata Tanımı", "Durma Gün Sayısı" FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "Stok Kodu" ILIKE '%${searchValue.trim()}%'`;
-        const altYukleniciHatalarTotalCountQuery = `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "Stok Kodu" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciHatalarQuery = `SELECT "IS_EMRI_NO", "SAS", "KALEM", "FIRMA", "PRODUCT_CODE", "OPERATION_DESC", "STOP_DESCRIPTION", "FAULT_DESCRIPTION", "DURMA_GUN_SAYISI" FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "PRODUCT_CODE" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciHatalarTotalCountQuery = `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "PRODUCT_CODE" ILIKE '%${searchValue.trim()}%'`;
         const altYukleniciHatalarFilteredCountQuery = ``; // Boş - şimdilik sadece total count var
 
         // ==================== 6. ASELSAN AÇIK HATA (SAP) ====================
@@ -498,6 +506,15 @@ export default function PlatformHome() {
         });
 
         console.log('📦 Query sonuçları:', resultMap);
+
+        // Debug: Alt Yüklenici Hatalar detaylı log
+        if (resultMap.altYukleniciHatalar) {
+          console.log('🔍 Alt Yüklenici Hatalar - success:', resultMap.altYukleniciHatalar.success);
+          console.log('🔍 Alt Yüklenici Hatalar - data length:', resultMap.altYukleniciHatalar.data?.length);
+          console.log('🔍 Alt Yüklenici Hatalar - columns:', resultMap.altYukleniciHatalar.columns);
+          console.log('🔍 Alt Yüklenici Hatalar - message:', resultMap.altYukleniciHatalar.message);
+          console.log('🔍 Alt Yüklenici Hatalar - first row:', JSON.stringify(resultMap.altYukleniciHatalar.data?.[0]));
+        }
 
         // Database'den gelen verileri set et
         setTableData({
@@ -643,32 +660,17 @@ export default function PlatformHome() {
         fileName = 'Deriniz_Bilgiler';
         break;
       case 'alt-yuklenici-hatalar':
-        // Database'den gelen array formatı veya dummy data formatı
         if (Array.isArray(tableData.altYukleniciHatalar) && tableData.altYukleniciHatalar.length > 0 && Array.isArray(tableData.altYukleniciHatalar[0])) {
-          // Database formatı (array of arrays)
           exportData = tableData.altYukleniciHatalar.map((row: any[]) => ({
-            'Aselsan İş Emri No': row[0] || '-',
-            'Aselsan Sipariş No': row[1] || '-',
-            'Aselsan Sipariş Kalem No': row[2] || '-',
-            'Firma Adı': row[3] || '-',
+            'İş Emri No': row[0] || '-',
+            'SAS': row[1] || '-',
+            'Kalem': row[2] || '-',
+            'Firma': row[3] || '-',
             'Stok Kodu': row[4] || '-',
             'Operasyon Tanımı': row[5] || '-',
             'Durma Nedeni': row[6] || '-',
             'Hata Tanımı': row[7] || '-',
             'Durma Gün Sayısı': row[8] || '-'
-          }));
-        } else {
-          // Dummy data formatı (object)
-          exportData = tableData.altYukleniciHatalar.map((item: any) => ({
-            'Aselsan İş Emri No': item.aselsanIsEmriNo || '-',
-            'Aselsan Sipariş No': item.aselsanSiparisNo || '-',
-            'Aselsan Sipariş Kalem No': item.aselsanSiparisKalemNo || '-',
-            'Firma Adı': item.firmaAdi || '-',
-            'Stok Kodu': item.stokKodu || '-',
-            'Operasyon Tanımı': item.operasyonTanimi || '-',
-            'Durma Nedeni': item.durmaNedeni || '-',
-            'Hata Tanımı': item.hataTanimi || '-',
-            'Durma Gün Sayısı': item.durmaGunSayisi || '-'
           }));
         }
         fileName = 'Alt_Yuklenici_Hatalar';
@@ -939,9 +941,9 @@ export default function PlatformHome() {
               style={{
                 top: '50%',
                 left: '50%',
-                width: '120%',
-                transform: 'translate(-70%, -50%) translateX(-30%)',
-                opacity: 0.4,
+                width: '80%',
+                transform: 'translate(-82%, -50%) translateX(-30%)',
+                opacity: 0.2,
                 WebkitMaskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
                 maskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
               }}
@@ -957,9 +959,9 @@ export default function PlatformHome() {
               style={{
                 top: '50%',
                 left: '50%',
-                width: '120%',
-                transform: 'translate(-30%, -50%) translateX(30%)',
-                opacity: 0.4,
+                width: '80%',
+                transform: 'translate(-18%, -30%) translateX(30%)',
+                opacity: 0.2,
                 WebkitMaskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
                 maskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
               }}
@@ -970,35 +972,23 @@ export default function PlatformHome() {
         {/* Content - above background */}
         <div className="relative" style={{ zIndex: 2 }}>
           {/* Welcome Section */}
-          <div className="mb-2 flex flex-col items-center justify-center w-full">
+          <div className="mb-14 flex flex-col items-center justify-center w-full">
             <h1 className="text-2xl font-bold mb-1" style={{ color: "rgb(69,81,89)" }}>
               Hoş Geldiniz{user?.name ? `, ${user.name}` : ''}
             </h1>
             <p className="text-sm text-gray-600">Başlatmak istediğiniz süreci seçin</p>
           </div>
 
-          {/* Süreçler Title */}
-          <div className="w-full">
-            <div className="max-w-7xl mx-auto px-4   lg:px-8">
-              <div className="mb-3">
-                <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
-                  Süreçler
-                </h3>
-                <div className="w-[100px] h-[5px] bg-red-600"></div>
-              </div>
-            </div>
-          </div>
-
           {/* 5 Icons - Square Design */}
-          <div className="max-w-6xl mx-auto mb-6">
-            <div className="grid grid-cols-5 gap-4">
+          <div className="max-w-5xl mx-auto mb-14">
+            <div className="grid grid-cols-5 gap-12">
               {/* Icon 1 - Genel Süreçler */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
                 onClick={() => router.push('/')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                  <div className="w-40 h-36 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                     <div className="w-full h-full rounded-lg overflow-hidden bg-white">
                       <img
                         src="/amom_icons/genel.png"
@@ -1016,7 +1006,7 @@ export default function PlatformHome() {
                 onClick={() => router.push('/')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                  <div className="w-40 h-36 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                     <div className="w-full h-full rounded-lg overflow-hidden bg-white">
                       <img
                         src="/amom_icons/kalifikasyon.png"
@@ -1034,7 +1024,7 @@ export default function PlatformHome() {
                 onClick={() => router.push('/')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                  <div className="w-40 h-36 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                     <div className="w-full h-full rounded-lg overflow-hidden bg-white">
                       <img
                         src="/amom_icons/prototip.png"
@@ -1052,7 +1042,7 @@ export default function PlatformHome() {
                 onClick={() => router.push('/')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                  <div className="w-40 h-36 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                     <div className="w-full h-full rounded-lg overflow-hidden bg-white">
                       <img
                         src="/amom_icons/tasarım.png"
@@ -1070,7 +1060,7 @@ export default function PlatformHome() {
                 onClick={() => router.push('/seyir/reports')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-56 h-48 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                  <div className="w-40 h-36 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                     <div className="w-full h-full rounded-lg overflow-hidden bg-white">
                       <img
                         src="/amom_icons/rapor.png"
@@ -1085,11 +1075,11 @@ export default function PlatformHome() {
           </div>
 
           {/* Professional Divider Line */}
-          <div className="w-full pt-0 pb-0 mt-0 mb-4">
+          <div className="w-full pt-0 pb-0 mt-0 mb-12">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="mb-4">
+              <div className="mb-0">
                 <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
-                  Ürün Sorgulama
+                  Sorgulama
                 </h3>
                 <div className="w-[100px] h-[5px] bg-red-600"></div>
               </div>
@@ -1098,16 +1088,16 @@ export default function PlatformHome() {
 
 
           {/* Search Bar */}
-          <div className="max-w-6xl mx-auto mb-4">
+          <div className="max-w-6xl mx-auto mb-10">
             <div className="relative">
               {searchedPartNumber ? (
                 // Searched state - showing searched part number as embedded chip
-                <div className="w-full px-5 py-1.5 pr-12 text-base border-2 border-cyan-500 bg-cyan-50 rounded-full shadow-md flex items-center gap-2">
-                  <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-full px-5 py-1.5 pr-12 text-base border-2 border-red-500 bg-white rounded-full shadow-md flex items-center gap-2">
+                  <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                   <span className="text-gray-500 text-sm">Aranan Parça:</span>
-                  <div className="px-3 py-1 bg-cyan-600 text-white rounded-full font-semibold text-sm shadow-sm">
+                  <div className="px-3 py-1 bg-red-600 text-white rounded-full font-semibold text-sm shadow-sm">
                     {searchedPartNumber}
                   </div>
                   <button
@@ -1117,10 +1107,10 @@ export default function PlatformHome() {
                       setSearchValue('');
                       setIsLoadingData(false);
                     }}
-                    className="ml-auto p-1.5 hover:bg-cyan-200 rounded-full transition-colors"
+                    className="ml-auto p-1.5 hover:bg-red-200 rounded-full transition-colors"
                     title="Aramayı temizle"
                   >
-                    <svg className="w-4 h-4 text-cyan-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-red-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
@@ -1134,11 +1124,11 @@ export default function PlatformHome() {
                     onChange={(e) => setSearchValue(e.target.value)}
                     onKeyDown={handleSearchKeyDown}
                     placeholder="Parça numarası giriniz"
-                    className="w-full px-5 py-1.5 pr-12 text-base border-2 border-gray-300 rounded-full shadow-md focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200 transition-all"
+                    className="w-full px-5 py-1.5 pr-12 text-base border-2 border-gray-300 rounded-full shadow-md focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 transition-all"
                   />
                   <button
                     onClick={handleSearch}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 bg-cyan-600 text-white p-2 rounded-full hover:bg-cyan-700 transition-colors"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 bg-red-600 text-white p-2 rounded-full hover:bg-red-700 transition-colors"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -2042,12 +2032,12 @@ export default function PlatformHome() {
         {platformData?.theme_config?.features && platformData.theme_config.features.length > 0 && (
           <div className="mb-16">
             <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${platformData.theme_config.features.length === 4
-                ? 'lg:grid-cols-4'
-                : platformData.theme_config.features.length === 5
-                  ? 'lg:grid-cols-5'
-                  : platformData.theme_config.features.length === 6
-                    ? 'lg:grid-cols-6'
-                    : 'lg:grid-cols-4'
+              ? 'lg:grid-cols-4'
+              : platformData.theme_config.features.length === 5
+                ? 'lg:grid-cols-5'
+                : platformData.theme_config.features.length === 6
+                  ? 'lg:grid-cols-6'
+                  : 'lg:grid-cols-4'
               }`}>
               {platformData.theme_config.features.map((feature, index) => {
                 const hasSubfeatures = feature.subfeatures && feature.subfeatures.length > 0;
@@ -2342,12 +2332,12 @@ export default function PlatformHome() {
             ) && (
                 <div className="mt-8 opacity-0 animate-[fadeInSection_0.5s_ease-in-out_forwards]">
                   <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${platformData.theme_config.features.length === 4
-                      ? 'lg:grid-cols-4'
-                      : platformData.theme_config.features.length === 5
-                        ? 'lg:grid-cols-5'
-                        : platformData.theme_config.features.length === 6
-                          ? 'lg:grid-cols-6'
-                          : 'lg:grid-cols-4'
+                    ? 'lg:grid-cols-4'
+                    : platformData.theme_config.features.length === 5
+                      ? 'lg:grid-cols-5'
+                      : platformData.theme_config.features.length === 6
+                        ? 'lg:grid-cols-6'
+                        : 'lg:grid-cols-4'
                     }`}>
                     {platformData.theme_config.features.map((feature, index) => {
                       const isExpanded = expandedFeatures.has(index);
@@ -2486,8 +2476,8 @@ export default function PlatformHome() {
                           </span>
                         )}
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${dashboard.is_public
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-gray-100 text-gray-800"
+                          ? "bg-blue-100 text-blue-800"
+                          : "bg-gray-100 text-gray-800"
                           }`}>
                           {dashboard.is_public ? (
                             <>
@@ -2583,8 +2573,8 @@ export default function PlatformHome() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${report.is_public
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-gray-100 text-gray-800"
+                          ? "bg-blue-100 text-blue-800"
+                          : "bg-gray-100 text-gray-800"
                           }`}>
                           {report.is_public ? (
                             <>
@@ -2673,8 +2663,8 @@ export default function PlatformHome() {
                       onClick={handlePrevAnnouncement}
                       disabled={isFirstPage}
                       className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${isFirstPage
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                          : 'bg-red-600 hover:bg-red-700 text-white'
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-red-600 hover:bg-red-700 text-white'
                         }`}
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2685,8 +2675,8 @@ export default function PlatformHome() {
                       onClick={handleNextAnnouncement}
                       disabled={isLastPage}
                       className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-lg flex items-center justify-center shadow-lg transition-colors ${isLastPage
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                          : 'bg-red-600 hover:bg-red-700 text-white'
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-red-600 hover:bg-red-700 text-white'
                         }`}
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

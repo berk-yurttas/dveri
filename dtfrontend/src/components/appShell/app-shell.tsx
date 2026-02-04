@@ -55,7 +55,7 @@ export function AppShell({
   const isIvmePlatform = platform?.code === 'ivme'
   const isDerinizPlatform = platform?.code === 'deriniz'
   const isSeyirPlatform = platform?.code === 'seyir'
-  // Check if we're on the Seyir platform home page (e.g., /seyir)
+  // Check if we're on the Seyir platform home page
   const isSeyirHomePage = isSeyirPlatform && currentPathname === `/${platform?.code}`
 
   useEffect(() => {
