@@ -14,6 +14,8 @@ export interface AnalyticsStats {
     views: number
     avg_time: number
     unique_visitors: number
+    report_id?: number | null
+    report_name?: string | null
 }
 
 export interface AnalyticsUserVisit {
@@ -22,6 +24,8 @@ export interface AnalyticsUserVisit {
     views: number
     total_duration_seconds: number
     last_seen?: string | null
+    report_id?: number | null
+    report_name?: string | null
 }
 
 export const analyticsService = {
