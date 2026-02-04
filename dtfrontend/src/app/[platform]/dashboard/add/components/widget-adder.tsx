@@ -53,7 +53,12 @@ const platformWidgetMapping: { [key: string]: string[] } = {
     'measurement-widget',
     'serialno_comparison',
     'test_duration_analysis',
-    'test_plan_version-widget'
+    'test_plan_version-widget',
+    'test_software_version-widget',
+    'test_equipment-widget',
+    'equipment_test-widget',
+    'equipment_last_user-widget',
+    'hardware_last_user-widget'
   ],
   'ivme': [
     'capacity_analysis-widget',

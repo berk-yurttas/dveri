@@ -20,6 +20,11 @@ export { PendingWorkWidget } from './pending-work-widget'
 export { KablajUretimRateWidget } from './kablaj-uretim-rate-widget'
 export { AselsanSivasWidget } from './aselsan-sivas-widget'
 export { TestPlanVersionWidget } from './test-plan-version-widget'
+export { TestSoftwareVersionWidget } from './test-software-version-widget'
+export { TestEquipmentWidget } from './test-equipment-widget'
+export { EquipmentTestWidget } from './equipment-test-widget'
+export { EquipmentLastUserWidget } from './equipment-last-user-widget'
+export { HardwareLastUserWidget } from './hardware-last-user-widget'
 
 // Export widget configurations
 import { EfficiencyWidget } from './efficiency-widget'
@@ -44,6 +49,11 @@ import { PendingWorkWidget } from './pending-work-widget'
 import { KablajUretimRateWidget } from './kablaj-uretim-rate-widget'
 import { AselsanSivasWidget } from './aselsan-sivas-widget'
 import { TestPlanVersionWidget } from './test-plan-version-widget'
+import { TestSoftwareVersionWidget } from './test-software-version-widget'
+import { TestEquipmentWidget } from './test-equipment-widget'
+import { EquipmentTestWidget } from './equipment-test-widget'
+import { EquipmentLastUserWidget } from './equipment-last-user-widget'
+import { HardwareLastUserWidget } from './hardware-last-user-widget'
 
 export const widgetConfigs = [
   EfficiencyWidget.config,
@@ -67,5 +77,10 @@ export const widgetConfigs = [
   PendingWorkWidget.config,
   KablajUretimRateWidget.config,
   AselsanSivasWidget.config,
-  TestPlanVersionWidget.config
+  TestPlanVersionWidget.config,
+  TestSoftwareVersionWidget.config,
+  TestEquipmentWidget.config,
+  EquipmentTestWidget.config,
+  EquipmentLastUserWidget.config,
+  HardwareLastUserWidget.config
 ]
