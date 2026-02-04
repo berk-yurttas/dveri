@@ -415,9 +415,9 @@ export default function PlatformHome() {
 
       try {
         // ==================== 1. ALT YÜKLENİCİ AÇIK ÜRETİM ====================
-        const altYukleniciQuery = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Aşama Durum", "Tahmini Tamamlanma Tarihi" FROM seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%'`;
-        const altYukleniciTotalCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%') as t`;
-        const altYukleniciFilteredCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%' AND "İş Emri Durumu" != 'MES KAYDI YOKTUR') as t`;
+        const altYukleniciQuery = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Aşama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciTotalCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" mes_production.FROM seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%') as t`;
+        const altYukleniciFilteredCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%' AND "İş Emri Durumu" != 'MES KAYDI YOKTUR') as t`;
 
         // ==================== 2. ASELSAN İÇİ AÇIK ÜRETİM ====================
         // TODO: Query'ler hazırlandığında doldurulacak
@@ -438,8 +438,8 @@ export default function PlatformHome() {
         const derinizFilteredCountQuery = ``; // Boş
 
         // ==================== 5. ALT YÜKLENİCİ AÇIK HATA ====================
-        const altYukleniciHatalarQuery = `SELECT "Aselsan İş Emri No", "Aselsan Sipariş No", "Aselsan Sipariş Kalem No", "Firma Adı", "Stok Kodu", "Operasyon Tanımı", "Durma Nedeni", "Hata Tanımı", "Durma Gün Sayısı" FROM seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "Stok Kodu" ILIKE '%${searchValue.trim()}%'`;
-        const altYukleniciHatalarTotalCountQuery = `SELECT COUNT(*) as total FROM seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "Stok Kodu" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciHatalarQuery = `SELECT "Aselsan İş Emri No", "Aselsan Sipariş No", "Aselsan Sipariş Kalem No", "Firma Adı", "Stok Kodu", "Operasyon Tanımı", "Durma Nedeni", "Hata Tanımı", "Durma Gün Sayısı" FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "Stok Kodu" ILIKE '%${searchValue.trim()}%'`;
+        const altYukleniciHatalarTotalCountQuery = `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "Stok Kodu" ILIKE '%${searchValue.trim()}%'`;
         const altYukleniciHatalarFilteredCountQuery = ``; // Boş - şimdilik sadece total count var
 
         // ==================== 6. ASELSAN AÇIK HATA (SAP) ====================
