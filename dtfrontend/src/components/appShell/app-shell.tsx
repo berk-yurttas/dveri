@@ -54,8 +54,8 @@ export function AppShell({
   // Check if platform is 'ivme' for custom spacing
   const isIvmePlatform = platform?.code === 'ivme'
   const isDerinizPlatform = platform?.code === 'deriniz'
-  const isSeyirPlatform = platform?.code === 'seyir'
-  // Check if we're on the Seyir platform home page
+  const isSeyirPlatform = platform?.code === 'seyir' || platform?.code === 'amom'
+  // Check if we're on the Seyir/AMOM platform home page
   const isSeyirHomePage = isSeyirPlatform && currentPathname === `/${platform?.code}`
 
   useEffect(() => {
@@ -90,30 +90,30 @@ export function AppShell({
     <div className="flex min-h-screen relative overflow-hidden">
 
       {isDerinizPlatform && (
-      // Arc Background Overlay
-      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        {/* Large Quarter Circle Arc - Left Bottom */}
-        <div
-          className="absolute bottom-0 left-0"
-          style={{
-            width: '70rem',
-            height: '70rem',
-            borderRadius: '0 100% 0 0',
-            background: 'linear-gradient(to top right, rgba(24, 0, 241, 0.3) 0%, rgba(45, 212, 191, 0.25) 50%, transparent 100%)',
-          }}
-        ></div>
+        // Arc Background Overlay
+        <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+          {/* Large Quarter Circle Arc - Left Bottom */}
+          <div
+            className="absolute bottom-0 left-0"
+            style={{
+              width: '70rem',
+              height: '70rem',
+              borderRadius: '0 100% 0 0',
+              background: 'linear-gradient(to top right, rgba(24, 0, 241, 0.3) 0%, rgba(45, 212, 191, 0.25) 50%, transparent 100%)',
+            }}
+          ></div>
 
-        {/* Large Quarter Circle Arc - Right Bottom */}
-        <div
-          className="absolute bottom-0 right-0"
-          style={{
-            width: '70rem',
-            height: '70rem',
-            borderRadius: '100% 0 0 0',
-            background: 'linear-gradient(to top left, rgba(117, 11, 82, 0.3) 0%, rgba(45, 212, 191, 0.25) 50%, transparent 100%)',
-          }}
-        ></div>
-      </div>
+          {/* Large Quarter Circle Arc - Right Bottom */}
+          <div
+            className="absolute bottom-0 right-0"
+            style={{
+              width: '70rem',
+              height: '70rem',
+              borderRadius: '100% 0 0 0',
+              background: 'linear-gradient(to top left, rgba(117, 11, 82, 0.3) 0%, rgba(45, 212, 191, 0.25) 50%, transparent 100%)',
+            }}
+          ></div>
+        </div>
       )}
       {mobileSidebarOpen && currentPathname !== '/' && (
         <div
@@ -250,7 +250,7 @@ export function AppShell({
         </div>
       )}
 
-      <AppHeader title={title} subtitle={subtitle} customActions={customHeaderActions} onMobileMenuClick={currentPathname !== '/' ? toggleMobileSidebar : undefined} onPreferencesClick={onPreferencesClick} onLogoutClick={onLogoutClick}  userInfo={userInfo} headerColor={headerColor} />
+      <AppHeader title={title} subtitle={subtitle} customActions={customHeaderActions} onMobileMenuClick={currentPathname !== '/' ? toggleMobileSidebar : undefined} onPreferencesClick={onPreferencesClick} onLogoutClick={onLogoutClick} userInfo={userInfo} headerColor={headerColor} />
 
       {/* Only show sidebar when not on homepage and not on Seyir platform home page */}
       {currentPathname !== '/' && !isSeyirHomePage && (
@@ -270,11 +270,9 @@ export function AppShell({
         />
       )}
 
-      <div className={`relative z-10 flex flex-1 flex-col ${
-        currentPathname === '/' || isSeyirHomePage ? 'md:ml-0' : 'md:ml-16'
-      } bg-gray-50/80 backdrop-blur-sm ${
-        isIvmePlatform ? 'pt-[100px]' : 'pt-16'
-      }`}>
+      <div className={`relative z-10 flex flex-1 flex-col ${currentPathname === '/' || isSeyirHomePage ? 'md:ml-0' : 'md:ml-16'
+        } bg-gray-50/80 backdrop-blur-sm ${isIvmePlatform ? 'pt-[100px]' : 'pt-16'
+        }`}>
         <main className="flex-1 p-4">{children}</main>
       </div>
     </div>

@@ -58,14 +58,14 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   // Dynamic title based on platform and easter egg
   const getTitle = () => {
     if (easterEggActive) return "Biz de DERİNİZ ;)";
-    if (platform?.code === 'seyir') return "Seyir Defteri";
+    if (platform?.code === 'seyir' || platform?.code === 'amom') return "Seyir Defteri";
     if (platform) return `${platform.display_name}`;
     return "ODAK";
   };
   const title = getTitle();
 
   const getSubtitle = () => {
-    if (platform?.code === 'seyir') return "Tasarım ve Proje Akışlarının Dijital Seyri";
+    if (platform?.code === 'seyir' || platform?.code === 'amom') return "Tasarım ve Proje Akışlarının Dijital Seyri";
     return "Ortak Data ile Akıllı Karar Sistemi";
   };
   const subtitle = getSubtitle();
@@ -170,7 +170,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     // Hide "Ekranlarım" and "Raporlar" on atolye page
     const isAtolyePage = pathname.includes('/atolye');
     const isRomiotPage = pathname.includes('/romiot');
-    const isSeyirPage = pathname.includes('/seyir');
+    const isSeyirPage = pathname.includes('/seyir') || pathname.includes('/amom');
 
     const baseItems = [
       {

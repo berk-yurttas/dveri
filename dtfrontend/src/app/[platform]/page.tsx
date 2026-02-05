@@ -140,7 +140,7 @@ export default function PlatformHome() {
   const navigationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isIvmePlatform = platformData?.code === 'ivme';
   const isRomiotPlatform = platformCode === 'romiot';
-  const isSeyirPlatform = platformCode === 'seyir';
+  const isSeyirPlatform = platformCode === 'seyir' || platformCode === 'amom';
   const [searchValue, setSearchValue] = useState('');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [searchedPartNumber, setSearchedPartNumber] = useState<string | null>(null);
@@ -157,6 +157,7 @@ export default function PlatformHome() {
   const [totalRows, setTotalRows] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [isMounted, setIsMounted] = useState(false);
+  const [isLoadingPage, setIsLoadingPage] = useState(false);
 
   // Check if mounted (client-side)
   useEffect(() => {
@@ -246,13 +247,6 @@ export default function PlatformHome() {
 
       case 'alt-yuklenici-hatalar': {
         const hatalarColumns = ['İş Emri No', 'SAS', 'Kalem', 'Firma', 'Stok Kodu', 'Operasyon Tanımı', 'Durma Nedeni', 'Hata Tanımı', 'Durma Gün Sayısı'];
-        console.log('📊 getTableVisualizationData alt-yuklenici-hatalar:', {
-          hasData: !!tableData.altYukleniciHatalar,
-          isArray: Array.isArray(tableData.altYukleniciHatalar),
-          length: tableData.altYukleniciHatalar?.length,
-          firstItem: JSON.stringify(tableData.altYukleniciHatalar?.[0]),
-          isFirstItemArray: Array.isArray(tableData.altYukleniciHatalar?.[0])
-        });
         if (tableData.altYukleniciHatalar && Array.isArray(tableData.altYukleniciHatalar) && tableData.altYukleniciHatalar.length > 0) {
           // Array of arrays (database formatı)
           if (Array.isArray(tableData.altYukleniciHatalar[0])) {
@@ -353,7 +347,7 @@ export default function PlatformHome() {
     }));
   };
 
-  // Calculate pagination with client-side filter + sort
+  // Apply client-side filtering and sorting (pagination is server-side)
   const [paginatedData, setPaginatedData] = useState<any>(null);
 
   useEffect(() => {
@@ -365,7 +359,7 @@ export default function PlatformHome() {
 
     let filteredData = [...tableVizData.data];
 
-    // Apply text filters per column
+    // Apply text filters per column (client-side on current page data)
     tableVizData.columns.forEach((col: string, colIdx: number) => {
       const filterValue = filters[col];
       const filterOperator = filters[`${col}_operator`] || 'CONTAINS';
@@ -386,7 +380,7 @@ export default function PlatformHome() {
       }
     });
 
-    // Apply sorting
+    // Apply sorting (client-side on current page data)
     if (sorting) {
       const colIdx = tableVizData.columns.indexOf(sorting.column);
       if (colIdx !== -1) {
@@ -398,185 +392,62 @@ export default function PlatformHome() {
       }
     }
 
-    const total = filteredData.length;
-    setTotalRows(total);
-    setTotalPages(Math.ceil(total / pageSize));
-
-    const startIndex = (currentPage - 1) * pageSize;
-    const endIndex = startIndex + pageSize;
-
     setPaginatedData({
       ...tableVizData,
-      data: filteredData.slice(startIndex, endIndex)
+      data: filteredData
     });
-  }, [tableData, selectedTable, currentPage, pageSize, filters, sorting]);
+  }, [tableData, selectedTable, filters, sorting]);
 
   // Handle search for Seyir platform
   const handleSearch = async () => {
     if (searchValue.trim()) {
-      console.log('🔍 Parça Numarası Arama:', searchValue);
 
       // Set loading state
       setIsLoadingData(true);
       setSearchedPartNumber(searchValue);
-      setTableData(null); // Clear previous data
 
-      try {
-        // ==================== 1. ALT YÜKLENİCİ AÇIK ÜRETİM ====================
-        const altYukleniciQuery = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%'`;
-        const altYukleniciTotalCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%') as t`;
-        const altYukleniciFilteredCountQuery = `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%' AND "İş Emri Durumu" != 'MES KAYDI YOKTUR') as t`;
+      // Başlangıç state'i - tüm değerler boş/0
+      const initialTableData = {
+        altYuklenici: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0,
+        aselsanIci: [], aselsanIciTotalCount: 0, aselsanIciFilteredCount: 0,
+        prototip: [], prototipTotalCount: 0, prototipFilteredCount: 0,
+        deriniz: [], derinizTotalCount: 0, derinizFilteredCount: 0,
+        altYukleniciHatalar: [], altYukleniciHatalarTotalCount: 0, altYukleniciHatalarFilteredCount: 0,
+        sapHatalar: [], sapHatalarTotalCount: 0, sapHatalarFilteredCount: 0,
+        robotServis: [], robotTotalCount: 0, robotFilteredCount: 0,
+        kalifikasyon: [], kalifikasyonTotalCount: 0, kalifikasyonFilteredCount: 0,
+      };
+      setTableData(initialTableData);
 
-        // ==================== 2. ASELSAN İÇİ AÇIK ÜRETİM ====================
-        // TODO: Query'ler hazırlandığında doldurulacak
-        const aselsanIciQuery = ``; // Boş - henüz hazır değil
-        const aselsanIciTotalCountQuery = ``; // Boş
-        const aselsanIciFilteredCountQuery = ``; // Boş
+      // ==================== PARALEL AMA BAĞIMSIZ SORGULAR ====================
+      // Her sorgu bittiğinde hemen state güncellenir
 
-        // ==================== 3. PROTOTİP VE TASARIM (Yapım Aşamasında) ====================
-        // TODO: Query'ler hazırlandığında doldurulacak
-        const prototipQuery = ``; // Boş - yapım aşamasında
-        const prototipTotalCountQuery = ``; // Boş
-        const prototipFilteredCountQuery = ``; // Boş
+      // 1. Alt Yüklenici Total Count
+      reportsService.previewQuery({
+        sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%'`,
+        limit: 1
+      }).then(result => {
+        setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: result.data?.[0]?.[0] || 0 } : null);
+      }).catch(() => {});
 
-        // ==================== 4. TEST VERİSİ (DERİNİZ) ====================
-        // TODO: Query'ler hazırlandığında doldurulacak
-        const derinizQuery = ``; // Boş - henüz hazır değil
-        const derinizTotalCountQuery = ``; // Boş
-        const derinizFilteredCountQuery = ``; // Boş
+      // 2. Alt Yüklenici Filtered Count
+      reportsService.previewQuery({
+        sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%' AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
+        limit: 1
+      }).then(result => {
+        setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: result.data?.[0]?.[0] || 0 } : null);
+      }).catch(() => {});
 
-        // ==================== 5. ALT YÜKLENİCİ AÇIK HATA ====================
-        const altYukleniciHatalarQuery = `SELECT "IS_EMRI_NO", "SAS", "KALEM", "FIRMA", "PRODUCT_CODE", "OPERATION_DESC", "STOP_DESCRIPTION", "FAULT_DESCRIPTION", "DURMA_GUN_SAYISI" FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "PRODUCT_CODE" ILIKE '%${searchValue.trim()}%'`;
-        const altYukleniciHatalarTotalCountQuery = `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "PRODUCT_CODE" ILIKE '%${searchValue.trim()}%'`;
-        const altYukleniciHatalarFilteredCountQuery = ``; // Boş - şimdilik sadece total count var
+      // 3. Alt Yüklenici Hatalar Total Count
+      reportsService.previewQuery({
+        sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "PRODUCT_CODE" ILIKE '%${searchValue.trim()}%'`,
+        limit: 1
+      }).then(result => {
+        setTableData((prev: any) => prev ? { ...prev, altYukleniciHatalarTotalCount: result.data?.[0]?.[0] || 0 } : null);
+      }).catch(() => {});
 
-        // ==================== 6. ASELSAN AÇIK HATA (SAP) ====================
-        // TODO: Query'ler hazırlandığında doldurulacak
-        const sapHatalarQuery = ``; // Boş - henüz hazır değil
-        const sapHatalarTotalCountQuery = ``; // Boş
-        const sapHatalarFilteredCountQuery = ``; // Boş
-
-        // ==================== 7. ROBOT VERİLERİ (Yapım Aşamasında) ====================
-        // TODO: Query'ler hazırlandığında doldurulacak
-        const robotQuery = ``; // Boş - yapım aşamasında
-        const robotTotalCountQuery = ``; // Boş
-        const robotFilteredCountQuery = ``; // Boş
-
-        // ==================== 8. ÜST AŞAMA (KALİFİKASYON) ====================
-        // TODO: Query'ler hazırlandığında doldurulacak
-        const kalifikasyonQuery = ``; // Boş - henüz hazır değil
-        const kalifikasyonTotalCountQuery = ``; // Boş
-        const kalifikasyonFilteredCountQuery = ``; // Boş
-
-        // Sadece dolu query'leri çalıştır
-        const queries = [];
-        const queryNames: string[] = [];
-
-        // Alt Yüklenici queries
-        if (altYukleniciQuery) {
-          queries.push(reportsService.previewQuery({ sql_query: altYukleniciQuery, limit: 1000 }));
-          queryNames.push('altYuklenici');
-        }
-        if (altYukleniciTotalCountQuery) {
-          queries.push(reportsService.previewQuery({ sql_query: altYukleniciTotalCountQuery, limit: 1 }));
-          queryNames.push('altYukleniciTotalCount');
-        }
-        if (altYukleniciFilteredCountQuery) {
-          queries.push(reportsService.previewQuery({ sql_query: altYukleniciFilteredCountQuery, limit: 1 }));
-          queryNames.push('altYukleniciFilteredCount');
-        }
-
-        // Alt Yüklenici Hatalar queries
-        if (altYukleniciHatalarQuery) {
-          queries.push(reportsService.previewQuery({ sql_query: altYukleniciHatalarQuery, limit: 1000 }));
-          queryNames.push('altYukleniciHatalar');
-        }
-        if (altYukleniciHatalarTotalCountQuery) {
-          queries.push(reportsService.previewQuery({ sql_query: altYukleniciHatalarTotalCountQuery, limit: 1 }));
-          queryNames.push('altYukleniciHatalarTotalCount');
-        }
-
-        // Tüm sorguları paralel çalıştır
-        const results = await Promise.all(queries);
-
-        // Sonuçları map'le
-        const resultMap: { [key: string]: any } = {};
-        queryNames.forEach((name, index) => {
-          resultMap[name] = results[index];
-        });
-
-        console.log('📦 Query sonuçları:', resultMap);
-
-        // Debug: Alt Yüklenici Hatalar detaylı log
-        if (resultMap.altYukleniciHatalar) {
-          console.log('🔍 Alt Yüklenici Hatalar - success:', resultMap.altYukleniciHatalar.success);
-          console.log('🔍 Alt Yüklenici Hatalar - data length:', resultMap.altYukleniciHatalar.data?.length);
-          console.log('🔍 Alt Yüklenici Hatalar - columns:', resultMap.altYukleniciHatalar.columns);
-          console.log('🔍 Alt Yüklenici Hatalar - message:', resultMap.altYukleniciHatalar.message);
-          console.log('🔍 Alt Yüklenici Hatalar - first row:', JSON.stringify(resultMap.altYukleniciHatalar.data?.[0]));
-        }
-
-        // Database'den gelen verileri set et
-        setTableData({
-          // 1. Alt Yüklenici Açık Üretim
-          altYuklenici: resultMap.altYuklenici?.data || [],
-          altYukleniciTotalCount: resultMap.altYukleniciTotalCount?.data?.[0]?.[0] || 0,
-          altYukleniciFilteredCount: resultMap.altYukleniciFilteredCount?.data?.[0]?.[0] || 0,
-
-          // 2. Aselsan İçi Açık Üretim
-          aselsanIci: [],
-          aselsanIciTotalCount: 0,
-          aselsanIciFilteredCount: 0,
-
-          // 3. Prototip ve Tasarım (Yapım Aşamasında)
-          prototip: [],
-          prototipTotalCount: 0,
-          prototipFilteredCount: 0,
-
-          // 4. Test Verisi (Deriniz)
-          deriniz: [],
-          derinizTotalCount: 0,
-          derinizFilteredCount: 0,
-
-          // 5. Alt Yüklenici Açık Hata
-          altYukleniciHatalar: resultMap.altYukleniciHatalar?.data || [],
-          altYukleniciHatalarTotalCount: resultMap.altYukleniciHatalarTotalCount?.data?.[0]?.[0] || 0,
-          altYukleniciHatalarFilteredCount: 0, // Şimdilik yok
-
-          // 6. Aselsan Açık Hata (SAP)
-          sapHatalar: [],
-          sapHatalarTotalCount: 0,
-          sapHatalarFilteredCount: 0,
-
-          // 7. Robot Verileri (Yapım Aşamasında)
-          robotServis: [],
-          robotTotalCount: 0,
-          robotFilteredCount: 0,
-
-          // 8. Üst Aşama (Kalifikasyon)
-          kalifikasyon: [],
-          kalifikasyonTotalCount: 0,
-          kalifikasyonFilteredCount: 0,
-        });
-
-        setIsLoadingData(false);
-      } catch (error) {
-        console.error('❌ Veri çekme hatası:', error);
-        // Hata durumunda boş veri set et
-        setTableData({
-          altYuklenici: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0,
-          aselsanIci: [], aselsanIciTotalCount: 0, aselsanIciFilteredCount: 0,
-          prototip: [], prototipTotalCount: 0, prototipFilteredCount: 0,
-          deriniz: [], derinizTotalCount: 0, derinizFilteredCount: 0,
-          altYukleniciHatalar: [], altYukleniciHatalarTotalCount: 0, altYukleniciHatalarFilteredCount: 0,
-          sapHatalar: [], sapHatalarTotalCount: 0, sapHatalarFilteredCount: 0,
-          robotServis: [], robotTotalCount: 0, robotFilteredCount: 0,
-          kalifikasyon: [], kalifikasyonTotalCount: 0, kalifikasyonFilteredCount: 0,
-        });
-        setIsLoadingData(false);
-      }
-    } else {
-      console.warn('⚠️ Lütfen bir parça numarası giriniz');
+      // Loading durumunu kaldır (sorgular arka planda devam eder)
+      setIsLoadingData(false);
     }
   };
 
@@ -586,6 +457,69 @@ export default function PlatformHome() {
       handleSearch();
     }
   };
+
+  // Fetch paginated data for a specific table
+  const fetchTableData = async (tableName: string, page: number, size: number) => {
+    if (!searchedPartNumber) return;
+
+    setIsLoadingPage(true);
+    const offset = (page - 1) * size;
+
+    try {
+      let query = '';
+      let dataKey = '';
+      let totalCountKey = '';
+
+      switch (tableName) {
+        case 'alt-yuklenici':
+          query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchedPartNumber.trim()}%' LIMIT ${size} OFFSET ${offset}`;
+          dataKey = 'altYuklenici';
+          totalCountKey = 'altYukleniciTotalCount';
+          break;
+        case 'alt-yuklenici-hatalar':
+          query = `SELECT "IS_EMRI_NO", "SAS", "KALEM", "FIRMA", "PRODUCT_CODE", "OPERATION_DESC", "STOP_DESCRIPTION", "FAULT_DESCRIPTION", "DURMA_GUN_SAYISI" FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "PRODUCT_CODE" ILIKE '%${searchedPartNumber.trim()}%' LIMIT ${size} OFFSET ${offset}`;
+          dataKey = 'altYukleniciHatalar';
+          totalCountKey = 'altYukleniciHatalarTotalCount';
+          break;
+        default:
+          setIsLoadingPage(false);
+          return;
+      }
+
+      const result = await reportsService.previewQuery({ sql_query: query, limit: size });
+
+      if (result.success !== false) {
+        setTableData((prev: any) => prev ? {
+          ...prev,
+          [dataKey]: result.data || []
+        } : null);
+
+        // Update pagination state
+        const total = tableData?.[totalCountKey] || 0;
+        setTotalRows(total);
+        setTotalPages(Math.ceil(total / size));
+      }
+
+      setIsLoadingPage(false);
+    } catch (error) {
+      console.error(`❌ Error fetching ${tableName} data:`, error);
+      setIsLoadingPage(false);
+    }
+  };
+
+  // Fetch data when modal opens or page changes
+  useEffect(() => {
+    if (selectedTable && searchedPartNumber) {
+      fetchTableData(selectedTable, currentPage, pageSize);
+    }
+  }, [selectedTable, currentPage, pageSize, searchedPartNumber]);
+
+  // Reset pagination when table changes
+  useEffect(() => {
+    setCurrentPage(1);
+    setFilters({});
+    setSorting(null);
+  }, [selectedTable]);
 
   // Export table data to Excel
   const handleExportToExcel = () => {
