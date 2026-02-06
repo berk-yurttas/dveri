@@ -212,15 +212,17 @@ export default function PlatformHome() {
 
       case 'aselsan-ici':
         return {
-          columns: ['İş Emri', 'Durum', 'Adet', 'Atölye', 'İş Emri Açılış Tarihi', 'Status', 'Kaç Gündür Bu Adımda'],
+          columns: ['Malzeme No', 'Sipariş', 'Hdf. Miktar', 'Kullanıcı Durumu', 'Oluşturulma Tarihi', 'Üretim Yeri', 'Seri No', 'İşlem Kısa Metni', 'İş Yeri'],
           data: tableData.aselsanIci.map((item: any) => [
-            item.isEmri,
-            item.durum,
-            item.adet,
-            item.atolye,
-            item.isEmriAcilisTarihi,
-            item.status,
-            `${item.kacGundur} gün`
+            item.malzemeNo || '-',
+            item.siparis || '-',
+            item.hdfMiktar || '-',
+            item.kullaniciDurumu || '-',
+            item.olusturulmaTarihi || '-',
+            item.uretimYeri || '-',
+            item.seriNo || '-',
+            item.islemKisaMetni || '-',
+            item.isYeri || '-'
           ])
         };
 
@@ -235,14 +237,8 @@ export default function PlatformHome() {
 
       case 'deriniz':
         return {
-          columns: ['A', 'B', 'C', 'D', 'E'],
-          data: tableData.deriniz.map((item: any) => [
-            item.a,
-            item.b,
-            item.c,
-            item.d,
-            item.e
-          ])
+          columns: [],
+          data: []
         };
 
       case 'alt-yuklenici-hatalar': {
@@ -273,12 +269,15 @@ export default function PlatformHome() {
 
       case 'sap-hatalar':
         return {
-          columns: ['Bildirim Tipi', 'Bildirim Numarası', 'Açılış Tarihi', 'Kimin Üzerinde'],
+          columns: ['Malzeme Numarası', 'Bildirim Türü', 'Bildirim No', 'Bildirim Tanımı', 'Yaratma Tarihi', 'Malzeme No', 'Üretim Siparişi'],
           data: tableData.sapHatalar.map((item: any) => [
-            item.bildirimTipi,
-            item.bildirimNumarasi,
-            item.acilisTarihi,
-            item.kiminUzerinde
+            item.malzemeNumarasi || '-',
+            item.bildirimTuru || '-',
+            item.bildirimNo || '-',
+            item.bildirimTanimi || '-',
+            item.yaratmaTarihi || '-',
+            item.malzemeNo || '-',
+            item.uretimSiparisi || '-'
           ])
         };
 
@@ -290,11 +289,17 @@ export default function PlatformHome() {
 
       case 'kalifikasyon':
         return {
-          columns: ['Rapor No', 'Sonuç', 'Tarih'],
+          columns: ['Stok Numarası', 'Üretim Yeri', 'Üst Malzeme', 'Üst Mlz. Tanım', '0 Dokümanı', '100 Dokümanı', '200 Dokümanı', 'Diğer Dokümanlar', 'KY Dokümanları'],
           data: tableData.kalifikasyon.map((item: any) => [
-            item.raporNo,
-            item.sonuc,
-            new Date().toLocaleDateString('tr-TR')
+            item.stokNumarasi || '-',
+            item.uretimYeri || '-',
+            item.ustMalzeme || '-',
+            item.ustMlzTanim || '-',
+            item.dokuman0 || '-',
+            item.dokuman100 || '-',
+            item.dokuman200 || '-',
+            item.digerDokumanlar || '-',
+            item.kyDokumanlari || '-'
           ])
         };
 
@@ -428,7 +433,7 @@ export default function PlatformHome() {
         limit: 1
       }).then(result => {
         setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: result.data?.[0]?.[0] || 0 } : null);
-      }).catch(() => {});
+      }).catch(() => { });
 
       // 2. Alt Yüklenici Filtered Count
       reportsService.previewQuery({
@@ -436,7 +441,7 @@ export default function PlatformHome() {
         limit: 1
       }).then(result => {
         setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: result.data?.[0]?.[0] || 0 } : null);
-      }).catch(() => {});
+      }).catch(() => { });
 
       // 3. Alt Yüklenici Hatalar Total Count
       reportsService.previewQuery({
@@ -444,7 +449,7 @@ export default function PlatformHome() {
         limit: 1
       }).then(result => {
         setTableData((prev: any) => prev ? { ...prev, altYukleniciHatalarTotalCount: result.data?.[0]?.[0] || 0 } : null);
-      }).catch(() => {});
+      }).catch(() => { });
 
       // Loading durumunu kaldır (sorgular arka planda devam eder)
       setIsLoadingData(false);
@@ -867,7 +872,7 @@ export default function PlatformHome() {
           aria-hidden="true"
         >
           {/* ÜST - SOL | resmin SAĞ yarısı görünecek */}
-          <div className="absolute top-0 left-0 w-1/2 h-1/2 overflow-hidden">
+          <div className="fixed top-0 left-0 w-1/2 h-1/2 pointer-events-none overflow-hidden">
             <img
               src="/amom_icons/ahtapot.png"
               alt=""
@@ -876,7 +881,7 @@ export default function PlatformHome() {
                 top: '50%',
                 left: '50%',
                 width: '80%',
-                transform: 'translate(-82%, -50%) translateX(-30%)',
+                transform: 'translateX(-112%) translateY(-50%)',
                 opacity: 0.2,
                 WebkitMaskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
                 maskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
@@ -894,7 +899,7 @@ export default function PlatformHome() {
                 top: '50%',
                 left: '50%',
                 width: '80%',
-                transform: 'translate(-18%, -30%) translateX(30%)',
+                transform: 'translateX(12%) translateY(-30%)',
                 opacity: 0.2,
                 WebkitMaskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
                 maskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
@@ -910,19 +915,19 @@ export default function PlatformHome() {
             <h1 className="text-2xl font-bold mb-1" style={{ color: "rgb(69,81,89)" }}>
               Hoş Geldiniz{user?.name ? `, ${user.name}` : ''}
             </h1>
-            <p className="text-sm text-gray-600">Başlatmak istediğiniz süreci seçin</p>
+            <p className="text-sm text-gray-600 mb-6">Başlatmak istediğiniz süreci seçin</p>
           </div>
 
-          {/* 5 Icons - Square Design */}
-          <div className="max-w-5xl mx-auto mb-14">
-            <div className="grid grid-cols-5 gap-12">
+          {/* 5 Icons - Rectangle Design */}
+          <div className="max-w-6xl mx-auto mb-14">
+            <div className="grid grid-cols-5 gap-2">
               {/* Icon 1 - Genel Süreçler */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
                 onClick={() => router.push('/')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-40 h-36 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                  <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                     <div className="w-full h-full rounded-lg overflow-hidden bg-white">
                       <img
                         src="/amom_icons/genel.png"
@@ -940,7 +945,7 @@ export default function PlatformHome() {
                 onClick={() => router.push('/')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-40 h-36 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                  <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                     <div className="w-full h-full rounded-lg overflow-hidden bg-white">
                       <img
                         src="/amom_icons/kalifikasyon.png"
@@ -958,7 +963,7 @@ export default function PlatformHome() {
                 onClick={() => router.push('/')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-40 h-36 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                  <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                     <div className="w-full h-full rounded-lg overflow-hidden bg-white">
                       <img
                         src="/amom_icons/prototip.png"
@@ -976,7 +981,7 @@ export default function PlatformHome() {
                 onClick={() => router.push('/')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-40 h-36 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                  <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                     <div className="w-full h-full rounded-lg overflow-hidden bg-white">
                       <img
                         src="/amom_icons/tasarım.png"
@@ -994,7 +999,7 @@ export default function PlatformHome() {
                 onClick={() => router.push('/seyir/reports')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-40 h-36 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                  <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                     <div className="w-full h-full rounded-lg overflow-hidden bg-white">
                       <img
                         src="/amom_icons/rapor.png"
@@ -1009,11 +1014,11 @@ export default function PlatformHome() {
           </div>
 
           {/* Professional Divider Line */}
-          <div className="w-full pt-0 pb-0 mt-0 mb-12">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="w-full pt-0 pb-0 mt-24 mb-12">
+            <div className="max-w-6xl mx-auto">
               <div className="mb-0">
                 <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
-                  Sorgulama
+                  İzini Sür
                 </h3>
                 <div className="w-[100px] h-[5px] bg-red-600"></div>
               </div>
@@ -1223,7 +1228,7 @@ export default function PlatformHome() {
                       <div className="text-2xl font-bold text-cyan-600 mb-1">
                         <span>{tableData.altYukleniciHatalarTotalCount}</span>
                         <span className="text-gray-400 mx-1">/</span>
-                        <span className="text-green-600">{tableData.altYukleniciHatalarFilteredCount}</span>
+                        <span className="text-green-600 text-sm">Bilgi Yok</span>
                       </div>
                     </div>
                   )}
@@ -1436,8 +1441,8 @@ export default function PlatformHome() {
             , document.body)}
 
           {/* Full-width Duyurular Section */}
-          <div className="w-full py-6 mb-4">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="w-full py-6 mt-24 mb-4">
+            <div className="max-w-6xl mx-auto">
               <div className="mb-8">
                 <h3 className="text-2xl font-bold mb-2" style={{ "color": "rgb(69,81,89)" }}>Duyurular</h3>
                 <div className="w-[100px] h-[5px] bg-red-600"></div>
@@ -2014,7 +2019,7 @@ export default function PlatformHome() {
                       // Romiot layout: Image on top, title centered below
                       <div className="flex flex-col items-center">
                         {/* Image at top - smaller size */}
-                        <div className="w-full h-32 flex items-center justify-center p-4">
+                        <div className="w-full h-40 flex items-center justify-center p-4">
                           <img
                             src={feature.imageUrl}
                             alt={feature.title}
