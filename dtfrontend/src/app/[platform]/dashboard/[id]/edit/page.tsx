@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter, useParams, useSearchParams } from "next/navigation"
 import { WidgetAdder } from "../../add/components/widget-adder"
-import { EfficiencyWidget, ExcelExportWidget, GaugeWidget, MeasurementWidget, ProductTestWidget, TestAnalysisWidget, TestDurationWidget, SerialNoComparisonWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget, TestPlanVersionWidget } from "@/components/widgets"
+import { EfficiencyWidget, ExcelExportWidget, GaugeWidget, MeasurementWidget, ProductTestWidget, TestAnalysisWidget, TestDurationWidget, SerialNoComparisonWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget, TestPlanVersionWidget, TestSoftwareVersionWidget, TestEquipmentWidget, EquipmentTestWidget, EquipmentLastUserWidget, HardwareLastUserWidget } from "@/components/widgets"
 import { dashboardService } from "@/services/dashboard"
 import { Dashboard, DashboardUpdate, PlacedWidget as PlacedWidgetType } from "@/types/dashboard"
 import { useDashboards } from "@/contexts/dashboard-context"
@@ -119,6 +119,16 @@ const renderWidgetContent = (widget: PlacedWidget, dateFrom: string, dateTo: str
       return <AselsanSivasWidget widgetId={widget.id} {...dateFilterProps} />;
     case 'test_plan_version':
       return <TestPlanVersionWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'test_software_version':
+      return <TestSoftwareVersionWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'test_equipment':
+      return <TestEquipmentWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'equipment_test':
+      return <EquipmentTestWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'equipment_last_user':
+      return <EquipmentLastUserWidget widgetId={widget.id} {...dateFilterProps} />;
+    case 'hardware_last_user':
+      return <HardwareLastUserWidget widgetId={widget.id} {...dateFilterProps} />;
     default:
       return (
         <div className="flex flex-col items-center justify-center h-full">
@@ -1125,7 +1135,7 @@ export default function EditDashboardPage() {
             return (
               <div
                 key={widget.id}
-                className={`relative bg-white border-2 rounded-lg cursor-move transition-all duration-300 ${
+                className={`relative bg-white border-2 rounded-lg cursor-move transition-all duration-300 overflow-hidden ${
                   isBeingDragged ? "opacity-50 border-gray-400" : 
                   isBeingShifted ? "border-orange-400 bg-orange-50" : "border-green-400"
                 }`}

@@ -14,7 +14,7 @@ import { Calendar, User, Eye, EyeOff,
   Map as MapIcon, Camera, Music, Heart, Star, Target, Gauge, Cpu,
   Wifi, Battery, HardDrive, Smartphone, Plus, Layout, Edit, Trash2, X
 } from "lucide-react";
-import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget, TestPlanVersionWidget } from "@/components/widgets";
+import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget, TestPlanVersionWidget, TestSoftwareVersionWidget, TestEquipmentWidget, EquipmentTestWidget, EquipmentLastUserWidget, HardwareLastUserWidget } from "@/components/widgets";
 import { DateInput } from "@/components/ui/date-input";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
@@ -115,7 +115,17 @@ const renderWidgetContent = (widget: any, index: number, dateFrom: string, dateT
     case 'aselsan_sivas':
       return <AselsanSivasWidget widgetId={widget.id || `widget-${index}`} />;
     case 'test_plan_version':
-      return <TestPlanVersionWidget widgetId={widget.id || `widget-${index}`} />;
+      return <TestPlanVersionWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
+    case 'test_software_version':
+      return <TestSoftwareVersionWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
+    case 'test_equipment':
+      return <TestEquipmentWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
+    case 'equipment_test':
+      return <EquipmentTestWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
+    case 'equipment_last_user':
+      return <EquipmentLastUserWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
+    case 'hardware_last_user':
+      return <HardwareLastUserWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
     default:
       // Fallback widget display
       const config = widget.config || {};
@@ -491,7 +501,7 @@ export default function DashboardPage() {
               return (
               <div
                 key={`${widget.id || `widget-${index}`}-${widget.widget_type || 'default'}`}
-                className="bg-white rounded-lg"
+                className="bg-white rounded-lg overflow-hidden"
                 style={{
                   gridColumn: `${col + 1} / span ${width}`,
                   gridRow: `${row + 1} / span ${height}`,

@@ -36,9 +36,11 @@ interface WidgetData {
 
 interface TestPlanVersionWidgetProps {
   widgetId?: string
+  dateFrom?: string
+  dateTo?: string
 }
 
-export function TestPlanVersionWidget({ widgetId }: TestPlanVersionWidgetProps) {
+export function TestPlanVersionWidget({ widgetId, dateFrom, dateTo }: TestPlanVersionWidgetProps) {
   // Create unique instance identifier
   const instanceRef = useRef(widgetId || `test-plan-version-${Math.random().toString(36).substr(2, 9)}`)
   const instanceId = instanceRef.current
@@ -133,6 +135,12 @@ export function TestPlanVersionWidget({ widgetId }: TestPlanVersionWidgetProps) 
   useEffect(() => {
     const loadOptions = async () => {
       try {
+        // Build date filter condition
+        let dateFilter = "tg.BitisTarihi > toDate('2000-01-01')"
+        if (dateFrom && dateTo) {
+          dateFilter = `tg.BitisTarihi BETWEEN toDateTime('${dateFrom}') AND toDateTime('${dateTo}')`
+        }
+        
         // Fetch all data to get all options
         const response = await api.post<WidgetData>('/reports/preview', {
           sql_query: `
@@ -148,7 +156,7 @@ export function TestPlanVersionWidget({ widgetId }: TestPlanVersionWidgetProps) 
             LEFT JOIN REHIS_TestTanim_Test_TabloTestPlan tp ON tp.TPHashID = tg.TPHashID
             LEFT JOIN REHIS_TestKayit_Test_TabloTEU teu ON teu.TEUID = tg.TEUID
             LEFT JOIN REHIS_TestTanim_Test_TabloUrun u ON u.UrunID = teu.UrunID
-            WHERE tg.BitisTarihi > toDate('2000-01-01')
+            WHERE ${dateFilter}
             GROUP BY
               tg.SurecAdi,
               tg.SurecDurum,
@@ -186,7 +194,7 @@ export function TestPlanVersionWidget({ widgetId }: TestPlanVersionWidgetProps) 
     }
 
     loadOptions()
-  }, [instanceId])
+  }, [instanceId, dateFrom, dateTo])
 
   // Load widget data with filters - only when stokNo is selected
   useEffect(() => {
@@ -203,7 +211,13 @@ export function TestPlanVersionWidget({ widgetId }: TestPlanVersionWidgetProps) 
       setError(null)
 
       try {
-        let whereClauses: string[] = [`tg.BitisTarihi > toDate('2000-01-01')`]
+        // Build date filter condition
+        let dateFilter = "tg.BitisTarihi > toDate('2000-01-01')"
+        if (dateFrom && dateTo) {
+          dateFilter = `tg.BitisTarihi BETWEEN toDateTime('${dateFrom}') AND toDateTime('${dateTo}')`
+        }
+        
+        let whereClauses: string[] = [dateFilter]
 
         whereClauses.push(`u.StokNo = '${selectedStokNo}'`)
 
@@ -267,7 +281,7 @@ export function TestPlanVersionWidget({ widgetId }: TestPlanVersionWidgetProps) 
     }
 
     loadWidgetData()
-  }, [selectedStokNo, selectedSurecAdi, selectedSurecDurum, instanceId])
+  }, [selectedStokNo, selectedSurecAdi, selectedSurecDurum, instanceId, dateFrom, dateTo])
 
   // Handle row selection
   const handleRowSelect = (index: number) => {
