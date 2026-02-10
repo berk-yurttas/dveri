@@ -212,17 +212,28 @@ export default function PlatformHome() {
 
       case 'aselsan-ici':
         return {
-          columns: ['Malzeme No', 'Sipariş', 'Hdf. Miktar', 'Kullanıcı Durumu', 'Oluşturulma Tarihi', 'Üretim Yeri', 'Seri No', 'İşlem Kısa Metni', 'İş Yeri'],
+          columns: ['Sipariş', 'Malzeme No', 'Sipariş Miktarı', 'Giriş Tarihi', 'Kullanıcı Durumu', 'Üretim Yeri', 'İşlem Kısa Metni'],
           data: tableData.aselsanIci.map((item: any) => [
-            item.malzemeNo || '-',
-            item.siparis || '-',
-            item.hdfMiktar || '-',
-            item.kullaniciDurumu || '-',
-            item.olusturulmaTarihi || '-',
-            item.uretimYeri || '-',
-            item.seriNo || '-',
-            item.islemKisaMetni || '-',
-            item.isYeri || '-'
+            item['Sipariş'] || '-',
+            item['Malzeme no.'] || '-',
+            item['Sipariş miktarı (GMEIN)'] || '-',
+            item['Giriş tarihi'] || '-',
+            item['Kullanıcı durumu'] || '-',
+            item['Üretim yeri'] || '-',
+            item['İşlem kısa metni'] || '-'
+          ])
+        };
+
+      case 'aselsan-hatalar':
+        return {
+          columns: ['Bildirim Türü', 'Yaratma Tarihi', 'Bildirim No', 'Bildirim Tanımı', 'Malzeme No', 'Üretim Siparişi'],
+          data: tableData.aselsanHatalar.map((item: any) => [
+            item['Bildirim Türü'] || '-',
+            item['Yaratma Tarihi'] || '-',
+            item['Bildirim No'] || '-',
+            item['Bildirim Tanımı'] || '-',
+            item['Malzeme No'] || '-',
+            item['Üretim Siparişi'] || '-'
           ])
         };
 
@@ -242,25 +253,19 @@ export default function PlatformHome() {
         };
 
       case 'alt-yuklenici-hatalar': {
-        const hatalarColumns = ['İş Emri No', 'SAS', 'Kalem', 'Firma', 'Stok Kodu', 'Operasyon Tanımı', 'Durma Nedeni', 'Hata Tanımı', 'Durma Gün Sayısı'];
+        const hatalarColumns = ['SAP mi?\nMES mi?', 'Bildirim Türü', 'Bildirim No', 'Bildirim Tarihi', 'İş Emri No', 'Malzeme', 'Firma', 'Operasyon Tanımı'];
         if (tableData.altYukleniciHatalar && Array.isArray(tableData.altYukleniciHatalar) && tableData.altYukleniciHatalar.length > 0) {
-          // Array of arrays (database formatı)
-          if (Array.isArray(tableData.altYukleniciHatalar[0])) {
-            return { columns: hatalarColumns, data: tableData.altYukleniciHatalar };
-          }
-          // Object formatı - key'leri array'e çevir
           return {
             columns: hatalarColumns,
             data: tableData.altYukleniciHatalar.map((item: any) => [
-              item.is_emri_no ?? item.IS_EMRI_NO ?? '-',
-              item.sas ?? item.SAS ?? '-',
-              item.kalem ?? item.KALEM ?? '-',
-              item.firma ?? item.FIRMA ?? '-',
-              item.product_code ?? item.PRODUCT_CODE ?? '-',
-              item.operation_desc ?? item.OPERATION_DESC ?? '-',
-              item.stop_description ?? item.STOP_DESCRIPTION ?? '-',
-              item.fault_description ?? item.FAULT_DESCRIPTION ?? '-',
-              item.durmgun_sayisi ?? item.DURMGUN_SAYISI ?? '-',
+              item.kaynak || '-',
+              item.bildirimTuru || '-',
+              item.bildirimNo || '-',
+              item.bildirimTarihi || '-',
+              item.isEmriNo || '-',
+              item.malzeme || '-',
+              item.firma || '-',
+              item.operasyonTanimi || '-'
             ])
           };
         }
@@ -287,19 +292,17 @@ export default function PlatformHome() {
           data: []
         };
 
-      case 'kalifikasyon':
+      case 'ust-asama':
         return {
-          columns: ['Stok Numarası', 'Üretim Yeri', 'Üst Malzeme', 'Üst Mlz. Tanım', '0 Dokümanı', '100 Dokümanı', '200 Dokümanı', 'Diğer Dokümanlar', 'KY Dokümanları'],
-          data: tableData.kalifikasyon.map((item: any) => [
-            item.stokNumarasi || '-',
-            item.uretimYeri || '-',
-            item.ustMalzeme || '-',
-            item.ustMlzTanim || '-',
-            item.dokuman0 || '-',
-            item.dokuman100 || '-',
-            item.dokuman200 || '-',
-            item.digerDokumanlar || '-',
-            item.kyDokumanlari || '-'
+          columns: ['Malzeme', 'Plan Grubu', '0 Dokümanı', '100 Dokümanı', '200 Dokümanı', 'Diğer Dokümanlar', 'KY Dokümanları'],
+          data: tableData.ustAsama.map((item: any) => [
+            item['Malzeme'] || '-',
+            item['Plan Grubu'] || '-',
+            item['0 Dokümanı'] || '-',
+            item['100 Dokümanı'] || '-',
+            item['200 Dokümanı'] || '-',
+            item['Diğer Dokümanlar'] || '-',
+            item['KY Dokümlanları'] || '-'
           ])
         };
 
@@ -414,13 +417,15 @@ export default function PlatformHome() {
       // Başlangıç state'i - tüm değerler boş/0
       const initialTableData = {
         altYuklenici: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0,
-        aselsanIci: [], aselsanIciTotalCount: 0, aselsanIciFilteredCount: 0,
+        aselsanIci: [], aselsanIciTotalCount: 0,
+        aselsanHatalar: [], aselsanHatalarTotalCount: 0,
         prototip: [], prototipTotalCount: 0, prototipFilteredCount: 0,
         deriniz: [], derinizTotalCount: 0, derinizFilteredCount: 0,
         altYukleniciHatalar: [], altYukleniciHatalarTotalCount: 0, altYukleniciHatalarFilteredCount: 0,
         sapHatalar: [], sapHatalarTotalCount: 0, sapHatalarFilteredCount: 0,
         robotServis: [], robotTotalCount: 0, robotFilteredCount: 0,
-        kalifikasyon: [], kalifikasyonTotalCount: 0, kalifikasyonFilteredCount: 0,
+        ustAsama: [], ustAsamaTotalCount: 0,
+        cooisUretimYeri: '', // COOIS'ten gelen üretim yeri
       };
       setTableData(initialTableData);
 
@@ -443,13 +448,247 @@ export default function PlatformHome() {
         setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: result.data?.[0]?.[0] || 0 } : null);
       }).catch(() => { });
 
-      // 3. Alt Yüklenici Hatalar Total Count
-      reportsService.previewQuery({
-        sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "PRODUCT_CODE" ILIKE '%${searchValue.trim()}%'`,
-        limit: 1
-      }).then(result => {
-        setTableData((prev: any) => prev ? { ...prev, altYukleniciHatalarTotalCount: result.data?.[0]?.[0] || 0 } : null);
-      }).catch(() => { });
+      // 3. Alt Yüklenici Hatalar - MES (database) + SAP (zbildsorgu-sync Z5) birleşimi
+      (async () => {
+        try {
+          const partNo = searchValue.trim();
+
+          // Paralel olarak MES ve SAP verilerini çek
+          const [mesResult, sapResponse] = await Promise.all([
+            // MES verileri (database)
+            reportsService.previewQuery({
+              sql_query: `SELECT "IS_EMRI_NO", "PRODUCT_CODE", "FIRMA", "OPERATION_DESC" FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "PRODUCT_CODE" ILIKE '%${partNo}%'`,
+              limit: 1000
+            }),
+            // SAP verileri (zbildsorgu-sync)
+            fetch('/sap-proxy/zbildsorgu-sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ stok_no: partNo })
+            })
+          ]);
+
+          // MES verilerini formatla
+          const mesData = (mesResult.data || []).map((row: any[]) => ({
+            kaynak: 'MES',
+            bildirimTuru: '-',
+            bildirimNo: '-',
+            bildirimTarihi: '-',
+            isEmriNo: row[0] || '-',
+            malzeme: partNo,
+            firma: row[2] || '-',
+            operasyonTanimi: row[3] || '-'
+          }));
+
+          // SAP verilerini formatla (sadece Z5 olanlar)
+          let sapData: any[] = [];
+          if (sapResponse.ok) {
+            const sapRawData = await sapResponse.json();
+            if (Array.isArray(sapRawData)) {
+              sapData = sapRawData
+                .filter((item: any) => item['Bildirim Türü'] === 'Z5')
+                .map((item: any) => ({
+                  kaynak: 'SAP',
+                  bildirimTuru: item['Bildirim Türü'] || '-',
+                  bildirimNo: item['Bildirim No'] || '-',
+                  bildirimTarihi: item['Yaratma Tarihi'] || '-',
+                  isEmriNo: item['Üretim Siparişi'] || '-',
+                  malzeme: item['Malzeme No'] || '-',
+                  firma: '-',
+                  operasyonTanimi: '-'
+                }));
+            }
+          }
+
+          // Birleştir ve İş Emri No'ya göre sırala
+          const mergedData = [...mesData, ...sapData].sort((a, b) => {
+            const aNo = a.isEmriNo || '';
+            const bNo = b.isEmriNo || '';
+            return aNo.localeCompare(bNo);
+          });
+
+          setTableData((prev: any) => prev ? {
+            ...prev,
+            altYukleniciHatalar: mergedData,
+            altYukleniciHatalarTotalCount: mergedData.length,
+            altYukleniciHatalarMesCount: mesData.length,
+            altYukleniciHatalarSapCount: sapData.length
+          } : null);
+
+        } catch (error) {
+          console.error('Alt Yüklenici Hatalar veri çekme hatası:', error);
+        }
+      })();
+
+      // 4. Aselsan İçi Açık Üretim - COOIS ve ZASELPP0052 entegrasyonu
+      (async () => {
+        try {
+          // Önce COOIS-SYNC'den verileri al
+          const cooisResponse = await fetch('/sap-proxy/coois-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stok_no: searchValue.trim() })
+          });
+
+          if (!cooisResponse.ok) {
+            console.error('COOIS-SYNC API hatası:', cooisResponse.status);
+            return;
+          }
+
+          const cooisData = await cooisResponse.json();
+
+          if (!Array.isArray(cooisData) || cooisData.length === 0) {
+            setTableData((prev: any) => prev ? {
+              ...prev,
+              aselsanIci: [],
+              aselsanIciTotalCount: 0,
+              aselsanIciFilteredCount: 0
+            } : null);
+            return;
+          }
+
+          // Her bir COOIS kaydı için ZASELPP0052-SYNC'den ek verileri al
+          const mergedResults = await Promise.all(
+            cooisData.map(async (cooisItem: any) => {
+              try {
+                const zaselppResponse = await fetch('/sap-proxy/zaselpp0052-sync', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    siparis_no: cooisItem['Sipariş'],
+                    uretim_yeri: cooisItem['Üretim yeri']
+                  })
+                });
+
+                if (!zaselppResponse.ok) {
+                  return {
+                    ...cooisItem,
+                    'İşlem kısa metni': '-'
+                  };
+                }
+
+                const zaselppData = await zaselppResponse.json();
+                const matchingZaselpp = Array.isArray(zaselppData) && zaselppData.length > 0
+                  ? zaselppData[0]
+                  : null;
+
+                return {
+                  ...cooisItem,
+                  'İşlem kısa metni': matchingZaselpp?.['İşlem kısa metni'] || '-'
+                };
+              } catch (error) {
+                console.error('ZASELPP0052-SYNC hatası:', error);
+                return {
+                  ...cooisItem,
+                  'İşlem kısa metni': '-'
+                };
+              }
+            })
+          );
+
+          // COOIS'ten ilk kaydın üretim yerini al (Üst Aşama için kullanılacak)
+          const uretimYeri = cooisData[0]?.['Üretim yeri'] || '';
+
+          // State'i güncelle
+          setTableData((prev: any) => prev ? {
+            ...prev,
+            aselsanIci: mergedResults,
+            aselsanIciTotalCount: mergedResults.length,
+            cooisUretimYeri: uretimYeri
+          } : null);
+
+          // 4.1 Üst Aşama Bilgileri - ZASCS15 ve ZASELPP0045 entegrasyonu
+          if (uretimYeri) {
+            try {
+              // Önce ZASCS15'den ÜstMalzeme listesini al
+              const zascs15Response = await fetch('/sap-proxy/zascs15-sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  stok_no: searchValue.trim(),
+                  uretim_yeri: uretimYeri
+                })
+              });
+
+              if (zascs15Response.ok) {
+                const zascs15Data = await zascs15Response.json();
+
+                if (Array.isArray(zascs15Data) && zascs15Data.length > 0) {
+                  // Tüm ÜstMalzeme bilgilerini topla (unique)
+                  const ustMalzemeler = [...new Set(
+                    zascs15Data
+                      .map((item: any) => item['ÜstMalzeme'])
+                      .filter((m: string) => m && m !== '-')
+                  )];
+
+                  if (ustMalzemeler.length > 0) {
+                    // ZASELPP0045'den doküman bilgilerini al
+                    const zaselpp0045Response = await fetch('/sap-proxy/zaselpp0045-sync', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        ust_malzemeler: ustMalzemeler,
+                        uretim_yeri: uretimYeri
+                      })
+                    });
+
+                    if (zaselpp0045Response.ok) {
+                      const ustAsamaData = await zaselpp0045Response.json();
+
+                      setTableData((prev: any) => prev ? {
+                        ...prev,
+                        ustAsama: Array.isArray(ustAsamaData) ? ustAsamaData : [],
+                        ustAsamaTotalCount: Array.isArray(ustAsamaData) ? ustAsamaData.length : 0
+                      } : null);
+                    }
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Üst Aşama veri çekme hatası:', error);
+            }
+          }
+
+        } catch (error) {
+          console.error('Aselsan İçi veri çekme hatası:', error);
+        }
+      })();
+
+      // 5. Aselsan Açık Hata - ZBILDSORGU-SYNC entegrasyonu
+      (async () => {
+        try {
+          const zbildResponse = await fetch('/sap-proxy/zbildsorgu-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stok_no: searchValue.trim() })
+          });
+
+          if (!zbildResponse.ok) {
+            console.error('ZBILDSORGU-SYNC API hatası:', zbildResponse.status);
+            return;
+          }
+
+          const zbildData = await zbildResponse.json();
+
+          if (!Array.isArray(zbildData)) {
+            setTableData((prev: any) => prev ? {
+              ...prev,
+              aselsanHatalar: [],
+              aselsanHatalarTotalCount: 0
+            } : null);
+            return;
+          }
+
+          setTableData((prev: any) => prev ? {
+            ...prev,
+            aselsanHatalar: zbildData,
+            aselsanHatalarTotalCount: zbildData.length
+          } : null);
+
+        } catch (error) {
+          console.error('Aselsan Hatalar veri çekme hatası:', error);
+        }
+      })();
 
       // Loading durumunu kaldır (sorgular arka planda devam eder)
       setIsLoadingData(false);
@@ -481,11 +720,42 @@ export default function PlatformHome() {
           dataKey = 'altYuklenici';
           totalCountKey = 'altYukleniciTotalCount';
           break;
-        case 'alt-yuklenici-hatalar':
-          query = `SELECT "IS_EMRI_NO", "SAS", "KALEM", "FIRMA", "PRODUCT_CODE", "OPERATION_DESC", "STOP_DESCRIPTION", "FAULT_DESCRIPTION", "DURMA_GUN_SAYISI" FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "PRODUCT_CODE" ILIKE '%${searchedPartNumber.trim()}%' LIMIT ${size} OFFSET ${offset}`;
-          dataKey = 'altYukleniciHatalar';
-          totalCountKey = 'altYukleniciHatalarTotalCount';
-          break;
+        case 'alt-yuklenici-hatalar': {
+          // Alt Yüklenici Hatalar için veri zaten handleSearch'de çekildi (MES + SAP birleşimi)
+          // Sadece pagination değerlerini güncelle
+          const totalAltHata = tableData?.altYukleniciHatalarTotalCount || 0;
+          setTotalRows(totalAltHata);
+          setTotalPages(Math.ceil(totalAltHata / size));
+          setIsLoadingPage(false);
+          return;
+        }
+        case 'aselsan-ici': {
+          // Aselsan İçi için veri zaten handleSearch'de API'den çekildi
+          // Sadece pagination değerlerini güncelle
+          const totalIci = tableData?.aselsanIciTotalCount || 0;
+          setTotalRows(totalIci);
+          setTotalPages(Math.ceil(totalIci / size));
+          setIsLoadingPage(false);
+          return;
+        }
+        case 'aselsan-hatalar': {
+          // Aselsan Hatalar için veri zaten handleSearch'de API'den çekildi
+          // Sadece pagination değerlerini güncelle
+          const totalHata = tableData?.aselsanHatalarTotalCount || 0;
+          setTotalRows(totalHata);
+          setTotalPages(Math.ceil(totalHata / size));
+          setIsLoadingPage(false);
+          return;
+        }
+        case 'ust-asama': {
+          // Üst Aşama için veri zaten handleSearch'de API'den çekildi
+          // Sadece pagination değerlerini güncelle
+          const totalUstAsama = tableData?.ustAsamaTotalCount || 0;
+          setTotalRows(totalUstAsama);
+          setTotalPages(Math.ceil(totalUstAsama / size));
+          setIsLoadingPage(false);
+          return;
+        }
         default:
           setIsLoadingPage(false);
           return;
@@ -575,11 +845,26 @@ export default function PlatformHome() {
         break;
       case 'aselsan-ici':
         exportData = tableData.aselsanIci.map((item: any) => ({
-          'Parça No': item.parcaNo,
-          'Üretim Yılı': item.uretimYili,
-          'Üretim Durumu': item.durum
+          'Sipariş': item['Sipariş'] || '-',
+          'Malzeme No': item['Malzeme no.'] || '-',
+          'Sipariş Miktarı': item['Sipariş miktarı (GMEIN)'] || '-',
+          'Giriş Tarihi': item['Giriş tarihi'] || '-',
+          'Kullanıcı Durumu': item['Kullanıcı durumu'] || '-',
+          'Üretim Yeri': item['Üretim yeri'] || '-',
+          'İşlem Kısa Metni': item['İşlem kısa metni'] || '-'
         }));
         fileName = 'Aselsan_Ici_Uretim_Siparisleri';
+        break;
+      case 'aselsan-hatalar':
+        exportData = tableData.aselsanHatalar.map((item: any) => ({
+          'Bildirim Türü': item['Bildirim Türü'] || '-',
+          'Yaratma Tarihi': item['Yaratma Tarihi'] || '-',
+          'Bildirim No': item['Bildirim No'] || '-',
+          'Bildirim Tanımı': item['Bildirim Tanımı'] || '-',
+          'Malzeme No': item['Malzeme No'] || '-',
+          'Üretim Siparişi': item['Üretim Siparişi'] || '-'
+        }));
+        fileName = 'Aselsan_Acik_Hatalar';
         break;
       case 'prototip-ahtapot':
         exportData = [
@@ -599,17 +884,16 @@ export default function PlatformHome() {
         fileName = 'Deriniz_Bilgiler';
         break;
       case 'alt-yuklenici-hatalar':
-        if (Array.isArray(tableData.altYukleniciHatalar) && tableData.altYukleniciHatalar.length > 0 && Array.isArray(tableData.altYukleniciHatalar[0])) {
-          exportData = tableData.altYukleniciHatalar.map((row: any[]) => ({
-            'İş Emri No': row[0] || '-',
-            'SAS': row[1] || '-',
-            'Kalem': row[2] || '-',
-            'Firma': row[3] || '-',
-            'Stok Kodu': row[4] || '-',
-            'Operasyon Tanımı': row[5] || '-',
-            'Durma Nedeni': row[6] || '-',
-            'Hata Tanımı': row[7] || '-',
-            'Durma Gün Sayısı': row[8] || '-'
+        if (Array.isArray(tableData.altYukleniciHatalar) && tableData.altYukleniciHatalar.length > 0) {
+          exportData = tableData.altYukleniciHatalar.map((item: any) => ({
+            'SAP mi? MES mi?': item.kaynak || '-',
+            'Bildirim Türü': item.bildirimTuru || '-',
+            'Bildirim No': item.bildirimNo || '-',
+            'Bildirim Tarihi': item.bildirimTarihi || '-',
+            'İş Emri No': item.isEmriNo || '-',
+            'Malzeme': item.malzeme || '-',
+            'Firma': item.firma || '-',
+            'Operasyon Tanımı': item.operasyonTanimi || '-'
           }));
         }
         fileName = 'Alt_Yuklenici_Hatalar';
@@ -630,13 +914,17 @@ export default function PlatformHome() {
         }));
         fileName = 'Robot_Servis';
         break;
-      case 'kalifikasyon':
-        exportData = tableData.kalifikasyon.map((item: any) => ({
-          'Rapor No': item.raporNo,
-          'Sonuç': item.sonuc,
-          'Tarih': new Date().toLocaleDateString('tr-TR')
+      case 'ust-asama':
+        exportData = tableData.ustAsama.map((item: any) => ({
+          'Malzeme': item['Malzeme'] || '-',
+          'Plan Grubu': item['Plan Grubu'] || '-',
+          '0 Dokümanı': item['0 Dokümanı'] || '-',
+          '100 Dokümanı': item['100 Dokümanı'] || '-',
+          '200 Dokümanı': item['200 Dokümanı'] || '-',
+          'Diğer Dokümanlar': item['Diğer Dokümanlar'] || '-',
+          'KY Dokümanları': item['KY Dokümlanları'] || '-'
         }));
-        fileName = 'Kalifikasyon_Raporlari';
+        fileName = 'Ust_Asama_Bilgileri';
         break;
     }
 
@@ -924,7 +1212,7 @@ export default function PlatformHome() {
               {/* Icon 1 - Genel Süreçler */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => router.push('/')}
+                onClick={() => window.open('/', '_blank', 'width=1000,height=500,left=200,top=100,resizable=yes,scrollbars=yes')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -942,7 +1230,7 @@ export default function PlatformHome() {
               {/* Icon 2 - Kalifikasyon Süreçleri */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => router.push('/')}
+                onClick={() => window.open('/', '_blank', 'width=1000,height=500,left=200,top=100,resizable=yes,scrollbars=yes')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -960,7 +1248,7 @@ export default function PlatformHome() {
               {/* Icon 3 - Prototip Süreçleri */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => router.push('/')}
+                onClick={() => window.open('/', '_blank', 'width=1000,height=500,left=200,top=100,resizable=yes,scrollbars=yes')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -978,7 +1266,7 @@ export default function PlatformHome() {
               {/* Icon 4 - Tasarım Süreçleri */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => router.push('/')}
+                onClick={() => window.open('/', '_blank', 'width=1000,height=500,left=200,top=100,resizable=yes,scrollbars=yes')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -996,7 +1284,7 @@ export default function PlatformHome() {
               {/* Icon 5 - Raporlar */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => router.push('/seyir/reports')}
+                onClick={() => window.open('/seyir/reports', '_blank', 'width=1000,height=500,left=200,top=100,resizable=yes,scrollbars=yes')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -1106,10 +1394,13 @@ export default function PlatformHome() {
                     </div>
                   ) : (
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-cyan-600 mb-1">
-                        <span>{tableData.altYukleniciTotalCount}</span>
+                      <div className="text-2xl font-bold mb-1">
+                        <span className="text-cyan-600">{tableData.altYukleniciTotalCount}</span>
                         <span className="text-gray-400 mx-1">/</span>
-                        <span className="text-green-600">{tableData.altYukleniciFilteredCount}</span>
+                        <span className="text-orange-500">{tableData.altYukleniciFilteredCount}</span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        <span className="text-cyan-600">MES</span> / <span className="text-orange-500">SAP</span>
                       </div>
                     </div>
                   )}
@@ -1143,8 +1434,6 @@ export default function PlatformHome() {
                     <div className="text-center">
                       <div className="text-2xl font-bold text-cyan-600 mb-1">
                         <span>{tableData.aselsanIciTotalCount}</span>
-                        <span className="text-gray-400 mx-1">/</span>
-                        <span className="text-green-600">{tableData.aselsanIciFilteredCount}</span>
                       </div>
                     </div>
                   )}
@@ -1225,10 +1514,13 @@ export default function PlatformHome() {
                     </div>
                   ) : (
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-cyan-600 mb-1">
-                        <span>{tableData.altYukleniciHatalarTotalCount}</span>
+                      <div className="text-2xl font-bold mb-1">
+                        <span className="text-cyan-600">{tableData.altYukleniciHatalarMesCount || 0}</span>
                         <span className="text-gray-400 mx-1">/</span>
-                        <span className="text-green-600 text-sm">Bilgi Yok</span>
+                        <span className="text-orange-500">{tableData.altYukleniciHatalarSapCount || 0}</span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        <span className="text-cyan-600">MES</span> / <span className="text-orange-500">SAP</span>
                       </div>
                     </div>
                   )}
@@ -1237,7 +1529,7 @@ export default function PlatformHome() {
 
               {/* Table Box 6 - Aselsan Açık Hata */}
               <div
-                onClick={() => setSelectedTable('sap-hatalar')}
+                onClick={() => setSelectedTable('aselsan-hatalar')}
                 className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
               >
                 <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
@@ -1254,16 +1546,14 @@ export default function PlatformHome() {
                     <div className="text-center">
                       <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
-                  ) : tableData.sapHatalarTotalCount === 0 ? (
+                  ) : tableData.aselsanHatalarTotalCount === 0 ? (
                     <div className="text-center">
                       <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
                     </div>
                   ) : (
                     <div className="text-center">
                       <div className="text-2xl font-bold text-cyan-600 mb-1">
-                        <span>{tableData.sapHatalarTotalCount}</span>
-                        <span className="text-gray-400 mx-1">/</span>
-                        <span className="text-green-600">{tableData.sapHatalarFilteredCount}</span>
+                        <span>{tableData.aselsanHatalarTotalCount}</span>
                       </div>
                     </div>
                   )}
@@ -1272,7 +1562,7 @@ export default function PlatformHome() {
 
               {/* Table Box 7 - Üst Aşama */}
               <div
-                onClick={() => setSelectedTable('kalifikasyon')}
+                onClick={() => setSelectedTable('ust-asama')}
                 className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
               >
                 <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
@@ -1289,16 +1579,14 @@ export default function PlatformHome() {
                     <div className="text-center">
                       <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
-                  ) : tableData.kalifikasyonTotalCount === 0 ? (
+                  ) : tableData.ustAsamaTotalCount === 0 ? (
                     <div className="text-center">
                       <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
                     </div>
                   ) : (
                     <div className="text-center">
                       <div className="text-2xl font-bold text-cyan-600 mb-1">
-                        <span>{tableData.kalifikasyonTotalCount}</span>
-                        <span className="text-gray-400 mx-1">/</span>
-                        <span className="text-green-600">{tableData.kalifikasyonFilteredCount}</span>
+                        <span>{tableData.ustAsamaTotalCount}</span>
                       </div>
                     </div>
                   )}
@@ -1346,12 +1634,12 @@ export default function PlatformHome() {
                       <h2 className="text-xl font-bold text-white tracking-tight">
                         {selectedTable === 'alt-yuklenici' && 'Alt Yüklenici Açık Üretim Siparişleri'}
                         {selectedTable === 'aselsan-ici' && 'Aselsan İçi Açık Üretim Siparişleri'}
+                        {selectedTable === 'aselsan-hatalar' && 'Aselsan Açık Bildirim Hataları'}
                         {selectedTable === 'prototip-ahtapot' && 'Prototip Üretim ve Ahtapot Tasarım Süreçlerindeki Durum'}
                         {selectedTable === 'deriniz' && 'Deriniz\'den Gelen Bilgiler'}
                         {selectedTable === 'alt-yuklenici-hatalar' && 'Alt Yüklenici Açık Bildirim Hataları'}
-                        {selectedTable === 'sap-hatalar' && 'SAP Açık Bildirim Hataları'}
-                        {selectedTable === 'robot-servis' && 'Robotlardan Gelen Verinin Servis Edilmesi'}
-                        {selectedTable === 'kalifikasyon' && 'Kalifikasyon Raporlarından Gelen Bilgiler'}
+                                                {selectedTable === 'robot-servis' && 'Robotlardan Gelen Verinin Servis Edilmesi'}
+                        {selectedTable === 'ust-asama' && 'Üst Aşama Bilgileri'}
                       </h2>
                     </div>
                     <div className="flex items-center gap-2">
