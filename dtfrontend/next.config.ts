@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/sap-proxy/:path*',
-        destination: 'http://vdi-ahtapot:8500/:path*',
+        destination: 'http://vdi-ahtapot01:8500/:path*',
       },
     ];
   },
