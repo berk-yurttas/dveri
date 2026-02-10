@@ -148,10 +148,10 @@ async def generate_qr_code_batch(
     if package_qty > total_quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Paket başı parça sayısı toplam parça sayısından büyük olamaz"
+            detail="Paket sayısı toplam parça sayısından büyük olamaz"
         )
     
-    total_packages = math.ceil(total_quantity / package_qty)
+    total_packages = package_qty
     
     # Generate work order group ID
     work_order_group_id = generate_work_order_group_id()
