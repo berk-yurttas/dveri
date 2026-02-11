@@ -2,14 +2,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: 'standalone',
-  async rewrites() {
-    return [
-      {
-        source: '/sap-proxy/:path*',
-        destination: 'http://vdi-ahtapot01:8500/:path*',
-      },
-    ];
-  },
   images: {
     domains: ['127.0.0.1', 'vdi-ahtapot01', '18.210.5.151', '10.60.139.11', 'localhost', 'api.dicebear.com', 'korykos.aselsan.com.tr', 'portal.aselsan.com.tr'],
     remotePatterns: [

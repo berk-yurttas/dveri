@@ -240,17 +240,14 @@ export default function PlatformHome() {
 
       case 'prototip-ahtapot':
         return {
-          columns: ['Süreç Tipi', 'Adet', 'Açıklama'],
-          data: [
-            ['Prototip Üretim', tableData.prototipAhtapot.prototip, 'Aktif prototip üretim süreçleri'],
-            ['Ahtapot Tasarım', tableData.prototipAhtapot.ahtapot, 'Devam eden ahtapot tasarım süreçleri']
-          ]
+          columns: ['Talep Numarası', 'Stok Kodu', 'Talep Adı', 'Talep Sahibi', 'PYP', 'Proje Tanımı', 'Talep Tarihi', 'Süreç Adı', 'Statü'],
+          data: Array.isArray(tableData.prototipTasarim) ? tableData.prototipTasarim : []
         };
 
       case 'deriniz':
         return {
-          columns: [],
-          data: []
+          columns: ['Talep Numarası', 'Stok Kodu', 'Talep Sahibi', 'PYP', 'Proje Tanımı', 'Talep Tarihi'],
+          data: Array.isArray(tableData.deriniz) ? tableData.deriniz : []
         };
 
       case 'alt-yuklenici-hatalar': {
@@ -418,14 +415,14 @@ export default function PlatformHome() {
       // Başlangıç state'i - tüm değerler boş/0
       const initialTableData = {
         altYuklenici: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0,
-        aselsanIci: [], aselsanIciTotalCount: 0,
-        aselsanHatalar: [], aselsanHatalarTotalCount: 0,
-        prototip: [], prototipTotalCount: 0, prototipFilteredCount: 0,
-        deriniz: [], derinizTotalCount: 0, derinizFilteredCount: 0,
-        altYukleniciHatalar: [], altYukleniciHatalarTotalCount: 0, altYukleniciHatalarFilteredCount: 0,
+        aselsanIci: [], aselsanIciTotalCount: 0, aselsanIciLoading: true,
+        aselsanHatalar: [], aselsanHatalarTotalCount: 0, aselsanHatalarLoading: true,
+        prototipTasarim: [], prototipTasarimTotalCount: 0, prototipTasarimLoading: true,
+        deriniz: [], derinizTotalCount: 0, derinizLoading: true,
+        altYukleniciHatalar: [], altYukleniciHatalarTotalCount: 0, altYukleniciHatalarFilteredCount: 0, altYukleniciHatalarLoading: true,
         sapHatalar: [], sapHatalarTotalCount: 0, sapHatalarFilteredCount: 0,
         robotServis: [], robotTotalCount: 0, robotFilteredCount: 0,
-        ustAsama: [], ustAsamaTotalCount: 0,
+        ustAsama: [], ustAsamaTotalCount: 0, ustAsamaLoading: true,
         cooisUretimYeri: '', // COOIS'ten gelen üretim yeri
       };
       setTableData(initialTableData);
@@ -462,11 +459,7 @@ export default function PlatformHome() {
               limit: 1000
             }),
             // SAP verileri (zbildsorgu-sync)
-            fetch('/sap-proxy/zbildsorgu-sync', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ stok_no: partNo })
-            })
+            api.post('/sap_seyir/zbildsorgu-sync', { stok_no: partNo }, undefined, { useCache: false })
           ]);
 
           // MES verilerini formatla
@@ -483,22 +476,20 @@ export default function PlatformHome() {
 
           // SAP verilerini formatla (sadece Z5 olanlar)
           let sapData: any[] = [];
-          if (sapResponse.ok) {
-            const sapRawData = await sapResponse.json();
-            if (Array.isArray(sapRawData)) {
-              sapData = sapRawData
-                .filter((item: any) => item['Bildirim Türü'] === 'Z5')
-                .map((item: any) => ({
-                  kaynak: 'SAP',
-                  bildirimTuru: item['Bildirim Türü'] || '-',
-                  bildirimNo: item['Bildirim No'] || '-',
-                  bildirimTarihi: item['Yaratma Tarihi'] || '-',
-                  isEmriNo: item['Üretim Siparişi'] || '-',
-                  malzeme: item['Malzeme No'] || '-',
-                  firma: '-',
-                  operasyonTanimi: '-'
-                }));
-            }
+          const sapRawData = sapResponse;
+          if (Array.isArray(sapRawData)) {
+            sapData = sapRawData
+              .filter((item: any) => item['Bildirim Türü'] === 'Z5')
+              .map((item: any) => ({
+                kaynak: 'SAP',
+                bildirimTuru: item['Bildirim Türü'] || '-',
+                bildirimNo: item['Bildirim No'] || '-',
+                bildirimTarihi: item['Yaratma Tarihi'] || '-',
+                isEmriNo: item['Üretim Siparişi'] || '-',
+                malzeme: item['Malzeme No'] || '-',
+                firma: '-',
+                operasyonTanimi: '-'
+              }));
           }
 
           // Birleştir ve İş Emri No'ya göre sırala
@@ -513,11 +504,13 @@ export default function PlatformHome() {
             altYukleniciHatalar: mergedData,
             altYukleniciHatalarTotalCount: mergedData.length,
             altYukleniciHatalarMesCount: mesData.length,
-            altYukleniciHatalarSapCount: sapData.length
+            altYukleniciHatalarSapCount: sapData.length,
+            altYukleniciHatalarLoading: false
           } : null);
 
         } catch (error) {
           console.error('Alt Yüklenici Hatalar veri çekme hatası:', error);
+          setTableData((prev: any) => prev ? { ...prev, altYukleniciHatalarLoading: false } : null);
         }
       })();
 
@@ -525,25 +518,16 @@ export default function PlatformHome() {
       (async () => {
         try {
           // Önce COOIS-SYNC'den verileri al
-          const cooisResponse = await fetch('/sap-proxy/coois-sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stok_no: searchValue.trim() })
-          });
-
-          if (!cooisResponse.ok) {
-            console.error('COOIS-SYNC API hatası:', cooisResponse.status);
-            return;
-          }
-
-          const cooisData = await cooisResponse.json();
+          const cooisData = await api.post<any[]>('/sap_seyir/coois-sync', { stok_no: searchValue.trim() }, undefined, { useCache: false });
 
           if (!Array.isArray(cooisData) || cooisData.length === 0) {
             setTableData((prev: any) => prev ? {
               ...prev,
               aselsanIci: [],
               aselsanIciTotalCount: 0,
-              aselsanIciFilteredCount: 0
+              aselsanIciFilteredCount: 0,
+              aselsanIciLoading: false,
+              ustAsamaLoading: false
             } : null);
             return;
           }
@@ -552,23 +536,11 @@ export default function PlatformHome() {
           const mergedResults = await Promise.all(
             cooisData.map(async (cooisItem: any) => {
               try {
-                const zaselppResponse = await fetch('/sap-proxy/zaselpp0052-sync', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    siparis_no: cooisItem['Sipariş'],
-                    uretim_yeri: cooisItem['Üretim yeri']
-                  })
-                });
+                const zaselppData = await api.post<any[]>('/sap_seyir/zaselpp0052-sync', {
+                  siparis_no: cooisItem['Sipariş'],
+                  uretim_yeri: cooisItem['Üretim yeri']
+                }, undefined, { useCache: false });
 
-                if (!zaselppResponse.ok) {
-                  return {
-                    ...cooisItem,
-                    'İşlem kısa metni': '-'
-                  };
-                }
-
-                const zaselppData = await zaselppResponse.json();
                 const matchingZaselpp = Array.isArray(zaselppData) && zaselppData.length > 0
                   ? zaselppData[0]
                   : null;
@@ -595,6 +567,7 @@ export default function PlatformHome() {
             ...prev,
             aselsanIci: mergedResults,
             aselsanIciTotalCount: mergedResults.length,
+            aselsanIciLoading: false,
             cooisUretimYeri: uretimYeri
           } : null);
 
@@ -602,80 +575,63 @@ export default function PlatformHome() {
           if (uretimYeri) {
             try {
               // Önce ZASCS15'den ÜstMalzeme listesini al
-              const zascs15Response = await fetch('/sap-proxy/zascs15-sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  stok_no: searchValue.trim(),
-                  uretim_yeri: uretimYeri
-                })
-              });
+              const zascs15Data = await api.post<any[]>('/sap_seyir/zascs15-sync', {
+                stok_no: searchValue.trim(),
+                uretim_yeri: uretimYeri
+              }, undefined, { useCache: false });
 
-              if (zascs15Response.ok) {
-                const zascs15Data = await zascs15Response.json();
+              if (Array.isArray(zascs15Data) && zascs15Data.length > 0) {
+                // Tüm ÜstMalzeme bilgilerini topla (unique)
+                const ustMalzemeler = [...new Set(
+                  zascs15Data
+                    .map((item: any) => item['ÜstMalzeme'])
+                    .filter((m: string) => m && m !== '-')
+                )];
 
-                if (Array.isArray(zascs15Data) && zascs15Data.length > 0) {
-                  // Tüm ÜstMalzeme bilgilerini topla (unique)
-                  const ustMalzemeler = [...new Set(
-                    zascs15Data
-                      .map((item: any) => item['ÜstMalzeme'])
-                      .filter((m: string) => m && m !== '-')
-                  )];
+                if (ustMalzemeler.length > 0) {
+                  // ZASELPP0045'den doküman bilgilerini al
+                  const ustAsamaData = await api.post<any[]>('/sap_seyir/zaselpp0045-sync', {
+                    ust_malzemeler: ustMalzemeler,
+                    uretim_yeri: uretimYeri
+                  }, undefined, { useCache: false });
 
-                  if (ustMalzemeler.length > 0) {
-                    // ZASELPP0045'den doküman bilgilerini al
-                    const zaselpp0045Response = await fetch('/sap-proxy/zaselpp0045-sync', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        ust_malzemeler: ustMalzemeler,
-                        uretim_yeri: uretimYeri
-                      })
-                    });
-
-                    if (zaselpp0045Response.ok) {
-                      const ustAsamaData = await zaselpp0045Response.json();
-
-                      setTableData((prev: any) => prev ? {
-                        ...prev,
-                        ustAsama: Array.isArray(ustAsamaData) ? ustAsamaData : [],
-                        ustAsamaTotalCount: Array.isArray(ustAsamaData) ? ustAsamaData.length : 0
-                      } : null);
-                    }
-                  }
+                  setTableData((prev: any) => prev ? {
+                    ...prev,
+                    ustAsama: Array.isArray(ustAsamaData) ? ustAsamaData : [],
+                    ustAsamaTotalCount: Array.isArray(ustAsamaData) ? ustAsamaData.length : 0,
+                    ustAsamaLoading: false
+                  } : null);
+                } else {
+                  setTableData((prev: any) => prev ? { ...prev, ustAsamaLoading: false } : null);
                 }
+              } else {
+                setTableData((prev: any) => prev ? { ...prev, ustAsamaLoading: false } : null);
               }
             } catch (error) {
               console.error('Üst Aşama veri çekme hatası:', error);
+              setTableData((prev: any) => prev ? { ...prev, ustAsamaLoading: false } : null);
             }
+          } else {
+            setTableData((prev: any) => prev ? { ...prev, ustAsamaLoading: false } : null);
           }
 
         } catch (error) {
           console.error('Aselsan İçi veri çekme hatası:', error);
+          setTableData((prev: any) => prev ? { ...prev, aselsanIciLoading: false, ustAsamaLoading: false } : null);
         }
       })();
 
       // 5. Aselsan Açık Hata - ZBILDSORGU-SYNC entegrasyonu
       (async () => {
         try {
-          const zbildResponse = await fetch('/sap-proxy/zbildsorgu-sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stok_no: searchValue.trim() })
-          });
-
-          if (!zbildResponse.ok) {
-            console.error('ZBILDSORGU-SYNC API hatası:', zbildResponse.status);
-            return;
-          }
-
-          const zbildData = await zbildResponse.json();
+          const zbildData = await api.post<any[]>('/sap_seyir/zbildsorgu-sync', { stok_no: searchValue.trim() }, undefined, { useCache: false });
 
           if (!Array.isArray(zbildData)) {
             setTableData((prev: any) => prev ? {
               ...prev,
               aselsanHatalar: [],
-              aselsanHatalarTotalCount: 0
+              aselsanHatalarTotalCount: 0,
+              aselsanHatalarLoading: false
             } : null);
             return;
           }
@@ -683,13 +639,47 @@ export default function PlatformHome() {
           setTableData((prev: any) => prev ? {
             ...prev,
             aselsanHatalar: zbildData,
-            aselsanHatalarTotalCount: zbildData.length
+            aselsanHatalarTotalCount: zbildData.length,
+            aselsanHatalarLoading: false
           } : null);
 
         } catch (error) {
           console.error('Aselsan Hatalar veri çekme hatası:', error);
+          setTableData((prev: any) => prev ? { ...prev, aselsanHatalarLoading: false } : null);
         }
       })();
+
+      // 6. Test Verisi (Deriniz) - Database sorgusu
+      reportsService.previewQuery({
+        sql_query: `SELECT "ID", "STOK KODU", "NAME" || ' ' || "SURNAME" as "TALEP_SAHIBI", "PYP", "PROJE TANIMI", "DATE" FROM mes_production.a_mom_kalifikasyon WHERE UPPER("STOK KODU") = UPPER('${searchValue.trim()}')`,
+        limit: 1000
+      }).then(result => {
+        const data = result.data || [];
+        setTableData((prev: any) => prev ? {
+          ...prev,
+          deriniz: data,
+          derinizTotalCount: data.length,
+          derinizLoading: false
+        } : null);
+      }).catch(() => {
+        setTableData((prev: any) => prev ? { ...prev, derinizLoading: false } : null);
+      });
+
+      // 7. Prototip ve Tasarım - Database sorgusu
+      reportsService.previewQuery({
+        sql_query: `SELECT "ID", "STOK KODU", "NAME", "NAME.1" || ' ' || "SURNAME" as "TALEP_SAHIBI", "PYP", "PROJE TANIMI", "DATE", "SÜREÇ ADI", "STATUS" FROM mes_production.a_mom_tasarim WHERE UPPER("STOK KODU") = UPPER('${searchValue.trim()}')`,
+        limit: 1000
+      }).then(result => {
+        const data = result.data || [];
+        setTableData((prev: any) => prev ? {
+          ...prev,
+          prototipTasarim: data,
+          prototipTasarimTotalCount: data.length,
+          prototipTasarimLoading: false
+        } : null);
+      }).catch(() => {
+        setTableData((prev: any) => prev ? { ...prev, prototipTasarimLoading: false } : null);
+      });
 
       // Loading durumunu kaldır (sorgular arka planda devam eder)
       setIsLoadingData(false);
@@ -749,11 +739,23 @@ export default function PlatformHome() {
           return;
         }
         case 'ust-asama': {
-          // Üst Aşama için veri zaten handleSearch'de API'den çekildi
-          // Sadece pagination değerlerini güncelle
           const totalUstAsama = tableData?.ustAsamaTotalCount || 0;
           setTotalRows(totalUstAsama);
           setTotalPages(Math.ceil(totalUstAsama / size));
+          setIsLoadingPage(false);
+          return;
+        }
+        case 'deriniz': {
+          const totalDeriniz = tableData?.derinizTotalCount || 0;
+          setTotalRows(totalDeriniz);
+          setTotalPages(Math.ceil(totalDeriniz / size));
+          setIsLoadingPage(false);
+          return;
+        }
+        case 'prototip-ahtapot': {
+          const totalProto = tableData?.prototipTasarimTotalCount || 0;
+          setTotalRows(totalProto);
+          setTotalPages(Math.ceil(totalProto / size));
           setIsLoadingPage(false);
           return;
         }
@@ -868,20 +870,32 @@ export default function PlatformHome() {
         fileName = 'Aselsan_Acik_Hatalar';
         break;
       case 'prototip-ahtapot':
-        exportData = [
-          { 'Süreç Tipi': 'Prototip Üretim', 'Adet': tableData.prototipAhtapot.prototip, 'Açıklama': 'Aktif prototip üretim süreçleri' },
-          { 'Süreç Tipi': 'Ahtapot Tasarım', 'Adet': tableData.prototipAhtapot.ahtapot, 'Açıklama': 'Devam eden ahtapot tasarım projeleri' }
-        ];
-        fileName = 'Prototip_Ahtapot_Durum';
+        if (Array.isArray(tableData.prototipTasarim)) {
+          exportData = tableData.prototipTasarim.map((row: any[]) => ({
+            'Talep Numarası': row[0] || '-',
+            'Stok Kodu': row[1] || '-',
+            'Talep Adı': row[2] || '-',
+            'Talep Sahibi': row[3] || '-',
+            'PYP': row[4] || '-',
+            'Proje Tanımı': row[5] || '-',
+            'Talep Tarihi': row[6] || '-',
+            'Süreç Adı': row[7] || '-',
+            'Statü': row[8] || '-'
+          }));
+        }
+        fileName = 'Prototip_Tasarim';
         break;
       case 'deriniz':
-        exportData = tableData.deriniz.map((item: any) => ({
-          'A': item.a,
-          'B': item.b,
-          'C': item.c,
-          'D': item.d,
-          'E': item.e
-        }));
+        if (Array.isArray(tableData.deriniz)) {
+          exportData = tableData.deriniz.map((row: any[]) => ({
+            'Talep Numarası': row[0] || '-',
+            'Stok Kodu': row[1] || '-',
+            'Talep Sahibi': row[2] || '-',
+            'PYP': row[3] || '-',
+            'Proje Tanımı': row[4] || '-',
+            'Talep Tarihi': row[5] || '-'
+          }));
+        }
         fileName = 'Deriniz_Bilgiler';
         break;
       case 'alt-yuklenici-hatalar':
@@ -1418,14 +1432,14 @@ export default function PlatformHome() {
                   <Search className="w-3 h-3 text-white/70" />
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
-                  {isLoadingData ? (
+                  {!tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.aselsanIciLoading ? (
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
                       <span className="text-xs text-gray-500">Yükleniyor...</span>
-                    </div>
-                  ) : !tableData ? (
-                    <div className="text-center">
-                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
                   ) : tableData.aselsanIciTotalCount === 0 ? (
                     <div className="text-center">
@@ -1446,19 +1460,19 @@ export default function PlatformHome() {
                 onClick={() => setSelectedTable('deriniz')}
                 className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
               >
-                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(185, 28, 28)' }}>
                   <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Test Verisi</h3>
                   <Search className="w-3 h-3 text-white/70" />
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
-                  {isLoadingData ? (
+                  {!tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.derinizLoading ? (
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
                       <span className="text-xs text-gray-500">Yükleniyor...</span>
-                    </div>
-                  ) : !tableData ? (
-                    <div className="text-center">
-                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
                   ) : tableData.derinizTotalCount === 0 ? (
                     <div className="text-center">
@@ -1468,8 +1482,6 @@ export default function PlatformHome() {
                     <div className="text-center">
                       <div className="text-2xl font-bold text-cyan-600 mb-1">
                         <span>{tableData.derinizTotalCount}</span>
-                        <span className="text-gray-400 mx-1">/</span>
-                        <span className="text-green-600">{tableData.derinizFilteredCount}</span>
                       </div>
                     </div>
                   )}
@@ -1478,15 +1490,34 @@ export default function PlatformHome() {
 
               {/* Table Box 4 - Prototip ve Tasarım */}
               <div
-                className="bg-white rounded-xl shadow-md transition-all duration-300 overflow-hidden border border-gray-100 h-[150px] flex flex-col opacity-60 cursor-not-allowed"
+                onClick={() => setSelectedTable('prototip-ahtapot')}
+                className="bg-white rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden border border-gray-100 h-[150px] flex flex-col"
               >
-                <div className="px-3 py-2 flex-shrink-0" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
-                  <h3 className="font-bold text-white text-xs text-center leading-tight">Prototip ve Tasarım</h3>
+                <div className="px-3 py-2 flex-shrink-0 flex items-center justify-between" style={{ backgroundColor: 'rgb(185, 28, 28)' }}>
+                  <h3 className="font-bold text-white text-xs leading-tight flex-1 text-center">Prototip ve Tasarım</h3>
+                  <Search className="w-3 h-3 text-white/70" />
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
-                  <div className="text-center">
-                    <p className="text-sm font-bold text-gray-400">Yapım Aşamasında ...</p>
-                  </div>
+                  {!tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.prototipTasarimLoading ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs text-gray-500">Yükleniyor...</span>
+                    </div>
+                  ) : tableData.prototipTasarimTotalCount === 0 ? (
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                        <span>{tableData.prototipTasarimTotalCount}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1500,14 +1531,14 @@ export default function PlatformHome() {
                   <Search className="w-3 h-3 text-white/70" />
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
-                  {isLoadingData ? (
+                  {!tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.altYukleniciHatalarLoading ? (
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
                       <span className="text-xs text-gray-500">Yükleniyor...</span>
-                    </div>
-                  ) : !tableData ? (
-                    <div className="text-center">
-                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
                   ) : tableData.altYukleniciHatalarTotalCount === 0 ? (
                     <div className="text-center">
@@ -1538,14 +1569,14 @@ export default function PlatformHome() {
                   <Search className="w-3 h-3 text-white/70" />
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
-                  {isLoadingData ? (
+                  {!tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.aselsanHatalarLoading ? (
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
                       <span className="text-xs text-gray-500">Yükleniyor...</span>
-                    </div>
-                  ) : !tableData ? (
-                    <div className="text-center">
-                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
                   ) : tableData.aselsanHatalarTotalCount === 0 ? (
                     <div className="text-center">
@@ -1571,14 +1602,14 @@ export default function PlatformHome() {
                   <Search className="w-3 h-3 text-white/70" />
                 </div>
                 <div className="p-2 flex-1 flex items-center justify-center">
-                  {isLoadingData ? (
+                  {!tableData ? (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
+                    </div>
+                  ) : tableData.ustAsamaLoading ? (
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
                       <span className="text-xs text-gray-500">Yükleniyor...</span>
-                    </div>
-                  ) : !tableData ? (
-                    <div className="text-center">
-                      <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
                   ) : tableData.ustAsamaTotalCount === 0 ? (
                     <div className="text-center">
@@ -1637,9 +1668,9 @@ export default function PlatformHome() {
                         {selectedTable === 'aselsan-ici' && 'Aselsan İçi Açık Üretim Siparişleri'}
                         {selectedTable === 'aselsan-hatalar' && 'Aselsan Açık Bildirim Hataları'}
                         {selectedTable === 'prototip-ahtapot' && 'Prototip Üretim ve Ahtapot Tasarım Süreçlerindeki Durum'}
-                        {selectedTable === 'deriniz' && 'Deriniz\'den Gelen Bilgiler'}
+                        {selectedTable === 'deriniz' && 'Test Bilgileri'}
                         {selectedTable === 'alt-yuklenici-hatalar' && 'Alt Yüklenici Açık Bildirim Hataları'}
-                                                {selectedTable === 'robot-servis' && 'Robotlardan Gelen Verinin Servis Edilmesi'}
+                        {selectedTable === 'robot-servis' && 'Robotlardan Gelen Verinin Servis Edilmesi'}
                         {selectedTable === 'ust-asama' && 'Üst Aşama Bilgileri'}
                       </h2>
                     </div>
@@ -1668,61 +1699,105 @@ export default function PlatformHome() {
 
                 {/* Modal Body */}
                 <div className="p-4 flex-1 min-h-0 overflow-y-auto bg-white">
-                  {isLoadingData && (
-                    <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 rounded-2xl p-4 mb-6 shadow-sm">
-                      <p className="text-blue-900 font-semibold animate-pulse flex items-center gap-2">
-                        <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                        Veriler yükleniyor...
-                      </p>
-                    </div>
-                  )}
-                  {!tableData && !isLoadingData && (
-                    <div className="text-center py-12">
-                      <div className="w-20 h-20 bg-gradient-to-br from-gray-200 to-gray-300 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <svg className="w-10 h-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
+                  {(() => {
+                    // Tablo bazlı loading kontrolü
+                    const loadingMap: Record<string, string> = {
+                      'aselsan-ici': 'aselsanIciLoading',
+                      'aselsan-hatalar': 'aselsanHatalarLoading',
+                      'alt-yuklenici-hatalar': 'altYukleniciHatalarLoading',
+                      'ust-asama': 'ustAsamaLoading',
+                      'deriniz': 'derinizLoading',
+                      'prototip-ahtapot': 'prototipTasarimLoading',
+                    };
+                    const loadingKey = selectedTable ? loadingMap[selectedTable] : null;
+                    const isTableLoading = loadingKey && tableData ? (tableData as any)[loadingKey] : false;
+
+                    if (!tableData || isLoadingData) {
+                      return (
+                        <div className="text-center py-12">
+                          <div className="w-20 h-20 bg-gradient-to-br from-gray-200 to-gray-300 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <svg className="w-10 h-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                          </div>
+                          <p className="text-gray-500 text-lg font-medium">Lütfen bir parça numarası arayın</p>
+                        </div>
+                      );
+                    }
+
+                    if (isTableLoading) {
+                      return (
+                        <div className="flex flex-col items-center justify-center py-20">
+                          <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+                          <p className="text-blue-900 font-semibold text-lg">Veriler yükleniyor...</p>
+                          <p className="text-gray-400 text-sm mt-1">SAP sisteminden veri çekiliyor, lütfen bekleyin</p>
+                        </div>
+                      );
+                    }
+
+                    if (paginatedData && paginatedData.data.length === 0) {
+                      return (
+                        <div className="flex flex-col items-center justify-center py-20">
+                          <div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                            </svg>
+                          </div>
+                          <p className="text-gray-500 text-lg font-bold">Bilgi Yok</p>
+                          <p className="text-gray-400 text-sm mt-1">Bu parça numarası için veri bulunamadı</p>
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })()}
+                  {tableData && !isLoadingData && paginatedData && paginatedData.data.length > 0 && (() => {
+                    const loadingMap: Record<string, string> = {
+                      'aselsan-ici': 'aselsanIciLoading',
+                      'aselsan-hatalar': 'aselsanHatalarLoading',
+                      'alt-yuklenici-hatalar': 'altYukleniciHatalarLoading',
+                      'ust-asama': 'ustAsamaLoading',
+                      'deriniz': 'derinizLoading',
+                      'prototip-ahtapot': 'prototipTasarimLoading',
+                    };
+                    const loadingKey = selectedTable ? loadingMap[selectedTable] : null;
+                    const isTableLoading = loadingKey ? (tableData as any)[loadingKey] : false;
+                    return !isTableLoading;
+                  })() && (
+                      <div className="h-full overflow-hidden">
+                        <TableVisualization
+                          query={{
+                            id: selectedTable || 'default',
+                            filters: getTableVisualizationFilters(),
+                            visualization: {}
+                          } as any}
+                          result={{
+                            columns: paginatedData.columns,
+                            data: paginatedData.data,
+                            query_id: selectedTable || 'default',
+                            query_name: selectedTable || 'Table',
+                            total_rows: totalRows,
+                            execution_time_ms: 0,
+                            success: true
+                          } as any}
+                          sorting={sorting}
+                          onColumnSort={handleColumnSort}
+                          filters={filters}
+                          openPopovers={openPopovers}
+                          dropdownOptions={dropdownOptions}
+                          onFilterChange={handleFilterChange}
+                          onDebouncedFilterChange={handleFilterChange}
+                          setOpenPopovers={setOpenPopovers}
+                          currentPage={currentPage}
+                          pageSize={pageSize}
+                          totalPages={totalPages}
+                          totalRows={totalRows}
+                          onPageChange={handlePageChange}
+                          onPageSizeChange={handlePageSizeChange}
+                          size="lg"
+                        />
                       </div>
-                      <p className="text-gray-500 text-lg font-medium">Lütfen bir parça numarası arayın</p>
-                    </div>
-                  )}
-                  {tableData && !isLoadingData && paginatedData && (
-                    <div className="h-full overflow-hidden">
-                      <TableVisualization
-                        query={{
-                          id: selectedTable || 'default',
-                          filters: getTableVisualizationFilters(),
-                          visualization: {}
-                        } as any}
-                        result={{
-                          columns: paginatedData.columns,
-                          data: paginatedData.data,
-                          query_id: selectedTable || 'default',
-                          query_name: selectedTable || 'Table',
-                          total_rows: totalRows,
-                          execution_time_ms: 0,
-                          success: true
-                        } as any}
-                        sorting={sorting}
-                        onColumnSort={handleColumnSort}
-                        filters={filters}
-                        openPopovers={openPopovers}
-                        dropdownOptions={dropdownOptions}
-                        onFilterChange={handleFilterChange}
-                        onDebouncedFilterChange={handleFilterChange}
-                        setOpenPopovers={setOpenPopovers}
-                        currentPage={currentPage}
-                        pageSize={pageSize}
-                        totalPages={totalPages}
-                        totalRows={totalRows}
-                        onPageChange={handlePageChange}
-                        onPageSizeChange={handlePageSizeChange}
-                        size="lg"
-                      />
-                    </div>
-                  )}
+                    )}
                 </div>
 
               </div>
@@ -1771,7 +1846,7 @@ export default function PlatformHome() {
                 />
               </div>
             </div>
-          , document.body)}
+            , document.body)}
 
           {/* Full-width Duyurular Section */}
           <div className="w-full py-6 mt-24 mb-4">
