@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -21,7 +21,7 @@ class Station(PostgreSQLBase):
 class WorkOrder(PostgreSQLBase):
     __tablename__ = "work_orders"
     __table_args__ = (
-        UniqueConstraint('station_id', 'aselsan_order_number', 'order_item_number', name='uq_work_order_keys'),
+        UniqueConstraint('station_id', 'work_order_group_id', 'package_index', name='uq_work_order_package'),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -30,11 +30,29 @@ class WorkOrder(PostgreSQLBase):
     # Since foreign keys can't span databases, we store it as a plain integer
     # without a foreign key constraint. Referential integrity must be handled in application logic.
     user_id = Column(Integer, nullable=False, index=True)
-    manufacturer_number = Column(String(255), nullable=False)
+
+    # Group ID to link all packages of the same work order together
+    work_order_group_id = Column(String(50), nullable=False, index=True)
+
+    # Work order fields (from form)
+    main_customer = Column(String(255), nullable=False)
+    sector = Column(String(255), nullable=False)
+    company_from = Column(String(255), nullable=False)
     aselsan_order_number = Column(String(255), nullable=False)
-    aselsan_work_order_number = Column(String(255), nullable=False)
     order_item_number = Column(String(255), nullable=False)
-    quantity = Column(Integer, nullable=False)
+
+    # Quantity fields
+    quantity = Column(Integer, nullable=False)          # This package's piece count
+    total_quantity = Column(Integer, nullable=False)     # Total pieces across all packages
+
+    # Package tracking
+    package_index = Column(Integer, nullable=False)      # 1-based package index
+    total_packages = Column(Integer, nullable=False)     # Total number of packages
+
+    # Target date
+    target_date = Column(Date, nullable=True)
+
+    # Timestamps
     entrance_date = Column(DateTime(timezone=True), server_default=func.now())
     exit_date = Column(DateTime(timezone=True), nullable=True)
 

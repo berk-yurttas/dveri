@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints.romiot.station.auth import check_station_operator_role
@@ -13,10 +13,10 @@ from app.schemas.user import User
 from app.services.user_service import UserService
 from app.schemas.work_order import (
     WorkOrder as WorkOrderSchema,
-)
-from app.schemas.work_order import (
     WorkOrderCreate,
+    WorkOrderCreateResponse,
     WorkOrderDetail,
+    WorkOrderExitResponse,
     WorkOrderList,
     WorkOrderStatus,
     WorkOrderUpdateExitDate,
@@ -26,7 +26,7 @@ from app.schemas.work_order import (
 router = APIRouter()
 
 
-@router.post("/", response_model=WorkOrderSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_work_order(
     work_order_data: WorkOrderCreate,
     current_user: User = Depends(check_authenticated),
@@ -34,8 +34,9 @@ async def create_work_order(
     postgres_db: AsyncSession = Depends(get_postgres_db)
 ):
     """
-    Create a new work order without an exit_date.
-    Returns 400 Bad Request if a work order with the same (station_id, aselsan_order_number, order_item_number) already exists.
+    Create a new work order entry for a specific package at a station (entrance).
+    Returns progress info showing how many packages of this group have been scanned.
+    Returns 400 Bad Request if this package has already been entered at this station.
     Requires role 'atolye:<company>:operator' where company matches the station's company.
     """
     # Check if user has the required role for this station
@@ -48,65 +49,96 @@ async def create_work_order(
         pg_user = await UserService.create_user(postgres_db, current_user.username)
     pg_user_id = pg_user.id
     
-    # Check if work order already exists with the unique keys
-    existing_work_order = await romiot_db.execute(
+    # Check if this specific package already exists at this station
+    existing_result = await romiot_db.execute(
         select(WorkOrder).where(
             and_(
                 WorkOrder.station_id == work_order_data.station_id,
-                WorkOrder.aselsan_order_number == work_order_data.aselsan_order_number,
-                WorkOrder.order_item_number == work_order_data.order_item_number
+                WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
+                WorkOrder.package_index == work_order_data.package_index
             )
         )
     )
-    existing = existing_work_order.scalar_one_or_none()
+    existing = existing_result.scalar_one_or_none()
 
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Bu barkod ile işlem yapılmıştır"
+            detail=f"Bu paket (Paket {work_order_data.package_index}/{work_order_data.total_packages}) ile işlem yapılmıştır"
         )
 
-    # Create new work order without exit_date
+    # Create new work order entry for this package
     new_work_order = WorkOrder(
         station_id=work_order_data.station_id,
         user_id=pg_user_id,
-        manufacturer_number=work_order_data.manufacturer_number,
+        work_order_group_id=work_order_data.work_order_group_id,
+        main_customer=work_order_data.main_customer,
+        sector=work_order_data.sector,
+        company_from=work_order_data.company_from,
         aselsan_order_number=work_order_data.aselsan_order_number,
-        aselsan_work_order_number=work_order_data.aselsan_work_order_number,
         order_item_number=work_order_data.order_item_number,
         quantity=work_order_data.quantity,
-        exit_date=None  # Explicitly set to None
+        total_quantity=work_order_data.total_quantity,
+        package_index=work_order_data.package_index,
+        total_packages=work_order_data.total_packages,
+        target_date=work_order_data.target_date,
+        exit_date=None,
     )
 
     romiot_db.add(new_work_order)
     await romiot_db.commit()
     await romiot_db.refresh(new_work_order)
 
-    return new_work_order
+    # Count how many packages of this group have been scanned at this station
+    scanned_count_result = await romiot_db.execute(
+        select(func.count()).where(
+            and_(
+                WorkOrder.station_id == work_order_data.station_id,
+                WorkOrder.work_order_group_id == work_order_data.work_order_group_id
+            )
+        )
+    )
+    packages_scanned = scanned_count_result.scalar() or 0
+    total_packages = work_order_data.total_packages
+    all_scanned = packages_scanned >= total_packages
+
+    if all_scanned:
+        message = f"Tüm paketler okundu! İş emri girişi tamamlandı. ({packages_scanned}/{total_packages})"
+    else:
+        message = f"Paket {work_order_data.package_index} okundu. ({packages_scanned}/{total_packages})"
+
+    return WorkOrderCreateResponse(
+        work_order=WorkOrderSchema.model_validate(new_work_order),
+        packages_scanned=packages_scanned,
+        total_packages=total_packages,
+        all_scanned=all_scanned,
+        message=message
+    )
 
 
-@router.post("/update-exit-date", response_model=WorkOrderSchema)
+@router.post("/update-exit-date", response_model=WorkOrderExitResponse)
 async def update_exit_date(
     update_data: WorkOrderUpdateExitDate,
     current_user: User = Depends(check_authenticated),
     romiot_db: AsyncSession = Depends(get_romiot_db)
 ):
     """
-    Find work order by unique keys (station_id, aselsan_order_number, order_item_number)
+    Find work order package by unique keys (station_id, work_order_group_id, package_index)
     and fill the exit_date field with current datetime.
-    Returns 400 Bad Request if work order not found or exit_date is already filled.
+    Returns progress info showing how many packages have been exited.
+    Returns 400 Bad Request if package not found or exit_date is already filled.
     Requires role 'atolye:<company>:operator' where company matches the station's company.
     """
     # Check if user has the required role for this station
     await check_station_operator_role(update_data.station_id, current_user, romiot_db)
     
-    # Find work order by unique keys
+    # Find work order package by unique keys
     work_order_result = await romiot_db.execute(
         select(WorkOrder).where(
             and_(
                 WorkOrder.station_id == update_data.station_id,
-                WorkOrder.aselsan_order_number == update_data.aselsan_order_number,
-                WorkOrder.order_item_number == update_data.order_item_number
+                WorkOrder.work_order_group_id == update_data.work_order_group_id,
+                WorkOrder.package_index == update_data.package_index
             )
         )
     )
@@ -115,13 +147,13 @@ async def update_exit_date(
     if not work_order:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Work order not found with the provided station_id, aselsan_order_number, and order_item_number"
+            detail="Girişi yapılmayan iş emri çıkışı yapılamaz."
         )
 
     if work_order.exit_date is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Bu barkod ile işlem yapılmıştır"
+            detail=f"Bu paket (Paket {update_data.package_index}/{work_order.total_packages}) ile çıkış işlemi yapılmıştır"
         )
 
     # Update exit_date with current datetime (timezone-aware)
@@ -129,7 +161,32 @@ async def update_exit_date(
     await romiot_db.commit()
     await romiot_db.refresh(work_order)
 
-    return work_order
+    # Count how many packages of this group have been exited at this station
+    exited_count_result = await romiot_db.execute(
+        select(func.count()).where(
+            and_(
+                WorkOrder.station_id == update_data.station_id,
+                WorkOrder.work_order_group_id == update_data.work_order_group_id,
+                WorkOrder.exit_date.isnot(None)
+            )
+        )
+    )
+    packages_exited = exited_count_result.scalar() or 0
+    total_packages = work_order.total_packages
+    all_exited = packages_exited >= total_packages
+
+    if all_exited:
+        message = f"Tüm paketlerin çıkışı yapıldı! İş emri çıkışı tamamlandı. ({packages_exited}/{total_packages})"
+    else:
+        message = f"Paket {update_data.package_index} çıkışı yapıldı. ({packages_exited}/{total_packages})"
+
+    return WorkOrderExitResponse(
+        work_order=WorkOrderSchema.model_validate(work_order),
+        packages_exited=packages_exited,
+        total_packages=total_packages,
+        all_exited=all_exited,
+        message=message
+    )
 
 
 @router.get("/list/{station_id}", response_model=list[WorkOrderList])
@@ -190,11 +247,11 @@ async def get_all_work_orders(
     Get all work orders for the current user's company with detailed information and pagination.
     Returns work orders from all stations belonging to the user's company.
     Includes station name and user name for each work order.
-    Pagination is applied to grouped work orders (by work order number), not individual entries.
+    Pagination is applied to grouped work orders (by work_order_group_id), not individual entries.
     Requires role 'atolye:<company>:operator', 'atolye:<company>:yonetici', or 'atolye:<company>:musteri'.
     """
     from app.models.romiot_models import Station
-    from collections import defaultdict
+    from sqlalchemy import case, desc
     
     # Extract company from user's role
     company = None
@@ -231,53 +288,26 @@ async def get_all_work_orders(
     # Create a map of station_id to station_name
     station_map = {station.id: station.name for station in stations}
     
-    # Use SQL to efficiently group, sort, and paginate work orders
-    from sqlalchemy import func, case, desc, text
-    from sqlalchemy.sql import label
-    
-    # Create a subquery that adds grouping and sorting metadata to each work order
-    # We'll use window functions to:
-    # 1. Identify unique groups
-    # 2. Calculate if group has any active entry
-    # 3. Calculate last action date per group
-    # 4. Assign a rank to each group for pagination
-    
-    # First, create a CTE (Common Table Expression) with group metadata
+    # Create a CTE with group metadata using work_order_group_id
     group_metadata_cte = select(
         WorkOrder,
-        # Concatenate to create group key
-        func.concat(
-            WorkOrder.aselsan_work_order_number, 
-            '|', 
-            WorkOrder.aselsan_order_number, 
-            '|', 
-            WorkOrder.order_item_number
-        ).label('group_key'),
         # Check if this entry is active (no exit_date)
         case((WorkOrder.exit_date.is_(None), 1), else_=0).label('is_active'),
         # Get the action date (exit_date or entrance_date)
         func.coalesce(WorkOrder.exit_date, WorkOrder.entrance_date).label('action_date'),
         # Use window function to get max active status per group
         func.max(case((WorkOrder.exit_date.is_(None), 1), else_=0)).over(
-            partition_by=[
-                WorkOrder.aselsan_work_order_number,
-                WorkOrder.aselsan_order_number,
-                WorkOrder.order_item_number
-            ]
+            partition_by=[WorkOrder.work_order_group_id]
         ).label('group_has_active'),
         # Use window function to get max action date per group
         func.max(func.coalesce(WorkOrder.exit_date, WorkOrder.entrance_date)).over(
-            partition_by=[
-                WorkOrder.aselsan_work_order_number,
-                WorkOrder.aselsan_order_number,
-                WorkOrder.order_item_number
-            ]
+            partition_by=[WorkOrder.work_order_group_id]
         ).label('group_last_date')
     ).where(
         WorkOrder.station_id.in_(station_ids)
     ).cte('group_metadata')
     
-    # Now create a query that assigns a dense rank to each group
+    # Assign a dense rank to each group
     ranked_groups_cte = select(
         group_metadata_cte,
         func.dense_rank().over(
@@ -289,7 +319,7 @@ async def get_all_work_orders(
     ).cte('ranked_groups')
     
     # Get total number of unique groups for pagination
-    total_groups_query = select(func.count(func.distinct(ranked_groups_cte.c.group_key)))
+    total_groups_query = select(func.count(func.distinct(ranked_groups_cte.c.work_order_group_id)))
     total_groups_result = await romiot_db.execute(total_groups_query)
     total_groups = total_groups_result.scalar() or 0
     total_pages = (total_groups + page_size - 1) // page_size if total_groups > 0 else 0
@@ -302,11 +332,17 @@ async def get_all_work_orders(
         ranked_groups_cte.c.id,
         ranked_groups_cte.c.station_id,
         ranked_groups_cte.c.user_id,
-        ranked_groups_cte.c.manufacturer_number,
+        ranked_groups_cte.c.work_order_group_id,
+        ranked_groups_cte.c.main_customer,
+        ranked_groups_cte.c.sector,
+        ranked_groups_cte.c.company_from,
         ranked_groups_cte.c.aselsan_order_number,
-        ranked_groups_cte.c.aselsan_work_order_number,
         ranked_groups_cte.c.order_item_number,
         ranked_groups_cte.c.quantity,
+        ranked_groups_cte.c.total_quantity,
+        ranked_groups_cte.c.package_index,
+        ranked_groups_cte.c.total_packages,
+        ranked_groups_cte.c.target_date,
         ranked_groups_cte.c.entrance_date,
         ranked_groups_cte.c.exit_date
     ).where(
@@ -337,18 +373,24 @@ async def get_all_work_orders(
             station_name=station_map.get(row.station_id, "Unknown"),
             user_id=row.user_id,
             user_name=user_map.get(row.user_id, "Unknown"),
-            manufacturer_number=row.manufacturer_number,
+            work_order_group_id=row.work_order_group_id,
+            main_customer=row.main_customer,
+            sector=row.sector,
+            company_from=row.company_from,
             aselsan_order_number=row.aselsan_order_number,
-            aselsan_work_order_number=row.aselsan_work_order_number,
             order_item_number=row.order_item_number,
             quantity=row.quantity,
+            total_quantity=row.total_quantity,
+            package_index=row.package_index,
+            total_packages=row.total_packages,
+            target_date=row.target_date,
             entrance_date=row.entrance_date,
             exit_date=row.exit_date
         ))
     
     return PaginatedWorkOrderResponse(
         items=detailed_work_orders,
-        total=len(detailed_work_orders),  # Total items in current page
+        total=len(detailed_work_orders),
         page=page,
         page_size=page_size,
         total_pages=total_pages

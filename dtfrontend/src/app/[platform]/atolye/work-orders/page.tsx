@@ -10,11 +10,17 @@ interface WorkOrderDetail {
   station_name: string;
   user_id: number;
   user_name: string | null;
-  manufacturer_number: string;
+  work_order_group_id: string;
+  main_customer: string;
+  sector: string;
+  company_from: string;
   aselsan_order_number: string;
-  aselsan_work_order_number: string;
   order_item_number: string;
   quantity: number;
+  total_quantity: number;
+  package_index: number;
+  total_packages: number;
+  target_date: string | null;
   entrance_date: string | null;
   exit_date: string | null;
 }
@@ -28,11 +34,15 @@ interface PaginatedResponse {
 }
 
 interface GroupedWorkOrder {
-  aselsan_work_order_number: string;
-  manufacturer_number: string;
+  work_order_group_id: string;
+  main_customer: string;
+  sector: string;
+  company_from: string;
   aselsan_order_number: string;
   order_item_number: string;
-  quantity: number;
+  total_quantity: number;
+  total_packages: number;
+  target_date: string | null;
   entries: WorkOrderDetail[];
 }
 
@@ -82,8 +92,7 @@ export default function WorkOrdersPage() {
         setTotalItems(data.total);
         setTotalPages(data.total_pages);
         
-        // Group work orders by work order number
-        const grouped = groupWorkOrdersByNumber(data.items || []);
+        const grouped = groupWorkOrdersByGroup(data.items || []);
         setGroupedWorkOrders(grouped);
       } catch (err: any) {
         console.error("Error fetching work orders:", err);
@@ -96,21 +105,24 @@ export default function WorkOrdersPage() {
     fetchWorkOrders();
   }, [hasAtolyeRole, currentPage, pageSize]);
 
-  // Group work orders by their unique identifier
-  // Note: Backend already handles sorting (active first, then by last action date)
-  const groupWorkOrdersByNumber = (orders: WorkOrderDetail[]): GroupedWorkOrder[] => {
+  // Group work orders by work_order_group_id
+  const groupWorkOrdersByGroup = (orders: WorkOrderDetail[]): GroupedWorkOrder[] => {
     const grouped = new Map<string, GroupedWorkOrder>();
 
     orders.forEach(order => {
-      const key = `${order.aselsan_work_order_number}-${order.aselsan_order_number}-${order.order_item_number}`;
+      const key = order.work_order_group_id;
       
       if (!grouped.has(key)) {
         grouped.set(key, {
-          aselsan_work_order_number: order.aselsan_work_order_number,
-          manufacturer_number: order.manufacturer_number,
+          work_order_group_id: order.work_order_group_id,
+          main_customer: order.main_customer,
+          sector: order.sector,
+          company_from: order.company_from,
           aselsan_order_number: order.aselsan_order_number,
           order_item_number: order.order_item_number,
-          quantity: order.quantity,
+          total_quantity: order.total_quantity,
+          total_packages: order.total_packages,
+          target_date: order.target_date,
           entries: []
         });
       }
@@ -127,7 +139,6 @@ export default function WorkOrdersPage() {
       });
     });
 
-    // Return groups in the order they came from backend (already sorted)
     return Array.from(grouped.values());
   };
 
@@ -137,8 +148,10 @@ export default function WorkOrdersPage() {
     
     const searchLower = searchTerm.toLowerCase();
     return (
-      wo.aselsan_work_order_number.toLowerCase().includes(searchLower) ||
-      wo.manufacturer_number.toLowerCase().includes(searchLower) ||
+      wo.work_order_group_id.toLowerCase().includes(searchLower) ||
+      wo.main_customer.toLowerCase().includes(searchLower) ||
+      wo.sector.toLowerCase().includes(searchLower) ||
+      wo.company_from.toLowerCase().includes(searchLower) ||
       wo.aselsan_order_number.toLowerCase().includes(searchLower) ||
       wo.order_item_number.toLowerCase().includes(searchLower)
     );
@@ -193,7 +206,6 @@ export default function WorkOrdersPage() {
   const getLastActionDate = (entries: WorkOrderDetail[]): string => {
     if (entries.length === 0) return "-";
     
-    // Find the most recent date (either entrance or exit)
     const dates: Date[] = [];
     
     entries.forEach(entry => {
@@ -211,6 +223,12 @@ export default function WorkOrdersPage() {
     );
     
     return lastDate.toLocaleString("tr-TR");
+  };
+
+  // Get unique stations from entries
+  const getUniqueStations = (entries: WorkOrderDetail[]): string[] => {
+    const stations = new Set(entries.map(e => e.station_name));
+    return Array.from(stations);
   };
 
   if (!hasAtolyeRole) {
@@ -272,7 +290,7 @@ export default function WorkOrdersPage() {
           <div className="relative">
             <input
               type="text"
-              placeholder="İş emri numarası, sipariş numarası veya üretici firma numarası ile ara..."
+              placeholder="Sipariş numarası, müşteri, sektör veya gönderen firma ile ara..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full px-4 py-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#008080] focus:border-[#008080] text-gray-900 bg-white"
@@ -283,12 +301,7 @@ export default function WorkOrdersPage() {
               stroke="currentColor"
               viewBox="0 0 24 24"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </div>
         </div>
@@ -357,9 +370,10 @@ export default function WorkOrdersPage() {
               </div>
             ) : (
             filteredWorkOrders.map((wo) => {
-              const key = `${wo.aselsan_work_order_number}-${wo.aselsan_order_number}-${wo.order_item_number}`;
+              const key = wo.work_order_group_id;
               const isExpanded = expandedWorkOrders.has(key);
               const hasActiveEntry = wo.entries.some(e => !e.exit_date);
+              const uniqueStations = getUniqueStations(wo.entries);
 
               return (
                 <div key={key} className="bg-white rounded-lg shadow overflow-hidden">
@@ -372,39 +386,58 @@ export default function WorkOrdersPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="text-lg font-bold text-gray-900">
-                            {wo.aselsan_work_order_number}
+                            {wo.aselsan_order_number}
                           </h3>
                           {hasActiveEntry && (
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                               Aktif
                             </span>
                           )}
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                            {wo.total_packages} paket
+                          </span>
                         </div>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                           <div>
-                            <span className="text-gray-500">Üretici Firma No:</span>
-                            <p className="font-medium text-gray-900">{wo.manufacturer_number}</p>
+                            <span className="text-gray-500">Ana Müşteri:</span>
+                            <p className="font-medium text-gray-900">{wo.main_customer}</p>
                           </div>
                           <div>
-                            <span className="text-gray-500">ASELSAN Sipariş No:</span>
-                            <p className="font-medium text-gray-900">{wo.aselsan_order_number}</p>
+                            <span className="text-gray-500">Sektör:</span>
+                            <p className="font-medium text-gray-900">{wo.sector}</p>
                           </div>
                           <div>
-                            <span className="text-gray-500">Sipariş Kalemi:</span>
+                            <span className="text-gray-500">Gönderen Firma:</span>
+                            <p className="font-medium text-gray-900">{wo.company_from}</p>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Sipariş Kalem No:</span>
                             <p className="font-medium text-gray-900">{wo.order_item_number}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Adet:</span>
-                            <p className="font-medium text-gray-900">{wo.quantity}</p>
                           </div>
                         </div>
 
-                        <div className="mt-3 flex items-center gap-4 text-sm">
+                        <div className="mt-3 flex items-center gap-4 text-sm flex-wrap">
+                          <div className="text-gray-600">
+                            <span className="font-medium">{wo.total_quantity}</span> toplam parça
+                          </div>
+                          <span className="text-gray-300">|</span>
                           <div className="text-gray-600">
                             <span className="font-medium">{wo.entries.length}</span> atölye geçişi
                           </div>
-                          <span className="text-gray-300">•</span>
+                          <span className="text-gray-300">|</span>
+                          <div className="text-gray-600">
+                            Atölyeler: {uniqueStations.join(", ")}
+                          </div>
+                          {wo.target_date && (
+                            <>
+                              <span className="text-gray-300">|</span>
+                              <div className="text-gray-600">
+                                Hedef: <span className="font-medium">{new Date(wo.target_date).toLocaleDateString("tr-TR")}</span>
+                              </div>
+                            </>
+                          )}
+                          <span className="text-gray-300">|</span>
                           <div className="flex items-center gap-2 text-gray-600">
                             <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -443,7 +476,9 @@ export default function WorkOrdersPage() {
                                 </div>
                                 <div>
                                   <h5 className="font-semibold text-gray-900">{entry.station_name}</h5>
-                                  <p className="text-sm text-gray-600">Operatör: {entry.user_name || "Bilinmiyor"}</p>
+                                  <p className="text-sm text-gray-600">
+                                    Operatör: {entry.user_name || "Bilinmiyor"} - Paket {entry.package_index}/{entry.total_packages} ({entry.quantity} parça)
+                                  </p>
                                 </div>
                               </div>
                               {getStatusBadge(entry.exit_date)}
@@ -489,14 +524,13 @@ export default function WorkOrdersPage() {
                   <span className="text-sm text-gray-700">
                     Toplam <span className="font-medium">{totalItems}</span> kayıt
                   </span>
-                  <span className="text-gray-400">•</span>
+                  <span className="text-gray-400">|</span>
                   <span className="text-sm text-gray-700">
                     Sayfa <span className="font-medium">{currentPage}</span> / <span className="font-medium">{totalPages}</span>
                   </span>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {/* Page Size Selector */}
                   <select
                     value={pageSize}
                     onChange={(e) => {
@@ -511,7 +545,6 @@ export default function WorkOrdersPage() {
                     <option value={100}>100 / sayfa</option>
                   </select>
 
-                  {/* Previous Button */}
                   <button
                     onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                     disabled={currentPage === 1}
@@ -522,7 +555,6 @@ export default function WorkOrdersPage() {
                     </svg>
                   </button>
 
-                  {/* Page Numbers */}
                   <div className="flex items-center gap-1">
                     {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                       let pageNum;
@@ -552,7 +584,6 @@ export default function WorkOrdersPage() {
                     })}
                   </div>
 
-                  {/* Next Button */}
                   <button
                     onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                     disabled={currentPage === totalPages}
@@ -563,7 +594,6 @@ export default function WorkOrdersPage() {
                     </svg>
                   </button>
 
-                  {/* Go to Page */}
                   <div className="flex items-center gap-2 ml-2">
                     <span className="text-sm text-gray-700">Git:</span>
                     <input
@@ -589,4 +619,3 @@ export default function WorkOrdersPage() {
     </div>
   );
 }
-
