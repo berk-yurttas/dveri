@@ -112,9 +112,10 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheO
     console.log(`[API] ${endpoint} - Platform code from localStorage:`, platformCode)
     
     // Support for AbortController passed in options
-    // If no signal is provided, create one with a default timeout of 30 seconds
+    // SAP endpoints get 30 minute timeout, others get 30 second timeout
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+    const isSapRequest = endpoint.includes('/sap_seyir/')
+    const timeoutId = setTimeout(() => controller.abort(), isSapRequest ? 1800000 : 30000)
     
     const signal = options.signal || controller.signal
     

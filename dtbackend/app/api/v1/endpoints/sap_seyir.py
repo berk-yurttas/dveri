@@ -7,7 +7,7 @@ from app.core.config import settings
 router = APIRouter()
 
 SAP_SEYIR_BASE_URL = settings.SAP_SEYIR_BASE_URL
-SAP_TIMEOUT = 1200.0
+SAP_TIMEOUT = 1800.0
 
 
 class CooisRequest(BaseModel):
@@ -15,7 +15,7 @@ class CooisRequest(BaseModel):
 
 
 class Zaselpp0052Request(BaseModel):
-    siparis_no: str
+    siparis_no: list[str]
     uretim_yeri: str
 
 
