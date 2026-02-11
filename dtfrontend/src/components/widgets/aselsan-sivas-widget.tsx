@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react"
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { api } from "@/lib/api"
+import { useFilters } from "@/contexts/filter-context"
 
 // Widget configuration
 AselsanSivasWidget.config = {
@@ -22,6 +23,7 @@ interface DeviceData {
   DESCRIPTION: string
   DevicesInProduction: number
   DevicesWithDowntime: number
+  FormattedDate: string | null
 }
 
 interface ProductionStatusData {
@@ -65,6 +67,9 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
   // Create unique instance identifier
   const instanceRef = useRef(widgetId || `aselsan-sivas-${Math.random().toString(36).substr(2, 9)}`)
   const instanceId = instanceRef.current
+  
+  // Get global date filters
+  const { dateFrom, dateTo } = useFilters()
 
   // Load filters from localStorage
   const getStoredFilters = () => {
@@ -108,6 +113,11 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
   const [completedProductionData, setCompletedProductionData] = useState<CompletedProductionData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  // State for dynamic table data
+  const [dynamicTableColumns, setDynamicTableColumns] = useState<string[]>([])
+  const [dynamicTableData, setDynamicTableData] = useState<any[][]>([])
+  const [dynamicTableLoading, setDynamicTableLoading] = useState(false)
 
   // Save filters to localStorage whenever they change
   useEffect(() => {
@@ -118,21 +128,33 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
     }
   }, [selectedProductCode, instanceId])
 
-  // Load data on mount
+  // Load data on mount and when date filters change
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
       setError(null)
       try {
+        // Build date filter conditions
+        // FormattedDate format: "31-01-2026" (DD-MM-YYYY) - need to convert to DATE for comparison
+        // LAST_UPDATE_DATE format: "2026-01-31 10:45:08.623" (YYYY-MM-DD HH:MM:SS.mmm)
+        // COMPLETEDDATE format: "2026-01-31 10:45:08.623" (YYYY-MM-DD HH:MM:SS.mmm)
+        
+        const deviceDateFilter = `("FormattedDate" IS NULL OR TO_DATE("FormattedDate", 'DD-MM-YYYY') BETWEEN TO_DATE('${dateFrom}', 'YYYY-MM-DD') AND TO_DATE('${dateTo}', 'YYYY-MM-DD'))`
+        const statusDateFilter = `CAST("LAST_UPDATE_DATE" AS TIMESTAMP) BETWEEN CAST('${dateFrom} 00:00:00' AS TIMESTAMP) AND CAST('${dateTo} 23:59:59' AS TIMESTAMP)`
+        const completedDateFilter = `CAST("COMPLETEDDATE" AS TIMESTAMP) BETWEEN CAST('${dateFrom} 00:00:00' AS TIMESTAMP) AND CAST('${dateTo} 23:59:59' AS TIMESTAMP)`
+
         const [deviceResponse, statusResponse, completedResponse] = await Promise.all([
           api.post<WidgetData>('/reports/preview', {
-            sql_query: 'SELECT "PRODUCTCODE", "ORDERNO", "WORKPLAINID", "DESCRIPTION", "DevicesInProduction", "DevicesWithDowntime" FROM mes_production.aselsan_sivas_is_plan_cihaz_bilgi_ ORDER BY "ORDERNO"'
+            sql_query: `SELECT "PRODUCTCODE", "ORDERNO", "WORKPLAINID", "DESCRIPTION", "DevicesInProduction", "DevicesWithDowntime", "FormattedDate" FROM mes_production.aselsan_sivas_is_plan_cihaz_bilgi_ WHERE ${deviceDateFilter} ORDER BY "ORDERNO"`,
+            limit: 1000000
           }),
           api.post<WidgetData>('/reports/preview', {
-            sql_query: 'SELECT "PRODUCT_KEY", "PRODUCT", "SERIALNO", "REVISION", "WORKORDERID", "LAST_UPDATE_DATE", "STATUS_TYPE", "CURRENT_STEP", "ISSTOPPED", "STOPREASON", "STOPDESCRIPTION", "RECORD_TYPE" FROM mes_production.aselsan_sivas_uretim_durumlari_ ORDER BY "PRODUCT"'
+            sql_query: `SELECT "PRODUCT_KEY", "PRODUCT", "SERIALNO", "REVISION", "WORKORDERID", "LAST_UPDATE_DATE", "STATUS_TYPE", "CURRENT_STEP", "ISSTOPPED", "STOPREASON", "STOPDESCRIPTION", "RECORD_TYPE" FROM mes_production.aselsan_sivas_uretim_durumlari_ WHERE ${statusDateFilter} ORDER BY "PRODUCT"`,
+            limit: 1000000
           }),
           api.post<WidgetData>('/reports/preview', {
-            sql_query: 'SELECT "KEY", "TYPE", "PRODUCTCODE", "SERIALNO", "WORKORDERNO", "COMPLETEDDATE" FROM mes_production.aselsan_sivas_biten_uretimler_ ORDER BY "COMPLETEDDATE" DESC'
+            sql_query: `SELECT "KEY", "TYPE", "PRODUCTCODE", "SERIALNO", "WORKORDERNO", "COMPLETEDDATE" FROM mes_production.aselsan_sivas_biten_uretimler_ WHERE ${completedDateFilter} ORDER BY "COMPLETEDDATE" DESC`,
+            limit: 1000000
           })
         ])
 
@@ -143,13 +165,17 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
             WORKPLAINID: Number(row[2]) || 0,
             DESCRIPTION: row[3],
             DevicesInProduction: Number(row[4]) || 0,
-            DevicesWithDowntime: Number(row[5]) || 0
+            DevicesWithDowntime: Number(row[5]) || 0,
+            FormattedDate: row[6] || null
           }))
           setDeviceData(transformed)
 
           // Extract unique product codes
           const productCodes = deviceResponse.data.map(row => row[0]).filter(Boolean)
           setProductCodeOptions(Array.from(new Set(productCodes)).sort())
+        } else {
+          setDeviceData([])
+          setProductCodeOptions([])
         }
 
         if (statusResponse.success && statusResponse.data && statusResponse.data.length > 0) {
@@ -163,11 +189,13 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
             STATUS_TYPE: row[6],
             CURRENT_STEP: row[7],
             ISSTOPPED: row[8],
-            STOPREASON: row[9] ? Number(row[9]) : null,
-            STOPDESCRIPTION: row[10] ? Number(row[10]) : null,
+            STOPREASON: row[9],
+            STOPDESCRIPTION: row[10],
             RECORD_TYPE: row[11]
           }))
           setProductionStatusData(transformed)
+        } else {
+          setProductionStatusData([])
         }
 
         if (completedResponse.success && completedResponse.data && completedResponse.data.length > 0) {
@@ -180,6 +208,8 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
             COMPLETEDDATE: row[5]
           }))
           setCompletedProductionData(transformed)
+        } else {
+          setCompletedProductionData([])
         }
 
       } catch (err) {
@@ -191,7 +221,45 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
     }
 
     loadData()
-  }, [instanceId])
+  }, [instanceId, dateFrom, dateTo])
+
+  // Load dynamic table data when product code is selected or date filters change
+  useEffect(() => {
+    const loadDynamicTableData = async () => {
+      if (!selectedProductCode) {
+        setDynamicTableColumns([])
+        setDynamicTableData([])
+        return
+      }
+
+      setDynamicTableLoading(true)
+      try {
+        // Include date filter - FormattedDate format: "31-01-2026" (DD-MM-YYYY)
+        const deviceDateFilter = `("FormattedDate" IS NULL OR TO_DATE("FormattedDate", 'DD-MM-YYYY') BETWEEN TO_DATE('${dateFrom}', 'YYYY-MM-DD') AND TO_DATE('${dateTo}', 'YYYY-MM-DD'))`
+        
+        const response = await api.post<WidgetData>('/reports/preview', {
+          sql_query: `SELECT * FROM mes_production.aselsan_sivas_is_plan_cihaz_bilgi_ WHERE "PRODUCTCODE" = '${selectedProductCode}' AND ${deviceDateFilter} ORDER BY "ORDERNO"`,
+          limit: 1000000
+        })
+
+        if (response.success && response.columns && response.data) {
+          setDynamicTableColumns(response.columns)
+          setDynamicTableData(response.data)
+        } else {
+          setDynamicTableColumns([])
+          setDynamicTableData([])
+        }
+      } catch (err) {
+        console.error(`Error loading dynamic table data for ${instanceId}:`, err)
+        setDynamicTableColumns([])
+        setDynamicTableData([])
+      } finally {
+        setDynamicTableLoading(false)
+      }
+    }
+
+    loadDynamicTableData()
+  }, [selectedProductCode, instanceId, dateFrom, dateTo])
 
   // Filter data based on selections
   const filteredData = deviceData.filter(item => {
@@ -509,63 +577,103 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
 
       {/* Table */}
       <div className="flex-shrink-0">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-100 sticky top-0">
-            <tr>
-              <th className="px-6 py-4 text-left font-semibold text-gray-900 w-56">
+        {selectedProductCode ? (
+          // Dynamic table when product is selected
+          dynamicTableLoading ? (
+            <div className="w-full p-8 flex items-center justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <p className="text-sm text-gray-600 ml-3">Tablo yükleniyor...</p>
+            </div>
+          ) : dynamicTableColumns.length > 0 && dynamicTableData.length > 0 ? (
+            <div className="overflow-x-auto max-h-96 border border-gray-200 rounded-lg">
+              <table className="w-full text-sm min-w-max">
+                <thead className="bg-gray-100 sticky top-0">
+                  <tr>
+                    {dynamicTableColumns.map((column, idx) => (
+                      <th key={idx} className="px-4 py-3 text-left font-semibold text-gray-900 text-xs whitespace-nowrap border-b border-gray-200">
+                        {column}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dynamicTableData.map((row, rowIdx) => (
+                    <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      {row.map((cell, cellIdx) => (
+                        <td key={cellIdx} className="px-4 py-3 text-gray-700 text-xs whitespace-nowrap border-b border-gray-100">
+                          {cell !== null && cell !== undefined ? String(cell) : '-'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="w-full p-8 text-center text-gray-500">
+              Seçilen ürün kodu için veri bulunamadı
+            </div>
+          )
+        ) : (
+          // Original aggregated table when no product is selected
+          <table className="w-full text-sm">
+            <thead className="bg-gray-100 sticky top-0">
+              <tr>
+                <th className="px-6 py-4 text-left font-semibold text-gray-900 w-56">
 
-              </th>
-              {aggregatedData.map((item, idx) => (
-                <th key={idx} className="px-6 py-4 text-center font-semibold text-gray-900">
-                  {item.description}
                 </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {/* Row 1: Devam Eden Cihazlar */}
-            <tr>
-              <td className="px-6 py-5 text-left font-medium text-gray-800 bg-blue-50">
-                Devam Eden Cihazlar
-              </td>
-              {aggregatedData.map((item, idx) => (
-                <td
-                  key={idx}
-                  className="px-6 py-5 text-center"
-                >
-                  {item.devicesInProduction > 0 ? (
-                    <span className="text-blue-800 font-bold text-lg">
-                      {item.devicesInProduction}
-                    </span>
-                  ) : (
-                    <span className="text-gray-400">-</span>
-                  )}
+                {aggregatedData.map((item, idx) => (
+                  <th key={idx} className="px-6 py-4 text-center font-semibold text-gray-900">
+                    {item.description}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {/* Row 1: Devam Eden Cihazlar */}
+              <tr>
+                <td className="px-6 py-5 text-left font-medium text-gray-800 bg-blue-50">
+                  Devam Eden Cihazlar
                 </td>
-              ))}
-            </tr>
+                {aggregatedData.map((item, idx) => (
+                  <td
+                    key={idx}
+                    className="px-6 py-5 text-center"
+                  >
+                    {item.devicesInProduction > 0 ? (
+                      <span className="text-blue-800 font-bold text-lg">
+                        {item.devicesInProduction}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
 
-            {/* Row 2: Duruş Yaşanan Cihazlar */}
-            <tr>
-              <td className="px-6 py-5 text-left font-medium text-gray-800 bg-red-50">
-                Duruş Yaşanan Cihazlar
-              </td>
-              {aggregatedData.map((item, idx) => (
-                <td
-                  key={idx}
-                  className="px-6 py-5 text-center"
-                >
-                  {item.devicesWithDowntime > 0 ? (
-                    <span className="text-red-800 font-bold text-lg">
-                      {item.devicesWithDowntime}
-                    </span>
-                  ) : (
-                    <span className="text-gray-400">-</span>
-                  )}
+              {/* Row 2: Duruş Yaşanan Cihazlar */}
+              <tr>
+                <td className="px-6 py-5 text-left font-medium text-gray-800 bg-red-50">
+                  Duruş Yaşanan Cihazlar
                 </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
+                {aggregatedData.map((item, idx) => (
+                  <td
+                    key={idx}
+                    className="px-6 py-5 text-center"
+                  >
+                    {item.devicesWithDowntime > 0 ? (
+                      <span className="text-red-800 font-bold text-lg">
+                        {item.devicesWithDowntime}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Production Status Table - Hat Devam/Duruş Detayı */}
@@ -897,18 +1005,70 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-3 py-2 text-left font-medium border-b border-gray-200">Parça No</th>
-                    <th className="px-3 py-2 text-right font-medium border-b border-gray-200">Planlanan Üretim Adedi</th>
+                    <th className="px-3 py-2 text-left font-medium border-b border-gray-200">Seri No</th>
+                    <th className="px-3 py-2 text-left font-medium border-b border-gray-200">İşlem Adımı</th>
                     <th className="px-3 py-2 text-left font-medium border-b border-gray-200">Hata Nedeni</th>
                     <th className="px-3 py-2 text-left font-medium border-b border-gray-200">Hata Açıklaması</th>
+                    <th className="px-3 py-2 text-left font-medium border-b border-gray-200">Son Güncelleme</th>
                     <th className="px-3 py-2 text-right font-medium border-b border-gray-200">Durma Gün Sayısı</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td colSpan={5} className="px-3 py-4 text-center text-gray-500 border-b border-gray-100">
-                      Veri bulunamadı
-                    </td>
-                  </tr>
+                  {productionStatusData.filter(item => item.ISSTOPPED === true).length > 0 ? (
+                    productionStatusData
+                      .filter(item => item.ISSTOPPED === true)
+                      .map((item, index) => {
+                        // Calculate days stopped
+                        const calculateDaysStopped = (lastUpdateDate: string): number => {
+                          if (!lastUpdateDate) return 0
+                          const now = new Date()
+                          const lastUpdate = new Date(lastUpdateDate)
+                          const diffTime = Math.abs(now.getTime() - lastUpdate.getTime())
+                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                          return diffDays
+                        }
+
+                        const daysStopped = calculateDaysStopped(item.LAST_UPDATE_DATE)
+
+                        return (
+                          <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                            <td className="px-3 py-2 text-left border-b border-gray-100">{item.PRODUCT_KEY}</td>
+                            <td className="px-3 py-2 text-left border-b border-gray-100">{item.SERIALNO}</td>
+                            <td className="px-3 py-2 text-left border-b border-gray-100">{item.CURRENT_STEP}</td>
+                            <td className="px-3 py-2 text-left border-b border-gray-100">
+                              {item.STOPREASON !== null ? item.STOPREASON : '-'}
+                            </td>
+                            <td className="px-3 py-2 text-left border-b border-gray-100">
+                              {item.STOPDESCRIPTION !== null ? item.STOPDESCRIPTION : '-'}
+                            </td>
+                            <td className="px-3 py-2 text-left border-b border-gray-100">
+                              {item.LAST_UPDATE_DATE ? new Date(item.LAST_UPDATE_DATE).toLocaleString('tr-TR', { 
+                                year: 'numeric', 
+                                month: '2-digit', 
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              }) : '-'}
+                            </td>
+                            <td className="px-3 py-2 text-right border-b border-gray-100">
+                              <span className={`font-semibold ${
+                                daysStopped > 7 ? 'text-red-600' : 
+                                daysStopped > 3 ? 'text-orange-600' : 
+                                'text-gray-700'
+                              }`}>
+                                {daysStopped} gün
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-4 text-center text-gray-500 border-b border-gray-100">
+                        Veri bulunamadı
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
