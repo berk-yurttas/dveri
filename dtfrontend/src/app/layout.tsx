@@ -6,6 +6,7 @@ import { DashboardProvider } from "@/contexts/dashboard-context";
 import { UserProvider } from "@/contexts/user-context";
 import { FilterProvider } from "@/contexts/filter-context";
 import { PlatformProvider } from "@/contexts/platform-context";
+import { ExternalSiteTracker } from "@/components/analytics/external-site-tracker";
 
 export const metadata: Metadata = {
   title: "Aselsan ODAK",
@@ -23,6 +24,7 @@ export default function RootLayout({
       <body className="antialiased">
         <PlatformProvider>
           <UserProvider>
+            <ExternalSiteTracker />
             <FilterProvider>
               <DashboardProvider>
                 <AppLayout>{children}</AppLayout>

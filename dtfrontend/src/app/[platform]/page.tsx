@@ -165,6 +165,10 @@ export default function PlatformHome() {
     setIsMounted(true);
   }, []);
 
+  const openTrackedExternalUrl = (url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   // Lock body scroll when modal is open
   useEffect(() => {
     if (selectedTable) {
@@ -1131,7 +1135,7 @@ export default function PlatformHome() {
   const handleReportClick = (report: SavedReport) => {
     // If report is a direct link, open in new tab
     if (report.isDirectLink && report.directLink) {
-      window.open(report.directLink, '_blank', 'noopener,noreferrer');
+      openTrackedExternalUrl(report.directLink);
       return;
     }
 
@@ -1748,7 +1752,7 @@ export default function PlatformHome() {
                   <h3 className="text-white font-semibold text-base">{iconPopup.title}</h3>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => window.open(iconPopup.url, '_blank')}
+                      onClick={() => openTrackedExternalUrl(iconPopup.url)}
                       className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"
                       title="Yeni sekmede aç"
                     >
@@ -2526,7 +2530,7 @@ export default function PlatformHome() {
                           // Navigate after delay
                           navigationTimerRef.current = setTimeout(() => {
                             if (finalUrl.startsWith('http')) {
-                              window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                              openTrackedExternalUrl(finalUrl);
                             } else {
                               router.push(finalUrl);
                             }
@@ -2536,7 +2540,7 @@ export default function PlatformHome() {
                         } else {
                           // For other platforms, navigate immediately
                           if (finalUrl.startsWith('http')) {
-                            window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                            openTrackedExternalUrl(finalUrl);
                           } else {
                             router.push(finalUrl);
                           }
@@ -2573,7 +2577,7 @@ export default function PlatformHome() {
                             // Navigate after delay
                             navigationTimerRef.current = setTimeout(() => {
                               if (finalUrl.startsWith('http')) {
-                                window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                                openTrackedExternalUrl(finalUrl);
                               } else {
                                 router.push(finalUrl);
                               }
@@ -2583,7 +2587,7 @@ export default function PlatformHome() {
                           } else {
                             // For other platforms, navigate immediately
                             if (finalUrl.startsWith('http')) {
-                              window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                              openTrackedExternalUrl(finalUrl);
                             } else {
                               router.push(finalUrl);
                             }
@@ -2640,7 +2644,7 @@ export default function PlatformHome() {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 if (subfeatureUrl.startsWith('http')) {
-                                  window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
+                                  openTrackedExternalUrl(subfeatureUrl);
                                 } else {
                                   router.push(subfeatureUrl);
                                 }
@@ -2656,7 +2660,7 @@ export default function PlatformHome() {
                               if ((e.key === 'Enter' || e.key === ' ') && hasSubfeatureUrl) {
                                 e.preventDefault();
                                 if (subfeatureUrl.startsWith('http')) {
-                                  window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
+                                  openTrackedExternalUrl(subfeatureUrl);
                                 } else {
                                   router.push(subfeatureUrl);
                                 }

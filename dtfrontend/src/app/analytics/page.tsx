@@ -9,6 +9,10 @@ import { Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 const REPORTS_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1'
+const TRACKED_EXTERNAL_SITES = [
+    { host: 'stok.dev.ahtapot.aselsan.com.tr', label: 'Stok' },
+    { host: 'dms.dev.ahtapot.aselsan.com.tr', label: 'DMS' }
+]
 const REPORT_TIME_COLORS = [
     '#2563eb',
     '#16a34a',
@@ -671,6 +675,43 @@ export default function AnalyticsPage() {
     const userVisitPageStart = (userVisitPage - 1) * userVisitPageSize
     const pagedUserVisits = sortedUserVisits.slice(userVisitPageStart, userVisitPageStart + userVisitPageSize)
 
+    const getTrackedExternalSite = (path: string) => {
+        if (!path) return null
+        const normalizedPath = path.trim().toLowerCase()
+        return TRACKED_EXTERNAL_SITES.find(site =>
+            normalizedPath.includes(site.host)
+        ) || null
+    }
+
+    const externalSiteVisitRows = useMemo(() => {
+        const rows = new Map<string, { site: string; user: string; views: number }>()
+        userVisits.forEach(visit => {
+            const site = getTrackedExternalSite(visit.path)
+            if (!site) return
+            const user = visit.user_id || 'Bilinmeyen'
+            const key = `${site.host}:${user}`
+            const existing = rows.get(key)
+            if (existing) {
+                existing.views += visit.views || 0
+            } else {
+                rows.set(key, {
+                    site: site.label,
+                    user,
+                    views: visit.views || 0
+                })
+            }
+        })
+        return Array.from(rows.values()).sort((a, b) => b.views - a.views)
+    }, [userVisits])
+
+    const externalSiteTotals = useMemo(() => {
+        const totals = new Map<string, number>()
+        externalSiteVisitRows.forEach(row => {
+            totals.set(row.site, (totals.get(row.site) || 0) + row.views)
+        })
+        return Array.from(totals.entries()).map(([site, views]) => ({ site, views }))
+    }, [externalSiteVisitRows])
+
     const availableUsernames = useMemo(() => {
         const unique = new Set<string>()
         userVisits.forEach(visit => {
@@ -1065,6 +1106,52 @@ export default function AnalyticsPage() {
                                 </button>
                             </div>
                         </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle>Dış Site Ziyaretleri</CardTitle>
+                    <CardDescription>Bu servis üzerinden açılan Stok ve DMS ziyaretleri (kullanıcı bazlı)</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {externalSiteVisitRows.length === 0 ? (
+                        <div className="text-sm text-muted-foreground">
+                            Henüz Stok/DMS ziyaret kaydı yok.
+                        </div>
+                    ) : (
+                        <>
+                            <div className="grid gap-3 md:grid-cols-2">
+                                {externalSiteTotals.map(item => (
+                                    <div key={item.site} className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3">
+                                        <div className="text-xs uppercase tracking-wide text-gray-500">{item.site}</div>
+                                        <div className="mt-1 text-xl font-semibold text-gray-900">{item.views}</div>
+                                        <div className="text-xs text-gray-500">toplam ziyaret</div>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead className="bg-gray-50 border-b border-gray-200">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Site</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kullanıcı</th>
+                                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ziyaret</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {externalSiteVisitRows.slice(0, 50).map((row, index) => (
+                                            <tr key={`${row.site}-${row.user}-${index}`} className="hover:bg-gray-50 transition-colors">
+                                                <td className="px-4 py-3 text-sm text-gray-700">{row.site}</td>
+                                                <td className="px-4 py-3 text-sm text-gray-900 font-medium">{row.user}</td>
+                                                <td className="px-4 py-3 text-sm text-gray-700 text-right">{row.views}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </>
                     )}
                 </CardContent>
             </Card>
