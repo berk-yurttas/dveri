@@ -1655,7 +1655,7 @@ export default function PlatformHome() {
                 }}
               >
                 {/* Modal Header - Clean Design */}
-                <div className="relative px-6 py-3 overflow-hidden flex-shrink-0 border-b border-white/10" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                <div className="relative px-6 py-3 overflow-hidden flex-shrink-0 border-b border-white/10" style={{ backgroundColor: selectedTable === 'deriniz' || selectedTable === 'prototip-ahtapot' ? 'rgb(185, 28, 28)' : 'rgb(30, 64, 175)' }}>
                   <div className="relative flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
