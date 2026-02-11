@@ -126,12 +126,6 @@ export function AppShell({
         <div className="fixed top-0 left-0 right-0 z-40 flex h-[30px] items-center justify-between px-6 overflow-hidden" style={{ backgroundColor: '#efefef' }}>
           <div className="absolute right-40 flex items-center gap-2 text-sm">
             <button
-              onClick={() => setFeedbackModalOpen(true)}
-              className="flex items-center gap-2 hover:opacity-70 transition-opacity"
-            >
-              <Bell color="red" className="h-4 w-4" /> Geri Bildirim
-            </button>
-            <button
               onClick={() => setContactModalOpen(true)}
               className="flex items-center gap-2 hover:opacity-70 transition-opacity"
             >
