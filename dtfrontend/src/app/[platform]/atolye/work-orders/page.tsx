@@ -46,6 +46,12 @@ interface GroupedWorkOrder {
   entries: WorkOrderDetail[];
 }
 
+interface StationInfo {
+  id: number;
+  name: string;
+  company: string;
+}
+
 export default function WorkOrdersPage() {
   const { user } = useUser();
   const [workOrders, setWorkOrders] = useState<WorkOrderDetail[]>([]);
@@ -53,8 +59,14 @@ export default function WorkOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasAtolyeRole, setHasAtolyeRole] = useState(false);
+  const [isMusteri, setIsMusteri] = useState(false);
+  const [isYonetici, setIsYonetici] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedWorkOrders, setExpandedWorkOrders] = useState<Set<string>>(new Set());
+  
+  // Station filter for yonetici
+  const [stations, setStations] = useState<StationInfo[]>([]);
+  const [selectedStationId, setSelectedStationId] = useState<number | null>(null); // null = all stations
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -69,13 +81,37 @@ export default function WorkOrdersPage() {
         typeof role === "string" && role.startsWith("atolye:")
       );
       setHasAtolyeRole(!!atolyeRole);
+      
+      const musteriRole = user.role.find((role) =>
+        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":musteri")
+      );
+      setIsMusteri(!!musteriRole);
+      
+      const yoneticiRole = user.role.find((role) =>
+        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":yonetici")
+      );
+      setIsYonetici(!!yoneticiRole);
     }
   }, [user]);
+
+  // Fetch stations for yonetici
+  useEffect(() => {
+    const fetchStations = async () => {
+      if (!isYonetici) return;
+      try {
+        const data = await api.get<StationInfo[]>("/romiot/station/stations/");
+        setStations(data || []);
+      } catch (err: any) {
+        console.error("Error fetching stations:", err);
+      }
+    };
+    fetchStations();
+  }, [isYonetici]);
 
   // Fetch work orders
   useEffect(() => {
     const fetchWorkOrders = async () => {
-      if (!hasAtolyeRole) return;
+      if (!hasAtolyeRole || isMusteri) return;
 
       try {
         setLoading(true);
@@ -103,7 +139,7 @@ export default function WorkOrdersPage() {
     };
 
     fetchWorkOrders();
-  }, [hasAtolyeRole, currentPage, pageSize]);
+  }, [hasAtolyeRole, isMusteri, currentPage, pageSize]);
 
   // Group work orders by work_order_group_id
   const groupWorkOrdersByGroup = (orders: WorkOrderDetail[]): GroupedWorkOrder[] => {
@@ -142,8 +178,14 @@ export default function WorkOrdersPage() {
     return Array.from(grouped.values());
   };
 
-  // Filter work orders based on search term
+  // Filter work orders by station (for yonetici) and search term
   const filteredWorkOrders = groupedWorkOrders.filter(wo => {
+    // Station filter for yonetici
+    if (isYonetici && selectedStationId !== null) {
+      const hasEntryInStation = wo.entries.some(e => e.station_id === selectedStationId);
+      if (!hasEntryInStation) return false;
+    }
+    
     if (!searchTerm) return true;
     
     const searchLower = searchTerm.toLowerCase();
@@ -156,6 +198,14 @@ export default function WorkOrdersPage() {
       wo.order_item_number.toLowerCase().includes(searchLower)
     );
   });
+
+  // When yonetici filters by station, also filter entries within each group
+  const getFilteredEntries = (wo: GroupedWorkOrder): WorkOrderDetail[] => {
+    if (isYonetici && selectedStationId !== null) {
+      return wo.entries.filter(e => e.station_id === selectedStationId);
+    }
+    return wo.entries;
+  };
 
   // Toggle work order expansion
   const toggleWorkOrder = (key: string) => {
@@ -231,6 +281,22 @@ export default function WorkOrdersPage() {
     return Array.from(stations);
   };
 
+  // Musteri should not see this page
+  if (isMusteri) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">
+            Erişim Yetkisi Yok
+          </h1>
+          <p className="text-gray-600">
+            Bu sayfayı görüntüleme yetkisine sahip değilsiniz.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!hasAtolyeRole) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -265,7 +331,9 @@ export default function WorkOrdersPage() {
             İş Emri Detayları
           </h1>
           <p className="text-gray-600">
-            Tüm iş emirlerinin detaylı bilgilerini görüntüleyin
+            {isYonetici
+              ? "Tüm atölyelerin iş emirlerini görüntüleyin"
+              : "Tüm iş emirlerinin detaylı bilgilerini görüntüleyin"}
           </p>
         </div>
 
@@ -281,6 +349,37 @@ export default function WorkOrdersPage() {
               <div className="ml-3">
                 <p className="text-sm text-red-700">{error}</p>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Station Tabs for Yonetici */}
+        {isYonetici && stations.length > 0 && (
+          <div className="mb-6">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => { setSelectedStationId(null); setExpandedWorkOrders(new Set()); }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  selectedStationId === null
+                    ? 'bg-[#008080] text-white shadow-md'
+                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Tüm Atölyeler
+              </button>
+              {stations.map(station => (
+                <button
+                  key={station.id}
+                  onClick={() => { setSelectedStationId(station.id); setExpandedWorkOrders(new Set()); }}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    selectedStationId === station.id
+                      ? 'bg-[#008080] text-white shadow-md'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {station.name}
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -317,7 +416,7 @@ export default function WorkOrdersPage() {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Toplam İş Emri</p>
-                <p className="text-2xl font-bold text-gray-900">{groupedWorkOrders.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{filteredWorkOrders.length}</p>
               </div>
             </div>
           </div>
@@ -332,7 +431,7 @@ export default function WorkOrdersPage() {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Devam Eden</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {groupedWorkOrders.filter(wo => wo.entries.some(e => !e.exit_date)).length}
+                  {filteredWorkOrders.filter(wo => getFilteredEntries(wo).some(e => !e.exit_date)).length}
                 </p>
               </div>
             </div>
@@ -348,7 +447,7 @@ export default function WorkOrdersPage() {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Tamamlanan</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {groupedWorkOrders.filter(wo => wo.entries.every(e => e.exit_date)).length}
+                  {filteredWorkOrders.filter(wo => getFilteredEntries(wo).every(e => e.exit_date)).length}
                 </p>
               </div>
             </div>
@@ -372,8 +471,9 @@ export default function WorkOrdersPage() {
             filteredWorkOrders.map((wo) => {
               const key = wo.work_order_group_id;
               const isExpanded = expandedWorkOrders.has(key);
-              const hasActiveEntry = wo.entries.some(e => !e.exit_date);
-              const uniqueStations = getUniqueStations(wo.entries);
+              const displayEntries = getFilteredEntries(wo);
+              const hasActiveEntry = displayEntries.some(e => !e.exit_date);
+              const uniqueStations = getUniqueStations(displayEntries);
 
               return (
                 <div key={key} className="bg-white rounded-lg shadow overflow-hidden">
@@ -423,7 +523,7 @@ export default function WorkOrdersPage() {
                           </div>
                           <span className="text-gray-300">|</span>
                           <div className="text-gray-600">
-                            <span className="font-medium">{wo.entries.length}</span> atölye geçişi
+                            <span className="font-medium">{displayEntries.length}</span> atölye geçişi
                           </div>
                           <span className="text-gray-300">|</span>
                           <div className="text-gray-600">
@@ -443,7 +543,7 @@ export default function WorkOrdersPage() {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                             <span className="text-gray-500">Son İşlem:</span>
-                            <span className="font-medium text-gray-900">{getLastActionDate(wo.entries)}</span>
+                            <span className="font-medium text-gray-900">{getLastActionDate(displayEntries)}</span>
                           </div>
                         </div>
                       </div>
@@ -464,10 +564,14 @@ export default function WorkOrdersPage() {
                   {/* Work Order Details (Expanded) */}
                   {isExpanded && (
                     <div className="border-t border-gray-200 bg-gray-50 p-6">
-                      <h4 className="text-sm font-semibold text-gray-900 mb-4">Atölye Geçiş Geçmişi</h4>
+                      <h4 className="text-sm font-semibold text-gray-900 mb-4">
+                        {isYonetici && selectedStationId !== null
+                          ? `Atölye Geçiş Geçmişi (${stations.find(s => s.id === selectedStationId)?.name || ''})`
+                          : 'Atölye Geçiş Geçmişi'}
+                      </h4>
                       
                       <div className="space-y-4">
-                        {wo.entries.map((entry, index) => (
+                        {displayEntries.map((entry, index) => (
                           <div key={entry.id} className="bg-white rounded-lg p-4 border border-gray-200">
                             <div className="flex items-start justify-between mb-3">
                               <div className="flex items-center gap-3">
@@ -477,7 +581,7 @@ export default function WorkOrdersPage() {
                                 <div>
                                   <h5 className="font-semibold text-gray-900">{entry.station_name}</h5>
                                   <p className="text-sm text-gray-600">
-                                    Operatör: {entry.user_name || "Bilinmiyor"} - Paket {entry.package_index}/{entry.total_packages} ({entry.quantity} parça)
+                                    Operatör: {entry.user_name || "Bilinmiyor"} - Paket {entry.package_index}/{entry.total_packages} ({entry.quantity}/{entry.total_quantity} parça)
                                   </p>
                                 </div>
                               </div>
