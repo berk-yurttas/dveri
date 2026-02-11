@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     data,
     platforms,
     reports,
+    sap_seyir,
     users,
     feedback,
     analytics,
@@ -29,3 +30,4 @@ api_router.include_router(station.router, prefix="/romiot/station/stations", tag
 api_router.include_router(qr_code.router, prefix="/romiot/station/qr-code", tags=["qr-code"])
 api_router.include_router(stats.router, prefix="/romiot/stats", tags=["romiot-stats"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+api_router.include_router(sap_seyir.router, prefix="/sap_seyir", tags=["sap_seyir"])
