@@ -142,6 +142,7 @@ export default function PlatformHome() {
   const isRomiotPlatform = platformCode === 'romiot';
   const isSeyirPlatform = platformCode === 'seyir' || platformCode === 'amom';
   const [searchValue, setSearchValue] = useState('');
+  const [iconPopup, setIconPopup] = useState<{ url: string; title: string } | null>(null);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [searchedPartNumber, setSearchedPartNumber] = useState<string | null>(null);
   const [tableData, setTableData] = useState<any>(null);
@@ -434,7 +435,7 @@ export default function PlatformHome() {
 
       // 1. Alt Yüklenici Total Count
       reportsService.previewQuery({
-        sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%'`,
+        sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${searchValue.trim()}')`,
         limit: 1
       }).then(result => {
         setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: result.data?.[0]?.[0] || 0 } : null);
@@ -442,7 +443,7 @@ export default function PlatformHome() {
 
       // 2. Alt Yüklenici Filtered Count
       reportsService.previewQuery({
-        sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchValue.trim()}%' AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
+        sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${searchValue.trim()}') AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
         limit: 1
       }).then(result => {
         setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: result.data?.[0]?.[0] || 0 } : null);
@@ -457,7 +458,7 @@ export default function PlatformHome() {
           const [mesResult, sapResponse] = await Promise.all([
             // MES verileri (database)
             reportsService.previewQuery({
-              sql_query: `SELECT "IS_EMRI_NO", "PRODUCT_CODE", "FIRMA", "OPERATION_DESC" FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "PRODUCT_CODE" ILIKE '%${partNo}%'`,
+              sql_query: `SELECT "IS_EMRI_NO", "PRODUCT_CODE", "FIRMA", "OPERATION_DESC" FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE UPPER("PRODUCT_CODE") = UPPER('${partNo}')`,
               limit: 1000
             }),
             // SAP verileri (zbildsorgu-sync)
@@ -716,7 +717,7 @@ export default function PlatformHome() {
 
       switch (tableName) {
         case 'alt-yuklenici':
-          query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" ILIKE '%${searchedPartNumber.trim()}%' LIMIT ${size} OFFSET ${offset}`;
+          query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${searchedPartNumber.trim()}') LIMIT ${size} OFFSET ${offset}`;
           dataKey = 'altYuklenici';
           totalCountKey = 'altYukleniciTotalCount';
           break;
@@ -1212,7 +1213,7 @@ export default function PlatformHome() {
               {/* Icon 1 - Genel Süreçler */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => window.open('/', '_blank', 'width=1000,height=500,left=200,top=100,resizable=yes,scrollbars=yes')}
+                onClick={() => { const w = Math.round(screen.width * 0.9); const l = Math.round(screen.width * 0.05); window.open('/', 'popup', `width=${w},height=600,left=${l},top=150,resizable=yes,scrollbars=yes`); }}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -1230,7 +1231,7 @@ export default function PlatformHome() {
               {/* Icon 2 - Kalifikasyon Süreçleri */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => window.open('/', '_blank', 'width=1000,height=500,left=200,top=100,resizable=yes,scrollbars=yes')}
+                onClick={() => { const w = Math.round(screen.width * 0.9); const l = Math.round(screen.width * 0.05); window.open('/', 'popup', `width=${w},height=600,left=${l},top=150,resizable=yes,scrollbars=yes`); }}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -1248,7 +1249,7 @@ export default function PlatformHome() {
               {/* Icon 3 - Prototip Süreçleri */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => window.open('/', '_blank', 'width=1000,height=500,left=200,top=100,resizable=yes,scrollbars=yes')}
+                onClick={() => { const w = Math.round(screen.width * 0.9); const l = Math.round(screen.width * 0.05); window.open('/', 'popup', `width=${w},height=600,left=${l},top=150,resizable=yes,scrollbars=yes`); }}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -1266,7 +1267,7 @@ export default function PlatformHome() {
               {/* Icon 4 - Tasarım Süreçleri */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => window.open('/', '_blank', 'width=1000,height=500,left=200,top=100,resizable=yes,scrollbars=yes')}
+                onClick={() => { const w = Math.round(screen.width * 0.9); const l = Math.round(screen.width * 0.05); window.open('/', 'popup', `width=${w},height=600,left=${l},top=150,resizable=yes,scrollbars=yes`); }}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -1284,7 +1285,7 @@ export default function PlatformHome() {
               {/* Icon 5 - Raporlar */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => window.open('/seyir/reports', '_blank', 'width=1000,height=500,left=200,top=100,resizable=yes,scrollbars=yes')}
+                onClick={() => window.open('/seyir/reports', '_blank')}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -1727,6 +1728,50 @@ export default function PlatformHome() {
               </div>
             </div>
             , document.body)}
+
+          {/* Icon Popup Modal */}
+          {isMounted && iconPopup && createPortal(
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center"
+              onClick={() => setIconPopup(null)}
+            >
+              {/* Backdrop */}
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+              {/* Modal Container */}
+              <div
+                className="relative w-[75vw] h-[75vh] bg-white rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-3 border-b bg-gradient-to-r from-blue-900 to-blue-700">
+                  <h3 className="text-white font-semibold text-base">{iconPopup.title}</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => window.open(iconPopup.url, '_blank')}
+                      className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"
+                      title="Yeni sekmede aç"
+                    >
+                      <ExternalLink className="w-4 h-4 text-white" />
+                    </button>
+                    <button
+                      onClick={() => setIconPopup(null)}
+                      className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"
+                    >
+                      <X className="w-5 h-5 text-white" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* iFrame Content */}
+                <iframe
+                  src={iconPopup.url}
+                  className="w-full h-[calc(100%-52px)] border-none"
+                  title={iconPopup.title}
+                />
+              </div>
+            </div>
+          , document.body)}
 
           {/* Full-width Duyurular Section */}
           <div className="w-full py-6 mt-24 mb-4">
