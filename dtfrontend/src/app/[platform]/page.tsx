@@ -398,11 +398,26 @@ export default function PlatformHome() {
       }
     }
 
-    setPaginatedData({
-      ...tableVizData,
-      data: filteredData
-    });
-  }, [tableData, selectedTable, filters, sorting]);
+    // Client-side pagination for pre-fetched tables
+    const clientPaginatedTables = ['aselsan-ici', 'aselsan-hatalar', 'alt-yuklenici-hatalar', 'ust-asama'];
+    if (selectedTable && clientPaginatedTables.includes(selectedTable)) {
+      const totalFiltered = filteredData.length;
+      const totalPagesCalc = Math.ceil(totalFiltered / pageSize);
+      setTotalRows(totalFiltered);
+      setTotalPages(totalPagesCalc);
+      const startIdx = (currentPage - 1) * pageSize;
+      const endIdx = startIdx + pageSize;
+      setPaginatedData({
+        ...tableVizData,
+        data: filteredData.slice(startIdx, endIdx)
+      });
+    } else {
+      setPaginatedData({
+        ...tableVizData,
+        data: filteredData
+      });
+    }
+  }, [tableData, selectedTable, filters, sorting, currentPage, pageSize]);
 
   // Handle search for Seyir platform
   const handleSearch = async () => {
@@ -532,32 +547,67 @@ export default function PlatformHome() {
             return;
           }
 
-          // Her bir COOIS kaydı için ZASELPP0052-SYNC'den ek verileri al
-          const mergedResults = await Promise.all(
-            cooisData.map(async (cooisItem: any) => {
+          // COOIS verilerini Üretim Yeri'ne göre grupla
+          const groupedByUretimYeri: Record<string, any[]> = {};
+          cooisData.forEach((item: any) => {
+            const uy = String(item['Üretim yeri'] || '');
+            if (!groupedByUretimYeri[uy]) groupedByUretimYeri[uy] = [];
+            groupedByUretimYeri[uy].push(item);
+          });
+
+          // Her grup için ZASELPP0052'ye toplu sipariş numaraları gönder
+          const zaselppResults = await Promise.all(
+            Object.entries(groupedByUretimYeri).map(async ([uy, items]) => {
               try {
+                const siparisNolar = items.map((item: any) => String(item['Sipariş']));
                 const zaselppData = await api.post<any[]>('/sap_seyir/zaselpp0052-sync', {
-                  siparis_no: cooisItem['Sipariş'],
-                  uretim_yeri: cooisItem['Üretim yeri']
+                  siparis_no: siparisNolar,
+                  uretim_yeri: uy
                 }, undefined, { useCache: false });
-
-                const matchingZaselpp = Array.isArray(zaselppData) && zaselppData.length > 0
-                  ? zaselppData[0]
-                  : null;
-
-                return {
-                  ...cooisItem,
-                  'İşlem kısa metni': matchingZaselpp?.['İşlem kısa metni'] || '-'
-                };
+                return { uretimYeri: uy, data: Array.isArray(zaselppData) ? zaselppData : [] };
               } catch (error) {
                 console.error('ZASELPP0052-SYNC hatası:', error);
-                return {
-                  ...cooisItem,
-                  'İşlem kısa metni': '-'
-                };
+                return { uretimYeri: uy, data: [] };
               }
             })
           );
+
+          // DEBUG: ZASELPP0052 ham sonuçları
+          console.log('=== ZASELPP0052 DEBUG ===');
+          zaselppResults.forEach(({ uretimYeri, data }) => {
+            console.log(`Üretim Yeri: ${uretimYeri}, Dönen kayıt sayısı: ${data.length}`);
+            data.forEach((item: any) => {
+              console.log('  ZASELPP0052 item keys:', Object.keys(item));
+              console.log('  ZASELPP0052 item:', JSON.stringify(item).substring(0, 500));
+            });
+          });
+
+          // DEBUG: COOIS Sipariş değerleri
+          console.log('COOIS Sipariş değerleri:', cooisData.map((c: any) => String(c['Sipariş'])));
+
+          // ZASELPP0052 sonuçlarını Sipariş bazlı map'e dönüştür
+          const zaselppMap: Record<string, string> = {};
+          zaselppResults.forEach(({ data }) => {
+            data.forEach((item: any) => {
+              const siparis = String(item['Sipariş'] || '');
+              if (siparis) {
+                zaselppMap[siparis] = item['İşlem kısa metni'] || '-';
+              }
+            });
+          });
+
+          console.log('zaselppMap:', zaselppMap);
+
+          // COOIS kayıtlarına İşlem kısa metni ekle
+          const mergedResults = cooisData.map((cooisItem: any) => {
+            const cooisSiparis = String(cooisItem['Sipariş']);
+            const eslesme = zaselppMap[cooisSiparis];
+            console.log(`Sipariş: "${cooisSiparis}" → Eşleşme: "${eslesme || 'YOK'}"`);
+            return {
+              ...cooisItem,
+              'İşlem kısa metni': eslesme || '-'
+            };
+          });
 
           // COOIS'ten ilk kaydın üretim yerini al (Üst Aşama için kullanılacak)
           const uretimYeri = cooisData[0]?.['Üretim yeri'] || '';
@@ -577,7 +627,7 @@ export default function PlatformHome() {
               // Önce ZASCS15'den ÜstMalzeme listesini al
               const zascs15Data = await api.post<any[]>('/sap_seyir/zascs15-sync', {
                 stok_no: searchValue.trim(),
-                uretim_yeri: uretimYeri
+                uretim_yeri: String(uretimYeri)
               }, undefined, { useCache: false });
 
               if (Array.isArray(zascs15Data) && zascs15Data.length > 0) {
@@ -591,8 +641,8 @@ export default function PlatformHome() {
                 if (ustMalzemeler.length > 0) {
                   // ZASELPP0045'den doküman bilgilerini al
                   const ustAsamaData = await api.post<any[]>('/sap_seyir/zaselpp0045-sync', {
-                    ust_malzemeler: ustMalzemeler,
-                    uretim_yeri: uretimYeri
+                    ust_malzemeler: ustMalzemeler.map((m: string) => String(m)),
+                    uretim_yeri: String(uretimYeri)
                   }, undefined, { useCache: false });
 
                   setTableData((prev: any) => prev ? {
@@ -649,32 +699,28 @@ export default function PlatformHome() {
         }
       })();
 
-      // 6. Test Verisi (Deriniz) - Database sorgusu
+      // 6. Test Verisi (Deriniz) - Sadece COUNT
       reportsService.previewQuery({
-        sql_query: `SELECT "ID", "STOK KODU", "NAME" || ' ' || "SURNAME" as "TALEP_SAHIBI", "PYP", "PROJE TANIMI", "DATE" FROM mes_production.a_mom_kalifikasyon WHERE UPPER("STOK KODU") = UPPER('${searchValue.trim()}')`,
-        limit: 1000
+        sql_query: `SELECT COUNT(*) as total FROM mes_production.a_mom_kalifikasyon WHERE UPPER("STOK KODU") = UPPER('${searchValue.trim()}')`,
+        limit: 1
       }).then(result => {
-        const data = result.data || [];
         setTableData((prev: any) => prev ? {
           ...prev,
-          deriniz: data,
-          derinizTotalCount: data.length,
+          derinizTotalCount: result.data?.[0]?.[0] || 0,
           derinizLoading: false
         } : null);
       }).catch(() => {
         setTableData((prev: any) => prev ? { ...prev, derinizLoading: false } : null);
       });
 
-      // 7. Prototip ve Tasarım - Database sorgusu
+      // 7. Prototip ve Tasarım - Sadece COUNT
       reportsService.previewQuery({
-        sql_query: `SELECT "ID", "STOK KODU", "NAME", "NAME.1" || ' ' || "SURNAME" as "TALEP_SAHIBI", "PYP", "PROJE TANIMI", "DATE", "SÜREÇ ADI", "STATUS" FROM mes_production.a_mom_tasarim WHERE UPPER("STOK KODU") = UPPER('${searchValue.trim()}')`,
-        limit: 1000
+        sql_query: `SELECT COUNT(*) as total FROM mes_production.a_mom_tasarim WHERE UPPER("STOK KODU") = UPPER('${searchValue.trim()}')`,
+        limit: 1
       }).then(result => {
-        const data = result.data || [];
         setTableData((prev: any) => prev ? {
           ...prev,
-          prototipTasarim: data,
-          prototipTasarimTotalCount: data.length,
+          prototipTasarimTotalCount: result.data?.[0]?.[0] || 0,
           prototipTasarimLoading: false
         } : null);
       }).catch(() => {
@@ -745,20 +791,16 @@ export default function PlatformHome() {
           setIsLoadingPage(false);
           return;
         }
-        case 'deriniz': {
-          const totalDeriniz = tableData?.derinizTotalCount || 0;
-          setTotalRows(totalDeriniz);
-          setTotalPages(Math.ceil(totalDeriniz / size));
-          setIsLoadingPage(false);
-          return;
-        }
-        case 'prototip-ahtapot': {
-          const totalProto = tableData?.prototipTasarimTotalCount || 0;
-          setTotalRows(totalProto);
-          setTotalPages(Math.ceil(totalProto / size));
-          setIsLoadingPage(false);
-          return;
-        }
+        case 'deriniz':
+          query = `SELECT "ID", "STOK KODU", "NAME" || ' ' || "SURNAME" as "TALEP_SAHIBI", "PYP", "PROJE TANIMI", "DATE" FROM mes_production.a_mom_kalifikasyon WHERE UPPER("STOK KODU") = UPPER('${searchedPartNumber.trim()}') LIMIT ${size} OFFSET ${offset}`;
+          dataKey = 'deriniz';
+          totalCountKey = 'derinizTotalCount';
+          break;
+        case 'prototip-ahtapot':
+          query = `SELECT "ID", "STOK KODU", "NAME", "NAME.1" || ' ' || "SURNAME" as "TALEP_SAHIBI", "CODE", "NAME.2", "DATE", "SÜREÇ ADI", "STATUS" FROM mes_production.a_mom_tasarim WHERE UPPER("STOK KODU") = UPPER('${searchedPartNumber.trim()}') LIMIT ${size} OFFSET ${offset}`;
+          dataKey = 'prototipTasarim';
+          totalCountKey = 'prototipTasarimTotalCount';
+          break;
         default:
           setIsLoadingPage(false);
           return;
@@ -1227,7 +1269,7 @@ export default function PlatformHome() {
               {/* Icon 1 - Genel Süreçler */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => { const w = Math.round(screen.width * 0.9); const l = Math.round(screen.width * 0.05); window.open('/', 'popup', `width=${w},height=600,left=${l},top=150,resizable=yes,scrollbars=yes`); }}
+                onClick={() => { const w = Math.round(screen.width * 0.9); const h = Math.round(screen.height * 0.9); const l = Math.round((screen.width - w) / 2); const t = Math.round((screen.height - h) / 2); window.open('/', 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`); }}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -1245,7 +1287,7 @@ export default function PlatformHome() {
               {/* Icon 2 - Kalifikasyon Süreçleri */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => { const w = Math.round(screen.width * 0.9); const l = Math.round(screen.width * 0.05); window.open('/', 'popup', `width=${w},height=600,left=${l},top=150,resizable=yes,scrollbars=yes`); }}
+                onClick={() => { const w = Math.round(screen.width * 0.9); const h = Math.round(screen.height * 0.9); const l = Math.round((screen.width - w) / 2); const t = Math.round((screen.height - h) / 2); window.open('/', 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`); }}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -1263,7 +1305,7 @@ export default function PlatformHome() {
               {/* Icon 3 - Prototip Süreçleri */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => { const w = Math.round(screen.width * 0.9); const l = Math.round(screen.width * 0.05); window.open('/', 'popup', `width=${w},height=600,left=${l},top=150,resizable=yes,scrollbars=yes`); }}
+                onClick={() => { const w = Math.round(screen.width * 0.9); const h = Math.round(screen.height * 0.9); const l = Math.round((screen.width - w) / 2); const t = Math.round((screen.height - h) / 2); window.open('/', 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`); }}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -1281,7 +1323,7 @@ export default function PlatformHome() {
               {/* Icon 4 - Tasarım Süreçleri */}
               <div
                 className="flex flex-col items-center cursor-pointer group"
-                onClick={() => { const w = Math.round(screen.width * 0.9); const l = Math.round(screen.width * 0.05); window.open('/', 'popup', `width=${w},height=600,left=${l},top=150,resizable=yes,scrollbars=yes`); }}
+                onClick={() => { const w = Math.round(screen.width * 0.9); const h = Math.round(screen.height * 0.9); const l = Math.round((screen.width - w) / 2); const t = Math.round((screen.height - h) / 2); window.open('/', 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`); }}
               >
                 <div className="relative group-hover:scale-110 transition-all duration-300">
                   <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
@@ -1471,7 +1513,7 @@ export default function PlatformHome() {
                     </div>
                   ) : tableData.derinizLoading ? (
                     <div className="flex flex-col items-center gap-2">
-                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
+                      <div className="w-8 h-8 border-3 border-red-700 border-t-transparent rounded-full animate-spin"></div>
                       <span className="text-xs text-gray-500">Yükleniyor...</span>
                     </div>
                   ) : tableData.derinizTotalCount === 0 ? (
@@ -1480,7 +1522,7 @@ export default function PlatformHome() {
                     </div>
                   ) : (
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                      <div className="text-2xl font-bold text-red-700 mb-1">
                         <span>{tableData.derinizTotalCount}</span>
                       </div>
                     </div>
@@ -1504,7 +1546,7 @@ export default function PlatformHome() {
                     </div>
                   ) : tableData.prototipTasarimLoading ? (
                     <div className="flex flex-col items-center gap-2">
-                      <div className="w-8 h-8 border-3 border-cyan-600 border-t-transparent rounded-full animate-spin"></div>
+                      <div className="w-8 h-8 border-3 border-red-700 border-t-transparent rounded-full animate-spin"></div>
                       <span className="text-xs text-gray-500">Yükleniyor...</span>
                     </div>
                   ) : tableData.prototipTasarimTotalCount === 0 ? (
@@ -1513,7 +1555,7 @@ export default function PlatformHome() {
                     </div>
                   ) : (
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-cyan-600 mb-1">
+                      <div className="text-2xl font-bold text-red-700 mb-1">
                         <span>{tableData.prototipTasarimTotalCount}</span>
                       </div>
                     </div>
@@ -1655,7 +1697,7 @@ export default function PlatformHome() {
                 }}
               >
                 {/* Modal Header - Clean Design */}
-                <div className="relative px-6 py-3 overflow-hidden flex-shrink-0 border-b border-white/10" style={{ backgroundColor: 'rgb(30, 64, 175)' }}>
+                <div className="relative px-6 py-3 overflow-hidden flex-shrink-0 border-b border-white/10" style={{ backgroundColor: selectedTable === 'deriniz' || selectedTable === 'prototip-ahtapot' ? 'rgb(185, 28, 28)' : 'rgb(30, 64, 175)' }}>
                   <div className="relative flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
