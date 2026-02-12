@@ -685,7 +685,7 @@ export default function AtolyePage() {
     aselsan_order_number: "",
     order_item_number: "",
     quantity: 0,
-    package_quantity: 0,
+    package_quantity: 1,
     target_date: "",
   });
   const [generatedBatch, setGeneratedBatch] = useState<BatchQRResponse | null>(null);
@@ -699,11 +699,7 @@ export default function AtolyePage() {
       return;
     }
     if (barcodeFormData.package_quantity <= 0) {
-      setError("Paket başı parça sayısı 0'dan büyük olmalıdır");
-      return;
-    }
-    if (barcodeFormData.package_quantity > barcodeFormData.quantity) {
-      setError("Paket başı parça sayısı toplam parça sayısından büyük olamaz");
+      setError("Paket sayısı 0'dan büyük olmalıdır");
       return;
     }
 
@@ -785,7 +781,7 @@ export default function AtolyePage() {
   };
 
   // Build the print HTML for one package card (QR on top, info table below)
-  const buildPackageCardHtml = (imageData: string, pkg: PackageInfo, qrSize: number) => `
+  const buildPackageCardHtml = (imageData: string, pkg: PackageInfo, qrSize: number, totalQuantity: number, totalPackages: number) => `
     <div class="package-card">
       <div style="text-align: center; margin-bottom: 16px;">
         <img src="${imageData}" alt="QR Code" style="width: ${qrSize}px; height: ${qrSize}px;" />
@@ -795,9 +791,9 @@ export default function AtolyePage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600; width: 45%;">Ana Müşteri</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.main_customer}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.sector}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.company_from}</td></tr>
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.aselsan_order_number}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${totalPackages > 1 ? barcodeFormData.aselsan_order_number + '_' + pkg.package_index : barcodeFormData.aselsan_order_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Kalem Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.order_item_number}</td></tr>
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Parça Sayısı</td><td style="border: 1px solid #d1d5db; padding: 6px;">${pkg.quantity}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Parça Sayısı</td><td style="border: 1px solid #d1d5db; padding: 6px;">${pkg.quantity}/${totalQuantity}</td></tr>
           ${barcodeFormData.target_date ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Bitiş Tarihi</td><td style="border: 1px solid #d1d5db; padding: 6px;">${new Date(barcodeFormData.target_date).toLocaleDateString("tr-TR")}</td></tr>` : ''}
         </tbody>
       </table>
@@ -845,7 +841,7 @@ export default function AtolyePage() {
             <style>${printPageStyles}</style>
           </head>
           <body>
-            ${buildPackageCardHtml(imageData, pkg, qrSize)}
+            ${buildPackageCardHtml(imageData, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)}
           </body>
         </html>
       `);
@@ -870,7 +866,7 @@ export default function AtolyePage() {
       if (!printWindow) return;
 
       const packagesHtml = results.map(({ imageData, pkg }) =>
-        buildPackageCardHtml(imageData, pkg, qrSize)
+        buildPackageCardHtml(imageData, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)
       ).join('');
 
       printWindow.document.write(`
@@ -1199,7 +1195,7 @@ export default function AtolyePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Paket Başı Parça Sayısı *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Paket Sayısı *</label>
                   <input
                     type="number"
                     min="1"
@@ -1208,14 +1204,9 @@ export default function AtolyePage() {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                     required
                   />
-                  {barcodeFormData.quantity > 0 && barcodeFormData.package_quantity > 0 && barcodeFormData.package_quantity <= barcodeFormData.quantity && (
+                  {barcodeFormData.quantity > 0 && barcodeFormData.package_quantity > 0 && (
                     <p className="mt-1 text-xs text-gray-500">
-                      {Math.ceil(barcodeFormData.quantity / barcodeFormData.package_quantity)} adet QR kod oluşturulacak
-                      {barcodeFormData.quantity % barcodeFormData.package_quantity !== 0 && (
-                        <span>
-                          {" "}({Math.floor(barcodeFormData.quantity / barcodeFormData.package_quantity)} x {barcodeFormData.package_quantity} + 1 x {barcodeFormData.quantity % barcodeFormData.package_quantity})
-                        </span>
-                      )}
+                      {barcodeFormData.package_quantity} adet QR kod oluşturulacak
                     </p>
                   )}
                 </div>
@@ -1323,7 +1314,11 @@ export default function AtolyePage() {
                             </tr>
                             <tr className="border-b border-gray-200">
                               <td className="py-2 px-3 font-semibold text-gray-700">Sipariş Numarası</td>
-                              <td className="py-2 px-3 text-gray-900">{barcodeFormData.aselsan_order_number}</td>
+                              <td className="py-2 px-3 text-gray-900">
+                                {generatedBatch && generatedBatch.total_packages > 1
+                                  ? `${barcodeFormData.aselsan_order_number}_${pkg.package_index}`
+                                  : barcodeFormData.aselsan_order_number}
+                              </td>
                             </tr>
                             <tr className="border-b border-gray-200">
                               <td className="py-2 px-3 font-semibold text-gray-700">Sipariş Kalem Numarası</td>
@@ -1331,7 +1326,7 @@ export default function AtolyePage() {
                             </tr>
                             <tr className="border-b border-gray-200">
                               <td className="py-2 px-3 font-semibold text-gray-700">Parça Sayısı</td>
-                              <td className="py-2 px-3 text-gray-900">{pkg.quantity}</td>
+                              <td className="py-2 px-3 text-gray-900">{pkg.quantity}/{generatedBatch?.total_quantity ?? barcodeFormData.quantity}</td>
                             </tr>
                             {barcodeFormData.target_date && (
                               <tr className="border-b border-gray-200">
@@ -1430,7 +1425,7 @@ export default function AtolyePage() {
                         className={`h-2 flex-1 rounded-full ${
                           pkg ? (mode === "exit" ? 'bg-red-500' : 'bg-[#008080]') : 'bg-gray-300'
                         }`}
-                        title={pkg ? `Paket ${i + 1}: ${pkg.quantity} parça` : `Paket ${i + 1}: Bekleniyor`}
+                        title={pkg ? `Paket ${i + 1}: ${pkg.quantity}/${firstOrder.total_quantity} parça` : `Paket ${i + 1}: Bekleniyor`}
                       />
                     );
                   })}
@@ -1454,15 +1449,6 @@ export default function AtolyePage() {
           <h1 className="text-3xl font-bold text-gray-900">
             Atölye İşlemleri
           </h1>
-          <a
-            href={`${window.location.pathname}/work-orders`}
-            className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-lg font-medium transition-colors flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            İş Emri Detayları
-          </a>
         </div>
 
         {/* Mode Selection Buttons */}

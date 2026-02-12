@@ -31,7 +31,7 @@ class QRCodeBatchCreate(BaseModel):
     aselsan_order_number: str = Field(..., description="Sipariş Numarası")
     order_item_number: str = Field(..., description="Sipariş Kalem Numarası")
     quantity: int = Field(..., gt=0, description="Toplam Parça sayısı")
-    package_quantity: int = Field(..., gt=0, description="Paket Başı Parça Sayısı")
+    package_quantity: int = Field(1, gt=0, description="Paket Sayısı")
     target_date: date | None = Field(None, description="Hedef Bitiş Tarihi")
 
 
