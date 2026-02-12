@@ -470,14 +470,14 @@ export default function PlatformHome() {
           } else {
             // Malzeme bulunamadı, Kısa Metin içinde ara
             const fallbackTotalResult = await reportsService.previewQuery({
-              sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNoUpper}%'`,
+              sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNoUpper}%' AND ("Malzeme" IS NULL OR "Malzeme" = '')`,
               limit: 1
             });
             const fallbackTotal = fallbackTotalResult.data?.[0]?.[0] || 0;
             setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: fallbackTotal, altYukleniciFallback: true } : null);
             // Filtered count (fallback)
             const fallbackFilteredResult = await reportsService.previewQuery({
-              sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNoUpper}%' AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
+              sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNoUpper}%' AND ("Malzeme" IS NULL OR "Malzeme" = '') AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
               limit: 1
             });
             setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: fallbackFilteredResult.data?.[0]?.[0] || 0 } : null);
@@ -780,7 +780,7 @@ export default function PlatformHome() {
           const isFallback = tableData?.altYukleniciFallback;
           const pnUpper = searchedPartNumber.trim().toLocaleUpperCase('tr-TR');
           if (isFallback) {
-            query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", '${pnUpper}' as "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${pnUpper}%' LIMIT ${size} OFFSET ${offset}`;
+            query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", '${pnUpper}' as "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${pnUpper}%' AND ("Malzeme" IS NULL OR "Malzeme" = '') LIMIT ${size} OFFSET ${offset}`;
           } else {
             query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" = '${pnUpper}' LIMIT ${size} OFFSET ${offset}`;
           }
