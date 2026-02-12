@@ -429,7 +429,7 @@ export default function PlatformHome() {
 
       // Başlangıç state'i - tüm değerler boş/0
       const initialTableData = {
-        altYuklenici: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0,
+        altYuklenici: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0, altYukleniciFallback: false,
         aselsanIci: [], aselsanIciTotalCount: 0, aselsanIciLoading: true,
         aselsanHatalar: [], aselsanHatalarTotalCount: 0, aselsanHatalarLoading: true,
         prototipTasarim: [], prototipTasarimTotalCount: 0, prototipTasarimLoading: true,
@@ -445,36 +445,60 @@ export default function PlatformHome() {
       // ==================== PARALEL AMA BAĞIMSIZ SORGULAR ====================
       // Her sorgu bittiğinde hemen state güncellenir
 
-      // 1. Alt Yüklenici Total Count
-      reportsService.previewQuery({
-        sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${searchValue.trim()}')`,
-        limit: 1
-      }).then(result => {
-        setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: result.data?.[0]?.[0] || 0 } : null);
-      }).catch(() => { });
+      // Türkçe locale ile uppercase (i→İ, ı→I doğru çalışır)
+      const partNoUpper = searchValue.trim().toLocaleUpperCase('tr-TR');
 
-      // 2. Alt Yüklenici Filtered Count
-      reportsService.previewQuery({
-        sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${searchValue.trim()}') AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
-        limit: 1
-      }).then(result => {
-        setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: result.data?.[0]?.[0] || 0 } : null);
-      }).catch(() => { });
+      // 1 & 2. Alt Yüklenici Total Count + Filtered Count (Malzeme exact match, fallback: Kısa Metin contain)
+      (async () => {
+        try {
+          // Önce Malzeme ile ara
+          const totalResult = await reportsService.previewQuery({
+            sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" = '${partNoUpper}'`,
+            limit: 1
+          });
+          const totalCount = totalResult.data?.[0]?.[0] || 0;
+
+          if (totalCount > 0) {
+            // Malzeme eşleşmesi bulundu
+            setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: totalCount, altYukleniciFallback: false } : null);
+            // Filtered count
+            const filteredResult = await reportsService.previewQuery({
+              sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" = '${partNoUpper}' AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
+              limit: 1
+            });
+            setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: filteredResult.data?.[0]?.[0] || 0 } : null);
+          } else {
+            // Malzeme bulunamadı, Kısa Metin içinde ara
+            const fallbackTotalResult = await reportsService.previewQuery({
+              sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNoUpper}%'`,
+              limit: 1
+            });
+            const fallbackTotal = fallbackTotalResult.data?.[0]?.[0] || 0;
+            setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: fallbackTotal, altYukleniciFallback: true } : null);
+            // Filtered count (fallback)
+            const fallbackFilteredResult = await reportsService.previewQuery({
+              sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNoUpper}%' AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
+              limit: 1
+            });
+            setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: fallbackFilteredResult.data?.[0]?.[0] || 0 } : null);
+          }
+        } catch (error) {
+          console.error('Alt Yüklenici count hatası:', error);
+        }
+      })();
 
       // 3. Alt Yüklenici Hatalar - MES (database) + SAP (zbildsorgu-sync Z5) birleşimi
       (async () => {
         try {
-          const partNo = searchValue.trim();
-
           // Paralel olarak MES ve SAP verilerini çek
           const [mesResult, sapResponse] = await Promise.all([
             // MES verileri (database)
             reportsService.previewQuery({
-              sql_query: `SELECT "IS_EMRI_NO", "PRODUCT_CODE", "FIRMA", "OPERATION_DESC" FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE UPPER("PRODUCT_CODE") = UPPER('${partNo}')`,
+              sql_query: `SELECT "IS_EMRI_NO", "PRODUCT_CODE", "FIRMA", "OPERATION_DESC" FROM mes_production.seyir_alt_yuklenici_mesuretim_hatakayitlari WHERE "PRODUCT_CODE" = '${partNoUpper}'`,
               limit: 1000
             }),
             // SAP verileri (zbildsorgu-sync)
-            api.post('/sap_seyir/zbildsorgu-sync', { stok_no: partNo }, undefined, { useCache: false })
+            api.post('/sap_seyir/zbildsorgu-sync', { stok_no: partNoUpper }, undefined, { useCache: false })
           ]);
 
           // MES verilerini formatla
@@ -484,7 +508,7 @@ export default function PlatformHome() {
             bildirimNo: '-',
             bildirimTarihi: '-',
             isEmriNo: row[0] || '-',
-            malzeme: partNo,
+            malzeme: partNoUpper,
             firma: row[2] || '-',
             operasyonTanimi: row[3] || '-'
           }));
@@ -533,7 +557,7 @@ export default function PlatformHome() {
       (async () => {
         try {
           // Önce COOIS-SYNC'den verileri al
-          const cooisData = await api.post<any[]>('/sap_seyir/coois-sync', { stok_no: searchValue.trim() }, undefined, { useCache: false });
+          const cooisData = await api.post<any[]>('/sap_seyir/coois-sync', { stok_no: partNoUpper }, undefined, { useCache: false });
 
           if (!Array.isArray(cooisData) || cooisData.length === 0) {
             setTableData((prev: any) => prev ? {
@@ -626,7 +650,7 @@ export default function PlatformHome() {
             try {
               // Önce ZASCS15'den ÜstMalzeme listesini al
               const zascs15Data = await api.post<any[]>('/sap_seyir/zascs15-sync', {
-                stok_no: searchValue.trim(),
+                stok_no: partNoUpper,
                 uretim_yeri: String(uretimYeri)
               }, undefined, { useCache: false });
 
@@ -674,7 +698,7 @@ export default function PlatformHome() {
       // 5. Aselsan Açık Hata - ZBILDSORGU-SYNC entegrasyonu
       (async () => {
         try {
-          const zbildData = await api.post<any[]>('/sap_seyir/zbildsorgu-sync', { stok_no: searchValue.trim() }, undefined, { useCache: false });
+          const zbildData = await api.post<any[]>('/sap_seyir/zbildsorgu-sync', { stok_no: partNoUpper }, undefined, { useCache: false });
 
           if (!Array.isArray(zbildData)) {
             setTableData((prev: any) => prev ? {
@@ -701,7 +725,7 @@ export default function PlatformHome() {
 
       // 6. Test Verisi (Deriniz) - Sadece COUNT
       reportsService.previewQuery({
-        sql_query: `SELECT COUNT(*) as total FROM mes_production.a_mom_kalifikasyon WHERE UPPER("STOK KODU") = UPPER('${searchValue.trim()}')`,
+        sql_query: `SELECT COUNT(*) as total FROM mes_production.a_mom_kalifikasyon WHERE "STOK KODU" = '${partNoUpper}'`,
         limit: 1
       }).then(result => {
         setTableData((prev: any) => prev ? {
@@ -715,7 +739,7 @@ export default function PlatformHome() {
 
       // 7. Prototip ve Tasarım - Sadece COUNT
       reportsService.previewQuery({
-        sql_query: `SELECT COUNT(*) as total FROM mes_production.a_mom_tasarim WHERE UPPER("STOK KODU") = UPPER('${searchValue.trim()}')`,
+        sql_query: `SELECT COUNT(*) as total FROM mes_production.a_mom_tasarim WHERE "STOK KODU" = '${partNoUpper}'`,
         limit: 1
       }).then(result => {
         setTableData((prev: any) => prev ? {
@@ -752,11 +776,18 @@ export default function PlatformHome() {
       let totalCountKey = '';
 
       switch (tableName) {
-        case 'alt-yuklenici':
-          query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${searchedPartNumber.trim()}') LIMIT ${size} OFFSET ${offset}`;
+        case 'alt-yuklenici': {
+          const isFallback = tableData?.altYukleniciFallback;
+          const pnUpper = searchedPartNumber.trim().toLocaleUpperCase('tr-TR');
+          if (isFallback) {
+            query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", '${pnUpper}' as "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${pnUpper}%' LIMIT ${size} OFFSET ${offset}`;
+          } else {
+            query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" = '${pnUpper}' LIMIT ${size} OFFSET ${offset}`;
+          }
           dataKey = 'altYuklenici';
           totalCountKey = 'altYukleniciTotalCount';
           break;
+        }
         case 'alt-yuklenici-hatalar': {
           // Alt Yüklenici Hatalar için veri zaten handleSearch'de çekildi (MES + SAP birleşimi)
           // Sadece pagination değerlerini güncelle
@@ -792,12 +823,12 @@ export default function PlatformHome() {
           return;
         }
         case 'deriniz':
-          query = `SELECT "ID", "STOK KODU", "NAME" || ' ' || "SURNAME" as "TALEP_SAHIBI", "PYP", "PROJE TANIMI", "DATE" FROM mes_production.a_mom_kalifikasyon WHERE UPPER("STOK KODU") = UPPER('${searchedPartNumber.trim()}') LIMIT ${size} OFFSET ${offset}`;
+          query = `SELECT "ID", "STOK KODU", "NAME" || ' ' || "SURNAME" as "TALEP_SAHIBI", "PYP", "PROJE TANIMI", "DATE" FROM mes_production.a_mom_kalifikasyon WHERE "STOK KODU" = '${searchedPartNumber.trim().toLocaleUpperCase('tr-TR')}' LIMIT ${size} OFFSET ${offset}`;
           dataKey = 'deriniz';
           totalCountKey = 'derinizTotalCount';
           break;
         case 'prototip-ahtapot':
-          query = `SELECT "ID", "STOK KODU", "NAME", "NAME.1" || ' ' || "SURNAME" as "TALEP_SAHIBI", "CODE", "NAME.2", "DATE", "SÜREÇ ADI", "STATUS" FROM mes_production.a_mom_tasarim WHERE UPPER("STOK KODU") = UPPER('${searchedPartNumber.trim()}') LIMIT ${size} OFFSET ${offset}`;
+          query = `SELECT "ID", "STOK KODU", "NAME", "NAME.1" || ' ' || "SURNAME" as "TALEP_SAHIBI", "CODE", "NAME.2", "DATE", "SÜREÇ ADI", "STATUS" FROM mes_production.a_mom_tasarim WHERE "STOK KODU" = '${searchedPartNumber.trim().toLocaleUpperCase('tr-TR')}' LIMIT ${size} OFFSET ${offset}`;
           dataKey = 'prototipTasarim';
           totalCountKey = 'prototipTasarimTotalCount';
           break;
