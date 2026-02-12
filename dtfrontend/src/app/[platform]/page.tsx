@@ -429,7 +429,7 @@ export default function PlatformHome() {
 
       // Başlangıç state'i - tüm değerler boş/0
       const initialTableData = {
-        altYuklenici: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0,
+        altYuklenici: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0, altYukleniciFallback: false,
         aselsanIci: [], aselsanIciTotalCount: 0, aselsanIciLoading: true,
         aselsanHatalar: [], aselsanHatalarTotalCount: 0, aselsanHatalarLoading: true,
         prototipTasarim: [], prototipTasarimTotalCount: 0, prototipTasarimLoading: true,
@@ -445,21 +445,45 @@ export default function PlatformHome() {
       // ==================== PARALEL AMA BAĞIMSIZ SORGULAR ====================
       // Her sorgu bittiğinde hemen state güncellenir
 
-      // 1. Alt Yüklenici Total Count
-      reportsService.previewQuery({
-        sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${searchValue.trim()}')`,
-        limit: 1
-      }).then(result => {
-        setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: result.data?.[0]?.[0] || 0 } : null);
-      }).catch(() => { });
+      // 1 & 2. Alt Yüklenici Total Count + Filtered Count (Malzeme exact match, fallback: Kısa Metin contain)
+      (async () => {
+        try {
+          const partNo = searchValue.trim();
+          // Önce Malzeme ile ara
+          const totalResult = await reportsService.previewQuery({
+            sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${partNo}')`,
+            limit: 1
+          });
+          const totalCount = totalResult.data?.[0]?.[0] || 0;
 
-      // 2. Alt Yüklenici Filtered Count
-      reportsService.previewQuery({
-        sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${searchValue.trim()}') AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
-        limit: 1
-      }).then(result => {
-        setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: result.data?.[0]?.[0] || 0 } : null);
-      }).catch(() => { });
+          if (totalCount > 0) {
+            // Malzeme eşleşmesi bulundu
+            setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: totalCount, altYukleniciFallback: false } : null);
+            // Filtered count
+            const filteredResult = await reportsService.previewQuery({
+              sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${partNo}') AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
+              limit: 1
+            });
+            setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: filteredResult.data?.[0]?.[0] || 0 } : null);
+          } else {
+            // Malzeme bulunamadı, Kısa Metin içinde ara
+            const fallbackTotalResult = await reportsService.previewQuery({
+              sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNo}%'`,
+              limit: 1
+            });
+            const fallbackTotal = fallbackTotalResult.data?.[0]?.[0] || 0;
+            setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: fallbackTotal, altYukleniciFallback: true } : null);
+            // Filtered count (fallback)
+            const fallbackFilteredResult = await reportsService.previewQuery({
+              sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNo}%' AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
+              limit: 1
+            });
+            setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: fallbackFilteredResult.data?.[0]?.[0] || 0 } : null);
+          }
+        } catch (error) {
+          console.error('Alt Yüklenici count hatası:', error);
+        }
+      })();
 
       // 3. Alt Yüklenici Hatalar - MES (database) + SAP (zbildsorgu-sync Z5) birleşimi
       (async () => {
@@ -752,11 +776,17 @@ export default function PlatformHome() {
       let totalCountKey = '';
 
       switch (tableName) {
-        case 'alt-yuklenici':
-          query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${searchedPartNumber.trim()}') LIMIT ${size} OFFSET ${offset}`;
+        case 'alt-yuklenici': {
+          const isFallback = tableData?.altYukleniciFallback;
+          if (isFallback) {
+            query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", '${searchedPartNumber.trim()}' as "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${searchedPartNumber.trim()}%' LIMIT ${size} OFFSET ${offset}`;
+          } else {
+            query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE UPPER("Malzeme") = UPPER('${searchedPartNumber.trim()}') LIMIT ${size} OFFSET ${offset}`;
+          }
           dataKey = 'altYuklenici';
           totalCountKey = 'altYukleniciTotalCount';
           break;
+        }
         case 'alt-yuklenici-hatalar': {
           // Alt Yüklenici Hatalar için veri zaten handleSearch'de çekildi (MES + SAP birleşimi)
           // Sadece pagination değerlerini güncelle
