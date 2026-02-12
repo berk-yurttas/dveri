@@ -145,6 +145,7 @@ export default function PlatformHome() {
   const [iconPopup, setIconPopup] = useState<{ url: string; title: string } | null>(null);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [searchedPartNumber, setSearchedPartNumber] = useState<string | null>(null);
+  const searchedPartNumberRef = useRef<string | null>(null);
   const [tableData, setTableData] = useState<any>(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
@@ -246,7 +247,7 @@ export default function PlatformHome() {
 
       case 'deriniz':
         return {
-          columns: ['Talep Numarası', 'Stok Kodu', 'Talep Sahibi', 'PYP', 'Proje Tanımı', 'Talep Tarihi'],
+          columns: ['Talep Numarası', 'Stok Kodu', 'Talep Sahibi', 'PYP', 'Proje Tanımı', 'Talep Tarihi', 'Statü'],
           data: Array.isArray(tableData.deriniz) ? tableData.deriniz : []
         };
 
@@ -295,7 +296,7 @@ export default function PlatformHome() {
           columns: ['Malzeme', 'Plan Grubu', '0 Dokümanı', '100 Dokümanı', '200 Dokümanı', 'Diğer Dokümanlar', 'KY Dokümanları'],
           data: tableData.ustAsama.map((item: any) => [
             item['Malzeme'] || '-',
-            item['Plan Grubu'] || '-',
+            item['Plan grubu'] || '-',
             item['0 Dokümanı'] || '-',
             item['100 Dokümanı'] || '-',
             item['200 Dokümanı'] || '-',
@@ -426,10 +427,11 @@ export default function PlatformHome() {
       // Set loading state
       setIsLoadingData(true);
       setSearchedPartNumber(searchValue);
+      searchedPartNumberRef.current = searchValue.trim().toLocaleUpperCase('tr-TR');
 
       // Başlangıç state'i - tüm değerler boş/0
       const initialTableData = {
-        altYuklenici: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0, altYukleniciFallback: false,
+        altYuklenici: [], altYukleniciAllData: [], altYukleniciTotalCount: 0, altYukleniciFilteredCount: 0, altYukleniciFallback: false,
         aselsanIci: [], aselsanIciTotalCount: 0, aselsanIciLoading: true,
         aselsanHatalar: [], aselsanHatalarTotalCount: 0, aselsanHatalarLoading: true,
         prototipTasarim: [], prototipTasarimTotalCount: 0, prototipTasarimLoading: true,
@@ -448,42 +450,51 @@ export default function PlatformHome() {
       // Türkçe locale ile uppercase (i→İ, ı→I doğru çalışır)
       const partNoUpper = searchValue.trim().toLocaleUpperCase('tr-TR');
 
-      // 1 & 2. Alt Yüklenici Total Count + Filtered Count (Malzeme exact match, fallback: Kısa Metin contain)
+      // 1 & 2. Alt Yüklenici - Tüm veriyi çek, JS tarafında count hesapla
+      const currentSearchId = partNoUpper; // Race condition koruması
       (async () => {
         try {
-          // Önce Malzeme ile ara
-          const totalResult = await reportsService.previewQuery({
-            sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" = '${partNoUpper}'`,
-            limit: 1
+          // Önce Malzeme exact match ile tüm veriyi çek
+          const selectCols = `"Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi"`;
+          let result = await reportsService.previewQuery({
+            sql_query: `SELECT ${selectCols} FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" = '${partNoUpper}'`,
+            limit: 10000000
           });
-          const totalCount = totalResult.data?.[0]?.[0] || 0;
+          let allRows = result.data || [];
+          let isFallback = false;
 
-          if (totalCount > 0) {
-            // Malzeme eşleşmesi bulundu
-            setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: totalCount, altYukleniciFallback: false } : null);
-            // Filtered count
-            const filteredResult = await reportsService.previewQuery({
-              sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" = '${partNoUpper}' AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
-              limit: 1
+          // Arama değiştiyse sonucu yazma
+          if (searchedPartNumberRef.current !== currentSearchId) return;
+
+          // Malzeme eşleşmesi yoksa Kısa Metin fallback
+          if (allRows.length === 0) {
+            isFallback = true;
+            result = await reportsService.previewQuery({
+              sql_query: `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", '${partNoUpper}' as "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNoUpper}%' AND ("Malzeme" IS NULL OR "Malzeme" = '')`,
+              limit: 10000000
             });
-            setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: filteredResult.data?.[0]?.[0] || 0 } : null);
-          } else {
-            // Malzeme bulunamadı, Kısa Metin içinde ara
-            const fallbackTotalResult = await reportsService.previewQuery({
-              sql_query: `SELECT COUNT(*) as total FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNoUpper}%' AND ("Malzeme" IS NULL OR "Malzeme" = '')`,
-              limit: 1
-            });
-            const fallbackTotal = fallbackTotalResult.data?.[0]?.[0] || 0;
-            setTableData((prev: any) => prev ? { ...prev, altYukleniciTotalCount: fallbackTotal, altYukleniciFallback: true } : null);
-            // Filtered count (fallback)
-            const fallbackFilteredResult = await reportsService.previewQuery({
-              sql_query: `SELECT COUNT(*) as total FROM (SELECT DISTINCT "SAS", "SAS Kalem", "Malzeme" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNoUpper}%' AND ("Malzeme" IS NULL OR "Malzeme" = '') AND "İş Emri Durumu" NOT ILIKE '%MES KAYD% YOKTUR%') as t`,
-              limit: 1
-            });
-            setTableData((prev: any) => prev ? { ...prev, altYukleniciFilteredCount: fallbackFilteredResult.data?.[0]?.[0] || 0 } : null);
+            allRows = result.data || [];
+            if (searchedPartNumberRef.current !== currentSearchId) return;
           }
+
+          // JS tarafında count hesapla
+          const totalCount = allRows.length;
+          // İş Emri Durumu index 8 (0-based) - "MES Kaydı Yoktur" içermeyenleri say
+          const filteredCount = allRows.filter((row: any[]) => {
+            const durum = String(row[8] || '');
+            return !durum.toLocaleUpperCase('tr-TR').includes('MES KAYDI YOKTUR');
+          }).length;
+
+          setTableData((prev: any) => prev ? {
+            ...prev,
+            altYukleniciAllData: allRows,
+            altYuklenici: allRows.slice(0, 20), // İlk sayfa (default pageSize)
+            altYukleniciTotalCount: totalCount,
+            altYukleniciFilteredCount: filteredCount,
+            altYukleniciFallback: isFallback
+          } : null);
         } catch (error) {
-          console.error('Alt Yüklenici count hatası:', error);
+          console.error('Alt Yüklenici veri çekme hatası:', error);
         }
       })();
 
@@ -777,16 +788,16 @@ export default function PlatformHome() {
 
       switch (tableName) {
         case 'alt-yuklenici': {
-          const isFallback = tableData?.altYukleniciFallback;
-          const pnUpper = searchedPartNumber.trim().toLocaleUpperCase('tr-TR');
-          if (isFallback) {
-            query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", '${pnUpper}' as "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${pnUpper}%' AND ("Malzeme" IS NULL OR "Malzeme" = '') LIMIT ${size} OFFSET ${offset}`;
-          } else {
-            query = `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" = '${pnUpper}' LIMIT ${size} OFFSET ${offset}`;
-          }
-          dataKey = 'altYuklenici';
-          totalCountKey = 'altYukleniciTotalCount';
-          break;
+          // Veri zaten handleSearch'de çekildi, client-side pagination yap
+          // NOT: tableData.altYuklenici tüm veriyi tutar, burada sadece sayfalama yapıyoruz
+          const allAltYuk = tableData?.altYukleniciAllData || tableData?.altYuklenici || [];
+          const totalAltYuk = allAltYuk.length;
+          const pagedData = allAltYuk.slice(offset, offset + size);
+          setTableData((prev: any) => prev ? { ...prev, altYuklenici: pagedData } : null);
+          setTotalRows(totalAltYuk);
+          setTotalPages(Math.ceil(totalAltYuk / size));
+          setIsLoadingPage(false);
+          return;
         }
         case 'alt-yuklenici-hatalar': {
           // Alt Yüklenici Hatalar için veri zaten handleSearch'de çekildi (MES + SAP birleşimi)
@@ -823,7 +834,7 @@ export default function PlatformHome() {
           return;
         }
         case 'deriniz':
-          query = `SELECT "ID", "STOK KODU", "NAME" || ' ' || "SURNAME" as "TALEP_SAHIBI", "PYP", "PROJE TANIMI", "DATE" FROM mes_production.a_mom_kalifikasyon WHERE "STOK KODU" = '${searchedPartNumber.trim().toLocaleUpperCase('tr-TR')}' LIMIT ${size} OFFSET ${offset}`;
+          query = `SELECT "ID", "STOK KODU", "NAME" || ' ' || "SURNAME" as "TALEP_SAHIBI", "PYP", "PROJE TANIMI", "DATE", "STATUS" FROM mes_production.a_mom_kalifikasyon WHERE "STOK KODU" = '${searchedPartNumber.trim().toLocaleUpperCase('tr-TR')}' LIMIT ${size} OFFSET ${offset}`;
           dataKey = 'deriniz';
           totalCountKey = 'derinizTotalCount';
           break;
@@ -881,10 +892,11 @@ export default function PlatformHome() {
 
     switch (selectedTable) {
       case 'alt-yuklenici':
-        // Database'den gelen array formatı veya dummy data formatı
-        if (Array.isArray(tableData.altYuklenici) && tableData.altYuklenici.length > 0 && Array.isArray(tableData.altYuklenici[0])) {
+        // Tüm veriyi export et (sadece sayfadaki değil)
+        const allAltYukData = tableData.altYukleniciAllData || tableData.altYuklenici || [];
+        if (Array.isArray(allAltYukData) && allAltYukData.length > 0 && Array.isArray(allAltYukData[0])) {
           // Database formatı (array of arrays)
-          exportData = tableData.altYuklenici.map((row: any[]) => ({
+          exportData = allAltYukData.map((row: any[]) => ({
             'Satıcı': row[0] || '-',
             'Satıcı Tanım': row[1] || '-',
             'SAS': row[2] || '-',
@@ -901,7 +913,7 @@ export default function PlatformHome() {
           }));
         } else {
           // Dummy data formatı (object)
-          exportData = tableData.altYuklenici.map((item: any) => ({
+          exportData = allAltYukData.map((item: any) => ({
             'Satıcı': item.satici || '-',
             'Satıcı Tanım': item.saticiTanim || '-',
             'SAS': item.sas || '-',
@@ -966,7 +978,8 @@ export default function PlatformHome() {
             'Talep Sahibi': row[2] || '-',
             'PYP': row[3] || '-',
             'Proje Tanımı': row[4] || '-',
-            'Talep Tarihi': row[5] || '-'
+            'Talep Tarihi': row[5] || '-',
+            'Statü': row[6] || '-'
           }));
         }
         fileName = 'Deriniz_Bilgiler';
@@ -1005,7 +1018,7 @@ export default function PlatformHome() {
       case 'ust-asama':
         exportData = tableData.ustAsama.map((item: any) => ({
           'Malzeme': item['Malzeme'] || '-',
-          'Plan Grubu': item['Plan Grubu'] || '-',
+          'Plan Grubu': item['Plan grubu'] || '-',
           '0 Dokümanı': item['0 Dokümanı'] || '-',
           '100 Dokümanı': item['100 Dokümanı'] || '-',
           '200 Dokümanı': item['200 Dokümanı'] || '-',
