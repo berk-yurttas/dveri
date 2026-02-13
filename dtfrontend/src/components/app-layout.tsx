@@ -180,12 +180,12 @@ function AppLayoutContent({ children }: AppLayoutProps) {
       }
     ];
 
-    // Add atolye-specific navigation items (not for musteri)
+    // Add atolye-specific navigation items (only for yonetici)
     if (isAtolyePage) {
-      const isMusteriRole = user?.role && Array.isArray(user.role) && user.role.some(
-        (role) => typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":musteri")
+      const isYoneticiRole = user?.role && Array.isArray(user.role) && user.role.some(
+        (role) => typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":yonetici")
       );
-      if (!isMusteriRole) {
+      if (isYoneticiRole) {
         baseItems.push(
           {
             title: "İş Emri Detayları",

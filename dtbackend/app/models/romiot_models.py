@@ -40,6 +40,7 @@ class WorkOrder(PostgreSQLBase):
     company_from = Column(String(255), nullable=False)
     aselsan_order_number = Column(String(255), nullable=False)
     order_item_number = Column(String(255), nullable=False)
+    part_number = Column(String(255), nullable=False)  # Parça Numarası
 
     # Quantity fields
     quantity = Column(Integer, nullable=False)          # This package's piece count

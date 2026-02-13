@@ -176,11 +176,12 @@ async def generate_qr_code_batch(
             "company_from": batch_data.company_from,
             "aselsan_order_number": batch_data.aselsan_order_number,
             "order_item_number": batch_data.order_item_number,
+            "part_number": batch_data.part_number,
             "quantity": pkg_qty,
             "total_quantity": total_quantity,
             "package_index": i,
             "total_packages": total_packages,
-            "target_date": batch_data.target_date.isoformat() if batch_data.target_date else None,
+            "target_date": batch_data.target_date.isoformat(),
         }
         
         data_json = json.dumps(qr_data)

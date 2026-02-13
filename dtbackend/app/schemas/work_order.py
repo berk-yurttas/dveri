@@ -15,13 +15,14 @@ class WorkOrderBase(BaseModel):
     main_customer: str = Field(..., description="Ana Müşteri")
     sector: str = Field(..., description="Sektör")
     company_from: str = Field(..., description="Gönderen Firma")
-    aselsan_order_number: str = Field(..., description="Sipariş Numarası")
+    aselsan_order_number: str = Field(..., description="ASELSAN Sipariş Numarası")
     order_item_number: str = Field(..., description="Sipariş Kalem Numarası")
+    part_number: str = Field(..., description="Parça Numarası")
     quantity: int = Field(..., description="Bu paketin parça sayısı")
-    total_quantity: int = Field(..., description="Toplam parça sayısı")
-    package_index: int = Field(..., description="Paket sırası (1-based)")
-    total_packages: int = Field(..., description="Toplam paket sayısı")
-    target_date: date | None = Field(None, description="Hedef Bitiş Tarihi")
+    total_quantity: int = Field(..., description="Toplam sipariş miktarı")
+    package_index: int = Field(..., description="Parti sırası (1-based)")
+    total_packages: int = Field(..., description="Toplam parti sayısı")
+    target_date: date | None = Field(None, description="Hedef Bitirme Tarihi")
 
 
 class WorkOrderCreate(WorkOrderBase):
@@ -74,6 +75,7 @@ class WorkOrderList(BaseModel):
     company_from: str
     aselsan_order_number: str
     order_item_number: str
+    part_number: str
     quantity: int
     total_quantity: int
     package_index: int
@@ -99,6 +101,7 @@ class WorkOrderDetail(BaseModel):
     company_from: str
     aselsan_order_number: str
     order_item_number: str
+    part_number: str
     quantity: int
     total_quantity: int
     package_index: int

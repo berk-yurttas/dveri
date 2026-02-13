@@ -129,6 +129,7 @@ export default function PlatformHome() {
   const [showIotApps, setShowIotApps] = useState(false);
   const [showAllAnnouncementsModal, setShowAllAnnouncementsModal] = useState(false);
   const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
+  const [accessDeniedMessage, setAccessDeniedMessage] = useState("Bu özelliğe erişim yetkiniz bulunmamaktadır.");
   const [expandedFeatures, setExpandedFeatures] = useState<Set<number>>(new Set());
   const [hoveredFeature, setHoveredFeature] = useState<number | null>(null);
   const [showFeatureNavigationModal, setShowFeatureNavigationModal] = useState(false);
@@ -2050,6 +2051,20 @@ export default function PlatformHome() {
                     (role.endsWith(":yonetici") || role.endsWith(":operator") || role.endsWith(":musteri"))
                   );
 
+                // Check if user has ONLY atolye roles (no other roles)
+                const hasOnlyAtolyeRoles = hasAtolyeRole && user?.role && Array.isArray(user.role) &&
+                  user.role.every((role) =>
+                    typeof role !== "string" || role.startsWith("atolye:")
+                  );
+
+                // Restricted feature titles for atolye-only users
+                const restrictedFeatureTitles = ['oee', 'zimmet', 'sıvı çevrim', 'sivi cevrim', 'helicoil'];
+                const featureTitleLower = (feature.title || '').toLowerCase();
+                const isRestrictedFeature = restrictedFeatureTitles.some(t => featureTitleLower.includes(t));
+
+                // Flag: atolye-only user trying to access a restricted feature
+                const isBlockedByAtolyeRole = hasOnlyAtolyeRoles && isRestrictedFeature && platformCode === 'romiot';
+
                 // Check if this is the Atölye Takip Sistemi feature
                 const isAtolyeFeature = feature.title?.toLowerCase().includes('atölye') ||
                   feature.title?.toLowerCase().includes('atolye') ||
@@ -2222,6 +2237,14 @@ export default function PlatformHome() {
                     onMouseLeave={() => setHoveredFeature(null)}
                     onClick={(e) => {
                       if (!checkAccess(feature, user)) {
+                        setAccessDeniedMessage("Bu özelliğe erişim yetkiniz bulunmamaktadır.");
+                        setShowAccessDeniedModal(true);
+                        return;
+                      }
+
+                      // Block atolye-only users from restricted features
+                      if (isBlockedByAtolyeRole) {
+                        setAccessDeniedMessage("Bu sayfa için yetkiniz bulunmamaktadır.");
                         setShowAccessDeniedModal(true);
                         return;
                       }
@@ -2279,6 +2302,13 @@ export default function PlatformHome() {
                     onKeyDown={(e) => {
                       if ((e.key === 'Enter' || e.key === ' ') && (hasSubfeatures || hasUrl)) {
                         e.preventDefault();
+
+                        if (isBlockedByAtolyeRole) {
+                          setAccessDeniedMessage("Bu sayfa için yetkiniz bulunmamaktadır.");
+                          setShowAccessDeniedModal(true);
+                          return;
+                        }
+
                         if (hasSubfeatures) {
                           toggleFeatureExpansion(index);
                         } else if (hasUrl) {
@@ -2345,6 +2375,13 @@ export default function PlatformHome() {
                         return null;
                       }
 
+                      // Check if user has ONLY atolye roles
+                      const hasOnlyAtolyeRoles = user?.role && Array.isArray(user.role) &&
+                        user.role.some((r: any) => typeof r === "string" && r.startsWith("atolye:")) &&
+                        user.role.every((r: any) => typeof r !== "string" || r.startsWith("atolye:"));
+
+                      const restrictedSubfeatureTitles = ['oee', 'zimmet', 'sıvı çevrim', 'sivi cevrim', 'helicoil'];
+
                       return feature.subfeatures.map((subfeature: any, subIndex: number) => {
                         const SubfeatureIcon = iconMap[subfeature.icon] || Activity;
                         const hasSubfeatureUrl = subfeature.url && subfeature.url.trim();
@@ -2353,6 +2390,11 @@ export default function PlatformHome() {
                         if (!canAccessSubfeature) {
                           return null;
                         }
+
+                        // Check if this subfeature is restricted for atolye-only users
+                        const subfeatureTitleLower = (subfeature.title || '').toLowerCase();
+                        const isRestrictedSubfeature = restrictedSubfeatureTitles.some((t: string) => subfeatureTitleLower.includes(t));
+                        const isSubfeatureBlockedByAtolyeRole = hasOnlyAtolyeRoles && isRestrictedSubfeature && platformCode === 'romiot';
 
                         // Make URL relative to platform if needed
                         let subfeatureUrl = subfeature.url;
@@ -2364,6 +2406,13 @@ export default function PlatformHome() {
                           <div
                             key={`${index}-sub-${subIndex}`}
                             onClick={(e) => {
+                              if (isSubfeatureBlockedByAtolyeRole) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setAccessDeniedMessage("Bu sayfa için yetkiniz bulunmamaktadır.");
+                                setShowAccessDeniedModal(true);
+                                return;
+                              }
                               if (hasSubfeatureUrl) {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -2383,6 +2432,11 @@ export default function PlatformHome() {
                             onKeyDown={(e) => {
                               if ((e.key === 'Enter' || e.key === ' ') && hasSubfeatureUrl) {
                                 e.preventDefault();
+                                if (isSubfeatureBlockedByAtolyeRole) {
+                                  setAccessDeniedMessage("Bu sayfa için yetkiniz bulunmamaktadır.");
+                                  setShowAccessDeniedModal(true);
+                                  return;
+                                }
                                 if (subfeatureUrl.startsWith('http')) {
                                   window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
                                 } else {
@@ -2892,14 +2946,14 @@ export default function PlatformHome() {
             <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4">
               <div className="flex items-center gap-3">
                 <Lock className="h-8 w-8 text-white" />
-                <h3 className="text-xl font-bold text-white">Erişim Yetkiniz Bulunamadı</h3>
+                <h3 className="text-xl font-bold text-white">Yetkisiz Erişim</h3>
               </div>
             </div>
 
             {/* Body */}
             <div className="p-6">
               <p className="text-gray-700 text-lg mb-2">
-                Bu özelliğe erişim yetkiniz bulunmamaktadır.
+                {accessDeniedMessage}
               </p>
               <p className="text-gray-600">
                 Erişim izni almak için lütfen sistem yöneticisi ile iletişime geçiniz.

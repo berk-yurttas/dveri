@@ -482,6 +482,36 @@ export default function SubPlatformPage() {
     }
   };
 
+  // Block atolye-only users from accessing restricted subplatform pages
+  const hasOnlyAtolyeRoles = user?.role && Array.isArray(user.role) &&
+    user.role.some((r: any) => typeof r === "string" && r.startsWith("atolye:")) &&
+    user.role.every((r: any) => typeof r !== "string" || r.startsWith("atolye:"));
+
+  const restrictedSubplatforms = ['verimlilik', 'zimmet', 'sivi-cevrim', 'helicoil', 'helicoil-denetim'];
+  // Also check the subplatform display name from platform config
+  const currentSubplatform = platformData?.theme_config?.sub_platforms?.find(
+    (sp: any) => sp.code === subPlatformCode
+  );
+  const subplatformTitle = (currentSubplatform?.title || subPlatformCode || '').toLowerCase();
+  const restrictedTitles = ['oee', 'zimmet', 'sıvı çevrim', 'sivi cevrim', 'helicoil'];
+  const isRestrictedByCode = restrictedSubplatforms.includes(subPlatformCode);
+  const isRestrictedByTitle = restrictedTitles.some(t => subplatformTitle.includes(t));
+
+  if (hasOnlyAtolyeRoles && platformCode === 'romiot' && (isRestrictedByCode || isRestrictedByTitle)) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">
+            Erişim Yetkisi Yok
+          </h1>
+          <p className="text-gray-600">
+            Bu sayfayı görüntüleme yetkisine sahip değilsiniz.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">

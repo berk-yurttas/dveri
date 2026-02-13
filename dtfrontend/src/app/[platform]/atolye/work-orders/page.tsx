@@ -111,7 +111,7 @@ export default function WorkOrdersPage() {
   // Fetch work orders
   useEffect(() => {
     const fetchWorkOrders = async () => {
-      if (!hasAtolyeRole || isMusteri) return;
+      if (!isYonetici) return;
 
       try {
         setLoading(true);
@@ -281,23 +281,8 @@ export default function WorkOrdersPage() {
     return Array.from(stations);
   };
 
-  // Musteri should not see this page
-  if (isMusteri) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">
-            Erişim Yetkisi Yok
-          </h1>
-          <p className="text-gray-600">
-            Bu sayfayı görüntüleme yetkisine sahip değilsiniz.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!hasAtolyeRole) {
+  // Only yonetici can see this page
+  if (!isYonetici) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">

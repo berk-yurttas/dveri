@@ -80,7 +80,7 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
   if (!mainCustomer) errors.push("Ana Müşteri eksik");
   if (!sector) errors.push("Sektör eksik");
   if (!companyFrom) errors.push("Gönderen Firma eksik");
-  if (!aselsanOrderNumber) errors.push("Sipariş Numarası eksik");
+  if (!aselsanOrderNumber) errors.push("ASELSAN Sipariş Numarası eksik");
   if (!orderItemNumber) errors.push("Sipariş Kalem Numarası eksik");
   
   const quantityNum = typeof quantity === 'number' ? quantity : Number(quantity);
@@ -162,6 +162,7 @@ interface BarcodeFormData {
   company_from: string;
   aselsan_order_number: string;
   order_item_number: string;
+  part_number: string;
   quantity: number;
   package_quantity: number;
   target_date: string;
@@ -400,12 +401,13 @@ export default function AtolyePage() {
                   "main_customer": "Ana Müşteri",
                   "sector": "Sektör",
                   "company_from": "Gönderen Firma",
-                  "aselsan_order_number": "Sipariş Numarası",
+                  "aselsan_order_number": "ASELSAN Sipariş Numarası",
                   "order_item_number": "Sipariş Kalem Numarası",
-                  "quantity": "Parça Sayısı",
+                  "part_number": "Parça Numarası",
+                  "quantity": "Toplam Sipariş Miktarı",
                   "station_id": "Atölye ID",
                   "work_order_group_id": "İş Emri Grup ID",
-                  "package_index": "Paket Sırası",
+                  "package_index": "Parti Sırası",
                 };
                 
                 const errorMessages = errorData.detail.map((error: any) => {
@@ -679,27 +681,46 @@ export default function AtolyePage() {
 
   // Musteri UI state
   const [barcodeFormData, setBarcodeFormData] = useState<BarcodeFormData>({
-    main_customer: "",
+    main_customer: "ASELSAN",
     sector: "",
     company_from: "",
     aselsan_order_number: "",
     order_item_number: "",
+    part_number: "",
     quantity: 0,
-    package_quantity: 1,
+    package_quantity: 0,
     target_date: "",
   });
   const [generatedBatch, setGeneratedBatch] = useState<BatchQRResponse | null>(null);
+
+  // Prefill company_from with user's company
+  useEffect(() => {
+    if (userCompany && isMusteri) {
+      setBarcodeFormData(prev => ({ ...prev, company_from: userCompany }));
+    }
+  }, [userCompany, isMusteri]);
   const [selectedPackageIndex, setSelectedPackageIndex] = useState<number>(0);
   const qrCodeRef = useRef<HTMLDivElement | null>(null);
 
   const handleGenerateBarcode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (barcodeFormData.quantity <= 0) {
-      setError("Parça sayısı 0'dan büyük olmalıdır");
+      setError("Toplam sipariş miktarı 0'dan büyük olmalıdır");
       return;
     }
-    if (barcodeFormData.package_quantity <= 0) {
-      setError("Paket sayısı 0'dan büyük olmalıdır");
+    if (!barcodeFormData.target_date) {
+      setError("Hedef Bitirme Tarihi zorunludur");
+      return;
+    }
+
+    // Validate target_date is at least 7 days from today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const minDate = new Date(today);
+    minDate.setDate(minDate.getDate() + 7);
+    const selectedDate = new Date(barcodeFormData.target_date);
+    if (selectedDate < minDate) {
+      setError(`Hedef Bitirme Tarihi en erken ${minDate.toLocaleDateString("tr-TR")} olabilir`);
       return;
     }
 
@@ -707,19 +728,20 @@ export default function AtolyePage() {
       setLoading(true);
       setError(null);
 
+      // Default package_quantity to 1 if not provided or 0
+      const effectivePackageQuantity = barcodeFormData.package_quantity > 0 ? barcodeFormData.package_quantity : 1;
+
       const payload: any = {
         main_customer: barcodeFormData.main_customer,
         sector: barcodeFormData.sector,
         company_from: barcodeFormData.company_from,
         aselsan_order_number: barcodeFormData.aselsan_order_number,
         order_item_number: barcodeFormData.order_item_number,
+        part_number: barcodeFormData.part_number,
         quantity: barcodeFormData.quantity,
-        package_quantity: barcodeFormData.package_quantity,
+        package_quantity: effectivePackageQuantity,
+        target_date: barcodeFormData.target_date,
       };
-
-      if (barcodeFormData.target_date) {
-        payload.target_date = barcodeFormData.target_date;
-      }
 
       const response = await api.post<BatchQRResponse>(
         "/romiot/station/qr-code/generate-batch",
@@ -791,10 +813,11 @@ export default function AtolyePage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600; width: 45%;">Ana Müşteri</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.main_customer}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.sector}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.company_from}</td></tr>
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${totalPackages > 1 ? barcodeFormData.aselsan_order_number + '_' + pkg.package_index : barcodeFormData.aselsan_order_number}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">ASELSAN Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${totalPackages > 1 ? barcodeFormData.aselsan_order_number + '_' + pkg.package_index : barcodeFormData.aselsan_order_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Kalem Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.order_item_number}</td></tr>
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Parça Sayısı</td><td style="border: 1px solid #d1d5db; padding: 6px;">${pkg.quantity}/${totalQuantity}</td></tr>
-          ${barcodeFormData.target_date ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Bitiş Tarihi</td><td style="border: 1px solid #d1d5db; padding: 6px;">${new Date(barcodeFormData.target_date).toLocaleDateString("tr-TR")}</td></tr>` : ''}
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.part_number}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Toplam Sipariş Miktarı</td><td style="border: 1px solid #d1d5db; padding: 6px;">${pkg.quantity}/${totalQuantity}</td></tr>
+          ${barcodeFormData.target_date ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Bitirme Tarihi</td><td style="border: 1px solid #d1d5db; padding: 6px;">${new Date(barcodeFormData.target_date).toLocaleDateString("tr-TR")}</td></tr>` : ''}
         </tbody>
       </table>
     </div>
@@ -1135,36 +1158,59 @@ export default function AtolyePage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Ana Müşteri *</label>
-                  <input
-                    type="text"
+                  <select
                     value={barcodeFormData.main_customer}
-                    onChange={(e) => setBarcodeFormData({ ...barcodeFormData, main_customer: e.target.value })}
+                    onChange={(e) => {
+                      const newCustomer = e.target.value;
+                      setBarcodeFormData({
+                        ...barcodeFormData,
+                        main_customer: newCustomer,
+                        sector: newCustomer === "ASELSAN" ? "" : "-",
+                      });
+                    }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                     required
-                  />
+                  >
+                    <option value="ASELSAN">ASELSAN</option>
+                    <option value="ROKETSAN">ROKETSAN</option>
+                    <option value="TUSAŞ">TUSAŞ</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Sektör *</label>
-                  <input
-                    type="text"
+                  <select
                     value={barcodeFormData.sector}
                     onChange={(e) => setBarcodeFormData({ ...barcodeFormData, sector: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                     required
-                  />
+                  >
+                    {barcodeFormData.main_customer === "ASELSAN" ? (
+                      <>
+                        <option value="" disabled>Sektör seçiniz</option>
+                        <option value="AGS">AGS</option>
+                        <option value="HBT">HBT</option>
+                        <option value="MEOS">MEOS</option>
+                        <option value="REHİS">REHİS</option>
+                        <option value="SST">SST</option>
+                        <option value="UGES">UGES</option>
+                      </>
+                    ) : (
+                      <option value="-">-</option>
+                    )}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Gönderen Firma *</label>
                   <input
                     type="text"
                     value={barcodeFormData.company_from}
-                    onChange={(e) => setBarcodeFormData({ ...barcodeFormData, company_from: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                    required
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-900"
+                    readOnly
+                    disabled
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Sipariş Numarası *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">ASELSAN Sipariş Numarası *</label>
                   <input
                     type="text"
                     value={barcodeFormData.aselsan_order_number}
@@ -1184,7 +1230,17 @@ export default function AtolyePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Parça Sayısı *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Parça Numarası *</label>
+                  <input
+                    type="text"
+                    value={barcodeFormData.part_number}
+                    onChange={(e) => setBarcodeFormData({ ...barcodeFormData, part_number: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Toplam Sipariş Miktarı *</label>
                   <input
                     type="number"
                     min="1"
@@ -1195,14 +1251,14 @@ export default function AtolyePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Paket Sayısı *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Parti Sayısı</label>
                   <input
                     type="number"
                     min="1"
                     value={barcodeFormData.package_quantity || ""}
                     onChange={(e) => setBarcodeFormData({ ...barcodeFormData, package_quantity: parseInt(e.target.value) || 0 })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                    required
+                    placeholder="Bölmek istediğiniz parti sayısı"
                   />
                   {barcodeFormData.quantity > 0 && barcodeFormData.package_quantity > 0 && (
                     <p className="mt-1 text-xs text-gray-500">
@@ -1211,19 +1267,21 @@ export default function AtolyePage() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Bitiş Tarihi</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Bitirme Tarihi *</label>
                   <input
                     type="date"
                     value={barcodeFormData.target_date}
                     onChange={(e) => setBarcodeFormData({ ...barcodeFormData, target_date: e.target.value })}
+                    min={(() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split('T')[0]; })()}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    required
                   />
                 </div>
               </div>
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full mt-6 px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full mt-6 px-4 py-2 bg-[#fe9526] hover:bg-[#e5861f] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? "Oluşturuluyor..." : "Barkod Oluştur"}
               </button>
@@ -1313,7 +1371,7 @@ export default function AtolyePage() {
                               <td className="py-2 px-3 text-gray-900">{barcodeFormData.company_from}</td>
                             </tr>
                             <tr className="border-b border-gray-200">
-                              <td className="py-2 px-3 font-semibold text-gray-700">Sipariş Numarası</td>
+                              <td className="py-2 px-3 font-semibold text-gray-700">ASELSAN Sipariş Numarası</td>
                               <td className="py-2 px-3 text-gray-900">
                                 {generatedBatch && generatedBatch.total_packages > 1
                                   ? `${barcodeFormData.aselsan_order_number}_${pkg.package_index}`
@@ -1325,12 +1383,16 @@ export default function AtolyePage() {
                               <td className="py-2 px-3 text-gray-900">{barcodeFormData.order_item_number}</td>
                             </tr>
                             <tr className="border-b border-gray-200">
-                              <td className="py-2 px-3 font-semibold text-gray-700">Parça Sayısı</td>
+                              <td className="py-2 px-3 font-semibold text-gray-700">Parça Numarası</td>
+                              <td className="py-2 px-3 text-gray-900">{barcodeFormData.part_number}</td>
+                            </tr>
+                            <tr className="border-b border-gray-200">
+                              <td className="py-2 px-3 font-semibold text-gray-700">Toplam Sipariş Miktarı</td>
                               <td className="py-2 px-3 text-gray-900">{pkg.quantity}/{generatedBatch?.total_quantity ?? barcodeFormData.quantity}</td>
                             </tr>
                             {barcodeFormData.target_date && (
                               <tr className="border-b border-gray-200">
-                                <td className="py-2 px-3 font-semibold text-gray-700">Hedef Bitiş Tarihi</td>
+                                <td className="py-2 px-3 font-semibold text-gray-700">Hedef Bitirme Tarihi</td>
                                 <td className="py-2 px-3 text-gray-900">{new Date(barcodeFormData.target_date).toLocaleDateString("tr-TR")}</td>
                               </tr>
                             )}
@@ -1452,31 +1514,31 @@ export default function AtolyePage() {
         </div>
 
         {/* Mode Selection Buttons */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <button
             onClick={() => { setMode(mode === "entrance" ? null : "entrance"); setScanProgress(null); setSuccessMessage(null); }}
-            className={`flex flex-col items-center justify-center p-8 rounded-lg shadow-lg transition-all h-48 text-white ${
+            className={`flex flex-col items-center justify-center p-4 rounded-lg shadow-lg transition-all h-28 text-white ${
               mode === "entrance" ? "hover:opacity-90" : "hover:opacity-80"
             }`}
             style={{ backgroundColor: mode === "entrance" ? "#008080" : "#94A3B8" }}
           >
-            <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-10 h-10 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
             </svg>
-            <span className="text-2xl font-bold">İş Emri Giriş</span>
+            <span className="text-lg font-bold">İş Emri Giriş</span>
           </button>
 
           <button
             onClick={() => { setMode(mode === "exit" ? null : "exit"); setScanProgress(null); setSuccessMessage(null); }}
-            className={`flex flex-col items-center justify-center p-8 rounded-lg shadow-lg transition-all h-48 text-white ${
+            className={`flex flex-col items-center justify-center p-4 rounded-lg shadow-lg transition-all h-28 text-white ${
               mode === "exit" ? "hover:opacity-90" : "hover:opacity-80"
             }`}
             style={{ backgroundColor: mode === "exit" ? "#C53030" : "#94A3B8" }}
           >
-            <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-10 h-10 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
-            <span className="text-2xl font-bold">İş Emri Çıkış</span>
+            <span className="text-lg font-bold">İş Emri Çıkış</span>
           </button>
         </div>
 
@@ -1535,51 +1597,20 @@ export default function AtolyePage() {
           </div>
         )}
 
-        {/* Barcode Scanner Instructions or Loading */}
-        {mode && (
-          <>
-            {loading ? (
-              <div className="mb-6 p-6 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg shadow-sm">
-                <div className="flex items-start gap-4">
-                  <div className="flex-shrink-0">
-                    <svg className="w-12 h-12 text-green-600 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg font-bold text-green-900 mb-2">QR Kod İşleniyor...</h3>
-                    <p className="text-green-800 text-sm leading-relaxed">Lütfen bekleyin, QR kod verisi işleniyor ve kaydediliyor.</p>
-                  </div>
-                </div>
+        {/* Loading indicator for QR processing */}
+        {mode && loading && (
+          <div className="mb-6 p-6 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg shadow-sm">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0">
+                <svg className="w-12 h-12 text-green-600 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
               </div>
-            ) : (
-              <div className="mb-6 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-lg shadow-sm">
-                <div className="flex items-start gap-4">
-                  <div className="flex-shrink-0">
-                    <svg className="w-12 h-12 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                    </svg>
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg font-bold text-blue-900 mb-2">Barkod Okuyucu Hazır</h3>
-                    <p className="text-blue-800 text-sm leading-relaxed">
-                      Lütfen barkod okuyucu ile QR kodu taratın. Bir iş emrinin tüm paketlerini okutun.
-                    </p>
-                  </div>
-                </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-green-900 mb-2">QR Kod İşleniyor...</h3>
+                <p className="text-green-800 text-sm leading-relaxed">Lütfen bekleyin, QR kod verisi işleniyor ve kaydediliyor.</p>
               </div>
-            )}
-          </>
-        )}
-
-        {/* Mode Indicator */}
-        {mode && (
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-blue-800 font-semibold">
-              {mode === "entrance"
-                ? "İş Emri Giriş Modu Aktif - Tüm paketleri okutun"
-                : "İş Emri Çıkış Modu Aktif - Tüm paketleri okutun"}
-            </p>
+            </div>
           </div>
         )}
 
