@@ -456,8 +456,9 @@ export default function PlatformHome() {
         try {
           // Önce Malzeme exact match ile tüm veriyi çek
           const selectCols = `"Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi"`;
+          const tamamlandiFilter = `AND "İş Emri Durumu" NOT ILIKE '%Üretim Tamamlandı%' AND "İş Emri Durumu" NOT ILIKE '%TAMAMLANDI%'`;
           let result = await reportsService.previewQuery({
-            sql_query: `SELECT ${selectCols} FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" = '${partNoUpper}'`,
+            sql_query: `SELECT ${selectCols} FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Malzeme" = '${partNoUpper}' ${tamamlandiFilter}`,
             limit: 10000000
           });
           let allRows = result.data || [];
@@ -470,20 +471,26 @@ export default function PlatformHome() {
           if (allRows.length === 0) {
             isFallback = true;
             result = await reportsService.previewQuery({
-              sql_query: `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", '${partNoUpper}' as "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNoUpper}%' AND ("Malzeme" IS NULL OR "Malzeme" = '')`,
+              sql_query: `SELECT "Satıcı", "Satıcı Tanım", "SAS", "SAS Kalem", "Üretim Siparişi", '${partNoUpper}' as "Malzeme", "Sipariş Miktarı", "İhtiyaç Önceliği", "İş Emri Durumu", "Seri No", "Aşama", "Asama Durum", "Tahmini Tamamlanma Tarihi" FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Kısa Metin" ILIKE '%${partNoUpper}%' AND ("Malzeme" IS NULL OR "Malzeme" = '') ${tamamlandiFilter}`,
               limit: 10000000
             });
             allRows = result.data || [];
             if (searchedPartNumberRef.current !== currentSearchId) return;
           }
 
-          // JS tarafında count hesapla
-          const totalCount = allRows.length;
-          // İş Emri Durumu index 8 (0-based) - "MES Kaydı Yoktur" içermeyenleri say
-          const filteredCount = allRows.filter((row: any[]) => {
-            const durum = String(row[8] || '');
-            return !durum.toLocaleUpperCase('tr-TR').includes('MES KAYDI YOKTUR');
-          }).length;
+          // JS tarafında grid count hesapla (SAS + SAS Kalem unique grupları sayılır)
+          // Index: SAS=2, SAS Kalem=3, İş Emri Durumu=8
+          // totalCount: unique SAS|SAS Kalem sayısı (tamamlandı zaten SQL'de filtrelendi)
+          const totalSet = new Set(allRows.map((row: any[]) => `${row[2]}|${row[3]}`));
+          const totalCount = totalSet.size;
+
+          // filteredCount: "MES Kaydı Yoktur" hariç, unique SAS|SAS Kalem
+          const filteredRows = allRows.filter((row: any[]) => {
+            const durum = String(row[8] || '').toLocaleUpperCase('tr-TR');
+            return !durum.includes('MES KAYDI YOKTUR');
+          });
+          const filteredSet = new Set(filteredRows.map((row: any[]) => `${row[2]}|${row[3]}`));
+          const filteredCount = filteredSet.size;
 
           setTableData((prev: any) => prev ? {
             ...prev,
@@ -1489,16 +1496,16 @@ export default function PlatformHome() {
                     <div className="text-center">
                       <p className="text-sm text-gray-500 italic">Parça numarası girin...</p>
                     </div>
-                  ) : tableData.altYukleniciTotalCount === 0 ? (
+                  ) : tableData.altYukleniciTotalCount === 0 && tableData.altYukleniciFilteredCount === 0 ? (
                     <div className="text-center">
                       <p className="text-sm font-bold text-gray-400">Bilgi Yok</p>
                     </div>
                   ) : (
                     <div className="text-center">
                       <div className="text-2xl font-bold mb-1">
-                        <span className="text-cyan-600">{tableData.altYukleniciTotalCount}</span>
+                        <span className="text-cyan-600">{tableData.altYukleniciFilteredCount}</span>
                         <span className="text-gray-400 mx-1">/</span>
-                        <span className="text-orange-500">{tableData.altYukleniciFilteredCount}</span>
+                        <span className="text-orange-500">{tableData.altYukleniciTotalCount}</span>
                       </div>
                       <div className="text-xs text-gray-500">
                         <span className="text-cyan-600">MES</span> / <span className="text-orange-500">SAP</span>
