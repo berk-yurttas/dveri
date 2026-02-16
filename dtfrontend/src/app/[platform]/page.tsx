@@ -1,9 +1,5 @@
 "use client"
 
-// Tasarım ve Proje Akışlarının Dijital Seyri
-// başlatmak iste..
-// yapım aşağmasında
-
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useParams } from "next/navigation";
