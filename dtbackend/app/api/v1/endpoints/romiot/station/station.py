@@ -43,7 +43,7 @@ async def create_station(
     if station_data.company != user_company:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Station company must match your company '{user_company}'"
+            detail=f"Atölye şirketi sizin şirketinizle eşleşmelidir: '{user_company}'"
         )
 
     # Check if a station with the same name and company already exists
@@ -66,7 +66,8 @@ async def create_station(
     # Create new station
     new_station = Station(
         name=station_data.name,
-        company=station_data.company
+        company=station_data.company,
+        is_exit_station=station_data.is_exit_station
     )
 
     romiot_db.add(new_station)
@@ -101,7 +102,7 @@ async def get_my_station(
     if not has_operator_role:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="This endpoint requires operator role"
+            detail="Bu işlem için operatör yetkisi gereklidir"
         )
     
     # Get user's station_id from PostgreSQL
@@ -109,13 +110,13 @@ async def get_my_station(
     if not pg_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in database"
+            detail="Kullanıcı veritabanında bulunamadı"
         )
     
     if not pg_user.workshop_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No station assigned to this operator"
+            detail="Bu operatöre atanmış atölye bulunmamaktadır"
         )
     
     # Get station details from RomIOT database
@@ -127,7 +128,7 @@ async def get_my_station(
     if not station:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Station with id {pg_user.workshop_id} not found"
+            detail=f"{pg_user.workshop_id} ID'li atölye bulunamadı"
         )
     
     return {
@@ -251,6 +252,7 @@ async def create_user_for_station(
             auth_token = None
             if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:
                 try:
+                    # Try newer _superusers endpoint first, fall back to legacy /api/admins
                     auth_response = await client.post(
                         f"{settings.POCKETBASE_URL}/api/collections/_superusers/auth-with-password",
                         json={
@@ -258,24 +260,32 @@ async def create_user_for_station(
                             "password": settings.POCKETBASE_ADMIN_PASSWORD
                         }
                     )
+                    if auth_response.status_code == 404:
+                        auth_response = await client.post(
+                            f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
+                            json={
+                                "identity": settings.POCKETBASE_ADMIN_EMAIL,
+                                "password": settings.POCKETBASE_ADMIN_PASSWORD
+                            }
+                        )
                     if auth_response.status_code == 200:
                         auth_token = auth_response.json().get("token")
                     else:
                         raise HTTPException(
                             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail="Failed to authenticate with PocketBase admin"
+                            detail="PocketBase yönetici kimlik doğrulaması başarısız oldu"
                         )
                 except HTTPException:
                     raise
                 except Exception as auth_error:
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail=f"PocketBase authentication error: {str(auth_error)}"
+                        detail=f"PocketBase kimlik doğrulama hatası: {str(auth_error)}"
                     )
             else:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="PocketBase admin credentials not configured"
+                    detail="PocketBase yönetici bilgileri yapılandırılmamış"
                 )
 
             # 2. Check if user already exists in PocketBase (by username and email)
@@ -487,6 +497,7 @@ async def update_station(
     # Update station
     station.name = station_data.name
     station.company = station_data.company
+    station.is_exit_station = station_data.is_exit_station
 
     await romiot_db.commit()
     await romiot_db.refresh(station)

@@ -15,13 +15,14 @@ class WorkOrderBase(BaseModel):
     main_customer: str = Field(..., description="Ana Müşteri")
     sector: str = Field(..., description="Sektör")
     company_from: str = Field(..., description="Gönderen Firma")
-    aselsan_order_number: str = Field(..., description="Sipariş Numarası")
+    aselsan_order_number: str = Field(..., description="ASELSAN Sipariş Numarası")
     order_item_number: str = Field(..., description="Sipariş Kalem Numarası")
+    part_number: str = Field(..., description="Parça Numarası")
     quantity: int = Field(..., description="Bu paketin parça sayısı")
-    total_quantity: int = Field(..., description="Toplam parça sayısı")
-    package_index: int = Field(..., description="Paket sırası (1-based)")
-    total_packages: int = Field(..., description="Toplam paket sayısı")
-    target_date: date | None = Field(None, description="Hedef Bitiş Tarihi")
+    total_quantity: int = Field(..., description="Toplam sipariş miktarı")
+    package_index: int = Field(..., description="Parti sırası (1-based)")
+    total_packages: int = Field(..., description="Toplam parti sayısı")
+    target_date: date | None = Field(None, description="Hedef Bitirme Tarihi")
 
 
 class WorkOrderCreate(WorkOrderBase):
@@ -38,6 +39,9 @@ class WorkOrderUpdateExitDate(BaseModel):
 
 class WorkOrder(WorkOrderBase):
     id: int
+    priority: int = 0
+    prioritized_by: int | None = None
+    delivered: bool = False
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
 
@@ -74,10 +78,14 @@ class WorkOrderList(BaseModel):
     company_from: str
     aselsan_order_number: str
     order_item_number: str
+    part_number: str
     quantity: int
     total_quantity: int
     package_index: int
     total_packages: int
+    priority: int = 0
+    prioritized_by: int | None = None
+    delivered: bool = False
     target_date: date | None = None
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
@@ -91,6 +99,7 @@ class WorkOrderDetail(BaseModel):
     id: int
     station_id: int
     station_name: str
+    is_exit_station: bool = False
     user_id: int
     user_name: str | None = None
     work_order_group_id: str
@@ -99,10 +108,14 @@ class WorkOrderDetail(BaseModel):
     company_from: str
     aselsan_order_number: str
     order_item_number: str
+    part_number: str
     quantity: int
     total_quantity: int
     package_index: int
     total_packages: int
+    priority: int = 0
+    prioritized_by: int | None = None
+    delivered: bool = False
     target_date: date | None = None
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
@@ -118,3 +131,21 @@ class PaginatedWorkOrderResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class PriorityAssignment(BaseModel):
+    """Schema for assigning priority to a work order group"""
+    work_order_group_id: str = Field(..., description="İş Emri Grup ID")
+    priority: int = Field(..., ge=0, le=5, description="Öncelik (0-5 jeton, 0=kaldır)")
+
+
+class PriorityAssignRequest(BaseModel):
+    """Schema for batch priority assignment"""
+    assignments: list[PriorityAssignment] = Field(..., description="Öncelik atamaları")
+
+
+class PriorityTokenInfo(BaseModel):
+    """Schema for token info response"""
+    total_tokens: int
+    used_tokens: int
+    remaining_tokens: int

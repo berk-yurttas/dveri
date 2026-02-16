@@ -1,14 +1,14 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints.romiot.station.auth import check_station_operator_role
 from app.core.auth import check_authenticated
 from app.core.database import get_postgres_db, get_romiot_db
 from app.models.postgres_models import User as PostgresUser
-from app.models.romiot_models import WorkOrder
+from app.models.romiot_models import PriorityToken, Station, WorkOrder
 from app.schemas.user import User
 from app.services.user_service import UserService
 from app.schemas.work_order import (
@@ -67,6 +67,44 @@ async def create_work_order(
             detail=f"Bu paket (Paket {work_order_data.package_index}/{work_order_data.total_packages}) ile işlem yapılmıştır"
         )
 
+    # Check if any package from this group is currently active at a different station
+    active_at_other_station_result = await romiot_db.execute(
+        select(WorkOrder.station_id, Station.name).join(
+            Station, WorkOrder.station_id == Station.id
+        ).where(
+            and_(
+                WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
+                WorkOrder.station_id != work_order_data.station_id,
+                WorkOrder.exit_date.is_(None),
+            )
+        ).limit(1)
+    )
+    active_at_other = active_at_other_station_result.first()
+
+    if active_at_other:
+        other_station_name = active_at_other[1]
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Bu iş emri grubu şu anda \"{other_station_name}\" atölyesinde aktif. Önce mevcut atölyeden çıkış yapılmalıdır."
+        )
+
+    # Inherit priority from existing records in the same group
+    existing_priority = 0
+    existing_prioritized_by = None
+    existing_group_result = await romiot_db.execute(
+        select(WorkOrder).where(
+            and_(
+                WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
+                WorkOrder.priority > 0,
+                WorkOrder.prioritized_by.isnot(None),
+            )
+        ).limit(1)
+    )
+    existing_group_record = existing_group_result.scalar_one_or_none()
+    if existing_group_record:
+        existing_priority = existing_group_record.priority
+        existing_prioritized_by = existing_group_record.prioritized_by
+
     # Create new work order entry for this package
     new_work_order = WorkOrder(
         station_id=work_order_data.station_id,
@@ -77,12 +115,15 @@ async def create_work_order(
         company_from=work_order_data.company_from,
         aselsan_order_number=work_order_data.aselsan_order_number,
         order_item_number=work_order_data.order_item_number,
+        part_number=work_order_data.part_number,
         quantity=work_order_data.quantity,
         total_quantity=work_order_data.total_quantity,
         package_index=work_order_data.package_index,
         total_packages=work_order_data.total_packages,
         target_date=work_order_data.target_date,
         exit_date=None,
+        priority=existing_priority,
+        prioritized_by=existing_prioritized_by,
     )
 
     romiot_db.add(new_work_order)
@@ -175,6 +216,49 @@ async def update_exit_date(
     total_packages = work_order.total_packages
     all_exited = packages_exited >= total_packages
 
+    # If this is an exit station and all packages exited, mark work order as delivered
+    # and refund priority tokens
+    if all_exited:
+        from app.models.romiot_models import Station as StationModel
+        station_result = await romiot_db.execute(
+            select(StationModel).where(StationModel.id == update_data.station_id)
+        )
+        station = station_result.scalar_one_or_none()
+
+        if station and station.is_exit_station:
+            # Mark all packages of this group as delivered
+            await romiot_db.execute(
+                update(WorkOrder)
+                .where(WorkOrder.work_order_group_id == work_order.work_order_group_id)
+                .values(delivered=True)
+            )
+
+            # Refund priority tokens if priority was assigned
+            # Look up priority from any record in the group (current station's record may have default 0)
+            priority_record_result = await romiot_db.execute(
+                select(WorkOrder).where(
+                    and_(
+                        WorkOrder.work_order_group_id == work_order.work_order_group_id,
+                        WorkOrder.priority > 0,
+                        WorkOrder.prioritized_by.isnot(None),
+                    )
+                ).limit(1)
+            )
+            priority_record = priority_record_result.scalar_one_or_none()
+
+            if priority_record:
+                token_result = await romiot_db.execute(
+                    select(PriorityToken).where(
+                        PriorityToken.user_id == priority_record.prioritized_by
+                    )
+                )
+                token_record = token_result.scalar_one_or_none()
+                if token_record:
+                    token_record.used_tokens = max(0, token_record.used_tokens - priority_record.priority)
+
+            await romiot_db.commit()
+            await romiot_db.refresh(work_order)
+
     if all_exited:
         message = f"Tüm paketlerin çıkışı yapıldı! İş emri çıkışı tamamlandı. ({packages_exited}/{total_packages})"
     else:
@@ -205,7 +289,12 @@ async def get_work_orders_by_station(
     # Check if user has the required role for this station
     await check_station_operator_role(station_id, current_user, romiot_db)
     
-    base_query = select(WorkOrder).where(WorkOrder.station_id == station_id)
+    base_query = select(WorkOrder).where(
+        and_(
+            WorkOrder.station_id == station_id,
+            WorkOrder.delivered == False,
+        )
+    )
 
     if status_filter == WorkOrderStatus.ENTRANCE:
         # Entrance: entrance_date is filled but exit_date is not filled
@@ -226,7 +315,7 @@ async def get_work_orders_by_station(
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid status filter. Must be 'Entrance' or 'Exit'"
+            detail="Geçersiz durum filtresi. 'Entrance' veya 'Exit' olmalıdır"
         )
 
     result = await romiot_db.execute(query)
@@ -239,6 +328,10 @@ async def get_work_orders_by_station(
 async def get_all_work_orders(
     page: int = Query(1, ge=1, description="Page number (starts from 1)"),
     page_size: int = Query(20, ge=1, le=100, description="Number of items per page"),
+    search_station: str | None = Query(None, description="Search by station name"),
+    search_part_number: str | None = Query(None, description="Search by part number"),
+    search_order_number: str | None = Query(None, description="Search by order number"),
+    filter_company: str | None = Query(None, description="Filter by company (ASELSAN satinalma only)"),
     current_user: User = Depends(check_authenticated),
     romiot_db: AsyncSession = Depends(get_romiot_db),
     postgres_db: AsyncSession = Depends(get_postgres_db)
@@ -246,32 +339,42 @@ async def get_all_work_orders(
     """
     Get all work orders for the current user's company with detailed information and pagination.
     Returns work orders from all stations belonging to the user's company.
+    ASELSAN satinalma users can use filter_company to view work orders from other companies.
     Includes station name and user name for each work order.
     Pagination is applied to grouped work orders (by work_order_group_id), not individual entries.
-    Requires role 'atolye:<company>:operator', 'atolye:<company>:yonetici', or 'atolye:<company>:musteri'.
+    Delivered work orders are excluded from the list.
+    Requires role 'atolye:<company>:operator', 'atolye:<company>:yonetici', 'atolye:<company>:musteri', or 'atolye:<company>:satinalma'.
     """
     from app.models.romiot_models import Station
     from sqlalchemy import case, desc
     
-    # Extract company from user's role
+    # Extract company and role type from user's role
     company = None
+    is_aselsan_satinalma = False
     if current_user.role and isinstance(current_user.role, list):
         for role in current_user.role:
             if isinstance(role, str) and role.startswith("atolye:"):
                 parts = role.split(":")
                 if len(parts) >= 2:
-                    company = parts[1]
-                    break
+                    if not company:
+                        company = parts[1]
+                if len(parts) == 3 and parts[2] == "satinalma" and parts[1].upper() == "ASELSAN":
+                    is_aselsan_satinalma = True
     
     if not company:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User does not have atolye role"
+            detail="Kullanıcının atölye yetkisi bulunmamaktadır"
         )
     
-    # Get all stations for this company
+    # Determine which company's work orders to show
+    target_company = company
+    if is_aselsan_satinalma and filter_company:
+        target_company = filter_company
+    
+    # Get all stations for target company
     stations_result = await romiot_db.execute(
-        select(Station).where(Station.company == company)
+        select(Station).where(Station.company == target_company)
     )
     stations = stations_result.scalars().all()
     station_ids = [station.id for station in stations]
@@ -288,6 +391,48 @@ async def get_all_work_orders(
     # Create a map of station_id to station_name
     station_map = {station.id: station.name for station in stations}
     
+    # Build base filter conditions
+    base_conditions = [
+        WorkOrder.station_id.in_(station_ids),
+        WorkOrder.delivered == False,
+    ]
+
+    # Apply search filters (OR when both provided, AND individually)
+    from sqlalchemy import or_
+    if search_part_number and search_order_number:
+        base_conditions.append(or_(
+            WorkOrder.part_number.ilike(f"%{search_part_number}%"),
+            WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"),
+        ))
+    elif search_part_number:
+        base_conditions.append(WorkOrder.part_number.ilike(f"%{search_part_number}%"))
+    elif search_order_number:
+        base_conditions.append(WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"))
+
+    # If searching by station name, filter station_ids
+    if search_station:
+        filtered_station_ids = [
+            sid for sid, sname in station_map.items()
+            if search_station.lower() in sname.lower()
+        ]
+        if not filtered_station_ids:
+            return PaginatedWorkOrderResponse(
+                items=[], total=0, page=page, page_size=page_size, total_pages=0
+            )
+        base_conditions = [
+            WorkOrder.station_id.in_(filtered_station_ids),
+            WorkOrder.delivered == False,
+        ]
+        if search_part_number and search_order_number:
+            base_conditions.append(or_(
+                WorkOrder.part_number.ilike(f"%{search_part_number}%"),
+                WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"),
+            ))
+        elif search_part_number:
+            base_conditions.append(WorkOrder.part_number.ilike(f"%{search_part_number}%"))
+        elif search_order_number:
+            base_conditions.append(WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"))
+
     # Create a CTE with group metadata using work_order_group_id
     group_metadata_cte = select(
         WorkOrder,
@@ -304,14 +449,15 @@ async def get_all_work_orders(
             partition_by=[WorkOrder.work_order_group_id]
         ).label('group_last_date')
     ).where(
-        WorkOrder.station_id.in_(station_ids)
+        and_(*base_conditions)
     ).cte('group_metadata')
     
-    # Assign a dense rank to each group
+    # Assign a dense rank to each group, sorted by priority descending first
     ranked_groups_cte = select(
         group_metadata_cte,
         func.dense_rank().over(
             order_by=[
+                desc(group_metadata_cte.c.priority),
                 desc(group_metadata_cte.c.group_has_active),
                 desc(group_metadata_cte.c.group_last_date)
             ]
@@ -338,10 +484,14 @@ async def get_all_work_orders(
         ranked_groups_cte.c.company_from,
         ranked_groups_cte.c.aselsan_order_number,
         ranked_groups_cte.c.order_item_number,
+        ranked_groups_cte.c.part_number,
         ranked_groups_cte.c.quantity,
         ranked_groups_cte.c.total_quantity,
         ranked_groups_cte.c.package_index,
         ranked_groups_cte.c.total_packages,
+        ranked_groups_cte.c.priority,
+        ranked_groups_cte.c.prioritized_by,
+        ranked_groups_cte.c.delivered,
         ranked_groups_cte.c.target_date,
         ranked_groups_cte.c.entrance_date,
         ranked_groups_cte.c.exit_date
@@ -364,6 +514,9 @@ async def get_all_work_orders(
         users = users_result.scalars().all()
         user_map = {user.id: user.name for user in users}
     
+    # Build station exit flag map
+    station_exit_map = {station.id: station.is_exit_station for station in stations}
+
     # Build detailed work order list from SQL rows
     detailed_work_orders = []
     for row in paginated_work_orders:
@@ -371,6 +524,7 @@ async def get_all_work_orders(
             id=row.id,
             station_id=row.station_id,
             station_name=station_map.get(row.station_id, "Unknown"),
+            is_exit_station=station_exit_map.get(row.station_id, False),
             user_id=row.user_id,
             user_name=user_map.get(row.user_id, "Unknown"),
             work_order_group_id=row.work_order_group_id,
@@ -379,10 +533,14 @@ async def get_all_work_orders(
             company_from=row.company_from,
             aselsan_order_number=row.aselsan_order_number,
             order_item_number=row.order_item_number,
+            part_number=row.part_number,
             quantity=row.quantity,
             total_quantity=row.total_quantity,
             package_index=row.package_index,
             total_packages=row.total_packages,
+            priority=row.priority,
+            prioritized_by=row.prioritized_by,
+            delivered=row.delivered,
             target_date=row.target_date,
             entrance_date=row.entrance_date,
             exit_date=row.exit_date
@@ -395,3 +553,34 @@ async def get_all_work_orders(
         page_size=page_size,
         total_pages=total_pages
     )
+
+
+@router.get("/companies", response_model=list[str])
+async def get_companies(
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """
+    Get distinct list of companies that have stations.
+    Only available for ASELSAN satinalma users.
+    """
+    is_aselsan_satinalma = False
+    if current_user.role and isinstance(current_user.role, list):
+        for role in current_user.role:
+            if isinstance(role, str) and role.startswith("atolye:") and role.endswith(":satinalma"):
+                parts = role.split(":")
+                if len(parts) == 3 and parts[1].upper() == "ASELSAN":
+                    is_aselsan_satinalma = True
+                    break
+
+    if not is_aselsan_satinalma:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu işlem yalnızca ASELSAN satınalma kullanıcıları için geçerlidir"
+        )
+
+    result = await romiot_db.execute(
+        select(Station.company).distinct().order_by(Station.company)
+    )
+    companies = [row[0] for row in result.fetchall()]
+    return companies

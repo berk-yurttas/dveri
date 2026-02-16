@@ -25,7 +25,7 @@ async def check_station_operator_role(
     if not station:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Station with id {station_id} not found"
+            detail=f"{station_id} ID'li atölye bulunamadı"
         )
 
     # Build expected role: atolye:<company>:operator
@@ -35,7 +35,7 @@ async def check_station_operator_role(
     if expected_role not in current_user.role:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"User does not have the required role '{expected_role}' for this station"
+            detail="Bu atölye için gerekli operatör yetkisine sahip değilsiniz"
         )
 
     return station
@@ -50,7 +50,7 @@ async def check_station_yonetici_role(current_user: User):
     if not current_user.role or not isinstance(current_user.role, list):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User does not have required yonetici role"
+            detail="Yönetici yetkisine sahip değilsiniz"
         )
 
     # Find yonetici role
@@ -63,7 +63,7 @@ async def check_station_yonetici_role(current_user: User):
     if not yonetici_role:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User does not have the required role 'atolye:<company>:yonetici'"
+            detail="Yönetici yetkisine sahip değilsiniz"
         )
 
     # Extract company from role: "atolye:<company>:yonetici"
@@ -71,7 +71,7 @@ async def check_station_yonetici_role(current_user: User):
     if len(parts) != 3:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid role format: {yonetici_role}"
+            detail="Geçersiz rol formatı"
         )
 
     company = parts[1]
@@ -86,22 +86,22 @@ async def get_station_company(current_user: User):
     if not current_user.role or not isinstance(current_user.role, list):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User does not have required station role"
+            detail="Atölye yetkisine sahip değilsiniz"
         )
 
     # Find any station role
     station_role = None
     for role in current_user.role:
         if isinstance(role, str) and role.startswith("atolye:"):
-            # Check if it ends with :yonetici, :operator, or :musteri
-            if role.endswith(":yonetici") or role.endswith(":operator") or role.endswith(":musteri"):
+            # Check if it ends with :yonetici, :operator, :musteri, or :satinalma
+            if role.endswith(":yonetici") or role.endswith(":operator") or role.endswith(":musteri") or role.endswith(":satinalma"):
                 station_role = role
                 break
 
     if not station_role:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User does not have a valid station role (atolye:<company>:yonetici, :operator, or :musteri)"
+            detail="Geçerli bir atölye yetkisine sahip değilsiniz"
         )
 
     # Extract company from role: "atolye:<company>:<type>"
@@ -109,7 +109,7 @@ async def get_station_company(current_user: User):
     if len(parts) != 3:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid role format: {station_role}"
+            detail="Geçersiz rol formatı"
         )
 
     company = parts[1]
