@@ -784,7 +784,7 @@ export default function OperatorPage() {
                         <>
                           <tr
                             key={key}
-                            className="hover:bg-gray-50 cursor-pointer transition-colors"
+                            className={`cursor-pointer transition-colors ${wo.priority > 0 ? "bg-red-50 hover:bg-red-100" : "hover:bg-gray-50"}`}
                             onClick={() => {
                               const newExpanded = new Set(expandedRows);
                               if (newExpanded.has(key)) newExpanded.delete(key); else newExpanded.add(key);
@@ -797,9 +797,14 @@ export default function OperatorPage() {
                             </td>
                             <td className="px-4 py-3">
                               {wo.priority > 0 ? (
-                                <div className="flex items-center gap-0.5">
+                                <div className="flex items-center gap-1">
                                   {Array.from({ length: wo.priority }, (_, i) => (
-                                    <span key={i} className="text-yellow-500 text-sm">&#x1F7E1;</span>
+                                    <span
+                                      key={i}
+                                      className="w-6 h-6 rounded-full bg-yellow-400 border-2 border-yellow-500 flex items-center justify-center text-xs font-bold text-yellow-900"
+                                    >
+                                      {i + 1}
+                                    </span>
                                   ))}
                                 </div>
                               ) : <span className="text-gray-400 text-sm">-</span>}

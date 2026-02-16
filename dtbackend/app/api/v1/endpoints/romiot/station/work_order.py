@@ -88,6 +88,23 @@ async def create_work_order(
             detail=f"Bu iş emri grubu şu anda \"{other_station_name}\" atölyesinde aktif. Önce mevcut atölyeden çıkış yapılmalıdır."
         )
 
+    # Inherit priority from existing records in the same group
+    existing_priority = 0
+    existing_prioritized_by = None
+    existing_group_result = await romiot_db.execute(
+        select(WorkOrder).where(
+            and_(
+                WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
+                WorkOrder.priority > 0,
+                WorkOrder.prioritized_by.isnot(None),
+            )
+        ).limit(1)
+    )
+    existing_group_record = existing_group_result.scalar_one_or_none()
+    if existing_group_record:
+        existing_priority = existing_group_record.priority
+        existing_prioritized_by = existing_group_record.prioritized_by
+
     # Create new work order entry for this package
     new_work_order = WorkOrder(
         station_id=work_order_data.station_id,
@@ -105,6 +122,8 @@ async def create_work_order(
         total_packages=work_order_data.total_packages,
         target_date=work_order_data.target_date,
         exit_date=None,
+        priority=existing_priority,
+        prioritized_by=existing_prioritized_by,
     )
 
     romiot_db.add(new_work_order)
@@ -215,15 +234,27 @@ async def update_exit_date(
             )
 
             # Refund priority tokens if priority was assigned
-            if work_order.priority and work_order.priority > 0 and work_order.prioritized_by:
+            # Look up priority from any record in the group (current station's record may have default 0)
+            priority_record_result = await romiot_db.execute(
+                select(WorkOrder).where(
+                    and_(
+                        WorkOrder.work_order_group_id == work_order.work_order_group_id,
+                        WorkOrder.priority > 0,
+                        WorkOrder.prioritized_by.isnot(None),
+                    )
+                ).limit(1)
+            )
+            priority_record = priority_record_result.scalar_one_or_none()
+
+            if priority_record:
                 token_result = await romiot_db.execute(
                     select(PriorityToken).where(
-                        PriorityToken.user_id == work_order.prioritized_by
+                        PriorityToken.user_id == priority_record.prioritized_by
                     )
                 )
                 token_record = token_result.scalar_one_or_none()
                 if token_record:
-                    token_record.used_tokens = max(0, token_record.used_tokens - work_order.priority)
+                    token_record.used_tokens = max(0, token_record.used_tokens - priority_record.priority)
 
             await romiot_db.commit()
             await romiot_db.refresh(work_order)
