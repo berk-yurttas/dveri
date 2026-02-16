@@ -74,12 +74,16 @@ export default function WorkOrdersPage() {
   const [isYonetici, setIsYonetici] = useState(false);
   const [isOperator, setIsOperator] = useState(false);
   const [isSatinalma, setIsSatinalma] = useState(false);
+  const [isAselsanSatinalma, setIsAselsanSatinalma] = useState(false);
+  const [userCompany, setUserCompany] = useState<string>("");
   const [expandedWorkOrders, setExpandedWorkOrders] = useState<Set<string>>(new Set());
 
+  // Company tabs state (for ASELSAN satinalma)
+  const [companies, setCompanies] = useState<string[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<string>("");
+
   // Search state
-  const [searchStation, setSearchStation] = useState("");
-  const [searchPartNumber, setSearchPartNumber] = useState("");
-  const [searchOrderNumber, setSearchOrderNumber] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Station list
   const [stations, setStations] = useState<StationInfo[]>([]);
@@ -114,6 +118,25 @@ export default function WorkOrdersPage() {
         typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":satinalma")
       );
       setIsSatinalma(!!satinalmaRole);
+
+      // Extract company from any atolye role
+      const anyAtolyeRole = user.role.find((role) =>
+        typeof role === "string" && role.startsWith("atolye:")
+      );
+      if (anyAtolyeRole && typeof anyAtolyeRole === "string") {
+        const parts = anyAtolyeRole.split(":");
+        if (parts.length >= 2) {
+          setUserCompany(parts[1]);
+        }
+      }
+
+      // Check if ASELSAN satinalma
+      if (satinalmaRole && typeof satinalmaRole === "string") {
+        const parts = satinalmaRole.split(":");
+        if (parts.length === 3 && parts[1].toUpperCase() === "ASELSAN") {
+          setIsAselsanSatinalma(true);
+        }
+      }
     }
   }, [user]);
 
@@ -131,6 +154,25 @@ export default function WorkOrdersPage() {
       fetchStations();
     }
   }, [isYonetici, isOperator, isSatinalma]);
+
+  // Fetch companies for ASELSAN satinalma
+  useEffect(() => {
+    if (!isAselsanSatinalma) return;
+    const fetchCompanies = async () => {
+      try {
+        const data = await api.get<string[]>("/romiot/station/work-orders/companies");
+        setCompanies(data || []);
+        if (data && data.length > 0 && !selectedCompany) {
+          // Default to ASELSAN if available, otherwise first
+          const aselsan = data.find(c => c.toUpperCase() === "ASELSAN");
+          setSelectedCompany(aselsan || data[0]);
+        }
+      } catch (err: any) {
+        console.error("Error fetching companies:", err);
+      }
+    };
+    fetchCompanies();
+  }, [isAselsanSatinalma]);
 
   // Fetch satinalma tokens
   const fetchTokens = useCallback(async () => {
@@ -157,9 +199,11 @@ export default function WorkOrdersPage() {
 
       const timestamp = new Date().getTime();
       let url = `/romiot/station/work-orders/all?page=${currentPage}&page_size=${pageSize}&_t=${timestamp}`;
-      if (searchStation) url += `&search_station=${encodeURIComponent(searchStation)}`;
-      if (searchPartNumber) url += `&search_part_number=${encodeURIComponent(searchPartNumber)}`;
-      if (searchOrderNumber) url += `&search_order_number=${encodeURIComponent(searchOrderNumber)}`;
+      if (searchQuery) {
+        url += `&search_part_number=${encodeURIComponent(searchQuery)}`;
+        url += `&search_order_number=${encodeURIComponent(searchQuery)}`;
+      }
+      if (isAselsanSatinalma && selectedCompany) url += `&filter_company=${encodeURIComponent(selectedCompany)}`;
 
       const data = await api.get<PaginatedResponse>(url, undefined, { useCache: false });
 
@@ -173,7 +217,7 @@ export default function WorkOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [isYonetici, isOperator, isSatinalma, currentPage, pageSize, searchStation, searchPartNumber, searchOrderNumber]);
+  }, [isYonetici, isOperator, isSatinalma, isAselsanSatinalma, selectedCompany, currentPage, pageSize, searchQuery]);
 
   useEffect(() => {
     fetchWorkOrders();
@@ -482,6 +526,31 @@ export default function WorkOrdersPage() {
           </div>
         )}
 
+        {/* Company Tabs for ASELSAN satinalma */}
+        {isAselsanSatinalma && companies.length > 0 && (
+          <div className="mb-6">
+            <div className="flex flex-wrap gap-1 bg-gray-100 rounded-lg p-1">
+              {companies.map((company) => (
+                <button
+                  key={company}
+                  onClick={() => {
+                    setSelectedCompany(company);
+                    setCurrentPage(1);
+                    setPriorityEdits(new Map());
+                  }}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    selectedCompany === company
+                      ? "bg-[#0f4c3a] text-white shadow-sm"
+                      : "text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {company}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Satinalma Token Info */}
         {isSatinalma && tokenInfo && (
           <div className="mb-6 p-4 bg-yellow-50 border border-yellow-300 rounded-lg flex items-center gap-3">
@@ -492,36 +561,18 @@ export default function WorkOrdersPage() {
           </div>
         )}
 
-        {/* Search Bars */}
-        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Atölye Ara</label>
+        {/* Search Bar */}
+        <div className="mb-6">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
             <input
               type="text"
-              placeholder="Atölye adı..."
-              value={searchStation}
-              onChange={(e) => { setSearchStation(e.target.value); setCurrentPage(1); }}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f4c3a] focus:border-[#0f4c3a] text-gray-900 bg-white text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Parça Numarası Ara</label>
-            <input
-              type="text"
-              placeholder="Parça numarası..."
-              value={searchPartNumber}
-              onChange={(e) => { setSearchPartNumber(e.target.value); setCurrentPage(1); }}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f4c3a] focus:border-[#0f4c3a] text-gray-900 bg-white text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Sipariş Numarası Ara</label>
-            <input
-              type="text"
-              placeholder="Sipariş numarası..."
-              value={searchOrderNumber}
-              onChange={(e) => { setSearchOrderNumber(e.target.value); setCurrentPage(1); }}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f4c3a] focus:border-[#0f4c3a] text-gray-900 bg-white text-sm"
+              placeholder="Sipariş numarası veya parça numarası ile ara..."
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f4c3a] focus:border-[#0f4c3a] text-gray-900 bg-white text-sm"
             />
           </div>
         </div>
@@ -559,7 +610,7 @@ export default function WorkOrdersPage() {
               {groupedWorkOrders.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                    {searchStation || searchPartNumber || searchOrderNumber
+                    {searchQuery
                       ? "Arama kriterlerinize uygun iş emri bulunamadı."
                       : "Henüz hiç iş emri kaydı bulunmamaktadır."}
                   </td>

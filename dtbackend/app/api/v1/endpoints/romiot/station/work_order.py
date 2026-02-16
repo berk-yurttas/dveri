@@ -331,6 +331,7 @@ async def get_all_work_orders(
     search_station: str | None = Query(None, description="Search by station name"),
     search_part_number: str | None = Query(None, description="Search by part number"),
     search_order_number: str | None = Query(None, description="Search by order number"),
+    filter_company: str | None = Query(None, description="Filter by company (ASELSAN satinalma only)"),
     current_user: User = Depends(check_authenticated),
     romiot_db: AsyncSession = Depends(get_romiot_db),
     postgres_db: AsyncSession = Depends(get_postgres_db)
@@ -338,6 +339,7 @@ async def get_all_work_orders(
     """
     Get all work orders for the current user's company with detailed information and pagination.
     Returns work orders from all stations belonging to the user's company.
+    ASELSAN satinalma users can use filter_company to view work orders from other companies.
     Includes station name and user name for each work order.
     Pagination is applied to grouped work orders (by work_order_group_id), not individual entries.
     Delivered work orders are excluded from the list.
@@ -346,15 +348,18 @@ async def get_all_work_orders(
     from app.models.romiot_models import Station
     from sqlalchemy import case, desc
     
-    # Extract company from user's role
+    # Extract company and role type from user's role
     company = None
+    is_aselsan_satinalma = False
     if current_user.role and isinstance(current_user.role, list):
         for role in current_user.role:
             if isinstance(role, str) and role.startswith("atolye:"):
                 parts = role.split(":")
                 if len(parts) >= 2:
-                    company = parts[1]
-                    break
+                    if not company:
+                        company = parts[1]
+                if len(parts) == 3 and parts[2] == "satinalma" and parts[1].upper() == "ASELSAN":
+                    is_aselsan_satinalma = True
     
     if not company:
         raise HTTPException(
@@ -362,9 +367,14 @@ async def get_all_work_orders(
             detail="Kullanıcının atölye yetkisi bulunmamaktadır"
         )
     
-    # Get all stations for this company
+    # Determine which company's work orders to show
+    target_company = company
+    if is_aselsan_satinalma and filter_company:
+        target_company = filter_company
+    
+    # Get all stations for target company
     stations_result = await romiot_db.execute(
-        select(Station).where(Station.company == company)
+        select(Station).where(Station.company == target_company)
     )
     stations = stations_result.scalars().all()
     station_ids = [station.id for station in stations]
@@ -387,10 +397,16 @@ async def get_all_work_orders(
         WorkOrder.delivered == False,
     ]
 
-    # Apply search filters
-    if search_part_number:
+    # Apply search filters (OR when both provided, AND individually)
+    from sqlalchemy import or_
+    if search_part_number and search_order_number:
+        base_conditions.append(or_(
+            WorkOrder.part_number.ilike(f"%{search_part_number}%"),
+            WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"),
+        ))
+    elif search_part_number:
         base_conditions.append(WorkOrder.part_number.ilike(f"%{search_part_number}%"))
-    if search_order_number:
+    elif search_order_number:
         base_conditions.append(WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"))
 
     # If searching by station name, filter station_ids
@@ -407,9 +423,14 @@ async def get_all_work_orders(
             WorkOrder.station_id.in_(filtered_station_ids),
             WorkOrder.delivered == False,
         ]
-        if search_part_number:
+        if search_part_number and search_order_number:
+            base_conditions.append(or_(
+                WorkOrder.part_number.ilike(f"%{search_part_number}%"),
+                WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"),
+            ))
+        elif search_part_number:
             base_conditions.append(WorkOrder.part_number.ilike(f"%{search_part_number}%"))
-        if search_order_number:
+        elif search_order_number:
             base_conditions.append(WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"))
 
     # Create a CTE with group metadata using work_order_group_id
@@ -532,3 +553,34 @@ async def get_all_work_orders(
         page_size=page_size,
         total_pages=total_pages
     )
+
+
+@router.get("/companies", response_model=list[str])
+async def get_companies(
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """
+    Get distinct list of companies that have stations.
+    Only available for ASELSAN satinalma users.
+    """
+    is_aselsan_satinalma = False
+    if current_user.role and isinstance(current_user.role, list):
+        for role in current_user.role:
+            if isinstance(role, str) and role.startswith("atolye:") and role.endswith(":satinalma"):
+                parts = role.split(":")
+                if len(parts) == 3 and parts[1].upper() == "ASELSAN":
+                    is_aselsan_satinalma = True
+                    break
+
+    if not is_aselsan_satinalma:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu işlem yalnızca ASELSAN satınalma kullanıcıları için geçerlidir"
+        )
+
+    result = await romiot_db.execute(
+        select(Station.company).distinct().order_by(Station.company)
+    )
+    companies = [row[0] for row in result.fetchall()]
+    return companies
