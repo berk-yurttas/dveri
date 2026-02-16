@@ -487,17 +487,7 @@ export default function SubPlatformPage() {
     user.role.some((r: any) => typeof r === "string" && r.startsWith("atolye:")) &&
     user.role.every((r: any) => typeof r !== "string" || r.startsWith("atolye:"));
 
-  const restrictedSubplatforms = ['verimlilik', 'zimmet', 'sivi-cevrim', 'helicoil', 'helicoil-denetim'];
-  // Also check the subplatform display name from platform config
-  const currentSubplatform = platformData?.theme_config?.sub_platforms?.find(
-    (sp: any) => sp.code === subPlatformCode
-  );
-  const subplatformTitle = (currentSubplatform?.title || subPlatformCode || '').toLowerCase();
-  const restrictedTitles = ['oee', 'zimmet', 'sıvı çevrim', 'sivi cevrim', 'helicoil'];
-  const isRestrictedByCode = restrictedSubplatforms.includes(subPlatformCode);
-  const isRestrictedByTitle = restrictedTitles.some(t => subplatformTitle.includes(t));
-
-  if (hasOnlyAtolyeRoles && platformCode === 'romiot' && (isRestrictedByCode || isRestrictedByTitle)) {
+  if (hasOnlyAtolyeRoles && platformCode === 'romiot' && subPlatformCode !== 'atolye') {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
