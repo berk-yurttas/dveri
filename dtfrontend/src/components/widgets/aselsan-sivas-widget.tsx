@@ -113,11 +113,6 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
   const [completedProductionData, setCompletedProductionData] = useState<CompletedProductionData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  
-  // State for dynamic table data
-  const [dynamicTableColumns, setDynamicTableColumns] = useState<string[]>([])
-  const [dynamicTableData, setDynamicTableData] = useState<any[][]>([])
-  const [dynamicTableLoading, setDynamicTableLoading] = useState(false)
 
   // Save filters to localStorage whenever they change
   useEffect(() => {
@@ -128,7 +123,28 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
     }
   }, [selectedProductCode, instanceId])
 
-  // Load data on mount and when date filters change
+  // Load product code options on mount (without filters)
+  useEffect(() => {
+    const loadProductCodes = async () => {
+      try {
+        const response = await api.post<WidgetData>('/reports/preview', {
+          sql_query: `SELECT DISTINCT "PRODUCTCODE" FROM mes_production.aselsan_sivas_is_plan_cihaz_bilgi_ WHERE "PRODUCTCODE" IS NOT NULL ORDER BY "PRODUCTCODE"`,
+          limit: 1000000
+        })
+
+        if (response.success && response.data && response.data.length > 0) {
+          const productCodes = response.data.map(row => row[0]).filter(Boolean)
+          setProductCodeOptions(Array.from(new Set(productCodes)).sort())
+        }
+      } catch (err) {
+        console.error(`Error loading product codes for ${instanceId}:`, err)
+      }
+    }
+
+    loadProductCodes()
+  }, [instanceId])
+
+  // Load data on mount and when date filters or product filter change
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
@@ -143,17 +159,22 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
         const statusDateFilter = `CAST("LAST_UPDATE_DATE" AS TIMESTAMP) BETWEEN CAST('${dateFrom} 00:00:00' AS TIMESTAMP) AND CAST('${dateTo} 23:59:59' AS TIMESTAMP)`
         const completedDateFilter = `CAST("COMPLETEDDATE" AS TIMESTAMP) BETWEEN CAST('${dateFrom} 00:00:00' AS TIMESTAMP) AND CAST('${dateTo} 23:59:59' AS TIMESTAMP)`
 
+        // Build product filter conditions
+        const deviceProductFilter = selectedProductCode ? `"PRODUCTCODE" = '${selectedProductCode}'` : '1=1'
+        const statusProductFilter = selectedProductCode ? `"PRODUCT" = '${selectedProductCode}'` : '1=1'
+        const completedProductFilter = selectedProductCode ? `"PRODUCTCODE" = '${selectedProductCode}'` : '1=1'
+
         const [deviceResponse, statusResponse, completedResponse] = await Promise.all([
           api.post<WidgetData>('/reports/preview', {
-            sql_query: `SELECT "PRODUCTCODE", "ORDERNO", "WORKPLAINID", "DESCRIPTION", "DevicesInProduction", "DevicesWithDowntime", "FormattedDate" FROM mes_production.aselsan_sivas_is_plan_cihaz_bilgi_ WHERE ${deviceDateFilter} ORDER BY "ORDERNO"`,
+            sql_query: `SELECT "PRODUCTCODE", "ORDERNO", "WORKPLAINID", "DESCRIPTION", "DevicesInProduction", "DevicesWithDowntime", "FormattedDate" FROM mes_production.aselsan_sivas_is_plan_cihaz_bilgi_ WHERE ${deviceDateFilter} AND ${deviceProductFilter} ORDER BY "ORDERNO"::numeric`,
             limit: 1000000
           }),
           api.post<WidgetData>('/reports/preview', {
-            sql_query: `SELECT "PRODUCT_KEY", "PRODUCT", "SERIALNO", "REVISION", "WORKORDERID", "LAST_UPDATE_DATE", "STATUS_TYPE", "CURRENT_STEP", "ISSTOPPED", "STOPREASON", "STOPDESCRIPTION", "RECORD_TYPE" FROM mes_production.aselsan_sivas_uretim_durumlari_ WHERE ${statusDateFilter} ORDER BY "PRODUCT"`,
+            sql_query: `SELECT "PRODUCT_KEY", "PRODUCT", "SERIALNO", "REVISION", "WORKORDERID", "LAST_UPDATE_DATE", "STATUS_TYPE", "CURRENT_STEP", "ISSTOPPED", "STOPREASON", "STOPDESCRIPTION", "RECORD_TYPE" FROM mes_production.aselsan_sivas_uretim_durumlari_ WHERE ${statusDateFilter} AND ${statusProductFilter} ORDER BY "PRODUCT"`,
             limit: 1000000
           }),
           api.post<WidgetData>('/reports/preview', {
-            sql_query: `SELECT "KEY", "TYPE", "PRODUCTCODE", "SERIALNO", "WORKORDERNO", "COMPLETEDDATE" FROM mes_production.aselsan_sivas_biten_uretimler_ WHERE ${completedDateFilter} ORDER BY "COMPLETEDDATE" DESC`,
+            sql_query: `SELECT "KEY", "TYPE", "PRODUCTCODE", "SERIALNO", "WORKORDERNO", "COMPLETEDDATE" FROM mes_production.aselsan_sivas_biten_uretimler_ WHERE ${completedDateFilter} AND ${completedProductFilter} ORDER BY "COMPLETEDDATE" DESC`,
             limit: 1000000
           })
         ])
@@ -169,13 +190,8 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
             FormattedDate: row[6] || null
           }))
           setDeviceData(transformed)
-
-          // Extract unique product codes
-          const productCodes = deviceResponse.data.map(row => row[0]).filter(Boolean)
-          setProductCodeOptions(Array.from(new Set(productCodes)).sort())
         } else {
           setDeviceData([])
-          setProductCodeOptions([])
         }
 
         if (statusResponse.success && statusResponse.data && statusResponse.data.length > 0) {
@@ -221,52 +237,10 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
     }
 
     loadData()
-  }, [instanceId, dateFrom, dateTo])
+  }, [instanceId, dateFrom, dateTo, selectedProductCode])
 
-  // Load dynamic table data when product code is selected or date filters change
-  useEffect(() => {
-    const loadDynamicTableData = async () => {
-      if (!selectedProductCode) {
-        setDynamicTableColumns([])
-        setDynamicTableData([])
-        return
-      }
 
-      setDynamicTableLoading(true)
-      try {
-        // Include date filter - FormattedDate format: "31-01-2026" (DD-MM-YYYY)
-        const deviceDateFilter = `("FormattedDate" IS NULL OR TO_DATE("FormattedDate", 'DD-MM-YYYY') BETWEEN TO_DATE('${dateFrom}', 'YYYY-MM-DD') AND TO_DATE('${dateTo}', 'YYYY-MM-DD'))`
-        
-        const response = await api.post<WidgetData>('/reports/preview', {
-          sql_query: `SELECT * FROM mes_production.aselsan_sivas_is_plan_cihaz_bilgi_ WHERE "PRODUCTCODE" = '${selectedProductCode}' AND ${deviceDateFilter} ORDER BY "ORDERNO"`,
-          limit: 1000000
-        })
-
-        if (response.success && response.columns && response.data) {
-          setDynamicTableColumns(response.columns)
-          setDynamicTableData(response.data)
-        } else {
-          setDynamicTableColumns([])
-          setDynamicTableData([])
-        }
-      } catch (err) {
-        console.error(`Error loading dynamic table data for ${instanceId}:`, err)
-        setDynamicTableColumns([])
-        setDynamicTableData([])
-      } finally {
-        setDynamicTableLoading(false)
-      }
-    }
-
-    loadDynamicTableData()
-  }, [selectedProductCode, instanceId, dateFrom, dateTo])
-
-  // Filter data based on selections
-  const filteredData = deviceData.filter(item => {
-    return selectedProductCode === '' || item.PRODUCTCODE === selectedProductCode
-  })
-
-  // Get unique descriptions ordered by ORDERNO
+  // Get unique descriptions ordered by ORDERNO (data is already filtered by SQL)
   const uniqueDescriptions = Array.from(
     new Set(
       deviceData
@@ -275,9 +249,9 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
     )
   )
 
-  // Aggregate data by DESCRIPTION
+  // Aggregate data by DESCRIPTION (data is already filtered by SQL)
   const aggregatedData = uniqueDescriptions.map(description => {
-    const itemsForDescription = filteredData.filter(item => item.DESCRIPTION === description)
+    const itemsForDescription = deviceData.filter(item => item.DESCRIPTION === description)
 
     return {
       description,
@@ -429,7 +403,7 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
     })
 
     return Object.entries(reasons).map(([reason, count]) => ({
-      name: `Duruş Nedeni ${reason}`,
+      name: reason,
       value: count
     }))
   }
@@ -516,7 +490,7 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
   }
 
   // Show no data state
-  if (filteredData.length === 0) {
+  if (deviceData.length === 0 && !loading) {
     return (
       <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
         <p className="text-sm text-gray-500">Veri bulunamadı</p>
@@ -576,104 +550,64 @@ export function AselsanSivasWidget({ widgetId }: AselsanSivasWidgetProps) {
       </div>
 
       {/* Table */}
-      <div className="flex-shrink-0">
-        {selectedProductCode ? (
-          // Dynamic table when product is selected
-          dynamicTableLoading ? (
-            <div className="w-full p-8 flex items-center justify-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              <p className="text-sm text-gray-600 ml-3">Tablo yükleniyor...</p>
-            </div>
-          ) : dynamicTableColumns.length > 0 && dynamicTableData.length > 0 ? (
-            <div className="overflow-x-auto max-h-96 border border-gray-200 rounded-lg">
-              <table className="w-full text-sm min-w-max">
-                <thead className="bg-gray-100 sticky top-0">
-                  <tr>
-                    {dynamicTableColumns.map((column, idx) => (
-                      <th key={idx} className="px-4 py-3 text-left font-semibold text-gray-900 text-xs whitespace-nowrap border-b border-gray-200">
-                        {column}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {dynamicTableData.map((row, rowIdx) => (
-                    <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      {row.map((cell, cellIdx) => (
-                        <td key={cellIdx} className="px-4 py-3 text-gray-700 text-xs whitespace-nowrap border-b border-gray-100">
-                          {cell !== null && cell !== undefined ? String(cell) : '-'}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="w-full p-8 text-center text-gray-500">
-              Seçilen ürün kodu için veri bulunamadı
-            </div>
-          )
-        ) : (
-          // Original aggregated table when no product is selected
-          <table className="w-full text-sm">
-            <thead className="bg-gray-100 sticky top-0">
-              <tr>
-                <th className="px-6 py-4 text-left font-semibold text-gray-900 w-56">
+      <div className="flex-shrink-0 overflow-x-auto">
+        <table className="w-full text-sm min-w-max">
+          <thead className="bg-gray-100 sticky top-0">
+            <tr>
+              <th className="px-6 py-4 text-left font-semibold text-gray-900 w-56 sticky left-0 bg-gray-100 z-10">
 
+              </th>
+              {aggregatedData.map((item, idx) => (
+                <th key={idx} className="px-6 py-4 text-center font-semibold text-gray-900 whitespace-nowrap">
+                  {item.description}
                 </th>
-                {aggregatedData.map((item, idx) => (
-                  <th key={idx} className="px-6 py-4 text-center font-semibold text-gray-900">
-                    {item.description}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {/* Row 1: Devam Eden Cihazlar */}
-              <tr>
-                <td className="px-6 py-5 text-left font-medium text-gray-800 bg-blue-50">
-                  Devam Eden Cihazlar
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {/* Row 1: Devam Eden Cihazlar */}
+            <tr>
+              <td className="px-6 py-5 text-left font-medium text-gray-800 bg-blue-50 sticky left-0 z-10">
+                Devam Eden Cihazlar
+              </td>
+              {aggregatedData.map((item, idx) => (
+                <td
+                  key={idx}
+                  className="px-6 py-5 text-center whitespace-nowrap"
+                >
+                  {item.devicesInProduction > 0 ? (
+                    <span className="text-blue-800 font-bold text-lg">
+                      {item.devicesInProduction}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">-</span>
+                  )}
                 </td>
-                {aggregatedData.map((item, idx) => (
-                  <td
-                    key={idx}
-                    className="px-6 py-5 text-center"
-                  >
-                    {item.devicesInProduction > 0 ? (
-                      <span className="text-blue-800 font-bold text-lg">
-                        {item.devicesInProduction}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </td>
-                ))}
-              </tr>
+              ))}
+            </tr>
 
-              {/* Row 2: Duruş Yaşanan Cihazlar */}
-              <tr>
-                <td className="px-6 py-5 text-left font-medium text-gray-800 bg-red-50">
-                  Duruş Yaşanan Cihazlar
+            {/* Row 2: Duruş Yaşanan Cihazlar */}
+            <tr>
+              <td className="px-6 py-5 text-left font-medium text-gray-800 bg-red-50 sticky left-0 z-10">
+                Duruş Yaşanan Cihazlar
+              </td>
+              {aggregatedData.map((item, idx) => (
+                <td
+                  key={idx}
+                  className="px-6 py-5 text-center whitespace-nowrap"
+                >
+                  {item.devicesWithDowntime > 0 ? (
+                    <span className="text-red-800 font-bold text-lg">
+                      {item.devicesWithDowntime}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">-</span>
+                  )}
                 </td>
-                {aggregatedData.map((item, idx) => (
-                  <td
-                    key={idx}
-                    className="px-6 py-5 text-center"
-                  >
-                    {item.devicesWithDowntime > 0 ? (
-                      <span className="text-red-800 font-bold text-lg">
-                        {item.devicesWithDowntime}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        )}
+              ))}
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       {/* Production Status Table - Hat Devam/Duruş Detayı */}

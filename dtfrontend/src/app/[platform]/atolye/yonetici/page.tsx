@@ -143,7 +143,7 @@ export default function YoneticiPage() {
         password: "",
         password_confirm: "",
         station_id: "",
-        role: "operator" as "musteri" | "operator" | "satinalma",
+        role: "operator" as "musteri" | "operator",
       });
     } catch (err: any) {
       let errorMessage = "Kullanıcı oluşturulurken hata oluştu";
