@@ -647,14 +647,20 @@ export default function PlatformHome() {
             };
           });
 
+          // Sipariş bilgisinde "FU" veya "FW" içerenleri ele
+          const filteredResults = mergedResults.filter((item: any) => {
+            const siparis = String(item['Sipariş'] || '');
+            return !siparis.includes('FU') && !siparis.includes('FW');
+          });
+
           // COOIS'ten ilk kaydın üretim yerini al (Üst Aşama için kullanılacak)
           const uretimYeri = cooisData[0]?.['Üretim yeri'] || '';
 
           // State'i güncelle
           setTableData((prev: any) => prev ? {
             ...prev,
-            aselsanIci: mergedResults,
-            aselsanIciTotalCount: mergedResults.length,
+            aselsanIci: filteredResults,
+            aselsanIciTotalCount: filteredResults.length,
             aselsanIciLoading: false,
             cooisUretimYeri: uretimYeri
           } : null);
