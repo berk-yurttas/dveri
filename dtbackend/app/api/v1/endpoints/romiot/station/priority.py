@@ -97,13 +97,13 @@ async def assign_priorities(
     token_record = await _get_or_create_token_record(pg_user.id, company, romiot_db)
     remaining = token_record.total_tokens - token_record.used_tokens
 
-    # Calculate total tokens needed
-    total_needed = 0
+    # Calculate net token change (positive = spend, negative = refund)
+    net_token_change = 0
     for assignment in request.assignments:
-        if assignment.priority < 1 or assignment.priority > MAX_PRIORITY_PER_ORDER:
+        if assignment.priority < 0 or assignment.priority > MAX_PRIORITY_PER_ORDER:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Öncelik değeri 1 ile {MAX_PRIORITY_PER_ORDER} arasında olmalıdır",
+                detail=f"Öncelik değeri 0 ile {MAX_PRIORITY_PER_ORDER} arasında olmalıdır",
             )
 
         # Check current priority on this work order group
@@ -127,13 +127,12 @@ async def assign_priorities(
 
         current_priority = wo.priority or 0
 
-        # If same user already assigned, calculate delta
+        # If same user already assigned, calculate delta (can be negative for refund)
         if wo.prioritized_by == pg_user.id:
             delta = assignment.priority - current_priority
         else:
             # If another user assigned, we need to refund their tokens first
             if current_priority > 0 and wo.prioritized_by is not None:
-                # Refund old user
                 old_token_result = await romiot_db.execute(
                     select(PriorityToken).where(
                         and_(
@@ -148,17 +147,17 @@ async def assign_priorities(
 
             delta = assignment.priority
 
-        if delta > 0:
-            total_needed += delta
+        net_token_change += delta
 
-    if total_needed > remaining:
+    # Check if user has enough tokens (only if net change is positive)
+    if net_token_change > 0 and net_token_change > remaining:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Yeterli jetonunuz yok. Gerekli: {total_needed}, Kalan: {remaining}",
+            detail=f"Yeterli jetonunuz yok. Gerekli: {net_token_change}, Kalan: {remaining}",
         )
 
     # Apply assignments
-    total_spent = 0
+    total_delta = 0
     for assignment in request.assignments:
         wo_result = await romiot_db.execute(
             select(WorkOrder).where(
@@ -186,17 +185,17 @@ async def assign_priorities(
             delta = assignment.priority
 
         # Update all work orders in this group
+        new_prioritized_by = pg_user.id if assignment.priority > 0 else None
         await romiot_db.execute(
             update(WorkOrder)
             .where(WorkOrder.work_order_group_id == assignment.work_order_group_id)
-            .values(priority=assignment.priority, prioritized_by=pg_user.id)
+            .values(priority=assignment.priority, prioritized_by=new_prioritized_by)
         )
 
-        if delta > 0:
-            total_spent += delta
+        total_delta += delta
 
-    # Deduct tokens
-    token_record.used_tokens += total_spent
+    # Apply net token change (can be negative for refund)
+    token_record.used_tokens = max(0, token_record.used_tokens + total_delta)
     await romiot_db.commit()
     await romiot_db.refresh(token_record)
 

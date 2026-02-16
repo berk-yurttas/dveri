@@ -136,7 +136,7 @@ class PaginatedWorkOrderResponse(BaseModel):
 class PriorityAssignment(BaseModel):
     """Schema for assigning priority to a work order group"""
     work_order_group_id: str = Field(..., description="İş Emri Grup ID")
-    priority: int = Field(..., ge=1, le=5, description="Öncelik (1-5 jeton)")
+    priority: int = Field(..., ge=0, le=5, description="Öncelik (0-5 jeton, 0=kaldır)")
 
 
 class PriorityAssignRequest(BaseModel):

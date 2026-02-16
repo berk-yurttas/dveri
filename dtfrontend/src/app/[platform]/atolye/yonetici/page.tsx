@@ -26,7 +26,7 @@ export default function YoneticiPage() {
     password: "",
     password_confirm: "",
     station_id: "",
-    role: "operator" as "musteri" | "operator" | "satinalma",
+    role: "operator" as "musteri" | "operator",
   });
   const [yoneticiLoading, setYoneticiLoading] = useState(false);
   const [yoneticiError, setYoneticiError] = useState<string | null>(null);
@@ -320,14 +320,13 @@ export default function YoneticiPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Rol *</label>
                   <select
                     value={userFormData.role}
-                    onChange={(e) => setUserFormData({ ...userFormData, role: e.target.value as "musteri" | "operator" | "satinalma" })}
+                    onChange={(e) => setUserFormData({ ...userFormData, role: e.target.value as "musteri" | "operator" })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                     required
                     disabled={yoneticiLoading}
                   >
                     <option value="operator">Operatör</option>
                     <option value="musteri">Müşteri</option>
-                    <option value="satinalma">Satınalma</option>
                   </select>
                 </div>
                 {userFormData.role === "operator" && (

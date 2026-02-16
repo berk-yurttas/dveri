@@ -313,20 +313,33 @@ export default function OperatorPage() {
 
       try {
         let parsedData: QRCodeData;
-        let decodedData = qrCodeData.trim();
+        const code = qrCodeData.trim();
 
         try {
-          const chunks = decodedData.match(/.{1,5}/g) || [];
-          decodedData = chunks.map((chunk) => String.fromCharCode(parseInt(chunk, 10))).join("");
+          let resolvedCode = code;
 
+          // If input is all digits and length is a multiple of 5, decode from numeric format
+          // (physical scanners output charCode as 5-digit numbers, e.g. "00080" = char 80 = "P")
+          if (/^\d+$/.test(code) && code.length % 5 === 0) {
+            const chunks = code.match(/.{1,5}/g) || [];
+            resolvedCode = chunks.map((chunk) => String.fromCharCode(parseInt(chunk, 10))).join("");
+            console.log("QR Kod (numeric decode):", resolvedCode);
+          }
+
+          console.log("QR Kod Kodu:", resolvedCode, "Uzunluk:", resolvedCode.length);
           const response = await api.get<{ data: QRCodeData }>(
-            `/romiot/station/qr-code/retrieve/${decodedData}`
+            `/romiot/station/qr-code/retrieve/${encodeURIComponent(resolvedCode)}`
           );
           parsedData = response.data;
           console.log("QR Kod Verisi Alındı:", parsedData);
-        } catch (decodeError) {
+        } catch (decodeError: any) {
           console.error("Decode Hatası:", decodeError);
-          setError("QR kod decode edilemedi");
+          const detail = decodeError?.message || "";
+          if (detail.includes("404") || detail.includes("bulunamadı")) {
+            setError(`QR kod bulunamadı: "${code}"`);
+          } else {
+            setError(`QR kod decode edilemedi: ${detail || "Bilinmeyen hata"} (kod: "${code}")`);
+          }
           return;
         }
 
@@ -583,7 +596,7 @@ export default function OperatorPage() {
         </div>
 
         {/* Mode Selection Buttons */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 gap-4 mb-8">
           <button
             onClick={() => {
               setMode(mode === "entrance" ? null : "entrance");
@@ -738,12 +751,12 @@ export default function OperatorPage() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parça Numarası</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Öncelik</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Müşteri Bilgisi</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Durum</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kaç Gündür Atölyede</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Adet</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Numarası</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Öncelik</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Müşteri Bilgisi</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Durum</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Kaç Gündür Atölyede</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Adet</th>
                     <th className="px-4 py-3 w-8"></th>
                   </tr>
                 </thead>
@@ -786,7 +799,7 @@ export default function OperatorPage() {
                               {wo.priority > 0 ? (
                                 <div className="flex items-center gap-0.5">
                                   {Array.from({ length: wo.priority }, (_, i) => (
-                                    <span key={i} className="text-yellow-500 text-sm">&#x1FA99;</span>
+                                    <span key={i} className="text-yellow-500 text-sm">&#x1F7E1;</span>
                                   ))}
                                 </div>
                               ) : <span className="text-gray-400 text-sm">-</span>}

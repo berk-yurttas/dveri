@@ -297,7 +297,11 @@ export default function WorkOrdersPage() {
   // Satinalma: handle priority change
   const handlePriorityChange = (groupId: string, value: number) => {
     const newEdits = new Map(priorityEdits);
-    if (value === 0) {
+    const wo = groupedWorkOrders.find(w => w.work_order_group_id === groupId);
+    const currentPriority = wo?.priority || 0;
+
+    // If the new value equals the current saved priority, remove the edit (no change)
+    if (value === currentPriority) {
       newEdits.delete(groupId);
     } else {
       newEdits.set(groupId, value);
@@ -305,14 +309,14 @@ export default function WorkOrdersPage() {
     setPriorityEdits(newEdits);
   };
 
-  // Calculate total tokens needed for current edits
+  // Calculate net token change for current edits (positive = spend, negative = refund)
   const calculateTokensNeeded = (): number => {
     let total = 0;
     priorityEdits.forEach((newPriority, groupId) => {
       const wo = groupedWorkOrders.find(w => w.work_order_group_id === groupId);
       const currentPriority = wo?.priority || 0;
       const delta = newPriority - currentPriority;
-      if (delta > 0) total += delta;
+      total += delta;
     });
     return total;
   };
@@ -361,43 +365,61 @@ export default function WorkOrdersPage() {
   const renderPriorityDisplay = (wo: GroupedWorkOrder) => {
     const editValue = priorityEdits.get(wo.work_order_group_id);
     const displayPriority = editValue !== undefined ? editValue : wo.priority;
+    const hasEdit = editValue !== undefined && editValue !== wo.priority;
 
     if (isSatinalma) {
       return (
-        <div className="flex items-center gap-1">
-          {[1, 2, 3, 4, 5].map((star) => (
-            <button
-              key={star}
-              onClick={(e) => {
-                e.stopPropagation();
-                handlePriorityChange(
-                  wo.work_order_group_id,
-                  star === displayPriority ? 0 : star
-                );
-              }}
-              className={`text-lg transition-colors ${
-                star <= displayPriority ? "text-yellow-500" : "text-gray-300"
-              } hover:text-yellow-400`}
-              title={`${star} jeton`}
-            >
-              &#x1FA99;
-            </button>
-          ))}
-          {editValue !== undefined && editValue !== wo.priority && (
-            <span className="ml-1 text-xs text-orange-600 font-medium">
-              ({editValue - wo.priority > 0 ? "+" : ""}{editValue - wo.priority})
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4, 5].map((level) => {
+              const isActive = level <= displayPriority;
+              return (
+                <button
+                  key={level}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePriorityChange(
+                      wo.work_order_group_id,
+                      level === displayPriority ? 0 : level
+                    );
+                  }}
+                  className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
+                    isActive
+                      ? "bg-yellow-400 border-yellow-500 text-yellow-900 shadow-sm"
+                      : "bg-gray-100 border-gray-300 text-gray-400 hover:border-yellow-400 hover:bg-yellow-50"
+                  }`}
+                  title={`${level} jeton ata (tıklayarak seç/kaldır)`}
+                >
+                  {level}
+                </button>
+              );
+            })}
+          </div>
+          {hasEdit && (
+            <span className={`text-xs font-medium ${(editValue ?? 0) - wo.priority > 0 ? "text-orange-600" : "text-green-600"}`}>
+              {(editValue ?? 0) - wo.priority > 0
+                ? `+${(editValue ?? 0) - wo.priority} jeton harcanacak`
+                : `${Math.abs((editValue ?? 0) - wo.priority)} jeton iade edilecek`}
             </span>
+          )}
+          {!hasEdit && displayPriority === 0 && (
+            <span className="text-[10px] text-gray-400">Öncelik atamak için tıklayın</span>
           )}
         </div>
       );
     }
 
-    // For operator/yonetici, just display the priority value
+    // For operator/yonetici, display filled coins up to the priority value
     if (wo.priority > 0) {
       return (
         <div className="flex items-center gap-1">
           {Array.from({ length: wo.priority }, (_, i) => (
-            <span key={i} className="text-yellow-500 text-sm">&#x1FA99;</span>
+            <span
+              key={i}
+              className="w-6 h-6 rounded-full bg-yellow-400 border-2 border-yellow-500 flex items-center justify-center text-xs font-bold text-yellow-900"
+            >
+              {i + 1}
+            </span>
           ))}
         </div>
       );
@@ -435,7 +457,7 @@ export default function WorkOrdersPage() {
     <div className="min-h-screen p-8 bg-gray-50">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">İş Emri Detayları</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">İş Emirleri</h1>
           <p className="text-gray-600">
             {isSatinalma
               ? "İş emirlerinin öncelik sıralamasını belirleyin"
@@ -463,7 +485,7 @@ export default function WorkOrdersPage() {
         {/* Satinalma Token Info */}
         {isSatinalma && tokenInfo && (
           <div className="mb-6 p-4 bg-yellow-50 border border-yellow-300 rounded-lg flex items-center gap-3">
-            <span className="text-2xl">&#x1FA99;</span>
+            <span className="text-2xl">&#x1F7E1;</span>
             <span className="text-sm font-medium text-yellow-800">
               {tokenInfo.remaining_tokens}/{tokenInfo.total_tokens} jetonunuz kaldı.
             </span>
@@ -511,8 +533,10 @@ export default function WorkOrdersPage() {
               onClick={() => setShowConfirmModal(true)}
               className="px-6 py-2.5 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg font-medium transition-colors flex items-center gap-2"
             >
-              <span>&#x1FA99;</span>
-              Öncelikleri Ata ({tokensNeeded} jeton)
+              <span>&#x1F7E1;</span>
+              {tokensNeeded >= 0
+                ? `Öncelikleri Ata (${tokensNeeded} jeton)`
+                : `Öncelikleri Güncelle (+${Math.abs(tokensNeeded)} jeton iade)`}
             </button>
           </div>
         )}
@@ -522,13 +546,13 @@ export default function WorkOrdersPage() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parça Numarası</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Öncelik</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Müşteri Bilgisi</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hangi Atölyede</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kaç Gündür Atölyede</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Adet</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8"></th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Numarası</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Öncelik</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Müşteri Bilgisi</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Hangi Atölyede</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Kaç Gündür Atölyede</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Adet</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 w-8"></th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -763,23 +787,33 @@ export default function WorkOrdersPage() {
           <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden">
             <div className="bg-yellow-50 px-6 py-4 border-b border-yellow-200">
               <div className="flex items-center gap-3">
-                <span className="text-3xl">&#x1FA99;</span>
+                <span className="text-3xl">&#x1F7E1;</span>
                 <h3 className="text-lg font-bold text-gray-900">Öncelik Atama Onayı</h3>
               </div>
             </div>
 
             <div className="p-6">
               <p className="text-gray-700 mb-4">
-                Seçilen öncelikleri atamak istiyor musunuz?
+                Seçilen öncelikleri {tokensNeeded >= 0 ? "atamak" : "güncellemek"} istiyor musunuz?
               </p>
-              <p className="text-gray-600 text-sm mb-2">
-                Öncelik vermek <span className="font-bold text-yellow-700">{tokensNeeded}</span> jetonunuzu harcayacak.
-              </p>
+              {tokensNeeded > 0 ? (
+                <p className="text-gray-600 text-sm mb-2">
+                  Öncelik vermek <span className="font-bold text-yellow-700">{tokensNeeded}</span> jetonunuzu harcayacak.
+                </p>
+              ) : tokensNeeded < 0 ? (
+                <p className="text-gray-600 text-sm mb-2">
+                  Öncelik düşürme sonucu <span className="font-bold text-green-700">{Math.abs(tokensNeeded)}</span> jetonunuz iade edilecek.
+                </p>
+              ) : (
+                <p className="text-gray-600 text-sm mb-2">
+                  Jeton bakiyeniz değişmeyecek.
+                </p>
+              )}
               <p className="text-gray-600 text-sm">
-                Öncelik atamalarından sonra <span className="font-bold text-green-700">{(tokenInfo?.remaining_tokens || 0) - tokensNeeded}</span> jetonunuz kalacak.
+                İşlem sonrası <span className="font-bold text-green-700">{(tokenInfo?.remaining_tokens || 0) - tokensNeeded}</span> jetonunuz kalacak.
               </p>
 
-              {tokensNeeded > (tokenInfo?.remaining_tokens || 0) && (
+              {tokensNeeded > 0 && tokensNeeded > (tokenInfo?.remaining_tokens || 0) && (
                 <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                   <p className="text-sm text-red-700 font-medium">
                     Yeterli jetonunuz yok! Gerekli: {tokensNeeded}, Kalan: {tokenInfo?.remaining_tokens || 0}
@@ -798,7 +832,7 @@ export default function WorkOrdersPage() {
               </button>
               <button
                 onClick={handleSubmitPriorities}
-                disabled={assignLoading || tokensNeeded > (tokenInfo?.remaining_tokens || 0)}
+                disabled={assignLoading || (tokensNeeded > 0 && tokensNeeded > (tokenInfo?.remaining_tokens || 0))}
                 className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {assignLoading ? "Atanıyor..." : "Onayla"}

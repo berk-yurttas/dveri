@@ -15,6 +15,7 @@ export default function AtolyePage() {
   const [isMusteri, setIsMusteri] = useState(false);
   const [isSatinalma, setIsSatinalma] = useState(false);
   const [hasAtolyeRole, setHasAtolyeRole] = useState(false);
+  const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
 
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
@@ -61,7 +62,7 @@ export default function AtolyePage() {
       title: "Yönetici",
       description: "Atölye ve kullanıcı yönetimi",
       href: `/${platform}/atolye/yonetici`,
-      visible: isYonetici,
+      allowed: isYonetici,
       color: "#0f4c3a",
       icon: (
         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -74,7 +75,7 @@ export default function AtolyePage() {
       title: "Müşteri",
       description: "Barkod oluşturma ve yazdırma",
       href: `/${platform}/atolye/musteri`,
-      visible: isMusteri,
+      allowed: isMusteri,
       color: "#fe9526",
       icon: (
         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -86,7 +87,7 @@ export default function AtolyePage() {
       title: "Operatör",
       description: "İş emri giriş ve çıkış işlemleri",
       href: `/${platform}/atolye/operator`,
-      visible: isOperator,
+      allowed: isOperator,
       color: "#0f4c3a",
       icon: (
         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -95,10 +96,10 @@ export default function AtolyePage() {
       ),
     },
     {
-      title: "İş Emri Detayları",
+      title: "İş Emirleri",
       description: "Tüm iş emirlerinin detaylı görünümü",
-      href: `/${platform}/atolye/work-orders`,
-      visible: isOperator || isYonetici || isSatinalma,
+      href: `/${platform}/atolye/is-emirleri`,
+      allowed: isOperator || isYonetici || isSatinalma,
       color: "#0f4c3a",
       icon: (
         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -108,7 +109,13 @@ export default function AtolyePage() {
     },
   ];
 
-  const visibleCards = cards.filter((c) => c.visible);
+  const handleCardClick = (card: typeof cards[0]) => {
+    if (card.allowed) {
+      router.push(card.href);
+    } else {
+      setShowAccessDeniedModal(true);
+    }
+  };
 
   return (
     <div className="min-h-screen p-8 bg-gray-50">
@@ -120,25 +127,34 @@ export default function AtolyePage() {
 
         <div
           className={`grid grid-cols-1 md:grid-cols-2 ${
-            visibleCards.length >= 3 ? "lg:grid-cols-3" : ""
+            cards.length >= 3 ? "lg:grid-cols-3" : ""
           } gap-6`}
         >
-          {visibleCards.map((card) => (
+          {cards.map((card) => (
             <div
               key={card.title}
-              onClick={() => router.push(card.href)}
-              className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer overflow-hidden group"
+              onClick={() => handleCardClick(card)}
+              className={`bg-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer overflow-hidden group ${
+                !card.allowed ? "opacity-60" : ""
+              }`}
             >
               <div className="h-2" style={{ backgroundColor: card.color }} />
               <div className="p-6">
-                <div
-                  className="w-14 h-14 rounded-xl flex items-center justify-center mb-4"
-                  style={{
-                    backgroundColor: card.color + "15",
-                    color: card.color,
-                  }}
-                >
-                  {card.icon}
+                <div className="flex items-center justify-between mb-4">
+                  <div
+                    className="w-14 h-14 rounded-xl flex items-center justify-center"
+                    style={{
+                      backgroundColor: card.color + "15",
+                      color: card.color,
+                    }}
+                  >
+                    {card.icon}
+                  </div>
+                  {!card.allowed && (
+                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                  )}
                 </div>
                 <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:opacity-80 transition-opacity">
                   {card.title}
@@ -149,6 +165,43 @@ export default function AtolyePage() {
           ))}
         </div>
       </div>
+
+      {/* Access Denied Modal */}
+      {showAccessDeniedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <svg className="h-8 w-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                <h3 className="text-xl font-bold text-white">Yetkisiz Erişim</h3>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6">
+              <p className="text-gray-700 text-lg mb-2">
+                Bu sayfa için yetkiniz bulunmamaktadır.
+              </p>
+              <p className="text-gray-600">
+                Erişim izni almak için lütfen sistem yöneticisi ile iletişime geçiniz.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-end">
+              <button
+                onClick={() => setShowAccessDeniedModal(false)}
+                className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

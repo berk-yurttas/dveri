@@ -8,7 +8,7 @@ from app.api.v1.endpoints.romiot.station.auth import check_station_operator_role
 from app.core.auth import check_authenticated
 from app.core.database import get_postgres_db, get_romiot_db
 from app.models.postgres_models import User as PostgresUser
-from app.models.romiot_models import PriorityToken, WorkOrder
+from app.models.romiot_models import PriorityToken, Station, WorkOrder
 from app.schemas.user import User
 from app.services.user_service import UserService
 from app.schemas.work_order import (
@@ -65,6 +65,27 @@ async def create_work_order(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Bu paket (Paket {work_order_data.package_index}/{work_order_data.total_packages}) ile işlem yapılmıştır"
+        )
+
+    # Check if any package from this group is currently active at a different station
+    active_at_other_station_result = await romiot_db.execute(
+        select(WorkOrder.station_id, Station.name).join(
+            Station, WorkOrder.station_id == Station.id
+        ).where(
+            and_(
+                WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
+                WorkOrder.station_id != work_order_data.station_id,
+                WorkOrder.exit_date.is_(None),
+            )
+        ).limit(1)
+    )
+    active_at_other = active_at_other_station_result.first()
+
+    if active_at_other:
+        other_station_name = active_at_other[1]
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Bu iş emri grubu şu anda \"{other_station_name}\" atölyesinde aktif. Önce mevcut atölyeden çıkış yapılmalıdır."
         )
 
     # Create new work order entry for this package
@@ -263,7 +284,7 @@ async def get_work_orders_by_station(
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid status filter. Must be 'Entrance' or 'Exit'"
+            detail="Geçersiz durum filtresi. 'Entrance' veya 'Exit' olmalıdır"
         )
 
     result = await romiot_db.execute(query)
@@ -307,7 +328,7 @@ async def get_all_work_orders(
     if not company:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User does not have atolye role"
+            detail="Kullanıcının atölye yetkisi bulunmamaktadır"
         )
     
     # Get all stations for this company
