@@ -1,13 +1,14 @@
 "use client"
 
 import { useUser } from "@/contexts/user-context";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 
 interface WorkOrderDetail {
   id: number;
   station_id: number;
   station_name: string;
+  is_exit_station: boolean;
   user_id: number;
   user_name: string | null;
   work_order_group_id: string;
@@ -16,10 +17,14 @@ interface WorkOrderDetail {
   company_from: string;
   aselsan_order_number: string;
   order_item_number: string;
+  part_number: string;
   quantity: number;
   total_quantity: number;
   package_index: number;
   total_packages: number;
+  priority: number;
+  prioritized_by: number | null;
+  delivered: boolean;
   target_date: string | null;
   entrance_date: string | null;
   exit_date: string | null;
@@ -35,6 +40,7 @@ interface PaginatedResponse {
 
 interface GroupedWorkOrder {
   work_order_group_id: string;
+  part_number: string;
   main_customer: string;
   sector: string;
   company_from: string;
@@ -42,6 +48,7 @@ interface GroupedWorkOrder {
   order_item_number: string;
   total_quantity: number;
   total_packages: number;
+  priority: number;
   target_date: string | null;
   entries: WorkOrderDetail[];
 }
@@ -50,54 +57,69 @@ interface StationInfo {
   id: number;
   name: string;
   company: string;
+  is_exit_station: boolean;
+}
+
+interface PriorityTokenInfo {
+  total_tokens: number;
+  used_tokens: number;
+  remaining_tokens: number;
 }
 
 export default function WorkOrdersPage() {
   const { user } = useUser();
-  const [workOrders, setWorkOrders] = useState<WorkOrderDetail[]>([]);
   const [groupedWorkOrders, setGroupedWorkOrders] = useState<GroupedWorkOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hasAtolyeRole, setHasAtolyeRole] = useState(false);
-  const [isMusteri, setIsMusteri] = useState(false);
   const [isYonetici, setIsYonetici] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [isOperator, setIsOperator] = useState(false);
+  const [isSatinalma, setIsSatinalma] = useState(false);
   const [expandedWorkOrders, setExpandedWorkOrders] = useState<Set<string>>(new Set());
-  
-  // Station filter for yonetici
+
+  // Search state
+  const [searchStation, setSearchStation] = useState("");
+  const [searchPartNumber, setSearchPartNumber] = useState("");
+  const [searchOrderNumber, setSearchOrderNumber] = useState("");
+
+  // Station list
   const [stations, setStations] = useState<StationInfo[]>([]);
-  const [selectedStationId, setSelectedStationId] = useState<number | null>(null); // null = all stations
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+
+  // Satinalma token state
+  const [tokenInfo, setTokenInfo] = useState<PriorityTokenInfo | null>(null);
+  const [priorityEdits, setPriorityEdits] = useState<Map<string, number>>(new Map());
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [assignLoading, setAssignLoading] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const [assignSuccess, setAssignSuccess] = useState<string | null>(null);
 
   // Check user roles
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
-      const atolyeRole = user.role.find((role) => 
-        typeof role === "string" && role.startsWith("atolye:")
-      );
-      setHasAtolyeRole(!!atolyeRole);
-      
-      const musteriRole = user.role.find((role) =>
-        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":musteri")
-      );
-      setIsMusteri(!!musteriRole);
-      
       const yoneticiRole = user.role.find((role) =>
         typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":yonetici")
       );
       setIsYonetici(!!yoneticiRole);
+
+      const operatorRole = user.role.find((role) =>
+        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":operator")
+      );
+      setIsOperator(!!operatorRole);
+
+      const satinalmaRole = user.role.find((role) =>
+        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":satinalma")
+      );
+      setIsSatinalma(!!satinalmaRole);
     }
   }, [user]);
 
-  // Fetch stations for yonetici
+  // Fetch stations
   useEffect(() => {
     const fetchStations = async () => {
-      if (!isYonetici) return;
       try {
         const data = await api.get<StationInfo[]>("/romiot/station/stations/");
         setStations(data || []);
@@ -105,41 +127,57 @@ export default function WorkOrdersPage() {
         console.error("Error fetching stations:", err);
       }
     };
-    fetchStations();
-  }, [isYonetici]);
+    if (isYonetici || isOperator || isSatinalma) {
+      fetchStations();
+    }
+  }, [isYonetici, isOperator, isSatinalma]);
 
-  // Fetch work orders
+  // Fetch satinalma tokens
+  const fetchTokens = useCallback(async () => {
+    if (!isSatinalma) return;
+    try {
+      const data = await api.get<PriorityTokenInfo>("/romiot/station/priority/tokens");
+      setTokenInfo(data);
+    } catch (err: any) {
+      console.error("Error fetching tokens:", err);
+    }
+  }, [isSatinalma]);
+
   useEffect(() => {
-    const fetchWorkOrders = async () => {
-      if (!isYonetici) return;
+    fetchTokens();
+  }, [fetchTokens]);
 
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const timestamp = new Date().getTime();
-        const data = await api.get<PaginatedResponse>(
-          `/romiot/station/work-orders/all?page=${currentPage}&page_size=${pageSize}&_t=${timestamp}`,
-          undefined,
-          { useCache: false }
-        );
-        
-        setWorkOrders(data.items || []);
-        setTotalItems(data.total);
-        setTotalPages(data.total_pages);
-        
-        const grouped = groupWorkOrdersByGroup(data.items || []);
-        setGroupedWorkOrders(grouped);
-      } catch (err: any) {
-        console.error("Error fetching work orders:", err);
-        setError("İş emirleri yüklenirken hata oluştu");
-      } finally {
-        setLoading(false);
-      }
-    };
+  // Fetch work orders with search
+  const fetchWorkOrders = useCallback(async () => {
+    if (!isYonetici && !isOperator && !isSatinalma) return;
 
+    try {
+      setLoading(true);
+      setError(null);
+
+      const timestamp = new Date().getTime();
+      let url = `/romiot/station/work-orders/all?page=${currentPage}&page_size=${pageSize}&_t=${timestamp}`;
+      if (searchStation) url += `&search_station=${encodeURIComponent(searchStation)}`;
+      if (searchPartNumber) url += `&search_part_number=${encodeURIComponent(searchPartNumber)}`;
+      if (searchOrderNumber) url += `&search_order_number=${encodeURIComponent(searchOrderNumber)}`;
+
+      const data = await api.get<PaginatedResponse>(url, undefined, { useCache: false });
+
+      setTotalPages(data.total_pages);
+
+      const grouped = groupWorkOrdersByGroup(data.items || []);
+      setGroupedWorkOrders(grouped);
+    } catch (err: any) {
+      console.error("Error fetching work orders:", err);
+      setError("İş emirleri yüklenirken hata oluştu");
+    } finally {
+      setLoading(false);
+    }
+  }, [isYonetici, isOperator, isSatinalma, currentPage, pageSize, searchStation, searchPartNumber, searchOrderNumber]);
+
+  useEffect(() => {
     fetchWorkOrders();
-  }, [hasAtolyeRole, isMusteri, currentPage, pageSize]);
+  }, [fetchWorkOrders]);
 
   // Group work orders by work_order_group_id
   const groupWorkOrdersByGroup = (orders: WorkOrderDetail[]): GroupedWorkOrder[] => {
@@ -147,10 +185,11 @@ export default function WorkOrdersPage() {
 
     orders.forEach(order => {
       const key = order.work_order_group_id;
-      
+
       if (!grouped.has(key)) {
         grouped.set(key, {
           work_order_group_id: order.work_order_group_id,
+          part_number: order.part_number,
           main_customer: order.main_customer,
           sector: order.sector,
           company_from: order.company_from,
@@ -158,11 +197,12 @@ export default function WorkOrdersPage() {
           order_item_number: order.order_item_number,
           total_quantity: order.total_quantity,
           total_packages: order.total_packages,
+          priority: order.priority,
           target_date: order.target_date,
           entries: []
         });
       }
-      
+
       grouped.get(key)!.entries.push(order);
     });
 
@@ -175,36 +215,38 @@ export default function WorkOrdersPage() {
       });
     });
 
-    return Array.from(grouped.values());
+    // Sort groups by priority descending
+    return Array.from(grouped.values()).sort((a, b) => b.priority - a.priority);
   };
 
-  // Filter work orders by station (for yonetici) and search term
-  const filteredWorkOrders = groupedWorkOrders.filter(wo => {
-    // Station filter for yonetici
-    if (isYonetici && selectedStationId !== null) {
-      const hasEntryInStation = wo.entries.some(e => e.station_id === selectedStationId);
-      if (!hasEntryInStation) return false;
+  // Get the latest station for a work order group (where it currently is)
+  const getCurrentStation = (entries: WorkOrderDetail[]): string => {
+    const activeEntries = entries.filter(e => !e.exit_date);
+    if (activeEntries.length > 0) {
+      return activeEntries[0].station_name;
     }
-    
-    if (!searchTerm) return true;
-    
-    const searchLower = searchTerm.toLowerCase();
-    return (
-      wo.work_order_group_id.toLowerCase().includes(searchLower) ||
-      wo.main_customer.toLowerCase().includes(searchLower) ||
-      wo.sector.toLowerCase().includes(searchLower) ||
-      wo.company_from.toLowerCase().includes(searchLower) ||
-      wo.aselsan_order_number.toLowerCase().includes(searchLower) ||
-      wo.order_item_number.toLowerCase().includes(searchLower)
-    );
-  });
+    // If all exited, show last station
+    const sorted = [...entries].sort((a, b) => {
+      const dateA = a.exit_date || a.entrance_date || "";
+      const dateB = b.exit_date || b.entrance_date || "";
+      return new Date(dateB).getTime() - new Date(dateA).getTime();
+    });
+    return sorted.length > 0 ? sorted[0].station_name : "-";
+  };
 
-  // When yonetici filters by station, also filter entries within each group
-  const getFilteredEntries = (wo: GroupedWorkOrder): WorkOrderDetail[] => {
-    if (isYonetici && selectedStationId !== null) {
-      return wo.entries.filter(e => e.station_id === selectedStationId);
-    }
-    return wo.entries;
+  // Calculate days in current station
+  const getDaysInStation = (entries: WorkOrderDetail[]): number => {
+    const activeEntries = entries.filter(e => !e.exit_date);
+    if (activeEntries.length === 0) return 0;
+
+    const earliest = activeEntries.reduce((min, e) => {
+      const d = new Date(e.entrance_date || "");
+      return d < min ? d : min;
+    }, new Date());
+
+    const now = new Date();
+    const diffMs = now.getTime() - earliest.getTime();
+    return Math.floor(diffMs / (1000 * 60 * 60 * 24));
   };
 
   // Toggle work order expansion
@@ -218,18 +260,18 @@ export default function WorkOrdersPage() {
     setExpandedWorkOrders(newExpanded);
   };
 
-  // Calculate total time spent in station
+  // Calculate duration
   const calculateDuration = (entrance: string | null, exit: string | null): string => {
     if (!entrance) return "-";
     if (!exit) return "Devam ediyor";
-    
+
     const entranceDate = new Date(entrance);
     const exitDate = new Date(exit);
     const diffMs = exitDate.getTime() - entranceDate.getTime();
-    
+
     const hours = Math.floor(diffMs / (1000 * 60 * 60));
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    
+
     if (hours > 0) {
       return `${hours} saat ${minutes} dakika`;
     }
@@ -252,46 +294,124 @@ export default function WorkOrdersPage() {
     );
   };
 
-  // Get last action date from entries
-  const getLastActionDate = (entries: WorkOrderDetail[]): string => {
-    if (entries.length === 0) return "-";
-    
-    const dates: Date[] = [];
-    
-    entries.forEach(entry => {
-      if (entry.exit_date) {
-        dates.push(new Date(entry.exit_date));
-      } else if (entry.entrance_date) {
-        dates.push(new Date(entry.entrance_date));
-      }
+  // Satinalma: handle priority change
+  const handlePriorityChange = (groupId: string, value: number) => {
+    const newEdits = new Map(priorityEdits);
+    if (value === 0) {
+      newEdits.delete(groupId);
+    } else {
+      newEdits.set(groupId, value);
+    }
+    setPriorityEdits(newEdits);
+  };
+
+  // Calculate total tokens needed for current edits
+  const calculateTokensNeeded = (): number => {
+    let total = 0;
+    priorityEdits.forEach((newPriority, groupId) => {
+      const wo = groupedWorkOrders.find(w => w.work_order_group_id === groupId);
+      const currentPriority = wo?.priority || 0;
+      const delta = newPriority - currentPriority;
+      if (delta > 0) total += delta;
     });
-    
-    if (dates.length === 0) return "-";
-    
-    const lastDate = dates.reduce((latest, current) => 
-      current > latest ? current : latest
-    );
-    
-    return lastDate.toLocaleString("tr-TR");
+    return total;
   };
 
-  // Get unique stations from entries
-  const getUniqueStations = (entries: WorkOrderDetail[]): string[] => {
-    const stations = new Set(entries.map(e => e.station_name));
-    return Array.from(stations);
+  // Submit priority assignments
+  const handleSubmitPriorities = async () => {
+    setAssignLoading(true);
+    setAssignError(null);
+    setAssignSuccess(null);
+
+    try {
+      const assignments = Array.from(priorityEdits.entries()).map(([groupId, priority]) => ({
+        work_order_group_id: groupId,
+        priority,
+      }));
+
+      const result = await api.post<PriorityTokenInfo>("/romiot/station/priority/assign", {
+        assignments,
+      });
+
+      setTokenInfo(result);
+      setPriorityEdits(new Map());
+      setShowConfirmModal(false);
+      setAssignSuccess("Öncelikler başarıyla atandı");
+      setTimeout(() => setAssignSuccess(null), 3000);
+
+      // Refresh work orders
+      await fetchWorkOrders();
+    } catch (err: any) {
+      let errorMessage = "Öncelik atanırken hata oluştu";
+      if (err.message) {
+        try {
+          const errorObj = JSON.parse(err.message);
+          errorMessage = errorObj.detail || errorMessage;
+        } catch {
+          errorMessage = err.message;
+        }
+      }
+      setAssignError(errorMessage);
+    } finally {
+      setAssignLoading(false);
+    }
   };
 
-  // Only yonetici can see this page
-  if (!isYonetici) {
+  // Render priority stars/tokens for a work order
+  const renderPriorityDisplay = (wo: GroupedWorkOrder) => {
+    const editValue = priorityEdits.get(wo.work_order_group_id);
+    const displayPriority = editValue !== undefined ? editValue : wo.priority;
+
+    if (isSatinalma) {
+      return (
+        <div className="flex items-center gap-1">
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={star}
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePriorityChange(
+                  wo.work_order_group_id,
+                  star === displayPriority ? 0 : star
+                );
+              }}
+              className={`text-lg transition-colors ${
+                star <= displayPriority ? "text-yellow-500" : "text-gray-300"
+              } hover:text-yellow-400`}
+              title={`${star} jeton`}
+            >
+              &#x1FA99;
+            </button>
+          ))}
+          {editValue !== undefined && editValue !== wo.priority && (
+            <span className="ml-1 text-xs text-orange-600 font-medium">
+              ({editValue - wo.priority > 0 ? "+" : ""}{editValue - wo.priority})
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    // For operator/yonetici, just display the priority value
+    if (wo.priority > 0) {
+      return (
+        <div className="flex items-center gap-1">
+          {Array.from({ length: wo.priority }, (_, i) => (
+            <span key={i} className="text-yellow-500 text-sm">&#x1FA99;</span>
+          ))}
+        </div>
+      );
+    }
+    return <span className="text-gray-400 text-sm">-</span>;
+  };
+
+  // Access check
+  if (!isYonetici && !isOperator && !isSatinalma) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">
-            Erişim Yetkisi Yok
-          </h1>
-          <p className="text-gray-600">
-            Bu sayfayı görüntüleme yetkisine sahip değilsiniz.
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Erişim Yetkisi Yok</h1>
+          <p className="text-gray-600">Bu sayfayı görüntüleme yetkisine sahip değilsiniz.</p>
         </div>
       </div>
     );
@@ -301,410 +421,392 @@ export default function WorkOrdersPage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#008080] mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#0f4c3a] mx-auto mb-4"></div>
           <p className="text-gray-600">İş emirleri yükleniyor...</p>
         </div>
       </div>
     );
   }
 
+  const tokensNeeded = calculateTokensNeeded();
+  const hasEdits = priorityEdits.size > 0;
+
   return (
     <div className="min-h-screen p-8 bg-gray-50">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            İş Emri Detayları
-          </h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">İş Emri Detayları</h1>
           <p className="text-gray-600">
-            {isYonetici
-              ? "Tüm atölyelerin iş emirlerini görüntüleyin"
+            {isSatinalma
+              ? "İş emirlerinin öncelik sıralamasını belirleyin"
               : "Tüm iş emirlerinin detaylı bilgilerini görüntüleyin"}
           </p>
         </div>
 
-        {/* Error Message */}
+        {/* Error / Success Messages */}
         {error && (
           <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg shadow-sm">
-            <div className="flex items-start">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            </div>
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
+        {assignError && (
+          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg shadow-sm">
+            <p className="text-sm text-red-700">{assignError}</p>
+          </div>
+        )}
+        {assignSuccess && (
+          <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-lg shadow-sm">
+            <p className="text-sm text-green-700">{assignSuccess}</p>
           </div>
         )}
 
-        {/* Station Tabs for Yonetici */}
-        {isYonetici && stations.length > 0 && (
-          <div className="mb-6">
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => { setSelectedStationId(null); setExpandedWorkOrders(new Set()); }}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  selectedStationId === null
-                    ? 'bg-[#008080] text-white shadow-md'
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                Tüm Atölyeler
-              </button>
-              {stations.map(station => (
-                <button
-                  key={station.id}
-                  onClick={() => { setSelectedStationId(station.id); setExpandedWorkOrders(new Set()); }}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    selectedStationId === station.id
-                      ? 'bg-[#008080] text-white shadow-md'
-                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  {station.name}
-                </button>
-              ))}
-            </div>
+        {/* Satinalma Token Info */}
+        {isSatinalma && tokenInfo && (
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-300 rounded-lg flex items-center gap-3">
+            <span className="text-2xl">&#x1FA99;</span>
+            <span className="text-sm font-medium text-yellow-800">
+              {tokenInfo.remaining_tokens}/{tokenInfo.total_tokens} jetonunuz kaldı.
+            </span>
           </div>
         )}
 
-        {/* Search Bar */}
-        <div className="mb-6">
-          <div className="relative">
+        {/* Search Bars */}
+        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Atölye Ara</label>
             <input
               type="text"
-              placeholder="Sipariş numarası, müşteri, sektör veya gönderen firma ile ara..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#008080] focus:border-[#008080] text-gray-900 bg-white"
+              placeholder="Atölye adı..."
+              value={searchStation}
+              onChange={(e) => { setSearchStation(e.target.value); setCurrentPage(1); }}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f4c3a] focus:border-[#0f4c3a] text-gray-900 bg-white text-sm"
             />
-            <svg
-              className="absolute left-3 top-3.5 h-5 w-5 text-gray-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Parça Numarası Ara</label>
+            <input
+              type="text"
+              placeholder="Parça numarası..."
+              value={searchPartNumber}
+              onChange={(e) => { setSearchPartNumber(e.target.value); setCurrentPage(1); }}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f4c3a] focus:border-[#0f4c3a] text-gray-900 bg-white text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Sipariş Numarası Ara</label>
+            <input
+              type="text"
+              placeholder="Sipariş numarası..."
+              value={searchOrderNumber}
+              onChange={(e) => { setSearchOrderNumber(e.target.value); setCurrentPage(1); }}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f4c3a] focus:border-[#0f4c3a] text-gray-900 bg-white text-sm"
+            />
+          </div>
+        </div>
+
+        {/* Satinalma: Submit Button */}
+        {isSatinalma && hasEdits && (
+          <div className="mb-6 flex justify-end">
+            <button
+              onClick={() => setShowConfirmModal(true)}
+              className="px-6 py-2.5 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg font-medium transition-colors flex items-center gap-2"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+              <span>&#x1FA99;</span>
+              Öncelikleri Ata ({tokensNeeded} jeton)
+            </button>
           </div>
-        </div>
+        )}
 
-        {/* Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 bg-blue-100 rounded-lg p-3">
-                <svg className="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Toplam İş Emri</p>
-                <p className="text-2xl font-bold text-gray-900">{filteredWorkOrders.length}</p>
-              </div>
-            </div>
-          </div>
+        {/* Work Orders Table */}
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parça Numarası</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Öncelik</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Müşteri Bilgisi</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hangi Atölyede</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kaç Gündür Atölyede</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Adet</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8"></th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {groupedWorkOrders.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                    {searchStation || searchPartNumber || searchOrderNumber
+                      ? "Arama kriterlerinize uygun iş emri bulunamadı."
+                      : "Henüz hiç iş emri kaydı bulunmamaktadır."}
+                  </td>
+                </tr>
+              ) : (
+                groupedWorkOrders.map((wo) => {
+                  const key = wo.work_order_group_id;
+                  const isExpanded = expandedWorkOrders.has(key);
+                  const currentStation = getCurrentStation(wo.entries);
+                  const daysInStation = getDaysInStation(wo.entries);
+                  const hasActiveEntry = wo.entries.some(e => !e.exit_date);
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 bg-yellow-100 rounded-lg p-3">
-                <svg className="h-6 w-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Devam Eden</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {filteredWorkOrders.filter(wo => getFilteredEntries(wo).some(e => !e.exit_date)).length}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 bg-green-100 rounded-lg p-3">
-                <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Tamamlanan</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {filteredWorkOrders.filter(wo => getFilteredEntries(wo).every(e => e.exit_date)).length}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Work Orders List */}
-        <div className="space-y-6">
-          <div className="space-y-4">
-            {filteredWorkOrders.length === 0 ? (
-              <div className="bg-white rounded-lg shadow p-8 text-center">
-                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <h3 className="mt-2 text-sm font-medium text-gray-900">İş emri bulunamadı</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  {searchTerm ? "Arama kriterlerinize uygun iş emri bulunamadı." : "Henüz hiç iş emri kaydı bulunmamaktadır."}
-                </p>
-              </div>
-            ) : (
-            filteredWorkOrders.map((wo) => {
-              const key = wo.work_order_group_id;
-              const isExpanded = expandedWorkOrders.has(key);
-              const displayEntries = getFilteredEntries(wo);
-              const hasActiveEntry = displayEntries.some(e => !e.exit_date);
-              const uniqueStations = getUniqueStations(displayEntries);
-
-              return (
-                <div key={key} className="bg-white rounded-lg shadow overflow-hidden">
-                  {/* Work Order Header */}
-                  <div
-                    className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
-                    onClick={() => toggleWorkOrder(key)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-lg font-bold text-gray-900">
-                            {wo.aselsan_order_number}
-                          </h3>
-                          {hasActiveEntry && (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                              Aktif
-                            </span>
-                          )}
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                            {wo.total_packages} paket
+                  return (
+                    <>
+                      <tr
+                        key={key}
+                        className="hover:bg-gray-50 cursor-pointer transition-colors"
+                        onClick={() => toggleWorkOrder(key)}
+                      >
+                        <td className="px-4 py-3">
+                          <div className="text-sm font-medium text-gray-900">{wo.part_number}</div>
+                          <div className="text-xs text-gray-500">{wo.aselsan_order_number}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {renderPriorityDisplay(wo)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm text-gray-900">{wo.company_from}</div>
+                          <div className="text-xs text-gray-500">{wo.main_customer} - {wo.sector}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-900">{currentStation}</span>
+                            {hasActiveEntry && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                Aktif
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`text-sm font-medium ${daysInStation > 7 ? "text-red-600" : daysInStation > 3 ? "text-yellow-600" : "text-gray-900"}`}>
+                            {hasActiveEntry ? `${daysInStation} gün` : "-"}
                           </span>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <span className="text-gray-500">Ana Müşteri:</span>
-                            <p className="font-medium text-gray-900">{wo.main_customer}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Sektör:</span>
-                            <p className="font-medium text-gray-900">{wo.sector}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Gönderen Firma:</span>
-                            <p className="font-medium text-gray-900">{wo.company_from}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Sipariş Kalem No:</span>
-                            <p className="font-medium text-gray-900">{wo.order_item_number}</p>
-                          </div>
-                        </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-gray-900">{wo.total_quantity}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <svg
+                            className={`h-5 w-5 text-gray-400 transition-transform ${isExpanded ? 'transform rotate-180' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </td>
+                      </tr>
 
-                        <div className="mt-3 flex items-center gap-4 text-sm flex-wrap">
-                          <div className="text-gray-600">
-                            <span className="font-medium">{wo.total_quantity}</span> toplam parça
-                          </div>
-                          <span className="text-gray-300">|</span>
-                          <div className="text-gray-600">
-                            <span className="font-medium">{displayEntries.length}</span> atölye geçişi
-                          </div>
-                          <span className="text-gray-300">|</span>
-                          <div className="text-gray-600">
-                            Atölyeler: {uniqueStations.join(", ")}
-                          </div>
-                          {wo.target_date && (
-                            <>
-                              <span className="text-gray-300">|</span>
-                              <div className="text-gray-600">
-                                Hedef: <span className="font-medium">{new Date(wo.target_date).toLocaleDateString("tr-TR")}</span>
-                              </div>
-                            </>
-                          )}
-                          <span className="text-gray-300">|</span>
-                          <div className="flex items-center gap-2 text-gray-600">
-                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <span className="text-gray-500">Son İşlem:</span>
-                            <span className="font-medium text-gray-900">{getLastActionDate(displayEntries)}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="ml-4">
-                        <svg
-                          className={`h-6 w-6 text-gray-400 transition-transform ${isExpanded ? 'transform rotate-180' : ''}`}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Work Order Details (Expanded) */}
-                  {isExpanded && (
-                    <div className="border-t border-gray-200 bg-gray-50 p-6">
-                      <h4 className="text-sm font-semibold text-gray-900 mb-4">
-                        {isYonetici && selectedStationId !== null
-                          ? `Atölye Geçiş Geçmişi (${stations.find(s => s.id === selectedStationId)?.name || ''})`
-                          : 'Atölye Geçiş Geçmişi'}
-                      </h4>
-                      
-                      <div className="space-y-4">
-                        {displayEntries.map((entry, index) => (
-                          <div key={entry.id} className="bg-white rounded-lg p-4 border border-gray-200">
-                            <div className="flex items-start justify-between mb-3">
-                              <div className="flex items-center gap-3">
-                                <div className="flex-shrink-0 w-8 h-8 bg-[#008080] text-white rounded-full flex items-center justify-center text-sm font-bold">
-                                  {index + 1}
+                      {/* Expanded Details */}
+                      {isExpanded && (
+                        <tr key={`${key}-details`}>
+                          <td colSpan={7} className="px-0 py-0">
+                            <div className="bg-gray-50 border-t border-b border-gray-200 p-6">
+                              {/* Summary */}
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 text-sm">
+                                <div>
+                                  <span className="text-gray-500">Sipariş No:</span>
+                                  <p className="font-medium text-gray-900">{wo.aselsan_order_number}</p>
                                 </div>
                                 <div>
-                                  <h5 className="font-semibold text-gray-900">{entry.station_name}</h5>
-                                  <p className="text-sm text-gray-600">
-                                    Operatör: {entry.user_name || "Bilinmiyor"} - Paket {entry.package_index}/{entry.total_packages} ({entry.quantity}/{entry.total_quantity} parça)
-                                  </p>
+                                  <span className="text-gray-500">Sipariş Kalem No:</span>
+                                  <p className="font-medium text-gray-900">{wo.order_item_number}</p>
                                 </div>
+                                <div>
+                                  <span className="text-gray-500">Toplam Paket:</span>
+                                  <p className="font-medium text-gray-900">{wo.total_packages} paket</p>
+                                </div>
+                                {wo.target_date && (
+                                  <div>
+                                    <span className="text-gray-500">Hedef Tarih:</span>
+                                    <p className="font-medium text-gray-900">
+                                      {new Date(wo.target_date).toLocaleDateString("tr-TR")}
+                                    </p>
+                                  </div>
+                                )}
                               </div>
-                              {getStatusBadge(entry.exit_date)}
+
+                              {/* Station History */}
+                              <h4 className="text-sm font-semibold text-gray-900 mb-3">Atölye Geçiş Geçmişi</h4>
+                              <div className="space-y-3">
+                                {wo.entries.map((entry, index) => (
+                                  <div key={entry.id} className="bg-white rounded-lg p-4 border border-gray-200">
+                                    <div className="flex items-start justify-between mb-2">
+                                      <div className="flex items-center gap-3">
+                                        <div className="flex-shrink-0 w-7 h-7 bg-[#0f4c3a] text-white rounded-full flex items-center justify-center text-xs font-bold">
+                                          {index + 1}
+                                        </div>
+                                        <div>
+                                          <h5 className="font-semibold text-gray-900 text-sm">{entry.station_name}</h5>
+                                          <p className="text-xs text-gray-600">
+                                            Operatör: {entry.user_name || "Bilinmiyor"} - Paket {entry.package_index}/{entry.total_packages} ({entry.quantity}/{entry.total_quantity} parça)
+                                          </p>
+                                        </div>
+                                      </div>
+                                      {getStatusBadge(entry.exit_date)}
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                                      <div>
+                                        <span className="text-gray-500">Giriş:</span>
+                                        <p className="font-medium text-gray-900">
+                                          {entry.entrance_date ? new Date(entry.entrance_date).toLocaleString("tr-TR") : "-"}
+                                        </p>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-500">Çıkış:</span>
+                                        <p className="font-medium text-gray-900">
+                                          {entry.exit_date ? new Date(entry.exit_date).toLocaleString("tr-TR") : "-"}
+                                        </p>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-500">Süre:</span>
+                                        <p className="font-medium text-gray-900">
+                                          {calculateDuration(entry.entrance_date, entry.exit_date)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                              <div>
-                                <span className="text-gray-500">Giriş Tarihi:</span>
-                                <p className="font-medium text-gray-900">
-                                  {entry.entrance_date
-                                    ? new Date(entry.entrance_date).toLocaleString("tr-TR")
-                                    : "-"}
-                                </p>
-                              </div>
-                              <div>
-                                <span className="text-gray-500">Çıkış Tarihi:</span>
-                                <p className="font-medium text-gray-900">
-                                  {entry.exit_date
-                                    ? new Date(entry.exit_date).toLocaleString("tr-TR")
-                                    : "-"}
-                                </p>
-                              </div>
-                              <div>
-                                <span className="text-gray-500">Süre:</span>
-                                <p className="font-medium text-gray-900">
-                                  {calculateDuration(entry.entrance_date, entry.exit_date)}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })
-            )}
-          </div>
-            <div className="bg-white rounded-lg shadow p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-700">
-                    Toplam <span className="font-medium">{totalItems}</span> kayıt
-                  </span>
-                  <span className="text-gray-400">|</span>
-                  <span className="text-sm text-gray-700">
-                    Sayfa <span className="font-medium">{currentPage}</span> / <span className="font-medium">{totalPages}</span>
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <select
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#008080] focus:border-[#008080] text-gray-900 bg-white"
-                  >
-                    <option value={10}>10 / sayfa</option>
-                    <option value={20}>20 / sayfa</option>
-                    <option value={50}>50 / sayfa</option>
-                    <option value={100}>100 / sayfa</option>
-                  </select>
-
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                    disabled={currentPage === 1}
-                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                    </svg>
-                  </button>
-
-                  <div className="flex items-center gap-1">
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum;
-                      if (totalPages <= 5) {
-                        pageNum = i + 1;
-                      } else if (currentPage <= 3) {
-                        pageNum = i + 1;
-                      } else if (currentPage >= totalPages - 2) {
-                        pageNum = totalPages - 4 + i;
-                      } else {
-                        pageNum = currentPage - 2 + i;
-                      }
-
-                      return (
-                        <button
-                          key={pageNum}
-                          onClick={() => setCurrentPage(pageNum)}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                            currentPage === pageNum
-                              ? 'bg-[#008080] text-white'
-                              : 'text-gray-700 hover:bg-gray-100'
-                          }`}
-                        >
-                          {pageNum}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                    disabled={currentPage === totalPages}
-                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-
-                  <div className="flex items-center gap-2 ml-2">
-                    <span className="text-sm text-gray-700">Git:</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={totalPages}
-                      value={currentPage}
-                      onChange={(e) => {
-                        const page = Number(e.target.value);
-                        if (page >= 1 && page <= totalPages) {
-                          setCurrentPage(page);
-                        }
-                      }}
-                      className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-center focus:ring-2 focus:ring-[#008080] focus:border-[#008080] text-gray-900 bg-white"
-                    />
-                  </div>
-                </div>
-              </div>
+        {/* Pagination */}
+        <div className="mt-4 bg-white rounded-lg shadow p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-700">
+                Sayfa <span className="font-medium">{currentPage}</span> / <span className="font-medium">{totalPages}</span>
+              </span>
             </div>
-         
+
+            <div className="flex items-center gap-2">
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#0f4c3a] focus:border-[#0f4c3a] text-gray-900 bg-white"
+              >
+                <option value={10}>10 / sayfa</option>
+                <option value={20}>20 / sayfa</option>
+                <option value={50}>50 / sayfa</option>
+                <option value={100}>100 / sayfa</option>
+              </select>
+
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                        currentPage === pageNum
+                          ? 'bg-[#0f4c3a] text-white'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            <div className="bg-yellow-50 px-6 py-4 border-b border-yellow-200">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">&#x1FA99;</span>
+                <h3 className="text-lg font-bold text-gray-900">Öncelik Atama Onayı</h3>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <p className="text-gray-700 mb-4">
+                Seçilen öncelikleri atamak istiyor musunuz?
+              </p>
+              <p className="text-gray-600 text-sm mb-2">
+                Öncelik vermek <span className="font-bold text-yellow-700">{tokensNeeded}</span> jetonunuzu harcayacak.
+              </p>
+              <p className="text-gray-600 text-sm">
+                Öncelik atamalarından sonra <span className="font-bold text-green-700">{(tokenInfo?.remaining_tokens || 0) - tokensNeeded}</span> jetonunuz kalacak.
+              </p>
+
+              {tokensNeeded > (tokenInfo?.remaining_tokens || 0) && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-700 font-medium">
+                    Yeterli jetonunuz yok! Gerekli: {tokensNeeded}, Kalan: {tokenInfo?.remaining_tokens || 0}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+                disabled={assignLoading}
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleSubmitPriorities}
+                disabled={assignLoading || tokensNeeded > (tokenInfo?.remaining_tokens || 0)}
+                className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {assignLoading ? "Atanıyor..." : "Onayla"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

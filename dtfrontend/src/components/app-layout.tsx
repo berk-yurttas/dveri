@@ -180,19 +180,23 @@ function AppLayoutContent({ children }: AppLayoutProps) {
       }
     ];
 
-    // Add atolye-specific navigation items (only for yonetici)
+    // Add atolye-specific navigation items based on role
     if (isAtolyePage) {
       const isYoneticiRole = user?.role && Array.isArray(user.role) && user.role.some(
         (role) => typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":yonetici")
       );
-      if (isYoneticiRole) {
-        baseItems.push(
-          {
-            title: "İş Emri Detayları",
-            icon: ClipboardList,
-            href: platformCode ? `${platformPrefix}/atolye/work-orders` : "/atolye/work-orders",
-          }
-        );
+      const isOperatorRole = user?.role && Array.isArray(user.role) && user.role.some(
+        (role) => typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":operator")
+      );
+      const isSatinalmaRole = user?.role && Array.isArray(user.role) && user.role.some(
+        (role) => typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":satinalma")
+      );
+      if (isYoneticiRole || isOperatorRole || isSatinalmaRole) {
+        baseItems.push({
+          title: "İş Emri Detayları",
+          icon: ClipboardList,
+          href: platformCode ? `${platformPrefix}/atolye/work-orders` : "/atolye/work-orders",
+        });
       }
     }
 

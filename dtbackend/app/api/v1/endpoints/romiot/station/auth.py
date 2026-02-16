@@ -93,8 +93,8 @@ async def get_station_company(current_user: User):
     station_role = None
     for role in current_user.role:
         if isinstance(role, str) and role.startswith("atolye:"):
-            # Check if it ends with :yonetici, :operator, or :musteri
-            if role.endswith(":yonetici") or role.endswith(":operator") or role.endswith(":musteri"):
+            # Check if it ends with :yonetici, :operator, :musteri, or :satinalma
+            if role.endswith(":yonetici") or role.endswith(":operator") or role.endswith(":musteri") or role.endswith(":satinalma"):
                 station_role = role
                 break
 

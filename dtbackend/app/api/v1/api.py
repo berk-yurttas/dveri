@@ -11,7 +11,7 @@ from app.api.v1.endpoints import (
     feedback,
     analytics,
 )
-from app.api.v1.endpoints.romiot.station import station, work_order, qr_code
+from app.api.v1.endpoints.romiot.station import station, work_order, qr_code, priority
 from app.api.v1.endpoints.romiot import stats
 
 api_router = APIRouter()
@@ -27,5 +27,6 @@ api_router.include_router(feedback.router, prefix="/feedback", tags=["feedback"]
 api_router.include_router(work_order.router, prefix="/romiot/station/work-orders", tags=["work-orders"])
 api_router.include_router(station.router, prefix="/romiot/station/stations", tags=["stations"])
 api_router.include_router(qr_code.router, prefix="/romiot/station/qr-code", tags=["qr-code"])
+api_router.include_router(priority.router, prefix="/romiot/station/priority", tags=["priority"])
 api_router.include_router(stats.router, prefix="/romiot/stats", tags=["romiot-stats"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])

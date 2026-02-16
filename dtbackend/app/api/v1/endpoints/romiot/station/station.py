@@ -23,6 +23,7 @@ router = APIRouter()
 class UserRoleType(str, Enum):
     MUSTERI = "musteri"
     OPERATOR = "operator"
+    SATINALMA = "satinalma"
 
 
 @router.post("/", response_model=StationSchema, status_code=status.HTTP_201_CREATED)
@@ -66,7 +67,8 @@ async def create_station(
     # Create new station
     new_station = Station(
         name=station_data.name,
-        company=station_data.company
+        company=station_data.company,
+        is_exit_station=station_data.is_exit_station
     )
 
     romiot_db.add(new_station)
@@ -178,9 +180,9 @@ class UserCreateRequest(BaseModel):
         if self.role == UserRoleType.OPERATOR and not self.station_id:
             raise ValueError('Operatör rolü için atölye seçilmesi zorunludur')
         
-        # Station ID should not be provided for musteri role
-        if self.role == UserRoleType.MUSTERI and self.station_id is not None:
-            raise ValueError('Müşteri rolü için atölye seçilmemelidir')
+        # Station ID should not be provided for musteri or satinalma role
+        if self.role in (UserRoleType.MUSTERI, UserRoleType.SATINALMA) and self.station_id is not None:
+            raise ValueError('Müşteri/Satınalma rolü için atölye seçilmemelidir')
         
         return self
 
@@ -487,6 +489,7 @@ async def update_station(
     # Update station
     station.name = station_data.name
     station.company = station_data.company
+    station.is_exit_station = station_data.is_exit_station
 
     await romiot_db.commit()
     await romiot_db.refresh(station)

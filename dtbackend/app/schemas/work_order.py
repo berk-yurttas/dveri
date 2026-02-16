@@ -39,6 +39,9 @@ class WorkOrderUpdateExitDate(BaseModel):
 
 class WorkOrder(WorkOrderBase):
     id: int
+    priority: int = 0
+    prioritized_by: int | None = None
+    delivered: bool = False
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
 
@@ -80,6 +83,9 @@ class WorkOrderList(BaseModel):
     total_quantity: int
     package_index: int
     total_packages: int
+    priority: int = 0
+    prioritized_by: int | None = None
+    delivered: bool = False
     target_date: date | None = None
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
@@ -93,6 +99,7 @@ class WorkOrderDetail(BaseModel):
     id: int
     station_id: int
     station_name: str
+    is_exit_station: bool = False
     user_id: int
     user_name: str | None = None
     work_order_group_id: str
@@ -106,6 +113,9 @@ class WorkOrderDetail(BaseModel):
     total_quantity: int
     package_index: int
     total_packages: int
+    priority: int = 0
+    prioritized_by: int | None = None
+    delivered: bool = False
     target_date: date | None = None
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
@@ -121,3 +131,21 @@ class PaginatedWorkOrderResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class PriorityAssignment(BaseModel):
+    """Schema for assigning priority to a work order group"""
+    work_order_group_id: str = Field(..., description="İş Emri Grup ID")
+    priority: int = Field(..., ge=1, le=5, description="Öncelik (1-5 jeton)")
+
+
+class PriorityAssignRequest(BaseModel):
+    """Schema for batch priority assignment"""
+    assignments: list[PriorityAssignment] = Field(..., description="Öncelik atamaları")
+
+
+class PriorityTokenInfo(BaseModel):
+    """Schema for token info response"""
+    total_tokens: int
+    used_tokens: int
+    remaining_tokens: int

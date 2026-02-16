@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -11,10 +11,8 @@ class Station(PostgreSQLBase):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     company = Column(String(255), nullable=False)
+    is_exit_station = Column(Boolean, nullable=False, server_default="false")
 
-    # Note: users relationship points to User model in primary database (postgres_models)
-    # Since foreign keys can't span databases, this is a conceptual relationship only.
-    # The actual user_id is stored in WorkOrder without a database foreign key constraint.
     work_orders = relationship("WorkOrder", back_populates="station", cascade="all, delete-orphan")
 
 
@@ -53,12 +51,35 @@ class WorkOrder(PostgreSQLBase):
     # Target date
     target_date = Column(Date, nullable=True)
 
+    # Priority (assigned by satinalma role, 0-5)
+    priority = Column(Integer, nullable=False, server_default="0")
+    # User ID of the satinalma user who assigned priority (references primary DB)
+    prioritized_by = Column(Integer, nullable=True)
+    # Whether work order has been delivered (exited from exit station)
+    delivered = Column(Boolean, nullable=False, server_default="false")
+
     # Timestamps
     entrance_date = Column(DateTime(timezone=True), server_default=func.now())
     exit_date = Column(DateTime(timezone=True), nullable=True)
 
     # relationships
     station = relationship("Station", back_populates="work_orders")
+
+
+class PriorityToken(PostgreSQLBase):
+    """Tracks token usage for satinalma users."""
+    __tablename__ = "priority_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # User ID from primary database (satinalma user)
+    user_id = Column(Integer, nullable=False, index=True)
+    company = Column(String(255), nullable=False, index=True)
+    # Total tokens allocated
+    total_tokens = Column(Integer, nullable=False)
+    # Tokens currently spent (assigned to work orders)
+    used_tokens = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class QRCodeData(PostgreSQLBase):
