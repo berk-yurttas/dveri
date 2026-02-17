@@ -70,6 +70,7 @@ class Settings(BaseSettings):
 
     # PocketBase Configuration
     POCKETBASE_URL: str = Field(default_factory=lambda: os.getenv("POCKETBASE_URL", "http://localhost:8090"))
+    POCKETBASE_SAVE_URL: str = Field(default_factory=lambda: os.getenv("POCKETBASE_SAVE_URL", "https://pb.dev.ahtapot.aselsan.com.tr"))
     POCKETBASE_ADMIN_EMAIL: str = Field(default_factory=lambda: os.getenv("furkancilesiz57@gmail.com", ""))
     POCKETBASE_ADMIN_PASSWORD: str = Field(default_factory=lambda: os.getenv("12345678", ""))
     
