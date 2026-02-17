@@ -780,11 +780,29 @@ export default function OperatorPage() {
                       const scannedCount = myEntries.length;
                       const exitedCount = myEntries.filter(e => e.exit_date).length;
 
+                      // Priority color scale for row background (yellow -> red)
+                      const priorityRowColors = [
+                        "", // 0 = no priority
+                        "bg-yellow-50 hover:bg-yellow-100",
+                        "bg-amber-50 hover:bg-amber-100",
+                        "bg-orange-50 hover:bg-orange-100",
+                        "bg-red-50 hover:bg-red-100",
+                        "bg-red-100 hover:bg-red-200",
+                      ];
+                      const priorityCircleColors = [
+                        { bg: "bg-yellow-400", border: "border-yellow-500" },
+                        { bg: "bg-amber-400", border: "border-amber-500" },
+                        { bg: "bg-orange-400", border: "border-orange-500" },
+                        { bg: "bg-red-400", border: "border-red-500" },
+                        { bg: "bg-red-600", border: "border-red-700" },
+                      ];
+                      const rowBg = wo.priority > 0 ? priorityRowColors[wo.priority] || priorityRowColors[5] : "hover:bg-gray-50";
+
                       return (
                         <>
                           <tr
                             key={key}
-                            className={`cursor-pointer transition-colors ${wo.priority > 0 ? "bg-red-50 hover:bg-red-100" : "hover:bg-gray-50"}`}
+                            className={`cursor-pointer transition-colors ${rowBg}`}
                             onClick={() => {
                               const newExpanded = new Set(expandedRows);
                               if (newExpanded.has(key)) newExpanded.delete(key); else newExpanded.add(key);
@@ -801,10 +819,8 @@ export default function OperatorPage() {
                                   {Array.from({ length: wo.priority }, (_, i) => (
                                     <span
                                       key={i}
-                                      className="w-6 h-6 rounded-full bg-yellow-400 border-2 border-yellow-500 flex items-center justify-center text-xs font-bold text-yellow-900"
-                                    >
-                                      {i + 1}
-                                    </span>
+                                      className={`w-6 h-6 rounded-full border-2 ${priorityCircleColors[i].bg} ${priorityCircleColors[i].border}`}
+                                    />
                                   ))}
                                 </div>
                               ) : <span className="text-gray-400 text-sm">-</span>}

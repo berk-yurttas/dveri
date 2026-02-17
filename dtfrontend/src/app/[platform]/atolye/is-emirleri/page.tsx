@@ -1,7 +1,7 @@
 "use client"
 
 import { useUser } from "@/contexts/user-context";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 
 interface WorkOrderDetail {
@@ -70,6 +70,7 @@ export default function WorkOrdersPage() {
   const { user } = useUser();
   const [groupedWorkOrders, setGroupedWorkOrders] = useState<GroupedWorkOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isYonetici, setIsYonetici] = useState(false);
   const [isOperator, setIsOperator] = useState(false);
@@ -84,6 +85,20 @@ export default function WorkOrdersPage() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Debounce search input
+  useEffect(() => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setCurrentPage(1);
+    }, 400);
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [searchQuery]);
 
   // Station list
   const [stations, setStations] = useState<StationInfo[]>([]);
@@ -199,9 +214,9 @@ export default function WorkOrdersPage() {
 
       const timestamp = new Date().getTime();
       let url = `/romiot/station/work-orders/all?page=${currentPage}&page_size=${pageSize}&_t=${timestamp}`;
-      if (searchQuery) {
-        url += `&search_part_number=${encodeURIComponent(searchQuery)}`;
-        url += `&search_order_number=${encodeURIComponent(searchQuery)}`;
+      if (debouncedSearch) {
+        url += `&search_part_number=${encodeURIComponent(debouncedSearch)}`;
+        url += `&search_order_number=${encodeURIComponent(debouncedSearch)}`;
       }
       if (isAselsanSatinalma && selectedCompany) url += `&filter_company=${encodeURIComponent(selectedCompany)}`;
 
@@ -216,8 +231,9 @@ export default function WorkOrdersPage() {
       setError("İş emirleri yüklenirken hata oluştu");
     } finally {
       setLoading(false);
+      setInitialLoadDone(true);
     }
-  }, [isYonetici, isOperator, isSatinalma, isAselsanSatinalma, selectedCompany, currentPage, pageSize, searchQuery]);
+  }, [isYonetici, isOperator, isSatinalma, isAselsanSatinalma, selectedCompany, currentPage, pageSize, debouncedSearch]);
 
   useEffect(() => {
     fetchWorkOrders();
@@ -405,6 +421,15 @@ export default function WorkOrdersPage() {
     }
   };
 
+  // Priority color scale: yellow -> orange -> red (levels 1-5)
+  const priorityColors = [
+    { bg: "bg-yellow-400", border: "border-yellow-500", hoverBg: "hover:bg-yellow-50", hoverBorder: "hover:border-yellow-400" },
+    { bg: "bg-amber-400", border: "border-amber-500", hoverBg: "hover:bg-amber-50", hoverBorder: "hover:border-amber-400" },
+    { bg: "bg-orange-400", border: "border-orange-500", hoverBg: "hover:bg-orange-50", hoverBorder: "hover:border-orange-400" },
+    { bg: "bg-red-400", border: "border-red-500", hoverBg: "hover:bg-red-50", hoverBorder: "hover:border-red-400" },
+    { bg: "bg-red-600", border: "border-red-700", hoverBg: "hover:bg-red-50", hoverBorder: "hover:border-red-500" },
+  ];
+
   // Render priority stars/tokens for a work order
   const renderPriorityDisplay = (wo: GroupedWorkOrder) => {
     const editValue = priorityEdits.get(wo.work_order_group_id);
@@ -417,6 +442,7 @@ export default function WorkOrdersPage() {
           <div className="flex items-center gap-1">
             {[1, 2, 3, 4, 5].map((level) => {
               const isActive = level <= displayPriority;
+              const color = priorityColors[level - 1];
               return (
                 <button
                   key={level}
@@ -427,15 +453,13 @@ export default function WorkOrdersPage() {
                       level === displayPriority ? 0 : level
                     );
                   }}
-                  className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
+                  className={`w-7 h-7 rounded-full border-2 transition-all cursor-pointer ${
                     isActive
-                      ? "bg-yellow-400 border-yellow-500 text-yellow-900 shadow-sm"
-                      : "bg-gray-100 border-gray-300 text-gray-400 hover:border-yellow-400 hover:bg-yellow-50"
+                      ? `${color.bg} ${color.border} shadow-sm`
+                      : `bg-gray-100 border-gray-300 ${color.hoverBorder} ${color.hoverBg}`
                   }`}
                   title={`${level} jeton ata (tıklayarak seç/kaldır)`}
-                >
-                  {level}
-                </button>
+                />
               );
             })}
           </div>
@@ -453,17 +477,15 @@ export default function WorkOrdersPage() {
       );
     }
 
-    // For operator/yonetici, display filled coins up to the priority value
+    // For operator/yonetici, display filled color circles up to the priority value
     if (wo.priority > 0) {
       return (
         <div className="flex items-center gap-1">
           {Array.from({ length: wo.priority }, (_, i) => (
             <span
               key={i}
-              className="w-6 h-6 rounded-full bg-yellow-400 border-2 border-yellow-500 flex items-center justify-center text-xs font-bold text-yellow-900"
-            >
-              {i + 1}
-            </span>
+              className={`w-6 h-6 rounded-full border-2 ${priorityColors[i].bg} ${priorityColors[i].border}`}
+            />
           ))}
         </div>
       );
@@ -483,7 +505,7 @@ export default function WorkOrdersPage() {
     );
   }
 
-  if (loading) {
+  if (loading && !initialLoadDone) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -571,9 +593,14 @@ export default function WorkOrdersPage() {
               type="text"
               placeholder="Sipariş numarası veya parça numarası ile ara..."
               value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f4c3a] focus:border-[#0f4c3a] text-gray-900 bg-white text-sm"
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0f4c3a] focus:border-[#0f4c3a] text-gray-900 bg-white text-sm"
             />
+            {loading && initialLoadDone && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 border-t-[#0f4c3a]"></div>
+              </div>
+            )}
           </div>
         </div>
 
