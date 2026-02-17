@@ -53,8 +53,7 @@ class FeedbackService:
             payload_wp = {
                 "subject": feedback_data.subject,
                 "description": {
-                    "format": "markdown",
-                    "raw": feedback_data.description
+                    "raw": feedback_data.description + ("\n\n**Eklenen Dosyalar:**\n" + "\n".join([f"- {url}" for url in feedback_data.attachments]) if feedback_data.attachments else "")
                 },
                 f"customField{settings.OPENPROJECT_PLATFORM_CUSTOM_FIELD_ID}": feedback_data.platform,
                 f"customField{settings.OPENPROJECT_TALEP_SAHIBI_CUSTOM_FIELD_ID}": feedback_data.talep_sahibi,

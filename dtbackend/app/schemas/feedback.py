@@ -9,6 +9,7 @@ class FeedbackCreate(BaseModel):
     talep_sahibi: str = Field(..., description="Talep sahibi bilgisi", min_length=1)
     birim: str = Field(..., description="Birim bilgisi", min_length=1)
     description: str = Field(..., description="Sorun detayı", min_length=1)
+    attachments: Optional[list[str]] = Field(default=[], description="Eklenen dosya URL'leri")
 
 
 class FeedbackResponse(BaseModel):
