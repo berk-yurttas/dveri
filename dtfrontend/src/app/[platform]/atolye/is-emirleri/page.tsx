@@ -421,13 +421,13 @@ export default function WorkOrdersPage() {
     }
   };
 
-  // Priority color scale: yellow -> orange -> red (levels 1-5)
+  // Priority color scale: light blue -> dark blue (levels 1-5)
   const priorityColors = [
-    { bg: "bg-yellow-400", border: "border-yellow-500", hoverBg: "hover:bg-yellow-50", hoverBorder: "hover:border-yellow-400" },
-    { bg: "bg-amber-400", border: "border-amber-500", hoverBg: "hover:bg-amber-50", hoverBorder: "hover:border-amber-400" },
-    { bg: "bg-orange-400", border: "border-orange-500", hoverBg: "hover:bg-orange-50", hoverBorder: "hover:border-orange-400" },
-    { bg: "bg-red-400", border: "border-red-500", hoverBg: "hover:bg-red-50", hoverBorder: "hover:border-red-400" },
-    { bg: "bg-red-600", border: "border-red-700", hoverBg: "hover:bg-red-50", hoverBorder: "hover:border-red-500" },
+    { bg: "bg-sky-300", border: "border-sky-400", hoverBg: "hover:bg-sky-50", hoverBorder: "hover:border-sky-300" },
+    { bg: "bg-sky-400", border: "border-sky-500", hoverBg: "hover:bg-sky-50", hoverBorder: "hover:border-sky-400" },
+    { bg: "bg-blue-400", border: "border-blue-500", hoverBg: "hover:bg-blue-50", hoverBorder: "hover:border-blue-400" },
+    { bg: "bg-blue-600", border: "border-blue-700", hoverBg: "hover:bg-blue-50", hoverBorder: "hover:border-blue-600" },
+    { bg: "bg-blue-800", border: "border-blue-900", hoverBg: "hover:bg-blue-50", hoverBorder: "hover:border-blue-700" },
   ];
 
   // Render priority stars/tokens for a work order

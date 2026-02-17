@@ -780,23 +780,16 @@ export default function OperatorPage() {
                       const scannedCount = myEntries.length;
                       const exitedCount = myEntries.filter(e => e.exit_date).length;
 
-                      // Priority color scale for row background (yellow -> red)
-                      const priorityRowColors = [
-                        "", // 0 = no priority
-                        "bg-yellow-50 hover:bg-yellow-100",
-                        "bg-amber-50 hover:bg-amber-100",
-                        "bg-orange-50 hover:bg-orange-100",
-                        "bg-red-50 hover:bg-red-100",
-                        "bg-red-100 hover:bg-red-200",
-                      ];
+                      // Priority circle colors: light blue -> dark blue (levels 1-5)
                       const priorityCircleColors = [
-                        { bg: "bg-yellow-400", border: "border-yellow-500" },
-                        { bg: "bg-amber-400", border: "border-amber-500" },
-                        { bg: "bg-orange-400", border: "border-orange-500" },
-                        { bg: "bg-red-400", border: "border-red-500" },
-                        { bg: "bg-red-600", border: "border-red-700" },
+                        { bg: "bg-sky-300", border: "border-sky-400" },
+                        { bg: "bg-sky-400", border: "border-sky-500" },
+                        { bg: "bg-blue-400", border: "border-blue-500" },
+                        { bg: "bg-blue-600", border: "border-blue-700" },
+                        { bg: "bg-blue-800", border: "border-blue-900" },
                       ];
-                      const rowBg = wo.priority > 0 ? priorityRowColors[wo.priority] || priorityRowColors[5] : "hover:bg-gray-50";
+                      // Prioritized rows: uniform transparent red background
+                      const rowBg = wo.priority > 0 ? "bg-red-50/70 hover:bg-red-100/70" : "hover:bg-gray-50";
 
                       return (
                         <>
