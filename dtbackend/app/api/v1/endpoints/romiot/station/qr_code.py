@@ -143,15 +143,17 @@ async def generate_qr_code_batch(
     
     # Calculate packages
     total_quantity = batch_data.quantity
-    package_qty = batch_data.package_quantity
+    total_packages = batch_data.package_quantity
     
-    if package_qty > total_quantity:
+    if total_packages > total_quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Paket sayısı toplam parça sayısından büyük olamaz"
         )
     
-    total_packages = package_qty
+    # Calculate per-package quantities (distribute as evenly as possible)
+    base_qty = total_quantity // total_packages
+    remainder = total_quantity % total_packages
     
     # Generate work order group ID
     work_order_group_id = generate_work_order_group_id()
@@ -161,12 +163,10 @@ async def generate_qr_code_batch(
     
     # Generate QR codes for each package
     packages: list[QRCodePackageInfo] = []
-    remaining = total_quantity
     
     for i in range(1, total_packages + 1):
-        # Calculate this package's quantity
-        pkg_qty = min(package_qty, remaining)
-        remaining -= pkg_qty
+        # First 'remainder' packages get base_qty + 1, the rest get base_qty
+        pkg_qty = base_qty + (1 if i <= remainder else 0)
         
         # Build the QR data for this package
         qr_data = {
