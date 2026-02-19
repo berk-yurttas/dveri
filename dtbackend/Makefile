@@ -4,14 +4,14 @@
 	migrate-romiot-current migrate-romiot-history
 
 # Variables
-PYTHON := python3
+PYTHON := py -3.12
 VENV := venv
-BIN := $(VENV)/bin
+BIN := $(VENV)/Scripts
 
 # Check if venv exists, otherwise use system binaries
-ifeq ($(wildcard $(BIN)/python),)
+ifeq ($(wildcard $(BIN)/python.exe),)
 	PYTHON_CMD := $(PYTHON)
-	PIP_CMD := pip3
+	PIP_CMD := $(PYTHON) -m pip
 	RUFF_CMD := ruff
 	UVICORN_MODULE := uvicorn
 else
