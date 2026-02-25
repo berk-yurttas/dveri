@@ -44,10 +44,7 @@ export function AppShell({
   headerColor,
 }: AppShellProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false)
   const [contactModalOpen, setContactModalOpen] = useState(false)
-  const [feedbackText, setFeedbackText] = useState('')
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
   const isDesktop = useMediaQuery("(min-width: 800px)")
   const { platform } = usePlatform()
 
@@ -75,15 +72,6 @@ export function AppShell({
     if (onNavigationItemClick) {
       onNavigationItemClick(item)
     }
-  }
-
-  const handleFeedbackSubmit = () => {
-    setShowSuccessMessage(true)
-    setTimeout(() => {
-      setShowSuccessMessage(false)
-      setFeedbackModalOpen(false)
-      setFeedbackText('')
-    }, 2000)
   }
 
   return (
@@ -139,53 +127,6 @@ export function AppShell({
             >
               <Home color="red" className="h-4 w-4" /> Anasayfa
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Feedback Modal */}
-      {feedbackModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setFeedbackModalOpen(false)}>
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-xl font-semibold mb-4 text-gray-900">Geri Bildirim</h2>
-
-            {showSuccessMessage ? (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-                <p className="text-green-800 text-center font-medium">Geri bildiriminiz başarıyla gönderildi!</p>
-              </div>
-            ) : (
-              <>
-                <div className="mb-4">
-                  <label htmlFor="feedback" className="block text-sm font-medium text-gray-700 mb-2">
-                    Açıklama
-                  </label>
-                  <textarea
-                    id="feedback"
-                    value={feedbackText}
-                    onChange={(e) => setFeedbackText(e.target.value)}
-                    placeholder="Geri bildiriminizi buraya yazın..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                    rows={6}
-                  />
-                </div>
-
-                <div className="flex gap-3 justify-end">
-                  <button
-                    onClick={() => setFeedbackModalOpen(false)}
-                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                  >
-                    İptal
-                  </button>
-                  <button
-                    onClick={handleFeedbackSubmit}
-                    disabled={!feedbackText.trim()}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Gönder
-                  </button>
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}

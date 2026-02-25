@@ -8,7 +8,8 @@ import {
   Calendar, Clock, Database, FileText, MessageSquare, Bell,
   ShoppingCart, DollarSign, Globe, Zap, Shield, Monitor,
   Map as MapIcon, Camera, Music, Heart, Star, Target, Gauge, Cpu,
-  Wifi, Battery, HardDrive, Smartphone
+  Wifi, Battery, HardDrive, Smartphone, LineChart, Grid3x3, Layers,
+  Radar, GitBranch, Filter, Waypoints, Workflow
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -33,7 +34,7 @@ const widgetIconMap: { [key: string]: any } = {
   "test-analysis-widget": BarChart3,
   "test_duration-widget": Clock,
   "measurement-widget": TrendingUp,
-  "aselsan_sivas-widget": Database
+  "aselsan_sivas-widget": Database,
 }
 
 // Generate available widgets from component configurations
@@ -58,7 +59,7 @@ const platformWidgetMapping: { [key: string]: string[] } = {
     'test_equipment-widget',
     'equipment_test-widget',
     'equipment_last_user-widget',
-    'hardware_last_user-widget'
+    'hardware_last_user-widget',
   ],
   'ivme': [
     'capacity_analysis-widget',

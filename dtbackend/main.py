@@ -13,7 +13,13 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
-# Set up CORS
+# Add platform middleware (innermost)
+app.add_middleware(PlatformMiddleware)
+
+# Add authentication middleware
+app.add_middleware(AuthMiddleware)
+
+# CORS should be outermost so preflight/errors also get CORS headers.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -21,12 +27,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Add platform middleware (before auth to set platform context)
-app.add_middleware(PlatformMiddleware)
-
-# Add authentication middleware
-app.add_middleware(AuthMiddleware)
 
 # Include API router (auth handled by middleware)
 app.include_router(

@@ -39,7 +39,7 @@ class Platform(PostgreSQLBase):
     # }
     
     # New field for multiple database configurations
-    db_configs = Column(JSONB, nullable=True, default=[])  # Array of database configurations
+    #db_configs = Column(JSONB, nullable=True, default=[])  # Array of database configurations
     # Example db_configs structure:
     # [
     #   {

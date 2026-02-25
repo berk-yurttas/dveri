@@ -82,5 +82,5 @@ export const widgetConfigs = [
   TestEquipmentWidget.config,
   EquipmentTestWidget.config,
   EquipmentLastUserWidget.config,
-  HardwareLastUserWidget.config
+  HardwareLastUserWidget.config,
 ]

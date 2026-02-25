@@ -1,0 +1,24 @@
+{
+  "name": "openproject-feedback-widget",
+  "version": "0.1.0",
+  "description": "Embeddable feedback widget for OpenProject-backed APIs (Web Component + React wrapper).",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./react": "./src/react.js"
+  },
+  "keywords": [
+    "openproject",
+    "feedback",
+    "widget",
+    "web-component",
+    "react"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}
+

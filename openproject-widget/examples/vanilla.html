@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenProject Widget - Vanilla Example</title>
+  </head>
+  <body style="padding: 24px; background: #f8fafc;">
+    <openproject-feedback-widget
+      backend-base-url="http://localhost:8787"
+      title="Geri Bildirim Gönder"
+      subtitle="Talep ve Öneri Bildirimi"
+      platform-options="DerinİZ,İVME,rom-IoT,a-MOM"
+      default-platform="DerinİZ"
+      default-owner="konurozkan"
+      default-birim="IT"
+      openproject-url="http://localhost:8080"
+      openproject-api-token="your_token_here"
+      openproject-project-id="3"
+      openproject-column-query-id="30"
+      openproject-platform-custom-field-id="2"
+      openproject-talep-sahibi-custom-field-id="3"
+      openproject-birim-custom-field-id="4"
+      openproject-type-id="1"
+      openproject-verify-ssl="false"
+    ></openproject-feedback-widget>
+
+    <script type="module">
+      import "../src/index.js";
+    </script>
+  </body>
+</html>
+
+
