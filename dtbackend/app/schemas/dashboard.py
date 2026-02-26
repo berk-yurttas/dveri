@@ -23,6 +23,8 @@ class DashboardBase(BaseModel):
     is_public: bool = False
     layout_config: dict[str, Any] | None = None
     widgets: list[Widget] | None = []
+    allowed_departments: list[str] | None = []
+    allowed_users: list[str] | None = []
 
 class DashboardCreate(DashboardBase):
     username: str
@@ -34,6 +36,8 @@ class DashboardUpdate(BaseModel):
     is_public: bool | None = None
     layout_config: dict[str, Any] | None = None
     widgets: list[Widget] | None = None
+    allowed_departments: list[str] | None = None
+    allowed_users: list[str] | None = None
 
 class Dashboard(DashboardBase):
     id: int
@@ -42,6 +46,8 @@ class Dashboard(DashboardBase):
     created_at: datetime
     updated_at: datetime | None = None
     is_favorite: bool | None = False
+    allowed_departments: list[str] | None = []
+    allowed_users: list[str] | None = []
 
     class Config:
         from_attributes = True
@@ -58,6 +64,8 @@ class DashboardList(BaseModel):
     created_at: datetime
     updated_at: datetime | None = None
     is_favorite: bool | None = False
+    allowed_departments: list[str] | None = []
+    allowed_users: list[str] | None = []
 
     class Config:
         from_attributes = True

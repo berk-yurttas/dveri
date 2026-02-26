@@ -136,6 +136,8 @@ class Dashboard(PostgreSQLBase):
     layout_config = Column(JSONB)
     widgets = Column(JSONB)
     tags = Column(ARRAY(String), default=[])
+    allowed_departments = Column(ARRAY(String), default=[])
+    allowed_users = Column(ARRAY(String), default=[])
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

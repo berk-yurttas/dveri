@@ -1317,100 +1317,63 @@ export default function PlatformHome() {
             <p className="text-sm text-gray-600 mb-6">Başlatmak istediğiniz süreci seçin</p>
           </div>
 
-          {/* 5 Icons - Rectangle Design */}
-          <div className="max-w-6xl mx-auto mb-14">
-            <div className="grid grid-cols-5 gap-2">
-              {/* Icon 1 - Genel Süreçler */}
-              <div
-                className="flex flex-col items-center cursor-pointer group"
-                onClick={() => { const w = Math.round(screen.width * 0.9); const h = Math.round(screen.height * 0.9); const l = Math.round((screen.width - w) / 2); const t = Math.round((screen.height - h) / 2); window.open('/', 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`); }}
-              >
-                <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
-                    <div className="w-full h-full rounded-lg overflow-hidden bg-white">
-                      <img
-                        src="/amom_icons/genel.png"
-                        alt="Genel Süreçler"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+          {/* Features Section - Dynamic from Platform Config */}
+          {platformData?.theme_config?.features && platformData.theme_config.features.length > 0 && (
+            <div className="max-w-6xl mx-auto mb-14">
+              <div className={`grid gap-2 ${platformData.theme_config.features.length === 5 ? 'grid-cols-5' : platformData.theme_config.features.length === 4 ? 'grid-cols-4' : platformData.theme_config.features.length === 6 ? 'grid-cols-6' : 'grid-cols-5'}`}>
+                {platformData.theme_config.features.map((feature: any, index: number) => {
+                  const canAccessFeature = checkAccess(feature, user);
+                  if (!canAccessFeature) return null;
 
-              {/* Icon 2 - Kalifikasyon Süreçleri */}
-              <div
-                className="flex flex-col items-center cursor-pointer group"
-                onClick={() => { const w = Math.round(screen.width * 0.9); const h = Math.round(screen.height * 0.9); const l = Math.round((screen.width - w) / 2); const t = Math.round((screen.height - h) / 2); window.open('/', 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`); }}
-              >
-                <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
-                    <div className="w-full h-full rounded-lg overflow-hidden bg-white">
-                      <img
-                        src="/amom_icons/kalifikasyon.png"
-                        alt="Kalifikasyon Süreçleri"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+                  const hasUrl = feature.url && feature.url.trim();
+                  let featureUrl = feature.url;
+                  if (hasUrl && !featureUrl.startsWith('/') && !featureUrl.startsWith('http')) {
+                    featureUrl = `/${platformCode}${featureUrl.startsWith('/') ? '' : '/'}${featureUrl}`;
+                  }
 
-              {/* Icon 3 - Prototip Süreçleri */}
-              <div
-                className="flex flex-col items-center cursor-pointer group"
-                onClick={() => { const w = Math.round(screen.width * 0.9); const h = Math.round(screen.height * 0.9); const l = Math.round((screen.width - w) / 2); const t = Math.round((screen.height - h) / 2); window.open('/', 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`); }}
-              >
-                <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
-                    <div className="w-full h-full rounded-lg overflow-hidden bg-white">
-                      <img
-                        src="/amom_icons/prototip.png"
-                        alt="Prototip Süreçleri"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+                  const handleFeatureClick = () => {
+                    if (hasUrl) {
+                      if (featureUrl.startsWith('http')) {
+                        const w = Math.round(screen.width * 0.9);
+                        const h = Math.round(screen.height * 0.9);
+                        const l = Math.round((screen.width - w) / 2);
+                        const t = Math.round((screen.height - h) / 2);
+                        window.open(featureUrl, 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`);
+                      } else {
+                        router.push(featureUrl);
+                      }
+                    }
+                  };
 
-              {/* Icon 4 - Tasarım Süreçleri */}
-              <div
-                className="flex flex-col items-center cursor-pointer group"
-                onClick={() => { const w = Math.round(screen.width * 0.9); const h = Math.round(screen.height * 0.9); const l = Math.round((screen.width - w) / 2); const t = Math.round((screen.height - h) / 2); window.open('/', 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`); }}
-              >
-                <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
-                    <div className="w-full h-full rounded-lg overflow-hidden bg-white">
-                      <img
-                        src="/amom_icons/tasarım.png"
-                        alt="Tasarım Süreçleri"
-                        className="w-full h-full object-cover"
-                      />
+                  return (
+                    <div
+                      key={index}
+                      className="flex flex-col items-center cursor-pointer group"
+                      onClick={handleFeatureClick}
+                    >
+                      <div className="relative group-hover:scale-110 transition-all duration-300">
+                        <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                          <div className="w-full h-full rounded-lg overflow-hidden bg-white">
+                            {feature.imageUrl ? (
+                              <img
+                                src={feature.imageUrl}
+                                alt={feature.title || 'Feature'}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <span className="text-gray-400 text-sm">{feature.title}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Icon 5 - Raporlar */}
-              <div
-                className="flex flex-col items-center cursor-pointer group"
-                onClick={() => window.open('/seyir/reports', '_blank')}
-              >
-                <div className="relative group-hover:scale-110 transition-all duration-300">
-                  <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
-                    <div className="w-full h-full rounded-lg overflow-hidden bg-white">
-                      <img
-                        src="/amom_icons/rapor.png"
-                        alt="Raporlar"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
             </div>
-          </div>
+          )}
 
           {/* Professional Divider Line */}
           <div className="w-full pt-0 pb-0 mt-24 mb-12">

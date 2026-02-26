@@ -15,6 +15,8 @@ export interface DashboardBase {
   is_public?: boolean
   layout_config?: Record<string, any>
   widgets?: Widget[]
+  allowed_departments?: string[]
+  allowed_users?: string[]
 }
 
 export interface DashboardCreate extends DashboardBase {
@@ -27,6 +29,8 @@ export interface DashboardUpdate {
   is_public?: boolean
   layout_config?: Record<string, any>
   widgets?: Widget[]
+  allowed_departments?: string[]
+  allowed_users?: string[]
 }
 
 export interface Dashboard extends DashboardBase {
@@ -37,6 +41,8 @@ export interface Dashboard extends DashboardBase {
   created_at: string
   updated_at?: string
   is_favorite?: boolean
+  allowed_departments?: string[]
+  allowed_users?: string[]
 }
 
 export interface DashboardList {
@@ -51,6 +57,8 @@ export interface DashboardList {
   created_at: string
   updated_at?: string
   is_favorite?: boolean
+  allowed_departments?: string[]
+  allowed_users?: string[]
 }
 
 // Frontend-specific interfaces for the dashboard builder
@@ -88,4 +96,6 @@ export interface CreateDashboardRequest {
       cellIndex: number
     }
   }>
+  allowed_departments?: string[]
+  allowed_users?: string[]
 }

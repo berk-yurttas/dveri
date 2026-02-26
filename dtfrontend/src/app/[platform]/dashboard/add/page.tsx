@@ -10,6 +10,7 @@ import { useDashboards } from "@/contexts/dashboard-context"
 import { useFilters } from "@/contexts/filter-context"
 import { AuthTest } from "@/components/auth/AuthTest"
 import { DateInput } from "@/components/ui/date-input"
+import { DepartmentSelectModal } from "@/components/reports/department-select-modal"
 import { 
   BarChart3, PieChart, Activity, TrendingUp, Users, Settings,
   Calendar, Clock, Database, FileText, MessageSquare, Bell,
@@ -165,6 +166,11 @@ export default function AddDashboardPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  
+  // Permission states
+  const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false)
+  const [authorizedDepartments, setAuthorizedDepartments] = useState<string[]>([])
+  const [authorizedUsers, setAuthorizedUsers] = useState<string[]>([])
 
   const handleSaveDashboard = () => {
     setError(null)
@@ -252,7 +258,9 @@ export default function AddDashboardPage() {
         layout_config: {
           grid_size: { width: 6, height: 6 }
         },
-        widgets: convertPlacedWidgetsToDashboardFormat(placedWidgets)
+        widgets: convertPlacedWidgetsToDashboardFormat(placedWidgets),
+        allowed_departments: authorizedDepartments,
+        allowed_users: authorizedUsers
       }
 
       const result = await dashboardService.createDashboard(dashboardData)
@@ -268,6 +276,8 @@ export default function AddDashboardPage() {
       setIsModalOpen(false)
       setDashboardName("")
       setIsPublic(false)
+      setAuthorizedDepartments([])
+      setAuthorizedUsers([])
 
       // Add the new dashboard to the context list
       addDashboardToList(result)
@@ -278,13 +288,18 @@ export default function AddDashboardPage() {
       } else {
         router.push(`/${platformCode}/dashboard/${result.id}`);
       }
-      
+
     } catch (err: any) {
       console.error("Error creating dashboard:", err)
       setError(err.message || "Dashboard oluşturulurken bir hata oluştu")
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const handleSavePermissions = (departments: string[], users: string[]) => {
+    setAuthorizedDepartments(departments)
+    setAuthorizedUsers(users)
   }
 
   const handleModalCancel = () => {
@@ -1290,6 +1305,28 @@ export default function AddDashboardPage() {
               </p>
             </div>
 
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Yetkilendirme
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsPermissionsModalOpen(true)}
+                disabled={isLoading}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                <Shield className="h-4 w-4" />
+                <span>
+                  {(authorizedDepartments.length > 0 || authorizedUsers.length > 0)
+                    ? `${authorizedDepartments.length} departman, ${authorizedUsers.length} kullanıcı seçildi`
+                    : 'Departman ve kullanıcı seç'}
+                </span>
+              </button>
+              <p className="text-xs text-gray-500 mt-2">
+                Belirli departmanlar ve kullanıcılar için erişim izni verin
+              </p>
+            </div>
+
             <div className="flex gap-3 justify-end">
               <button
                 onClick={handleModalCancel}
@@ -1312,6 +1349,15 @@ export default function AddDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Permissions Modal */}
+      <DepartmentSelectModal
+        isOpen={isPermissionsModalOpen}
+        onClose={() => setIsPermissionsModalOpen(false)}
+        onSave={handleSavePermissions}
+        initialSelectedDepartments={authorizedDepartments}
+        initialSelectedUsers={authorizedUsers}
+      />
     </div>
   )
 }

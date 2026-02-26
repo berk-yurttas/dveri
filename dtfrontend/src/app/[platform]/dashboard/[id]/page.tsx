@@ -17,6 +17,7 @@ import { Calendar, User, Eye, EyeOff,
 import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget, TestPlanVersionWidget, TestSoftwareVersionWidget, TestEquipmentWidget, EquipmentTestWidget, EquipmentLastUserWidget, HardwareLastUserWidget } from "@/components/widgets";
 import { DateInput } from "@/components/ui/date-input";
 import { DeleteModal } from "@/components/ui/delete-modal";
+import { DepartmentSelectModal } from "@/components/reports/department-select-modal";
 import { MirasAssistant } from "@/components/chatbot/miras-assistant";
 import { Feedback } from "@/components/feedback/feedback";
 import { useUser } from "@/contexts/user-context";
@@ -159,9 +160,14 @@ export default function DashboardPage() {
   const [isEditNameModalOpen, setIsEditNameModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isSettingsDropdownOpen, setIsSettingsDropdownOpen] = useState(false);
+  const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Permission states
+  const [authorizedDepartments, setAuthorizedDepartments] = useState<string[]>([]);
+  const [authorizedUsers, setAuthorizedUsers] = useState<string[]>([]);
   
   // Favorite state
   const [isFavorite, setIsFavorite] = useState(false);
@@ -175,6 +181,14 @@ export default function DashboardPage() {
         const dashboardData = await dashboardService.getDashboardById(dashboardId);
         setDashboard(dashboardData);
         setIsFavorite(dashboardData.is_favorite || false);
+        
+        // Initialize authorized departments and users
+        if (dashboardData.allowed_departments) {
+          setAuthorizedDepartments(dashboardData.allowed_departments);
+        }
+        if (dashboardData.allowed_users) {
+          setAuthorizedUsers(dashboardData.allowed_users);
+        }
       } catch (error) {
         console.error("Failed to fetch dashboard:", error);
         setError("Dashboard yüklenemedi");
@@ -279,6 +293,23 @@ export default function DashboardPage() {
       setError("Favori durumu güncellenemedi");
     } finally {
       setIsTogglingFavorite(false);
+    }
+  };
+
+  const handleSavePermissions = async (departments: string[], users: string[]) => {
+    if (!dashboard) return;
+    
+    try {
+      setAuthorizedDepartments(departments);
+      setAuthorizedUsers(users);
+
+      await dashboardService.updateDashboard(dashboard.id, {
+        allowed_departments: departments,
+        allowed_users: users
+      });
+    } catch (error) {
+      console.error('Failed to save permissions:', error);
+      alert('Yetkilendirme kaydedilirken hata oluştu.');
     }
   };
 
@@ -389,6 +420,16 @@ export default function DashboardPage() {
           )}
         </div>
         <div className="flex items-center gap-3">
+          {isAdmin(user) && (
+            <button
+              onClick={() => setIsPermissionsModalOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-white border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+              title="Yetkilendirme"
+            >
+              <Shield className="h-4 w-4" />
+              <span className="hidden sm:inline">Yetkiler</span>
+            </button>
+          )}
           {dashboard.owner_name && (
             <div className="flex items-center gap-1 text-sm text-gray-600">
               <User className="h-4 w-4" />
@@ -592,6 +633,15 @@ export default function DashboardPage() {
         description="Bu işlem geri alınamaz. Dashboard'u ve tüm widget'ları kalıcı olarak silinecek."
         itemName={dashboard?.title}
         isDeleting={isDeleting}
+      />
+
+      {/* Permissions Modal */}
+      <DepartmentSelectModal
+        isOpen={isPermissionsModalOpen}
+        onClose={() => setIsPermissionsModalOpen(false)}
+        onSave={handleSavePermissions}
+        initialSelectedDepartments={authorizedDepartments}
+        initialSelectedUsers={authorizedUsers}
       />
 
       {/* MIRAS Assistant Chatbot */}
