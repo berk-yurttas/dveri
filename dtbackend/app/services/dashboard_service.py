@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.postgres_models import Dashboard, DashboardUser, Platform
 from app.schemas.dashboard import DashboardCreate, DashboardUpdate
 from app.services.user_service import UserService
+from app.schemas.user import User as UserSchema
 
 
 class DashboardService:
@@ -122,6 +123,7 @@ class DashboardService:
     async def get_dashboards(
         db: AsyncSession,
         username: str,
+        user: UserSchema,
         skip: int = 0,
         limit: int = 100,
         platform: Platform = None,
@@ -129,7 +131,7 @@ class DashboardService:
         user_role: list[str] = []
     ) -> list[Dashboard]:
         """Get all dashboards by username"""
-        user = await UserService.get_user_by_username(db, username)
+        db_user = await UserService.get_user_by_username(db, username)
         if not user:
             return []
 
@@ -164,7 +166,7 @@ class DashboardService:
             # 3. In allowed_users
             # 4. In allowed_departments (checking all parent departments)
             base_conditions = or_(
-                Dashboard.owner_id == user.id,
+                Dashboard.owner_id == db_user.id,
                 Dashboard.is_public == True,
                 Dashboard.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
                 Dashboard.allowed_departments.op('&&')(dept_prefixes_array)
@@ -190,7 +192,7 @@ class DashboardService:
         for dashboard in dashboards:
             is_favorite_query = select(DashboardUser).where(
                 DashboardUser.dashboard_id == dashboard.id,
-                DashboardUser.user_id == user.id
+                DashboardUser.user_id == db_user.id
             )
             is_favorite_result = await db.execute(is_favorite_query)
             dashboard_user = is_favorite_result.scalar_one_or_none()

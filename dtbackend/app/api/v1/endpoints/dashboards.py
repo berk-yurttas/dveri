@@ -46,6 +46,7 @@ async def get_dashboards(
     dashboards = await DashboardService.get_dashboards(
         db=db,
         username=current_user.username,
+        user=current_user,
         skip=skip,
         limit=limit,
         platform=platform,

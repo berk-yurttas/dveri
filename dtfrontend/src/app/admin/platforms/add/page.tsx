@@ -754,6 +754,25 @@ export default function AddPlatformPage() {
                       )}
                     </div>
 
+                    <div className="md:col-span-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={feature.underConstruction || false}
+                          onChange={(e) => {
+                            const newFeatures = [...(formData.theme_config as any)?.features || []];
+                            newFeatures[index].underConstruction = e.target.checked;
+                            handleThemeConfigChange('features', newFeatures);
+                          }}
+                          className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                        />
+                        <span className="text-sm font-medium text-gray-700">Yapım Aşamasında</span>
+                      </label>
+                      <p className="ml-6 mt-1 text-xs text-gray-500">
+                        Bu özellik tıklandığında "yapım aşamasında" uyarısı gösterilir
+                      </p>
+                    </div>
+
                     {!feature.useImage && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">

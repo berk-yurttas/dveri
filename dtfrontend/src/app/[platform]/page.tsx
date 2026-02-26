@@ -126,6 +126,7 @@ export default function PlatformHome() {
   const [showAllAnnouncementsModal, setShowAllAnnouncementsModal] = useState(false);
   const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
   const [accessDeniedMessage, setAccessDeniedMessage] = useState("Bu özelliğe erişim yetkiniz bulunmamaktadır.");
+  const [showUnderConstructionModal, setShowUnderConstructionModal] = useState(false);
   const [expandedFeatures, setExpandedFeatures] = useState<Set<number>>(new Set());
   const [hoveredFeature, setHoveredFeature] = useState<number | null>(null);
   const [showFeatureNavigationModal, setShowFeatureNavigationModal] = useState(false);
@@ -1331,9 +1332,17 @@ export default function PlatformHome() {
                   }
 
                   const handleFeatureClick = () => {
+                    console.log('Feature clicked:', feature.title, 'underConstruction:', feature.underConstruction);
+                    
                     if (!canAccessFeature) {
                       setAccessDeniedMessage("Bu özelliğe erişim yetkiniz bulunmamaktadır.");
                       setShowAccessDeniedModal(true);
+                      return;
+                    }
+
+                    if (feature.underConstruction) {
+                      console.log('Showing under construction modal');
+                      setShowUnderConstructionModal(true);
                       return;
                     }
 
@@ -2240,6 +2249,66 @@ export default function PlatformHome() {
             </div>
           )}
 
+          {/* Access Denied Modal */}
+          {showAccessDeniedModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+              <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4">
+                  <div className="flex items-center gap-3">
+                    <Lock className="h-8 w-8 text-white" />
+                    <h3 className="text-xl font-bold text-white">Erişim Yetkiniz Bulunamadı</h3>
+                  </div>
+                </div>
+                <div className="p-6">
+                  <p className="text-gray-700 text-lg mb-2">
+                    {accessDeniedMessage}
+                  </p>
+                  <p className="text-gray-600">
+                    Erişim izni almak için lütfen sistem yöneticisi ile iletişime geçiniz.
+                  </p>
+                </div>
+                <div className="bg-gray-50 px-6 py-4 flex justify-end">
+                  <button
+                    onClick={() => setShowAccessDeniedModal(false)}
+                    className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+                  >
+                    Kapat
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Under Construction Modal */}
+          {showUnderConstructionModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+              <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-6 py-4">
+                  <div className="flex items-center gap-3">
+                    <Settings className="h-8 w-8 text-white animate-spin" style={{ animationDuration: '3s' }} />
+                    <h3 className="text-xl font-bold text-white">Yapım Aşamasında</h3>
+                  </div>
+                </div>
+                <div className="p-6">
+                  <p className="text-gray-700 text-lg mb-2">
+                    Bu özellik şu anda yapım aşamasındadır.
+                  </p>
+                  <p className="text-gray-600">
+                    Yakında kullanıma açılacaktır. Anlayışınız için teşekkür ederiz.
+                  </p>
+                </div>
+                <div className="bg-gray-50 px-6 py-4 flex justify-end">
+                  <button
+                    onClick={() => setShowUnderConstructionModal(false)}
+                    className="px-6 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors"
+                  >
+                    Tamam
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* MIRAS Assistant Chatbot */}
           <MirasAssistant />
 
@@ -2650,6 +2719,8 @@ export default function PlatformHome() {
                     onMouseEnter={() => setHoveredFeature(index)}
                     onMouseLeave={() => setHoveredFeature(null)}
                     onClick={(e) => {
+                      console.log('Feature card clicked:', feature.title, 'underConstruction:', feature.underConstruction);
+                      
                       if (!checkAccess(feature, user)) {
                         setAccessDeniedMessage("Bu özelliğe erişim yetkiniz bulunmamaktadır.");
                         setShowAccessDeniedModal(true);
@@ -2660,6 +2731,15 @@ export default function PlatformHome() {
                       if (isBlockedByAtolyeRole) {
                         setAccessDeniedMessage("Bu sayfa için yetkiniz bulunmamaktadır.");
                         setShowAccessDeniedModal(true);
+                        return;
+                      }
+
+                      // Check if feature is under construction
+                      if (feature.underConstruction) {
+                        console.log('Triggering under construction modal');
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowUnderConstructionModal(true);
                         return;
                       }
 
@@ -2717,9 +2797,20 @@ export default function PlatformHome() {
                       if ((e.key === 'Enter' || e.key === ' ') && (hasSubfeatures || hasUrl)) {
                         e.preventDefault();
 
+                        if (!checkAccess(feature, user)) {
+                          setAccessDeniedMessage("Bu özelliğe erişim yetkiniz bulunmamaktadır.");
+                          setShowAccessDeniedModal(true);
+                          return;
+                        }
+
                         if (isBlockedByAtolyeRole) {
                           setAccessDeniedMessage("Bu sayfa için yetkiniz bulunmamaktadır.");
                           setShowAccessDeniedModal(true);
+                          return;
+                        }
+
+                        if (feature.underConstruction) {
+                          setShowUnderConstructionModal(true);
                           return;
                         }
 
@@ -2831,6 +2922,14 @@ export default function PlatformHome() {
                                 setShowAccessDeniedModal(true);
                                 return;
                               }
+
+                              if (subfeature.underConstruction) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setShowUnderConstructionModal(true);
+                                return;
+                              }
+
                               if (hasSubfeatureUrl) {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -2850,11 +2949,24 @@ export default function PlatformHome() {
                             onKeyDown={(e) => {
                               if ((e.key === 'Enter' || e.key === ' ') && hasSubfeatureUrl) {
                                 e.preventDefault();
+
+                                if (!canAccessSubfeature) {
+                                  setAccessDeniedMessage("Bu özelliğe erişim yetkiniz bulunmamaktadır.");
+                                  setShowAccessDeniedModal(true);
+                                  return;
+                                }
+
                                 if (isSubfeatureBlockedByAtolyeRole) {
                                   setAccessDeniedMessage("Bu sayfa için yetkiniz bulunmamaktadır.");
                                   setShowAccessDeniedModal(true);
                                   return;
                                 }
+
+                                if (subfeature.underConstruction) {
+                                  setShowUnderConstructionModal(true);
+                                  return;
+                                }
+
                                 if (subfeatureUrl.startsWith('http')) {
                                   window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
                                 } else {
@@ -3385,6 +3497,41 @@ export default function PlatformHome() {
                 className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
               >
                 Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Under Construction Modal */}
+      {showUnderConstructionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <Settings className="h-8 w-8 text-white animate-spin" style={{ animationDuration: '3s' }} />
+                <h3 className="text-xl font-bold text-white">Yapım Aşamasında</h3>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6">
+              <p className="text-gray-700 text-lg mb-2">
+                Bu özellik şu anda yapım aşamasındadır.
+              </p>
+              <p className="text-gray-600">
+                Yakında kullanıma açılacaktır. Anlayışınız için teşekkür ederiz.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-end">
+              <button
+                onClick={() => setShowUnderConstructionModal(false)}
+                className="px-6 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors"
+              >
+                Tamam
               </button>
             </div>
           </div>

@@ -46,6 +46,7 @@ export interface Platform {
       imageUrl?: string;
       useImage: boolean;
       url?: string;
+      underConstruction?: boolean;
       allowed_departments?: string[];
       allowed_users?: string[];
       subfeatures?: {
@@ -53,6 +54,7 @@ export interface Platform {
         description?: string;
         url?: string;
         icon?: string;
+        underConstruction?: boolean;
         allowed_departments?: string[];
         allowed_users?: string[];
       }[];
