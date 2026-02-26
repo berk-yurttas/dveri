@@ -32,7 +32,9 @@ class DashboardService:
             tags=dashboard_data.tags,
             is_public=dashboard_data.is_public,
             layout_config=dashboard_data.layout_config,
-            widgets=widgets_data
+            widgets=widgets_data,
+            allowed_departments=dashboard_data.allowed_departments or [],
+            allowed_users=dashboard_data.allowed_users or []
         )
         db.add(db_dashboard)
         await db.commit()
@@ -75,16 +77,31 @@ class DashboardService:
 
         # Check access: admin can access all dashboards
         if not is_admin:
-            # Check if user has access to this dashboard
-            dashboard_user_query = select(DashboardUser).where(
-                DashboardUser.dashboard_id == dashboard_id,
-                DashboardUser.user_id == user.id
-            )
-            dashboard_user_result = await db.execute(dashboard_user_query)
-            dashboard_user = dashboard_user_result.scalar_one_or_none()
-
-            # If not public and user is not in the dashboard users, deny access
-            if not dashboard.is_public and not dashboard_user:
+            # Access logic:
+            # 1. Owner
+            # 2. Public
+            # 3. In allowed_users
+            # 4. In allowed_departments (checking all parent departments of user's department)
+            
+            has_access = dashboard.owner_id == user.id or dashboard.is_public
+            
+            if not has_access:
+                # Check allowed users
+                if dashboard.allowed_users and user.username in dashboard.allowed_users:
+                    has_access = True
+                
+                # Check allowed departments
+                if not has_access and dashboard.allowed_departments and user.department:
+                    # Check if user's department or any of its parents are in allowed_departments
+                    user_dept_parts = user.department.split('_')
+                    current_dept = ""
+                    for part in user_dept_parts:
+                        current_dept = f"{current_dept}_{part}" if current_dept else part
+                        if current_dept in dashboard.allowed_departments:
+                            has_access = True
+                            break
+            
+            if not has_access:
                 return None
 
         # Check if dashboard is favorited by the user
@@ -128,15 +145,29 @@ class DashboardService:
             # Admin sees all dashboards - no access restriction
             base_conditions = literal(True)
         else:
-            # Subquery for dashboards where user is explicitly added
-            user_dashboards_subquery = select(Dashboard.id).join(DashboardUser).where(
-                DashboardUser.user_id == user.id
-            )
+            # Generate all parent departments for the user (e.g. "A_B_C" -> ["A_B_C", "A_B", "A"])
+            user_dept = user.department or ""
+            dept_prefixes = []
+            if user_dept:
+                parts = user_dept.split('_')
+                current_dept = ""
+                for part in parts:
+                    current_dept = f"{current_dept}_{part}" if current_dept else part
+                    dept_prefixes.append(current_dept)
+            
+            # Convert to PostgreSQL array format
+            dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
 
-            # Build base conditions
+            # Build base conditions:
+            # 1. Owner
+            # 2. Public
+            # 3. In allowed_users
+            # 4. In allowed_departments (checking all parent departments)
             base_conditions = or_(
-                Dashboard.id.in_(user_dashboards_subquery),
-                Dashboard.is_public == True
+                Dashboard.owner_id == user.id,
+                Dashboard.is_public == True,
+                Dashboard.allowed_users.op('@>')(cast([user.username], ARRAY(String))),
+                Dashboard.allowed_departments.op('&&')(dept_prefixes_array)
             )
 
         # Build filter conditions
@@ -147,7 +178,7 @@ class DashboardService:
             # Use PostgreSQL array @> operator (contains) with proper type casting
             filters.append(Dashboard.tags.op('@>')(cast([subplatform], ARRAY(String))))
 
-        # Main query: dashboards where user is added OR dashboard is public
+        # Main query: dashboards where user has access
         query = select(Dashboard).options(joinedload(Dashboard.owner)).where(
             and_(*filters)
         ).offset(skip).limit(limit)
