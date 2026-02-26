@@ -36,14 +36,11 @@ export default function YoneticiPage() {
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
       const yoneticiRole = user.role.find((role) =>
-        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":yonetici")
+        typeof role === "string" && role === "atolye:yonetici"
       );
       if (yoneticiRole) {
         setIsYonetici(true);
-        const parts = yoneticiRole.split(":");
-        if (parts.length === 3) {
-          setUserCompany(parts[1]);
-        }
+        setUserCompany(user.department || user.company || null);
       }
     }
   }, [user]);

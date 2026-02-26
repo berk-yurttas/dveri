@@ -34,6 +34,7 @@ interface BarcodeFormData {
 export default function MusteriPage() {
   const { user } = useUser();
   const [isMusteri, setIsMusteri] = useState(false);
+  const [isYonetici, setIsYonetici] = useState(false);
   const [userCompany, setUserCompany] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,14 +43,15 @@ export default function MusteriPage() {
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
       const musteriRole = user.role.find((role) =>
-        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":musteri")
+        typeof role === "string" && role === "atolye:musteri"
       );
-      if (musteriRole) {
-        setIsMusteri(true);
-        const parts = musteriRole.split(":");
-        if (parts.length === 3) {
-          setUserCompany(parts[1]);
-        }
+      const yoneticiRole = user.role.find((role) =>
+        typeof role === "string" && role === "atolye:yonetici"
+      );
+      if (musteriRole || yoneticiRole) {
+        setIsMusteri(!!musteriRole);
+        setIsYonetici(!!yoneticiRole);
+        setUserCompany(user.department || user.company || null);
       }
     }
   }, [user]);
@@ -72,10 +74,10 @@ export default function MusteriPage() {
 
   // Prefill company_from with user's company
   useEffect(() => {
-    if (userCompany && isMusteri) {
+    if (userCompany && (isMusteri || isYonetici)) {
       setBarcodeFormData((prev) => ({ ...prev, company_from: userCompany }));
     }
-  }, [userCompany, isMusteri]);
+  }, [userCompany, isMusteri, isYonetici]);
 
   const handleGenerateBarcode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -295,7 +297,7 @@ export default function MusteriPage() {
       .catch((err) => console.error("Error rendering QR codes for print:", err));
   };
 
-  if (!isMusteri) {
+  if (!isMusteri && !isYonetici) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">

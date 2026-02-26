@@ -22,11 +22,10 @@ def _get_satinalma_company(current_user: User) -> str:
     if not current_user.role or not isinstance(current_user.role, list):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Satınalma yetkisi gerekli")
 
-    for role in current_user.role:
-        if isinstance(role, str) and role.startswith("atolye:") and role.endswith(":satinalma"):
-            parts = role.split(":")
-            if len(parts) == 3:
-                return parts[1]
+    if any(isinstance(role, str) and role == "atolye:satinalma" for role in current_user.role):
+        company = (current_user.department or "").strip()
+        if company:
+            return company
 
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Satınalma yetkisi gerekli")
 

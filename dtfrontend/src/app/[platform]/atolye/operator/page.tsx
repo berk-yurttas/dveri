@@ -189,6 +189,7 @@ const mapQRCodeToExitApi = (qrCodeData: any, stationId: number): any => {
 export default function OperatorPage() {
   const { user } = useUser();
   const [isOperator, setIsOperator] = useState(false);
+  const [isYonetici, setIsYonetici] = useState(false);
   const [mode, setMode] = useState<Mode>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -219,8 +220,12 @@ export default function OperatorPage() {
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
       const operatorRole = user.role.find(
-        (role) => typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":operator")
+        (role) => typeof role === "string" && role === "atolye:operator"
       );
+      const yoneticiRole = user.role.find(
+        (role) => typeof role === "string" && role === "atolye:yonetici"
+      );
+      setIsYonetici(!!yoneticiRole);
       if (operatorRole) {
         setIsOperator(true);
         const fetchOperatorStation = async () => {
@@ -572,7 +577,7 @@ export default function OperatorPage() {
     return { text: stationName, active: false };
   };
 
-  if (!isOperator) {
+  if (!isOperator && !isYonetici) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">

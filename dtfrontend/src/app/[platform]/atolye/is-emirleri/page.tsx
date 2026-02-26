@@ -120,17 +120,17 @@ export default function WorkOrdersPage() {
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
       const yoneticiRole = user.role.find((role) =>
-        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":yonetici")
+        typeof role === "string" && role === "atolye:yonetici"
       );
       setIsYonetici(!!yoneticiRole);
 
       const operatorRole = user.role.find((role) =>
-        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":operator")
+        typeof role === "string" && role === "atolye:operator"
       );
       setIsOperator(!!operatorRole);
 
       const satinalmaRole = user.role.find((role) =>
-        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":satinalma")
+        typeof role === "string" && role === "atolye:satinalma"
       );
       setIsSatinalma(!!satinalmaRole);
 
@@ -139,16 +139,13 @@ export default function WorkOrdersPage() {
         typeof role === "string" && role.startsWith("atolye:")
       );
       if (anyAtolyeRole && typeof anyAtolyeRole === "string") {
-        const parts = anyAtolyeRole.split(":");
-        if (parts.length >= 2) {
-          setUserCompany(parts[1]);
-        }
+        setUserCompany(user.department || user.company || "");
       }
 
       // Check if ASELSAN satinalma
       if (satinalmaRole && typeof satinalmaRole === "string") {
-        const parts = satinalmaRole.split(":");
-        if (parts.length === 3 && parts[1].toUpperCase() === "ASELSAN") {
+        const companyFromDepartment = (user.department || user.company || "").toUpperCase();
+        if (companyFromDepartment === "ASELSAN") {
           setIsAselsanSatinalma(true);
         }
       }

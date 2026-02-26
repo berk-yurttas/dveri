@@ -37,7 +37,7 @@ async def create_work_order(
     Create a new work order entry for a specific package at a station (entrance).
     Returns progress info showing how many packages of this group have been scanned.
     Returns 400 Bad Request if this package has already been entered at this station.
-    Requires role 'atolye:<company>:operator' where company matches the station's company.
+    Requires role 'atolye:operator' where department matches the station's company.
     """
     # Check if user has the required role for this station
     await check_station_operator_role(work_order_data.station_id, current_user, romiot_db)
@@ -168,7 +168,7 @@ async def update_exit_date(
     and fill the exit_date field with current datetime.
     Returns progress info showing how many packages have been exited.
     Returns 400 Bad Request if package not found or exit_date is already filled.
-    Requires role 'atolye:<company>:operator' where company matches the station's company.
+    Requires role 'atolye:operator' where department matches the station's company.
     """
     # Check if user has the required role for this station
     await check_station_operator_role(update_data.station_id, current_user, romiot_db)
@@ -284,7 +284,7 @@ async def get_work_orders_by_station(
     Get work order list by station_id with status filter.
     - Entrance: Returns work orders with entrance_date filled but exit_date is not filled
     - Exit: Returns work orders with both entrance_date and exit_date filled
-    Requires role 'atolye:<company>:operator' where company matches the station's company.
+    Requires role 'atolye:operator' where department matches the station's company.
     """
     # Check if user has the required role for this station
     await check_station_operator_role(station_id, current_user, romiot_db)
@@ -343,25 +343,29 @@ async def get_all_work_orders(
     Includes station name and user name for each work order.
     Pagination is applied to grouped work orders (by work_order_group_id), not individual entries.
     Delivered work orders are excluded from the list.
-    Requires role 'atolye:<company>:operator', 'atolye:<company>:yonetici', 'atolye:<company>:musteri', or 'atolye:<company>:satinalma'.
+    Requires role 'atolye:operator', 'atolye:yonetici', 'atolye:musteri', or 'atolye:satinalma'.
     """
     from app.models.romiot_models import Station
     from sqlalchemy import case, desc
     
-    # Extract company and role type from user's role
-    company = None
-    is_aselsan_satinalma = False
-    if current_user.role and isinstance(current_user.role, list):
-        for role in current_user.role:
-            if isinstance(role, str) and role.startswith("atolye:"):
-                parts = role.split(":")
-                if len(parts) >= 2:
-                    if not company:
-                        company = parts[1]
-                if len(parts) == 3 and parts[2] == "satinalma" and parts[1].upper() == "ASELSAN":
-                    is_aselsan_satinalma = True
+    # Company is now taken from department; roles are company-independent
+    has_atolye_role = (
+        current_user.role
+        and isinstance(current_user.role, list)
+        and any(
+            role in {"atolye:operator", "atolye:yonetici", "atolye:musteri", "atolye:satinalma"}
+            for role in current_user.role
+        )
+    )
+    company = (current_user.department or "").strip()
+    is_aselsan_satinalma = (
+        current_user.role
+        and isinstance(current_user.role, list)
+        and "atolye:satinalma" in current_user.role
+        and company.upper() == "ASELSAN"
+    )
     
-    if not company:
+    if not has_atolye_role or not company:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Kullanıcının atölye yetkisi bulunmamaktadır"
@@ -564,14 +568,13 @@ async def get_companies(
     Get distinct list of companies that have stations.
     Only available for ASELSAN satinalma users.
     """
-    is_aselsan_satinalma = False
-    if current_user.role and isinstance(current_user.role, list):
-        for role in current_user.role:
-            if isinstance(role, str) and role.startswith("atolye:") and role.endswith(":satinalma"):
-                parts = role.split(":")
-                if len(parts) == 3 and parts[1].upper() == "ASELSAN":
-                    is_aselsan_satinalma = True
-                    break
+    company = (current_user.department or "").strip()
+    is_aselsan_satinalma = (
+        current_user.role
+        and isinstance(current_user.role, list)
+        and "atolye:satinalma" in current_user.role
+        and company.upper() == "ASELSAN"
+    )
 
     if not is_aselsan_satinalma:
         raise HTTPException(
