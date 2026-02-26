@@ -276,8 +276,12 @@ export default function Home() {
   const hasAtolyeRole = user?.role && Array.isArray(user.role) &&
     user.role.some((role) => 
       typeof role === "string" && 
-      role.startsWith("atolye:") && 
-      (role.endsWith(":yonetici") || role.endsWith(":operator") || role.endsWith(":musteri"))
+      (
+        role === "atolye:yonetici" ||
+        role === "atolye:operator" ||
+        role === "atolye:musteri" ||
+        role === "atolye:satinalma"
+      )
     );
 
 

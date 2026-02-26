@@ -25,6 +25,384 @@ class UserRoleType(str, Enum):
     OPERATOR = "operator"
 
 
+class ManagedUserRoleType(str, Enum):
+    YONETICI = "yonetici"
+    MUSTERI = "musteri"
+    OPERATOR = "operator"
+    SATINALMA = "satinalma"
+
+
+class ManagedUserResponse(BaseModel):
+    pocketbase_id: str
+    username: str
+    name: str | None = None
+    email: str | None = None
+    role: ManagedUserRoleType | None = None
+    station_id: int | None = None
+    station_name: str | None = None
+    company: str
+    is_self: bool = False
+
+
+class ManagedUserUpdateRequest(BaseModel):
+    username: str | None = Field(None, min_length=1, description="Updated username")
+    name: str | None = Field(None, min_length=1, description="Updated full name")
+    password: str | None = Field(None, min_length=6, description="New password")
+    password_confirm: str | None = Field(None, min_length=6, description="New password confirmation")
+    role: ManagedUserRoleType | None = Field(None, description="Atolye role")
+    station_id: int | None = Field(None, description="Station ID for operator role")
+
+    @model_validator(mode="after")
+    def validate_passwords(self):
+        if self.password is not None or self.password_confirm is not None:
+            if not self.password or not self.password_confirm:
+                raise ValueError("Şifre güncelleme için şifre ve şifre tekrar birlikte girilmelidir")
+            if self.password != self.password_confirm:
+                raise ValueError("Şifreler eşleşmiyor")
+        return self
+
+
+async def _authenticate_pocketbase_admin(client: httpx.AsyncClient) -> str:
+    if not settings.POCKETBASE_ADMIN_EMAIL or not settings.POCKETBASE_ADMIN_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="PocketBase yönetici bilgileri yapılandırılmamış"
+        )
+
+    auth_response = await client.post(
+        f"{settings.POCKETBASE_URL}/api/collections/_superusers/auth-with-password",
+        json={
+            "identity": settings.POCKETBASE_ADMIN_EMAIL,
+            "password": settings.POCKETBASE_ADMIN_PASSWORD,
+        },
+    )
+    if auth_response.status_code == 404:
+        auth_response = await client.post(
+            f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
+            json={
+                "identity": settings.POCKETBASE_ADMIN_EMAIL,
+                "password": settings.POCKETBASE_ADMIN_PASSWORD,
+            },
+        )
+
+    if auth_response.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="PocketBase yönetici kimlik doğrulaması başarısız oldu",
+        )
+
+    token = auth_response.json().get("token")
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="PocketBase kimlik doğrulama token'ı alınamadı",
+        )
+    return token
+
+
+def _extract_atolye_role(role_values: list[str] | None) -> ManagedUserRoleType | None:
+    if not role_values:
+        return None
+    for role in role_values:
+        if isinstance(role, str) and role.startswith("atolye:"):
+            role_name = role.split(":", 1)[1]
+            try:
+                return ManagedUserRoleType(role_name)
+            except ValueError:
+                continue
+    return None
+
+
+@router.get("/management/users", response_model=list[ManagedUserResponse])
+async def list_company_users(
+    current_user: User = Depends(check_authenticated),
+    postgres_db: AsyncSession = Depends(get_postgres_db),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """
+    List users in the current yonetici's company (department).
+    Includes the yonetici user as well.
+    """
+    user_company = await check_station_yonetici_role(current_user)
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+            auth_token = await _authenticate_pocketbase_admin(client)
+            headers = {"Authorization": auth_token}
+
+            all_pb_users: list[dict] = []
+            page = 1
+            total_pages = 1
+            while page <= total_pages:
+                response = await client.get(
+                    f"{settings.POCKETBASE_URL}/api/collections/users/records",
+                    params={
+                        "filter": f'department="{user_company}"',
+                        "perPage": 200,
+                        "page": page,
+                        "sort": "name",
+                    },
+                    headers=headers,
+                )
+                if response.status_code != 200:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Kullanıcı listesi PocketBase'den alınamadı",
+                    )
+
+                payload = response.json()
+                items = payload.get("items", [])
+                all_pb_users.extend(items)
+                total_pages = payload.get("totalPages", 1) or 1
+                page += 1
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Kullanıcılar alınırken hata oluştu: {str(e)}",
+        )
+
+    usernames = [
+        u.get("username")
+        for u in all_pb_users
+        if isinstance(u.get("username"), str) and u.get("username")
+    ]
+
+    pg_users_by_username: dict[str, PostgresUser] = {}
+    if usernames:
+        pg_users_result = await postgres_db.execute(
+            select(PostgresUser).where(PostgresUser.username.in_(usernames))
+        )
+        pg_users = pg_users_result.scalars().all()
+        pg_users_by_username = {u.username: u for u in pg_users}
+
+    stations_result = await romiot_db.execute(
+        select(Station).where(Station.company == user_company)
+    )
+    stations = stations_result.scalars().all()
+    station_name_by_id = {s.id: s.name for s in stations}
+
+    response_items: list[ManagedUserResponse] = []
+    for pb_user in all_pb_users:
+        username = pb_user.get("username", "")
+        pg_user = pg_users_by_username.get(username)
+        station_id = pg_user.workshop_id if pg_user else None
+        station_name = station_name_by_id.get(station_id) if station_id else None
+        extracted_role = _extract_atolye_role(pb_user.get("role"))
+
+        response_items.append(
+            ManagedUserResponse(
+                pocketbase_id=pb_user.get("id", ""),
+                username=username,
+                name=pb_user.get("name"),
+                email=pb_user.get("email"),
+                role=extracted_role,
+                station_id=station_id,
+                station_name=station_name,
+                company=user_company,
+                is_self=username == current_user.username,
+            )
+        )
+
+    return response_items
+
+
+@router.put("/management/users/{pocketbase_user_id}", response_model=ManagedUserResponse)
+async def update_company_user(
+    pocketbase_user_id: str,
+    user_data: ManagedUserUpdateRequest,
+    current_user: User = Depends(check_authenticated),
+    postgres_db: AsyncSession = Depends(get_postgres_db),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """
+    Update a company user's username, password, name, role and station assignment.
+    """
+    user_company = await check_station_yonetici_role(current_user)
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+            auth_token = await _authenticate_pocketbase_admin(client)
+            headers = {"Authorization": auth_token}
+
+            # Fetch target user to verify ownership (department scope)
+            target_response = await client.get(
+                f"{settings.POCKETBASE_URL}/api/collections/users/records/{pocketbase_user_id}",
+                headers=headers,
+            )
+            if target_response.status_code == 404:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Kullanıcı bulunamadı",
+                )
+            if target_response.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Kullanıcı bilgisi PocketBase'den alınamadı",
+                )
+
+            target_pb_user = target_response.json()
+            target_department = (target_pb_user.get("department") or "").strip()
+            if target_department != user_company:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Bu kullanıcı sizin şirketinize ait değil",
+                )
+
+            old_username = target_pb_user.get("username", "")
+            current_role = _extract_atolye_role(target_pb_user.get("role"))
+            new_role = user_data.role or current_role
+            if not new_role:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Kullanıcının mevcut atölye rolü bulunamadı",
+                )
+
+            # Determine postgres user to update
+            pg_user = None
+            if old_username:
+                pg_user = await UserService.get_user_by_username(postgres_db, old_username)
+
+            # Determine final station assignment
+            requested_station_id = user_data.station_id
+            station_id_for_db = None
+            if new_role == ManagedUserRoleType.OPERATOR:
+                station_id_for_db = requested_station_id
+                if station_id_for_db is None and pg_user:
+                    station_id_for_db = pg_user.workshop_id
+                if station_id_for_db is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Operatör rolü için atölye seçilmesi zorunludur",
+                    )
+            elif requested_station_id is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Yalnızca operatör rolü için atölye seçilebilir",
+                )
+
+            if station_id_for_db is not None:
+                station_result = await romiot_db.execute(
+                    select(Station).where(Station.id == station_id_for_db)
+                )
+                station = station_result.scalar_one_or_none()
+                if not station:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"ID {station_id_for_db} ile atölye bulunamadı",
+                    )
+                if station.company != user_company:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Bu atölye sizin şirketinize ait değil",
+                    )
+
+            new_username = user_data.username or old_username
+            if not new_username:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Kullanıcı adı boş olamaz",
+                )
+
+            if new_username != old_username:
+                # Check if another PB user already has this username
+                check_username_response = await client.get(
+                    f"{settings.POCKETBASE_URL}/api/collections/users/records",
+                    params={"filter": f'username="{new_username}"', "perPage": 1},
+                    headers=headers,
+                )
+                if check_username_response.status_code == 200:
+                    existing_items = check_username_response.json().get("items", [])
+                    if existing_items and existing_items[0].get("id") != pocketbase_user_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"'{new_username}' kullanıcı adı zaten kullanılıyor",
+                        )
+
+                existing_pg_user_result = await postgres_db.execute(
+                    select(PostgresUser).where(PostgresUser.username == new_username)
+                )
+                existing_pg_user = existing_pg_user_result.scalar_one_or_none()
+                if existing_pg_user and (not pg_user or existing_pg_user.id != pg_user.id):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"'{new_username}' kullanıcı adı zaten kullanılıyor",
+                    )
+
+            pb_payload: dict = {
+                "username": new_username,
+                "name": user_data.name if user_data.name is not None else target_pb_user.get("name", ""),
+                "role": [f"atolye:{new_role.value}"],
+                "department": user_company,
+                "company": user_company,
+            }
+            if user_data.password:
+                pb_payload["password"] = user_data.password
+                pb_payload["passwordConfirm"] = user_data.password_confirm
+
+            update_pb_response = await client.patch(
+                f"{settings.POCKETBASE_URL}/api/collections/users/records/{pocketbase_user_id}",
+                json=pb_payload,
+                headers=headers,
+            )
+            if update_pb_response.status_code not in (200, 201):
+                error_detail = update_pb_response.text
+                try:
+                    error_json = update_pb_response.json()
+                    error_message = error_json.get("message", error_detail)
+                except Exception:
+                    error_message = error_detail
+                raise HTTPException(
+                    status_code=update_pb_response.status_code,
+                    detail=f"Kullanıcı PocketBase üzerinde güncellenemedi: {error_message}",
+                )
+
+            # Update / create postgres user mirror
+            if not pg_user:
+                pg_user = PostgresUser(
+                    username=new_username,
+                    name=pb_payload.get("name"),
+                    workshop_id=station_id_for_db,
+                )
+                postgres_db.add(pg_user)
+            else:
+                pg_user.username = new_username
+                if pb_payload.get("name") is not None:
+                    pg_user.name = pb_payload.get("name")
+                pg_user.workshop_id = station_id_for_db
+
+            await postgres_db.commit()
+            await postgres_db.refresh(pg_user)
+
+            station_name = None
+            if pg_user.workshop_id:
+                station_result = await romiot_db.execute(
+                    select(Station).where(Station.id == pg_user.workshop_id)
+                )
+                station_obj = station_result.scalar_one_or_none()
+                station_name = station_obj.name if station_obj else None
+
+            return ManagedUserResponse(
+                pocketbase_id=pocketbase_user_id,
+                username=new_username,
+                name=pb_payload.get("name"),
+                email=target_pb_user.get("email"),
+                role=new_role,
+                station_id=pg_user.workshop_id,
+                station_name=station_name,
+                company=user_company,
+                is_self=new_username == current_user.username,
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Kullanıcı güncellenirken hata oluştu: {str(e)}",
+        )
+
+
 @router.post("/", response_model=StationSchema, status_code=status.HTTP_201_CREATED)
 async def create_station(
     station_data: StationCreate,
@@ -33,7 +411,7 @@ async def create_station(
 ):
     """
     Create a new station.
-    Requires role 'atolye:<company>:yonetici' where company matches the station's company.
+    Requires role 'atolye:yonetici' and department matching the station's company.
     Station names must be unique within the same company.
     """
     # Check if user has yonetici role and get company
@@ -85,7 +463,7 @@ async def get_my_station(
 ):
     """
     Get the operator's assigned station.
-    Requires role 'atolye:<company>:operator'.
+    Requires role 'atolye:operator'.
     """
     # Check if user has operator role
     from app.api.v1.endpoints.romiot.station.auth import check_station_operator_role
@@ -95,7 +473,7 @@ async def get_my_station(
     has_operator_role = False
     if current_user.role and isinstance(current_user.role, list):
         for role in current_user.role:
-            if isinstance(role, str) and role.startswith("atolye:") and role.endswith(":operator"):
+            if isinstance(role, str) and role == "atolye:operator":
                 has_operator_role = True
                 break
     
@@ -145,7 +523,7 @@ async def list_stations(
 ):
     """
     List all stations for the user's company.
-    Requires role 'atolye:<company>:yonetici', 'atolye:<company>:operator', or 'atolye:<company>:musteri'.
+    Requires role 'atolye:yonetici', 'atolye:operator', or 'atolye:musteri'.
     """
     # Check if user has any station role and get company
     from app.api.v1.endpoints.romiot.station.auth import get_station_company
@@ -196,7 +574,7 @@ async def create_user_for_station(
     """
     Create a new user and assign them to a station.
     The user will have the same company as the yonetici creating them.
-    Requires role 'atolye:<company>:yonetici'.
+    Requires role 'atolye:yonetici'.
     """
     # Check if user has yonetici role and get company
     user_company = await check_station_yonetici_role(current_user)
@@ -241,8 +619,8 @@ async def create_user_for_station(
             detail=f"'{user_data.username}' kullanıcı adı zaten kullanılıyor"
         )
 
-    # Construct the full role: "atolye:<company>:<role>"
-    full_role = f"atolye:{user_company}:{user_data.role.value}"
+    # Construct the role with the new format: "atolye:<role>"
+    full_role = f"atolye:{user_data.role.value}"
 
     # Create user in PocketBase
     pb_user_id = None
@@ -331,6 +709,7 @@ async def create_user_for_station(
                 "passwordConfirm": user_data.password_confirm,
                 "name": user_data.name,
                 "role": [full_role],
+                "department": user_company,
                 "company": user_company,
             }
 
@@ -443,7 +822,7 @@ async def update_station(
 ):
     """
     Update a station's name.
-    Requires role 'atolye:<company>:yonetici' where company matches the station's company.
+    Requires role 'atolye:yonetici' and department matching the station's company.
     Station names must be unique within the same company.
     """
     # Check if user has yonetici role and get company
@@ -513,7 +892,7 @@ async def delete_station(
 ):
     """
     Delete a station.
-    Requires role 'atolye:<company>:yonetici' where company matches the station's company.
+    Requires role 'atolye:yonetici' and department matching the station's company.
     Cannot delete a station that has work orders.
     """
     # Check if user has yonetici role and get company
@@ -567,7 +946,7 @@ async def list_station_operators(
 ):
     """
     List all operators assigned to a station.
-    Requires role 'atolye:<company>:yonetici' where company matches the station's company.
+    Requires role 'atolye:yonetici' and department matching the station's company.
     """
     # Check if user has yonetici role and get company
     user_company = await check_station_yonetici_role(current_user)
@@ -623,7 +1002,7 @@ async def update_operator(
 ):
     """
     Update an operator's information.
-    Requires role 'atolye:<company>:yonetici'.
+    Requires role 'atolye:yonetici'.
     """
     # Check if user has yonetici role and get company
     user_company = await check_station_yonetici_role(current_user)
@@ -682,7 +1061,7 @@ async def delete_operator(
 ):
     """
     Delete an operator.
-    Requires role 'atolye:<company>:yonetici'.
+    Requires role 'atolye:yonetici'.
     Note: This only deletes from PostgreSQL. PocketBase user should be handled separately.
     """
     # Check if user has yonetici role

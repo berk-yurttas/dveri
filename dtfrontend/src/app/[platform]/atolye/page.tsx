@@ -20,22 +20,22 @@ export default function AtolyePage() {
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
       const operatorRole = user.role.find((role) =>
-        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":operator")
+        typeof role === "string" && role === "atolye:operator"
       );
       setIsOperator(!!operatorRole);
 
       const yoneticiRole = user.role.find((role) =>
-        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":yonetici")
+        typeof role === "string" && role === "atolye:yonetici"
       );
       setIsYonetici(!!yoneticiRole);
 
       const musteriRole = user.role.find((role) =>
-        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":musteri")
+        typeof role === "string" && role === "atolye:musteri"
       );
       setIsMusteri(!!musteriRole);
 
       const satinalmaRole = user.role.find((role) =>
-        typeof role === "string" && role.startsWith("atolye:") && role.endsWith(":satinalma")
+        typeof role === "string" && role === "atolye:satinalma"
       );
       setIsSatinalma(!!satinalmaRole);
 
@@ -75,7 +75,7 @@ export default function AtolyePage() {
       title: "Müşteri",
       description: "Barkod oluşturma ve yazdırma",
       href: `/${platform}/atolye/musteri`,
-      allowed: isMusteri,
+      allowed: isMusteri || isYonetici,
       color: "#fe9526",
       icon: (
         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -87,7 +87,7 @@ export default function AtolyePage() {
       title: "Operatör",
       description: "İş emri giriş ve çıkış işlemleri",
       href: `/${platform}/atolye/operator`,
-      allowed: isOperator,
+      allowed: isOperator || isYonetici,
       color: "#0f4c3a",
       icon: (
         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -104,6 +104,18 @@ export default function AtolyePage() {
       icon: (
         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+        </svg>
+      ),
+    },
+    {
+      title: "Kullanıcı Yönetimi",
+      description: "Şirket kullanıcılarını görüntüle ve düzenle",
+      href: `/${platform}/atolye/kullanici-yonetimi`,
+      allowed: isYonetici,
+      color: "#0f4c3a",
+      icon: (
+        <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5V9a2 2 0 00-2-2h-3M9 20H4a2 2 0 01-2-2V9a2 2 0 012-2h3m2 13h6m-6 0v-5a3 3 0 016 0v5m-6 0H9m6 0h2M9 7a3 3 0 116 0v0H9v0z" />
         </svg>
       ),
     },

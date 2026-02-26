@@ -12,8 +12,8 @@ async def check_station_operator_role(
     db: AsyncSession
 ):
     """
-    Helper function to check if user has the role 'atolye:<company>:operator' 
-    where company matches the station's company.
+    Helper function to check if user has the role 'atolye:operator'
+    and department matches the station's company.
     Raises HTTPException with 401 if role doesn't match.
     """
     # Get station from database
@@ -28,8 +28,8 @@ async def check_station_operator_role(
             detail=f"{station_id} ID'li atölye bulunamadı"
         )
 
-    # Build expected role: atolye:<company>:operator
-    expected_role = f"atolye:{station.company}:operator"
+    # New role format is company-independent: atolye:operator
+    expected_role = "atolye:operator"
 
     # Check if user has the expected role
     if expected_role not in current_user.role:
@@ -38,14 +38,22 @@ async def check_station_operator_role(
             detail="Bu atölye için gerekli operatör yetkisine sahip değilsiniz"
         )
 
+    # Company is now stored in user's department field
+    user_company = (current_user.department or "").strip()
+    if not user_company or station.company != user_company:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Bu atölye için şirket yetkisine sahip değilsiniz"
+        )
+
     return station
 
 
 async def check_station_yonetici_role(current_user: User):
     """
-    Helper function to check if user has the role 'atolye:<company>:yonetici'.
+    Helper function to check if user has the role 'atolye:yonetici'.
     Raises HTTPException with 401 if role doesn't match.
-    Returns the company name from the role.
+    Returns the company name from user's department field.
     """
     if not current_user.role or not isinstance(current_user.role, list):
         raise HTTPException(
@@ -53,34 +61,25 @@ async def check_station_yonetici_role(current_user: User):
             detail="Yönetici yetkisine sahip değilsiniz"
         )
 
-    # Find yonetici role
-    yonetici_role = None
-    for role in current_user.role:
-        if isinstance(role, str) and role.startswith("atolye:") and role.endswith(":yonetici"):
-            yonetici_role = role
-            break
-
-    if not yonetici_role:
+    if "atolye:yonetici" not in current_user.role:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Yönetici yetkisine sahip değilsiniz"
         )
 
-    # Extract company from role: "atolye:<company>:yonetici"
-    parts = yonetici_role.split(":")
-    if len(parts) != 3:
+    company = (current_user.department or "").strip()
+    if not company:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Geçersiz rol formatı"
+            detail="Kullanıcı şirket bilgisi bulunamadı"
         )
 
-    company = parts[1]
     return company
 
 
 async def get_station_company(current_user: User):
     """
-    Helper function to extract company from any station role (yonetici, operator, or musteri).
+    Helper function to get company from department for any station role.
     Returns the company name if user has any station role, raises HTTPException otherwise.
     """
     if not current_user.role or not isinstance(current_user.role, list):
@@ -89,30 +88,30 @@ async def get_station_company(current_user: User):
             detail="Atölye yetkisine sahip değilsiniz"
         )
 
-    # Find any station role
-    station_role = None
-    for role in current_user.role:
-        if isinstance(role, str) and role.startswith("atolye:"):
-            # Check if it ends with :yonetici, :operator, :musteri, or :satinalma
-            if role.endswith(":yonetici") or role.endswith(":operator") or role.endswith(":musteri") or role.endswith(":satinalma"):
-                station_role = role
-                break
+    allowed_roles = {
+        "atolye:yonetici",
+        "atolye:operator",
+        "atolye:musteri",
+        "atolye:satinalma",
+    }
+    has_station_role = any(
+        isinstance(role, str) and role in allowed_roles
+        for role in current_user.role
+    )
 
-    if not station_role:
+    if not has_station_role:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Geçerli bir atölye yetkisine sahip değilsiniz"
         )
 
-    # Extract company from role: "atolye:<company>:<type>"
-    parts = station_role.split(":")
-    if len(parts) != 3:
+    company = (current_user.department or "").strip()
+    if not company:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Geçersiz rol formatı"
+            detail="Kullanıcı şirket bilgisi bulunamadı"
         )
 
-    company = parts[1]
     return company
 
     
