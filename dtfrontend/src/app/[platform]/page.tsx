@@ -1323,7 +1323,6 @@ export default function PlatformHome() {
               <div className={`grid gap-2 ${platformData.theme_config.features.length === 5 ? 'grid-cols-5' : platformData.theme_config.features.length === 4 ? 'grid-cols-4' : platformData.theme_config.features.length === 6 ? 'grid-cols-6' : 'grid-cols-5'}`}>
                 {platformData.theme_config.features.map((feature: any, index: number) => {
                   const canAccessFeature = checkAccess(feature, user);
-                  if (!canAccessFeature) return null;
 
                   const hasUrl = feature.url && feature.url.trim();
                   let featureUrl = feature.url;
@@ -1332,6 +1331,12 @@ export default function PlatformHome() {
                   }
 
                   const handleFeatureClick = () => {
+                    if (!canAccessFeature) {
+                      setAccessDeniedMessage("Bu özelliğe erişim yetkiniz bulunmamaktadır.");
+                      setShowAccessDeniedModal(true);
+                      return;
+                    }
+
                     if (hasUrl) {
                       if (featureUrl.startsWith('http')) {
                         const w = Math.round(screen.width * 0.9);
@@ -2792,10 +2797,6 @@ export default function PlatformHome() {
                         const hasSubfeatureUrl = subfeature.url && subfeature.url.trim();
                         const canAccessSubfeature = checkAccess(subfeature, user);
 
-                        if (!canAccessSubfeature) {
-                          return null;
-                        }
-
                         // Check if this subfeature is restricted for atolye-only users
                         const subfeatureTitleLower = (subfeature.title || '').toLowerCase();
                         const isRestrictedSubfeature = restrictedSubfeatureTitles.some((t: string) => subfeatureTitleLower.includes(t));
@@ -2811,6 +2812,14 @@ export default function PlatformHome() {
                           <div
                             key={`${index}-sub-${subIndex}`}
                             onClick={(e) => {
+                              if (!canAccessSubfeature) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setAccessDeniedMessage("Bu özelliğe erişim yetkiniz bulunmamaktadır.");
+                                setShowAccessDeniedModal(true);
+                                return;
+                              }
+
                               if (isSubfeatureBlockedByAtolyeRole) {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -3351,7 +3360,7 @@ export default function PlatformHome() {
             <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4">
               <div className="flex items-center gap-3">
                 <Lock className="h-8 w-8 text-white" />
-                <h3 className="text-xl font-bold text-white">Yetkisiz Erişim</h3>
+                <h3 className="text-xl font-bold text-white">Erişim Yetkiniz Bulunamadı</h3>
               </div>
             </div>
 
