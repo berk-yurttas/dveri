@@ -70,7 +70,7 @@ async def _authenticate_pocketbase_admin(client: httpx.AsyncClient) -> str:
         )
 
     auth_response = await client.post(
-        f"{settings.POCKETBASE_URL}/api/collections/_superusers/auth-with-password",
+        f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
         json={
             "identity": settings.POCKETBASE_ADMIN_EMAIL,
             "password": settings.POCKETBASE_ADMIN_PASSWORD,
@@ -632,7 +632,7 @@ async def create_user_for_station(
                 try:
                     # Try newer _superusers endpoint first, fall back to legacy /api/admins
                     auth_response = await client.post(
-                        f"{settings.POCKETBASE_URL}/api/collections/_superusers/auth-with-password",
+                        f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
                         json={
                             "identity": settings.POCKETBASE_ADMIN_EMAIL,
                             "password": settings.POCKETBASE_ADMIN_PASSWORD
