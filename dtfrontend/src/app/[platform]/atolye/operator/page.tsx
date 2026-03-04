@@ -3,6 +3,8 @@
 import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "@/lib/api";
+import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
+import { SelectOrdersFolder } from "@/components/atolye/SelectOrdersFolder";
 
 type Mode = "entrance" | "exit" | null;
 
@@ -107,11 +109,6 @@ interface WorkOrderExitResponse {
   total_packages: number;
   all_exited: boolean;
   message: string;
-}
-
-interface WorkOrderLinkDirectoryResponse {
-  company: string;
-  merkez_dizin: string | null;
 }
 
 // Map QR code data to API payload
@@ -231,7 +228,6 @@ export default function OperatorPage() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
-  const [merkezDizin, setMerkezDizin] = useState("");
   const [lastScannedPartNumber, setLastScannedPartNumber] = useState<string | null>(null);
 
   // Check user roles and fetch station
@@ -259,20 +255,6 @@ export default function OperatorPage() {
           }
         };
         fetchOperatorStation();
-
-        const fetchLinkDirectory = async () => {
-          try {
-            const response = await api.get<WorkOrderLinkDirectoryResponse>(
-              "/romiot/station/stations/management/work-order-link-directory",
-              undefined,
-              { useCache: false }
-            );
-            setMerkezDizin(response?.merkez_dizin || "");
-          } catch (err) {
-            console.error("Error fetching work order link directory:", err);
-          }
-        };
-        fetchLinkDirectory();
       }
     }
   }, [user]);
@@ -615,21 +597,6 @@ export default function OperatorPage() {
     return { text: stationName, active: false };
   };
 
-  const normalizedMerkezDizin = merkezDizin.trim().replace(/[\\/]+$/, "");
-  const parcaDokumanlariPath =
-    normalizedMerkezDizin && lastScannedPartNumber
-      ? `${normalizedMerkezDizin}\\${lastScannedPartNumber}`
-      : null;
-  const parcaDokumanlariHref = parcaDokumanlariPath
-    ? `file:///${encodeURI(parcaDokumanlariPath.replace(/\\/g, "/"))}`
-    : null;
-
-  const openLocalPath = (e: React.MouseEvent, href: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    window.open(href, "_blank", "noopener,noreferrer");
-  };
-
   if (!isOperator && !isYonetici) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -651,6 +618,7 @@ export default function OperatorPage() {
               <p className="text-gray-600 mt-1">Atölye: <span className="font-semibold">{stationName}</span></p>
             )}
           </div>
+          <SelectOrdersFolder />
         </div>
 
         {/* Mode Selection Buttons */}
@@ -747,22 +715,14 @@ export default function OperatorPage() {
         )}
 
         {/* Work order local file links (based on scanned QR) */}
-        {parcaDokumanlariPath && (
+        {lastScannedPartNumber && (
           <div className="mb-4 p-4 bg-indigo-50 border-l-4 border-indigo-500 rounded-lg shadow-sm">
             <h3 className="text-sm font-semibold text-indigo-800 mb-2">İş Emri Dosya Linkleri</h3>
             <div className="text-sm text-indigo-900 space-y-1">
               <div>
                 <span className="font-medium">Parça No:</span> {lastScannedPartNumber}
               </div>
-              <a
-                href={parcaDokumanlariHref || "#"}
-                className="underline hover:text-indigo-700"
-                onClick={(e) => {
-                  if (parcaDokumanlariHref) openLocalPath(e, parcaDokumanlariHref);
-                }}
-              >
-                Parça Dökümanları: {parcaDokumanlariPath}
-              </a>
+              <OrderFilesViewer orderId={lastScannedPartNumber} />
             </div>
           </div>
         )}
@@ -854,13 +814,6 @@ export default function OperatorPage() {
                       const daysInStation = getDaysInStation(wo.entries);
                       const isActive = hasActiveAtMyStation(wo.entries);
                       const stationStatus = getStationStatus(wo.entries);
-                      const rowParcaDokumanPath = normalizedMerkezDizin
-                        ? `${normalizedMerkezDizin}\\${wo.part_number}`
-                        : "";
-                      const rowParcaDokumanHref = rowParcaDokumanPath
-                        ? `file:///${encodeURI(rowParcaDokumanPath.replace(/\\/g, "/"))}`
-                        : "";
-
                       // Count scanned/exited packages at my station
                       const myEntries = wo.entries.filter(e => e.station_id === stationId);
                       const scannedCount = myEntries.length;
@@ -894,17 +847,7 @@ export default function OperatorPage() {
                               <div className="text-xs text-gray-500">{wo.teklif_number}</div>
                             </td>
                             <td className="px-4 py-3">
-                              {rowParcaDokumanHref ? (
-                                <a
-                                  href={rowParcaDokumanHref}
-                                  className="text-sm text-[#0f4c3a] underline hover:text-[#0a3a2c]"
-                                  onClick={(e) => openLocalPath(e, rowParcaDokumanHref)}
-                                >
-                                  Parça Dökümanları
-                                </a>
-                              ) : (
-                                <span className="text-sm text-gray-400">-</span>
-                              )}
+                              <OrderFilesViewer orderId={wo.part_number} />
                             </td>
                             <td className="px-4 py-3">
                               {wo.priority > 0 ? (

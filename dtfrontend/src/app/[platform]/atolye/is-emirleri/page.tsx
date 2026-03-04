@@ -4,6 +4,8 @@ import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import QRCodeSVG from "react-qr-code";
+import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
+import { SelectOrdersFolder } from "@/components/atolye/SelectOrdersFolder";
 
 interface WorkOrderDetail {
   id: number;
@@ -75,11 +77,6 @@ interface PriorityTokenInfo {
   remaining_tokens: number;
 }
 
-interface WorkOrderLinkDirectoryResponse {
-  company: string;
-  merkez_dizin: string | null;
-}
-
 export default function WorkOrdersPage() {
   const { user } = useUser();
   const [groupedWorkOrders, setGroupedWorkOrders] = useState<GroupedWorkOrder[]>([]);
@@ -133,7 +130,6 @@ export default function WorkOrdersPage() {
   const [qrCodesByGroup, setQrCodesByGroup] = useState<Record<string, WorkOrderQrCode[]>>({});
   const [qrModalGroupId, setQrModalGroupId] = useState<string | null>(null);
   const [selectedQrIndexByGroup, setSelectedQrIndexByGroup] = useState<Record<string, number>>({});
-  const [merkezDizin, setMerkezDizin] = useState("");
 
   // Check user roles
   useEffect(() => {
@@ -225,22 +221,6 @@ export default function WorkOrdersPage() {
     fetchTokens();
   }, [fetchTokens]);
 
-  useEffect(() => {
-    if (!isYonetici && !isOperator && !isSatinalma) return;
-    const fetchLinkDirectory = async () => {
-      try {
-        const response = await api.get<WorkOrderLinkDirectoryResponse>(
-          "/romiot/station/stations/management/work-order-link-directory",
-          undefined,
-          { useCache: false }
-        );
-        setMerkezDizin(response?.merkez_dizin || "");
-      } catch (err) {
-        console.error("Error fetching work order link directory:", err);
-      }
-    };
-    fetchLinkDirectory();
-  }, [isYonetici, isOperator, isSatinalma]);
 
   // Fetch work orders with search
   const fetchWorkOrders = useCallback(async () => {
@@ -698,23 +678,19 @@ export default function WorkOrdersPage() {
 
   const tokensNeeded = calculateTokensNeeded();
   const hasEdits = priorityEdits.size > 0;
-  const normalizedMerkezDizin = merkezDizin.trim().replace(/[\\/]+$/, "");
-  const openLocalPath = (e: React.MouseEvent, href: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    window.open(href, "_blank", "noopener,noreferrer");
-  };
-
   return (
     <div className="min-h-screen p-8 bg-gray-50">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">İş Emirleri</h1>
           <p className="text-gray-600">
             {isSatinalma
               ? "İş emirlerinin öncelik sıralamasını belirleyin"
               : "Tüm iş emirlerinin detaylı bilgilerini görüntüleyin"}
           </p>
+          </div>
+          {!isMusteri && <SelectOrdersFolder />}
         </div>
 
         {/* Error / Success Messages */}
@@ -838,12 +814,6 @@ export default function WorkOrdersPage() {
                   const currentStation = getCurrentStation(wo.entries);
                   const daysInStation = getDaysInStation(wo.entries);
                   const hasActiveEntry = wo.entries.some(e => !e.exit_date);
-                  const rowParcaDokumanPath = normalizedMerkezDizin
-                    ? `${normalizedMerkezDizin}\\${wo.part_number}`
-                    : "";
-                  const rowParcaDokumanHref = rowParcaDokumanPath
-                    ? `file:///${encodeURI(rowParcaDokumanPath.replace(/\\/g, "/"))}`
-                    : "";
 
                   return (
                     <>
@@ -859,17 +829,7 @@ export default function WorkOrdersPage() {
                         </td>
                         {!isMusteri && (
                           <td className="px-4 py-3">
-                            {rowParcaDokumanHref ? (
-                              <a
-                                href={rowParcaDokumanHref}
-                                className="text-sm text-[#0f4c3a] underline hover:text-[#0a3a2c]"
-                                onClick={(e) => openLocalPath(e, rowParcaDokumanHref)}
-                              >
-                                Parça Dökümanları
-                              </a>
-                            ) : (
-                              <span className="text-sm text-gray-400">-</span>
-                            )}
+                            <OrderFilesViewer orderId={wo.part_number} />
                           </td>
                         )}
                         <td className="px-4 py-3">
