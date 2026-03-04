@@ -15,6 +15,7 @@ class WorkOrderBase(BaseModel):
     main_customer: str = Field(..., description="Ana Müşteri")
     sector: str = Field(..., description="Sektör")
     company_from: str = Field(..., description="Gönderen Firma")
+    teklif_number: str = Field(..., pattern=r"^MKS-\d{6}$", description="Teklif Numarası (MKS-XXXXXX)")
     aselsan_order_number: str = Field(..., description="ASELSAN Sipariş Numarası")
     order_item_number: str = Field(..., description="Sipariş Kalem Numarası")
     part_number: str = Field(..., description="Parça Numarası")
@@ -76,6 +77,7 @@ class WorkOrderList(BaseModel):
     main_customer: str
     sector: str
     company_from: str
+    teklif_number: str
     aselsan_order_number: str
     order_item_number: str
     part_number: str
@@ -106,6 +108,7 @@ class WorkOrderDetail(BaseModel):
     main_customer: str
     sector: str
     company_from: str
+    teklif_number: str
     aselsan_order_number: str
     order_item_number: str
     part_number: str

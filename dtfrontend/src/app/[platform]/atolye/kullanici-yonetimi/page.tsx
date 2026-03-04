@@ -102,7 +102,6 @@ export default function KullaniciYonetimiPage() {
 
   useEffect(() => {
     fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isYonetici]);
 
   const filteredUsers = useMemo(() => {

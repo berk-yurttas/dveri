@@ -23,6 +23,7 @@ interface BarcodeFormData {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
   part_number: string;
@@ -61,6 +62,7 @@ export default function MusteriPage() {
     main_customer: "ASELSAN",
     sector: "",
     company_from: "",
+    teklif_number: "",
     aselsan_order_number: "",
     order_item_number: "",
     part_number: "",
@@ -89,6 +91,10 @@ export default function MusteriPage() {
       setError("Hedef Bitirme Tarihi zorunludur");
       return;
     }
+    if (!/^MKS-\d{6}$/.test(barcodeFormData.teklif_number.trim())) {
+      setError("Teklif Numarası formatı MKS-XXXXXX olmalıdır");
+      return;
+    }
 
     // Validate target_date is at least 7 days from today
     const today = new Date();
@@ -112,6 +118,7 @@ export default function MusteriPage() {
         main_customer: barcodeFormData.main_customer,
         sector: barcodeFormData.sector,
         company_from: barcodeFormData.company_from,
+        teklif_number: barcodeFormData.teklif_number.trim(),
         aselsan_order_number: barcodeFormData.aselsan_order_number,
         order_item_number: barcodeFormData.order_item_number,
         part_number: barcodeFormData.part_number,
@@ -196,6 +203,7 @@ export default function MusteriPage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600; width: 45%;">Ana Müşteri</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.main_customer}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.sector}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.company_from}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.teklif_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${totalPackages > 1 ? barcodeFormData.aselsan_order_number + "_" + pkg.package_index : barcodeFormData.aselsan_order_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Kalem Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.order_item_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.part_number}</td></tr>
@@ -387,6 +395,27 @@ export default function MusteriPage() {
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Teklif Numarası *</label>
+                <input
+                  type="text"
+                  value={barcodeFormData.teklif_number}
+                  onChange={(e) => {
+                    const raw = e.target.value.toUpperCase();
+                    if (raw === "") {
+                      setBarcodeFormData({ ...barcodeFormData, teklif_number: "" });
+                      return;
+                    }
+                    const digits = raw.replace(/^MKS-?/, "").replace(/\D/g, "").slice(0, 6);
+                    setBarcodeFormData({ ...barcodeFormData, teklif_number: `MKS-${digits}` });
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                  placeholder="MKS-123456"
+                  pattern="^MKS-\d{6}$"
+                  title="Format: MKS-123456"
+                  required
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">{barcodeFormData.main_customer} Sipariş Numarası *</label>
                 <input
                   type="text"
@@ -539,6 +568,10 @@ export default function MusteriPage() {
                           <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">Gönderen Firma</td>
                             <td className="py-2 px-3 text-gray-900">{barcodeFormData.company_from}</td>
+                          </tr>
+                          <tr className="border-b border-gray-200">
+                            <td className="py-2 px-3 font-semibold text-gray-700">Teklif Numarası</td>
+                            <td className="py-2 px-3 text-gray-900">{barcodeFormData.teklif_number}</td>
                           </tr>
                           <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">{barcodeFormData.main_customer} Sipariş Numarası</td>

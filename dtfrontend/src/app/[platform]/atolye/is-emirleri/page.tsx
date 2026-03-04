@@ -15,6 +15,7 @@ interface WorkOrderDetail {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
   part_number: string;
@@ -44,6 +45,7 @@ interface GroupedWorkOrder {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
   total_quantity: number;
@@ -250,6 +252,7 @@ export default function WorkOrdersPage() {
           main_customer: order.main_customer,
           sector: order.sector,
           company_from: order.company_from,
+          teklif_number: order.teklif_number,
           aselsan_order_number: order.aselsan_order_number,
           order_item_number: order.order_item_number,
           total_quantity: order.total_quantity,
@@ -657,6 +660,7 @@ export default function WorkOrdersPage() {
                         <td className="px-4 py-3">
                           <div className="text-sm font-medium text-gray-900">{wo.part_number}</div>
                           <div className="text-xs text-gray-500">{wo.aselsan_order_number}</div>
+                          <div className="text-xs text-gray-500">{wo.teklif_number}</div>
                         </td>
                         <td className="px-4 py-3">
                           {renderPriorityDisplay(wo)}
@@ -709,6 +713,10 @@ export default function WorkOrdersPage() {
                                 <div>
                                   <span className="text-gray-500">Sipariş Kalem No:</span>
                                   <p className="font-medium text-gray-900">{wo.order_item_number}</p>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Teklif No:</span>
+                                  <p className="font-medium text-gray-900">{wo.teklif_number}</p>
                                 </div>
                                 <div>
                                   <span className="text-gray-500">Toplam Paket:</span>

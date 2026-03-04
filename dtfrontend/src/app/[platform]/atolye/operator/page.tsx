@@ -11,6 +11,7 @@ interface QRCodeData {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
   quantity: number;
@@ -28,6 +29,7 @@ interface WorkOrder {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
   quantity: number;
@@ -50,6 +52,7 @@ interface WorkOrderDetail {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
   part_number: string;
@@ -77,6 +80,7 @@ interface GroupedWorkOrder {
   work_order_group_id: string;
   part_number: string;
   company_from: string;
+  teklif_number: string;
   main_customer: string;
   sector: string;
   aselsan_order_number: string;
@@ -116,6 +120,7 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
   const mainCustomer = qrCodeData.main_customer;
   const sector = qrCodeData.sector;
   const companyFrom = qrCodeData.company_from;
+  const teklifNumber = qrCodeData.teklif_number;
   const aselsanOrderNumber = qrCodeData.aselsan_order_number;
   const orderItemNumber = qrCodeData.order_item_number;
   const partNumber = qrCodeData.part_number;
@@ -129,6 +134,10 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
   if (!mainCustomer) errors.push("Ana Müşteri eksik");
   if (!sector) errors.push("Sektör eksik");
   if (!companyFrom) errors.push("Gönderen Firma eksik");
+  if (!teklifNumber) errors.push("Teklif Numarası eksik");
+  if (teklifNumber && !/^MKS-\d{6}$/.test(String(teklifNumber).trim())) {
+    errors.push("Teklif Numarası formatı geçersiz (MKS-XXXXXX)");
+  }
   if (!aselsanOrderNumber) errors.push("ASELSAN Sipariş Numarası eksik");
   if (!orderItemNumber) errors.push("Sipariş Kalem Numarası eksik");
   if (!partNumber) errors.push("Parça Numarası eksik");
@@ -156,6 +165,7 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
     main_customer: String(mainCustomer).trim(),
     sector: String(sector).trim(),
     company_from: String(companyFrom).trim(),
+    teklif_number: String(teklifNumber).trim(),
     aselsan_order_number: String(aselsanOrderNumber).trim(),
     order_item_number: String(orderItemNumber).trim(),
     part_number: String(partNumber).trim(),
@@ -268,6 +278,7 @@ export default function OperatorPage() {
             work_order_group_id: order.work_order_group_id,
             part_number: order.part_number,
             company_from: order.company_from,
+            teklif_number: order.teklif_number,
             main_customer: order.main_customer,
             sector: order.sector,
             aselsan_order_number: order.aselsan_order_number,
@@ -425,6 +436,7 @@ export default function OperatorPage() {
                     main_customer: "Ana Müşteri",
                     sector: "Sektör",
                     company_from: "Gönderen Firma",
+                    teklif_number: "Teklif Numarası",
                     aselsan_order_number: "ASELSAN Sipariş Numarası",
                     order_item_number: "Sipariş Kalem Numarası",
                     part_number: "Parça Numarası",
@@ -810,6 +822,7 @@ export default function OperatorPage() {
                             <td className="px-4 py-3">
                               <div className="text-sm font-medium text-gray-900">{wo.part_number}</div>
                               <div className="text-xs text-gray-500">{wo.aselsan_order_number}</div>
+                              <div className="text-xs text-gray-500">{wo.teklif_number}</div>
                             </td>
                             <td className="px-4 py-3">
                               {wo.priority > 0 ? (
@@ -878,6 +891,10 @@ export default function OperatorPage() {
                                     <div>
                                       <span className="text-gray-500">Sipariş Kalem No:</span>
                                       <p className="font-medium text-gray-900">{wo.order_item_number}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Teklif No:</span>
+                                      <p className="font-medium text-gray-900">{wo.teklif_number}</p>
                                     </div>
                                     <div>
                                       <span className="text-gray-500">Toplam Paket:</span>

@@ -170,6 +170,7 @@ async def generate_qr_code_batch(
             "main_customer": batch_data.main_customer,
             "sector": batch_data.sector,
             "company_from": batch_data.company_from,
+            "teklif_number": batch_data.teklif_number,
             "aselsan_order_number": batch_data.aselsan_order_number,
             "order_item_number": batch_data.order_item_number,
             "part_number": batch_data.part_number,

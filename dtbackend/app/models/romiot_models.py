@@ -36,6 +36,7 @@ class WorkOrder(PostgreSQLBase):
     main_customer = Column(String(255), nullable=False)
     sector = Column(String(255), nullable=False)
     company_from = Column(String(255), nullable=False)
+    teklif_number = Column(String(20), nullable=False)  # Teklif Numarası (MKS-XXXXXX)
     aselsan_order_number = Column(String(255), nullable=False)
     order_item_number = Column(String(255), nullable=False)
     part_number = Column(String(255), nullable=False)  # Parça Numarası
