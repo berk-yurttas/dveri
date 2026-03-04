@@ -5,6 +5,12 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY dtbackend/requirements.txt .
 
+# System deps required by pyodbc (provides libodbc.so.2)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    unixodbc \
+    unixodbc-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # RUN pip install --no-cache-dir \
 #     -i http://ftp.company.com.tr/simple/ \
 #     --index-url http://ftp.company.com.tr/simple/ \
