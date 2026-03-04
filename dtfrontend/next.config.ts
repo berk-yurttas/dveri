@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
+const isWindows = process.platform === "win32";
+
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  // Standalone output on Windows can fail due to symlink permissions (EPERM)
+  output: isWindows ? undefined : "standalone",
   images: {
     domains: ['127.0.0.1', 'vdi-ahtapot01', '18.210.5.151', '10.60.139.11', 'localhost', 'api.dicebear.com', 'korykos.aselsan.com.tr', 'portal.aselsan.com.tr'],
     remotePatterns: [

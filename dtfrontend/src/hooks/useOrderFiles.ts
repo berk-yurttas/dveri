@@ -108,7 +108,10 @@ export function useOrderFiles() {
       }
 
       const files: OrderFileItem[] = [];
-      for await (const entry of orderDir.values()) {
+      const directoryWithEntries = orderDir as FileSystemDirectoryHandle & {
+        entries: () => AsyncIterableIterator<[string, FileSystemHandle]>;
+      };
+      for await (const [, entry] of directoryWithEntries.entries()) {
         if (entry.kind === "file") {
           const fileHandle = entry as FileSystemFileHandle;
           const file = await fileHandle.getFile();
