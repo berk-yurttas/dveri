@@ -26,6 +26,18 @@ from app.schemas.work_order import (
 router = APIRouter()
 
 
+def _extract_musteri_company_from_roles(role_values: list[str] | None) -> str | None:
+    if not role_values:
+        return None
+    prefix = "atolye:musteri_company:"
+    for role in role_values:
+        if isinstance(role, str) and role.startswith(prefix):
+            value = role[len(prefix):].strip()
+            if value:
+                return value
+    return None
+
+
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_work_order(
     work_order_data: WorkOrderCreate,
@@ -360,13 +372,18 @@ async def get_all_work_orders(
     company = department_value
     musteri_department = None
     is_musteri = "atolye:musteri" in role_values
-    if is_musteri and ":" in department_value:
-        company, musteri_department = department_value.split(":", 1)
-        company = company.strip()
-        musteri_department = musteri_department.strip()
-    elif is_musteri:
-        # Backward compatibility: old records may only have a single department segment
-        musteri_department = company.strip()
+    if is_musteri:
+        musteri_department = _extract_musteri_company_from_roles(role_values)
+        if not musteri_department and ":" in department_value:
+            # Backward compatibility for old department format XXX:YYY
+            company, musteri_department = department_value.split(":", 1)
+            company = company.strip()
+            musteri_department = musteri_department.strip()
+        if not musteri_department:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Müşteri şirket bilgisi rol üzerinde bulunamadı"
+            )
 
     is_aselsan_satinalma = (
         "atolye:satinalma" in role_values

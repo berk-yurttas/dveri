@@ -122,6 +122,22 @@ def _extract_atolye_role(role_values: list[str] | None) -> ManagedUserRoleType |
     return None
 
 
+def _extract_musteri_company_from_roles(role_values: list[str] | None) -> str | None:
+    """
+    Extracts musteri company from supplemental role:
+    - atolye:musteri_company:<company>
+    """
+    if not role_values:
+        return None
+    prefix = "atolye:musteri_company:"
+    for role in role_values:
+        if isinstance(role, str) and role.startswith(prefix):
+            value = role[len(prefix):].strip()
+            if value:
+                return value
+    return None
+
+
 def _get_main_company_from_department(department: str | None) -> str:
     department_value = (department or "").strip()
     if not department_value:
@@ -429,13 +445,22 @@ async def update_company_user(
                     )
 
             department_for_payload = user_company
-            if new_role == ManagedUserRoleType.MUSTERI and target_department.startswith(f"{user_company}:"):
-                department_for_payload = target_department
+            existing_role_values = target_pb_user.get("role") if isinstance(target_pb_user.get("role"), list) else []
+            pb_roles = [f"atolye:{new_role.value}"]
+            if new_role == ManagedUserRoleType.MUSTERI:
+                musteri_company = _extract_musteri_company_from_roles(existing_role_values)
+                if not musteri_company and target_department.startswith(f"{user_company}:"):
+                    # Backward compatibility for previously saved department format XXX:YYY
+                    musteri_company = target_department.split(":", 1)[1].strip()
+                if not musteri_company:
+                    # Fallback when converting role without explicit musteri company input
+                    musteri_company = user_company
+                pb_roles.append(f"atolye:musteri_company:{musteri_company}")
 
             pb_payload: dict = {
                 "username": new_username,
                 "name": user_data.name if user_data.name is not None else target_pb_user.get("name", ""),
-                "role": [f"atolye:{new_role.value}"],
+                "role": pb_roles,
                 "department": department_for_payload,
                 "company": user_company,
             }
@@ -732,9 +757,10 @@ async def create_user_for_station(
     full_role = f"atolye:{user_data.role.value}"
 
     # Department mapping:
-    # - operator => same department as yonetici (main company)
-    # - musteri  => <main_company>:<musteri_department>
+    # - all roles keep main company in department
+    # - musteri-specific company is stored in an extra role
     target_department = user_company
+    role_values = [full_role]
     if user_data.role == UserRoleType.MUSTERI:
         musteri_department = (user_data.musteri_department or "").strip()
         if ":" in musteri_department:
@@ -742,7 +768,7 @@ async def create_user_for_station(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Müşteri şirket/departman bilgisinde ':' karakteri kullanılamaz"
             )
-        target_department = f"{user_company}:{musteri_department}"
+        role_values.append(f"atolye:musteri_company:{musteri_department}")
 
     # Create user in PocketBase
     pb_user_id = None
@@ -830,7 +856,7 @@ async def create_user_for_station(
                 "password": user_data.password,
                 "passwordConfirm": user_data.password_confirm,
                 "name": user_data.name,
-                "role": [full_role],
+                "role": role_values,
                 "department": target_department,
                 "company": user_company,
             }

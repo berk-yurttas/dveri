@@ -52,12 +52,21 @@ export default function MusteriPage() {
       if (musteriRole || yoneticiRole) {
         setIsMusteri(!!musteriRole);
         setIsYonetici(!!yoneticiRole);
-        const departmentValue = (user.department || "").trim();
-        if (musteriRole && departmentValue.includes(":")) {
-          const [, musteriDepartment] = departmentValue.split(":", 2);
-          setUserCompany(musteriDepartment?.trim() || null);
+        const musteriCompanyRole = user.role.find(
+          (role) => typeof role === "string" && role.startsWith("atolye:musteri_company:")
+        );
+        if (musteriRole && typeof musteriCompanyRole === "string") {
+          const musteriCompany = musteriCompanyRole.replace("atolye:musteri_company:", "").trim();
+          setUserCompany(musteriCompany || null);
         } else {
-          setUserCompany(departmentValue || user.company || null);
+          const departmentValue = (user.department || "").trim();
+          if (musteriRole && departmentValue.includes(":")) {
+            // Backward compatibility for old department format XXX:YYY
+            const [, musteriDepartment] = departmentValue.split(":", 2);
+            setUserCompany(musteriDepartment?.trim() || null);
+          } else {
+            setUserCompany(departmentValue || user.company || null);
+          }
         }
       }
     }

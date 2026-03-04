@@ -24,6 +24,18 @@ from app.schemas.user import User
 router = APIRouter()
 
 
+def _extract_musteri_company_from_roles(role_values: list[str] | None) -> str | None:
+    if not role_values:
+        return None
+    prefix = "atolye:musteri_company:"
+    for role in role_values:
+        if isinstance(role, str) and role.startswith(prefix):
+            value = role[len(prefix):].strip()
+            if value:
+                return value
+    return None
+
+
 def generate_short_code(length: int = 12) -> str:
     """
     Generate a short alphanumeric code for QR compression.
@@ -300,12 +312,18 @@ async def get_qr_codes_by_work_order_group(
     is_musteri = "atolye:musteri" in role_values
     main_company = department_value
     musteri_department = None
-    if is_musteri and ":" in department_value:
-        main_company, musteri_department = department_value.split(":", 1)
-        main_company = main_company.strip()
-        musteri_department = musteri_department.strip()
-    elif is_musteri:
-        musteri_department = department_value
+    if is_musteri:
+        musteri_department = _extract_musteri_company_from_roles(role_values)
+        if not musteri_department and ":" in department_value:
+            # Backward compatibility for old department format XXX:YYY
+            main_company, musteri_department = department_value.split(":", 1)
+            main_company = main_company.strip()
+            musteri_department = musteri_department.strip()
+        if not musteri_department:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Müşteri şirket bilgisi rol üzerinde bulunamadı."
+            )
 
     query = text(
         """
