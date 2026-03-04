@@ -460,7 +460,7 @@ export default function YoneticiPage() {
                   />
                   <p className="mt-1 text-xs text-gray-500">
                     {userFormData.role === "musteri"
-                      ? `Müşteri departmanı giriniz. Kullanıcı departmanı: ${userCompany || ""}:<girdi>`
+                      ? `Müşteri şirketi giriniz.`
                       : "Kullanıcı otomatik olarak şirketinize atanacaktır"}
                   </p>
                 </div>
