@@ -5,7 +5,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import QRCodeSVG from "react-qr-code";
 import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
-import { SelectOrdersFolder } from "@/components/atolye/SelectOrdersFolder";
 
 interface WorkOrderDetail {
   id: number;
@@ -690,7 +689,6 @@ export default function WorkOrdersPage() {
               : "Tüm iş emirlerinin detaylı bilgilerini görüntüleyin"}
           </p>
           </div>
-          {!isMusteri && <SelectOrdersFolder />}
         </div>
 
         {/* Error / Success Messages */}

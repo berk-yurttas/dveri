@@ -4,7 +4,6 @@ import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "@/lib/api";
 import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
-import { SelectOrdersFolder } from "@/components/atolye/SelectOrdersFolder";
 
 type Mode = "entrance" | "exit" | null;
 
@@ -618,7 +617,6 @@ export default function OperatorPage() {
               <p className="text-gray-600 mt-1">Atölye: <span className="font-semibold">{stationName}</span></p>
             )}
           </div>
-          <SelectOrdersFolder />
         </div>
 
         {/* Mode Selection Buttons */}

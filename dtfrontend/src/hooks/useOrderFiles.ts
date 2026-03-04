@@ -80,10 +80,24 @@ export function useOrderFiles() {
   }, []);
 
   const getStoredDirectoryHandle = useCallback(async (): Promise<FileSystemDirectoryHandle> => {
-    const handle = selectedHandle || (await getHandle("ordersRootDirectory"));
+    let handle = selectedHandle || (await getHandle("ordersRootDirectory"));
     if (!handle) {
-      throw new Error("Önce sipariş klasörü seçilmelidir.");
+      if (typeof window === "undefined" || typeof window.showDirectoryPicker !== "function") {
+        throw new Error("Tarayıcı bu özelliği desteklemiyor.");
+      }
+      try {
+        handle = await window.showDirectoryPicker();
+      } catch {
+        throw new Error("Önce merkez dizin seçilmelidir.");
+      }
+      const pickedGranted = await ensureReadPermission(handle);
+      if (!pickedGranted) {
+        throw new Error("Önce merkez dizin seçilmelidir.");
+      }
+      await putHandle("ordersRootDirectory", handle);
+      setSelectedHandle(handle);
     }
+
     const granted = await ensureReadPermission(handle);
     if (!granted) {
       throw new Error("Klasör izni iptal edilmiş. Lütfen tekrar seçin.");

@@ -11,11 +11,6 @@ interface Station {
   is_exit_station: boolean;
 }
 
-interface WorkOrderLinkDirectoryResponse {
-  company: string;
-  merkez_dizin: string | null;
-}
-
 export default function YoneticiPage() {
   const { user } = useUser();
   const [isYonetici, setIsYonetici] = useState(false);
@@ -37,7 +32,6 @@ export default function YoneticiPage() {
   const [yoneticiLoading, setYoneticiLoading] = useState(false);
   const [yoneticiError, setYoneticiError] = useState<string | null>(null);
   const [yoneticiSuccess, setYoneticiSuccess] = useState<string | null>(null);
-  const [merkezDizin, setMerkezDizin] = useState("");
 
   // Check user roles and extract company
   useEffect(() => {
@@ -70,27 +64,12 @@ export default function YoneticiPage() {
     }
   }, [isYonetici]);
 
-  const fetchWorkOrderLinkDirectory = useCallback(async () => {
-    if (!isYonetici) return;
-    try {
-      const data = await api.get<WorkOrderLinkDirectoryResponse>(
-        "/romiot/station/stations/management/work-order-link-directory",
-        undefined,
-        { useCache: false }
-      );
-      setMerkezDizin(data?.merkez_dizin || "");
-    } catch (err) {
-      console.error("Error fetching work order link directory:", err);
-    }
-  }, [isYonetici]);
-
   useEffect(() => {
     if (isYonetici && userCompany) {
       fetchStations();
-      fetchWorkOrderLinkDirectory();
       setStationFormData({ name: "", company: userCompany, is_exit_station: false });
     }
-  }, [isYonetici, userCompany, fetchStations, fetchWorkOrderLinkDirectory]);
+  }, [isYonetici, userCompany, fetchStations]);
 
   const handleCreateStation = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,40 +167,6 @@ export default function YoneticiPage() {
     }
   };
 
-  const handleSaveMerkezDizin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setYoneticiLoading(true);
-    setYoneticiError(null);
-    setYoneticiSuccess(null);
-
-    try {
-      const value = merkezDizin.trim();
-      if (!value) {
-        setYoneticiError("Merkez dizin alanı boş olamaz");
-        return;
-      }
-
-      await api.put(
-        "/romiot/station/stations/management/work-order-link-directory",
-        { merkez_dizin: value }
-      );
-      setMerkezDizin(value);
-      setYoneticiSuccess("Merkez dizin başarıyla kaydedildi");
-    } catch (err: any) {
-      let errorMessage = "Merkez dizin kaydedilirken hata oluştu";
-      if (err.message) {
-        try {
-          const errorObj = JSON.parse(err.message);
-          errorMessage = errorObj.detail || errorMessage;
-        } catch {
-          errorMessage = err.message;
-        }
-      }
-      setYoneticiError(errorMessage);
-    } finally {
-      setYoneticiLoading(false);
-    }
-  };
 
   if (!isYonetici) {
     return (
@@ -317,36 +262,6 @@ export default function YoneticiPage() {
               </form>
             </div>
 
-            {/* Work Order Link Root Directory Form */}
-            <div className="bg-white rounded-lg shadow-lg p-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">İş Emri Link Ayarı</h2>
-              <form onSubmit={handleSaveMerkezDizin}>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Merkez Dizini Seçiniz *</label>
-                    <input
-                      type="text"
-                      value={merkezDizin}
-                      onChange={(e) => setMerkezDizin(e.target.value)}
-                      placeholder="C:\\Users\\Kullanici\\Desktop"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                      required
-                      disabled={yoneticiLoading}
-                    />
-                    <p className="mt-1 text-xs text-gray-500">
-                      Operatör QR okuttuğunda dosya linkleri bu dizin üzerinden oluşturulur.
-                    </p>
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={yoneticiLoading}
-                    className="w-full px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {yoneticiLoading ? "Kaydediliyor..." : "Merkez Dizini Kaydet"}
-                  </button>
-                </div>
-              </form>
-            </div>
           </div>
 
           {/* Create User Form */}
