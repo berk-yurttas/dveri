@@ -5,7 +5,7 @@ import string
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import check_authenticated
@@ -267,3 +267,92 @@ async def retrieve_qr_data(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="QR kod verisi okunamadı"
         )
+
+
+@router.get("/group/{work_order_group_id}", response_model=list[dict])
+async def get_qr_codes_by_work_order_group(
+    work_order_group_id: str,
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """
+    Retrieve all QR codes for a work order group.
+    Musteri users can only access their own work orders (company_from match).
+    """
+    role_values = current_user.role if current_user.role and isinstance(current_user.role, list) else []
+    has_atolye_role = any(
+        role in {"atolye:operator", "atolye:yonetici", "atolye:musteri", "atolye:satinalma"}
+        for role in role_values
+    )
+    if not has_atolye_role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Atölye yetkisi gereklidir."
+        )
+
+    department_value = (current_user.department or "").strip()
+    if not department_value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Kullanıcı şirket bilgisi bulunamadı."
+        )
+
+    is_musteri = "atolye:musteri" in role_values
+    main_company = department_value
+    musteri_department = None
+    if is_musteri and ":" in department_value:
+        main_company, musteri_department = department_value.split(":", 1)
+        main_company = main_company.strip()
+        musteri_department = musteri_department.strip()
+    elif is_musteri:
+        musteri_department = department_value
+
+    query = text(
+        """
+        SELECT code, data
+        FROM qr_code_data
+        WHERE company = :company
+          AND data::jsonb ->> 'work_order_group_id' = :group_id
+        ORDER BY (data::jsonb ->> 'package_index')::int
+        """
+    )
+    result = await romiot_db.execute(
+        query,
+        {"company": main_company, "group_id": work_order_group_id},
+    )
+    rows = result.fetchall()
+
+    if not rows:
+        return []
+
+    response_items: list[dict] = []
+    for row in rows:
+        try:
+            payload = json.loads(row.data)
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+        if is_musteri and musteri_department:
+            if (payload.get("company_from") or "").strip() != musteri_department:
+                continue
+
+        response_items.append(
+            {
+                "code": row.code,
+                "work_order_group_id": payload.get("work_order_group_id"),
+                "main_customer": payload.get("main_customer"),
+                "sector": payload.get("sector"),
+                "company_from": payload.get("company_from"),
+                "teklif_number": payload.get("teklif_number"),
+                "aselsan_order_number": payload.get("aselsan_order_number"),
+                "order_item_number": payload.get("order_item_number"),
+                "part_number": payload.get("part_number"),
+                "quantity": payload.get("quantity"),
+                "total_quantity": payload.get("total_quantity"),
+                "package_index": payload.get("package_index"),
+                "total_packages": payload.get("total_packages"),
+                "target_date": payload.get("target_date"),
+            }
+        )
+
+    return response_items

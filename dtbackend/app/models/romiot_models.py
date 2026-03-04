@@ -101,3 +101,16 @@ class QRCodeData(PostgreSQLBase):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # Expiry timestamp (optional - for cleanup of old QR codes)
     expires_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class WorkOrderLinkDirectory(PostgreSQLBase):
+    """
+    Stores a per-company root directory used to generate local work-order links.
+    """
+    __tablename__ = "work_order_link_directories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company = Column(String(255), nullable=False, unique=True, index=True)
+    root_directory = Column(String(1024), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

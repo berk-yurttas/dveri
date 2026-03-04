@@ -14,6 +14,7 @@ interface QRCodeData {
   teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
+  part_number: string;
   quantity: number;
   total_quantity: number;
   package_index: number;
@@ -106,6 +107,11 @@ interface WorkOrderExitResponse {
   total_packages: number;
   all_exited: boolean;
   message: string;
+}
+
+interface WorkOrderLinkDirectoryResponse {
+  company: string;
+  merkez_dizin: string | null;
 }
 
 // Map QR code data to API payload
@@ -225,6 +231,8 @@ export default function OperatorPage() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
+  const [merkezDizin, setMerkezDizin] = useState("");
+  const [lastScannedPartNumber, setLastScannedPartNumber] = useState<string | null>(null);
 
   // Check user roles and fetch station
   useEffect(() => {
@@ -251,6 +259,20 @@ export default function OperatorPage() {
           }
         };
         fetchOperatorStation();
+
+        const fetchLinkDirectory = async () => {
+          try {
+            const response = await api.get<WorkOrderLinkDirectoryResponse>(
+              "/romiot/station/stations/management/work-order-link-directory",
+              undefined,
+              { useCache: false }
+            );
+            setMerkezDizin(response?.merkez_dizin || "");
+          } catch (err) {
+            console.error("Error fetching work order link directory:", err);
+          }
+        };
+        fetchLinkDirectory();
       }
     }
   }, [user]);
@@ -339,6 +361,9 @@ export default function OperatorPage() {
           if (/^\d+$/.test(code) && code.length % 5 === 0) {
             const chunks = code.match(/.{1,5}/g) || [];
             resolvedCode = chunks.map((chunk) => String.fromCharCode(parseInt(chunk, 10))).join("");
+            // Some scanners append CR/LF as numeric codes (e.g. 00013/00010)
+            // and those control characters break QR lookup.
+            resolvedCode = resolvedCode.replace(/[\r\n\t\0]/g, "").trim();
             console.log("QR Kod (numeric decode):", resolvedCode);
           }
 
@@ -347,6 +372,7 @@ export default function OperatorPage() {
             `/romiot/station/qr-code/retrieve/${encodeURIComponent(resolvedCode)}`
           );
           parsedData = response.data;
+          setLastScannedPartNumber((response.data.part_number || "").trim() || null);
           console.log("QR Kod Verisi Alındı:", parsedData);
         } catch (decodeError: any) {
           console.error("Decode Hatası:", decodeError);
@@ -589,6 +615,15 @@ export default function OperatorPage() {
     return { text: stationName, active: false };
   };
 
+  const normalizedMerkezDizin = merkezDizin.trim().replace(/[\\/]+$/, "");
+  const parcaDokumanlariPath =
+    normalizedMerkezDizin && lastScannedPartNumber
+      ? `${normalizedMerkezDizin}\\${lastScannedPartNumber}`
+      : null;
+  const parcaDokumanlariHref = parcaDokumanlariPath
+    ? `file:///${encodeURI(parcaDokumanlariPath.replace(/\\/g, "/"))}`
+    : null;
+
   if (!isOperator && !isYonetici) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -705,6 +740,26 @@ export default function OperatorPage() {
           </div>
         )}
 
+        {/* Work order local file links (based on scanned QR) */}
+        {parcaDokumanlariPath && (
+          <div className="mb-4 p-4 bg-indigo-50 border-l-4 border-indigo-500 rounded-lg shadow-sm">
+            <h3 className="text-sm font-semibold text-indigo-800 mb-2">İş Emri Dosya Linkleri</h3>
+            <div className="text-sm text-indigo-900 space-y-1">
+              <div>
+                <span className="font-medium">Parça No:</span> {lastScannedPartNumber}
+              </div>
+              <a
+                href={parcaDokumanlariHref || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-indigo-700"
+              >
+                Parça Dökümanları: {parcaDokumanlariPath}
+              </a>
+            </div>
+          </div>
+        )}
+
         {/* Error Message */}
         {error && (
           <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg shadow-sm">
@@ -769,6 +824,7 @@ export default function OperatorPage() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Numarası</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Dökümanları</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Öncelik</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Müşteri Bilgisi</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Durum</th>
@@ -780,7 +836,7 @@ export default function OperatorPage() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {groupedWorkOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                      <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                         Bu atölyede henüz iş emri bulunmamaktadır.
                       </td>
                     </tr>
@@ -791,6 +847,12 @@ export default function OperatorPage() {
                       const daysInStation = getDaysInStation(wo.entries);
                       const isActive = hasActiveAtMyStation(wo.entries);
                       const stationStatus = getStationStatus(wo.entries);
+                      const rowParcaDokumanPath = normalizedMerkezDizin
+                        ? `${normalizedMerkezDizin}\\${wo.part_number}`
+                        : "";
+                      const rowParcaDokumanHref = rowParcaDokumanPath
+                        ? `file:///${encodeURI(rowParcaDokumanPath.replace(/\\/g, "/"))}`
+                        : "";
 
                       // Count scanned/exited packages at my station
                       const myEntries = wo.entries.filter(e => e.station_id === stationId);
@@ -823,6 +885,21 @@ export default function OperatorPage() {
                               <div className="text-sm font-medium text-gray-900">{wo.part_number}</div>
                               <div className="text-xs text-gray-500">{wo.aselsan_order_number}</div>
                               <div className="text-xs text-gray-500">{wo.teklif_number}</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              {rowParcaDokumanHref ? (
+                                <a
+                                  href={rowParcaDokumanHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm text-[#0f4c3a] underline hover:text-[#0a3a2c]"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  Parça Dökümanları
+                                </a>
+                              ) : (
+                                <span className="text-sm text-gray-400">-</span>
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               {wo.priority > 0 ? (
@@ -880,7 +957,7 @@ export default function OperatorPage() {
                           {/* Expanded Details */}
                           {isExpanded && (
                             <tr key={`${key}-details`}>
-                              <td colSpan={7} className="px-0 py-0">
+                              <td colSpan={8} className="px-0 py-0">
                                 <div className="bg-gray-50 border-t border-b border-gray-200 p-4">
                                   {/* Summary info */}
                                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-xs">

@@ -350,19 +350,26 @@ async def get_all_work_orders(
     from sqlalchemy import case, desc
     
     # Company is now taken from department; roles are company-independent
-    has_atolye_role = (
-        current_user.role
-        and isinstance(current_user.role, list)
-        and any(
-            role in {"atolye:operator", "atolye:yonetici", "atolye:musteri", "atolye:satinalma"}
-            for role in current_user.role
-        )
+    role_values = current_user.role if current_user.role and isinstance(current_user.role, list) else []
+    has_atolye_role = any(
+        role in {"atolye:operator", "atolye:yonetici", "atolye:musteri", "atolye:satinalma"}
+        for role in role_values
     )
-    company = (current_user.department or "").strip()
+
+    department_value = (current_user.department or "").strip()
+    company = department_value
+    musteri_department = None
+    is_musteri = "atolye:musteri" in role_values
+    if is_musteri and ":" in department_value:
+        company, musteri_department = department_value.split(":", 1)
+        company = company.strip()
+        musteri_department = musteri_department.strip()
+    elif is_musteri:
+        # Backward compatibility: old records may only have a single department segment
+        musteri_department = company.strip()
+
     is_aselsan_satinalma = (
-        current_user.role
-        and isinstance(current_user.role, list)
-        and "atolye:satinalma" in current_user.role
+        "atolye:satinalma" in role_values
         and company.upper() == "ASELSAN"
     )
     
@@ -401,6 +408,8 @@ async def get_all_work_orders(
         WorkOrder.station_id.in_(station_ids),
         WorkOrder.delivered == False,
     ]
+    if is_musteri and musteri_department:
+        base_conditions.append(WorkOrder.company_from == musteri_department)
 
     # Apply search filters (OR when both provided, AND individually)
     from sqlalchemy import or_
@@ -428,6 +437,8 @@ async def get_all_work_orders(
             WorkOrder.station_id.in_(filtered_station_ids),
             WorkOrder.delivered == False,
         ]
+        if is_musteri and musteri_department:
+            base_conditions.append(WorkOrder.company_from == musteri_department)
         if search_part_number and search_order_number:
             base_conditions.append(or_(
                 WorkOrder.part_number.ilike(f"%{search_part_number}%"),

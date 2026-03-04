@@ -52,7 +52,13 @@ export default function MusteriPage() {
       if (musteriRole || yoneticiRole) {
         setIsMusteri(!!musteriRole);
         setIsYonetici(!!yoneticiRole);
-        setUserCompany(user.department || user.company || null);
+        const departmentValue = (user.department || "").trim();
+        if (musteriRole && departmentValue.includes(":")) {
+          const [, musteriDepartment] = departmentValue.split(":", 2);
+          setUserCompany(musteriDepartment?.trim() || null);
+        } else {
+          setUserCompany(departmentValue || user.company || null);
+        }
       }
     }
   }, [user]);

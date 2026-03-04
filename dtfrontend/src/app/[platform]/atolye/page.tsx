@@ -99,7 +99,7 @@ export default function AtolyePage() {
       title: "İş Emirleri",
       description: "Tüm iş emirlerinin detaylı görünümü",
       href: `/${platform}/atolye/is-emirleri`,
-      allowed: isOperator || isYonetici || isSatinalma,
+      allowed: isOperator || isYonetici || isSatinalma || isMusteri,
       color: "#0f4c3a",
       icon: (
         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">

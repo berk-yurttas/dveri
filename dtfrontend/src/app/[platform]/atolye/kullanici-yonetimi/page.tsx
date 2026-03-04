@@ -349,7 +349,6 @@ export default function KullaniciYonetimiPage() {
                     <option value="yonetici">Yönetici</option>
                     <option value="musteri">Müşteri</option>
                     <option value="operator">Operatör</option>
-                    <option value="satinalma">Satınalma</option>
                   </select>
                 </div>
 
