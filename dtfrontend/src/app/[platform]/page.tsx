@@ -2250,8 +2250,8 @@ export default function PlatformHome() {
           )}
 
           {/* Access Denied Modal */}
-          {showAccessDeniedModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          {typeof window !== 'undefined' && showAccessDeniedModal && createPortal(
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center backdrop-blur-sm bg-black/30">
               <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4">
                   <div className="flex items-center gap-3">
@@ -2276,12 +2276,13 @@ export default function PlatformHome() {
                   </button>
                 </div>
               </div>
-            </div>
+            </div>,
+            document.body
           )}
 
           {/* Under Construction Modal */}
-          {showUnderConstructionModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          {typeof window !== 'undefined' && showUnderConstructionModal && createPortal(
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center backdrop-blur-sm bg-black/30">
               <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-6 py-4">
                   <div className="flex items-center gap-3">
@@ -2306,7 +2307,8 @@ export default function PlatformHome() {
                   </button>
                 </div>
               </div>
-            </div>
+            </div>,
+            document.body
           )}
 
           {/* MIRAS Assistant Chatbot */}
@@ -3469,8 +3471,8 @@ export default function PlatformHome() {
       )}
 
       {/* Access Denied Modal */}
-      {showAccessDeniedModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+      {typeof window !== 'undefined' && showAccessDeniedModal && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center backdrop-blur-sm bg-black/30">
           <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
             {/* Header */}
             <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4">
@@ -3500,12 +3502,13 @@ export default function PlatformHome() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Under Construction Modal */}
-      {showUnderConstructionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+      {typeof window !== 'undefined' && showUnderConstructionModal && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center backdrop-blur-sm bg-black/30">
           <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in duration-200">
             {/* Header */}
             <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-6 py-4">
@@ -3535,7 +3538,8 @@ export default function PlatformHome() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Feature Navigation Loading Modal - Romiot Platform */}

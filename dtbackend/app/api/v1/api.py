@@ -11,6 +11,7 @@ from app.api.v1.endpoints import (
     users,
     feedback,
     analytics,
+    personel,
 )
 from app.api.v1.endpoints.romiot.station import station, work_order, qr_code, priority
 from app.api.v1.endpoints.romiot import stats
@@ -32,3 +33,4 @@ api_router.include_router(priority.router, prefix="/romiot/station/priority", ta
 api_router.include_router(stats.router, prefix="/romiot/stats", tags=["romiot-stats"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(sap_seyir.router, prefix="/sap_seyir", tags=["sap_seyir"])
+api_router.include_router(personel.router, prefix="/personel", tags=["personel"])

@@ -983,8 +983,13 @@ export default function ReportDetailPage() {
       // Check if target is a valid Element and has the closest method
       if (target && typeof (target as any).closest === 'function') {
         const element = target as Element
-        // Don't close dropdowns if scrolling inside a dropdown menu
-        if (element.closest('.max-h-48') || element.closest('.max-h-40')) {
+        // Don't close dropdowns if scrolling inside a dropdown menu or filter popover
+        if (element.closest('.max-h-48') || 
+            element.closest('.max-h-40') || 
+            element.closest('.max-h-32') || 
+            element.closest('.max-h-24') ||
+            element.closest('.fixed.w-64.p-4.bg-white.border') ||
+            element.closest('.nested-filter-popover')) {
           return
         }
       }

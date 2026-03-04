@@ -882,35 +882,46 @@ class ReportsService:
             operator = filter_value.operator or "="
 
             if db_filter.filter_type == "text":
-                # For text filters, use different operators based on the filter condition
-                # Use CAST for quoted identifiers to ensure LOWER works properly
-                field_expr = f"LOWER(CAST({field_expression} AS TEXT))" if field_expression.startswith('"') and field_expression.endswith('"') else f"LOWER({field_expression})"
-                value_expr = f"LOWER('{value}')"
+                # Check if value is a list (from pasted multiselect)
+                if isinstance(value, list):
+                    # Treat as IN clause for multiple values
+                    quoted_values = [f"'{v}'" for v in value]
+                    conditions.append(f"{field_expression} IN ({','.join(quoted_values)})")
+                else:
+                    # For text filters, use different operators based on the filter condition
+                    # Use CAST for quoted identifiers to ensure LOWER works properly
+                    field_expr = f"LOWER(CAST({field_expression} AS TEXT))" if field_expression.startswith('"') and field_expression.endswith('"') else f"LOWER({field_expression})"
+                    value_expr = f"LOWER('{value}')"
 
-                if operator == "CONTAINS":
-                    conditions.append(f"{field_expr} LIKE LOWER('%{value}%')")
-                elif operator == "NOT_CONTAINS":
-                    conditions.append(f"{field_expr} NOT LIKE LOWER('%{value}%')")
-                elif operator == "STARTS_WITH":
-                    conditions.append(f"{field_expr} LIKE LOWER('{value}%')")
-                elif operator == "ENDS_WITH":
-                    conditions.append(f"{field_expr} LIKE LOWER('%{value}')")
-                elif operator == "=":
-                    conditions.append(f"{field_expr} = {value_expr}")
-                elif operator == "NOT_EQUALS":
-                    conditions.append(f"{field_expr} != {value_expr}")
-                else:
-                    # Default to CONTAINS for backward compatibility
-                    conditions.append(f"{field_expr} LIKE LOWER('%{value}%')")
+                    if operator == "CONTAINS":
+                        conditions.append(f"{field_expr} LIKE LOWER('%{value}%')")
+                    elif operator == "NOT_CONTAINS":
+                        conditions.append(f"{field_expr} NOT LIKE LOWER('%{value}%')")
+                    elif operator == "STARTS_WITH":
+                        conditions.append(f"{field_expr} LIKE LOWER('{value}%')")
+                    elif operator == "ENDS_WITH":
+                        conditions.append(f"{field_expr} LIKE LOWER('%{value}')")
+                    elif operator == "=":
+                        conditions.append(f"{field_expr} = {value_expr}")
+                    elif operator == "NOT_EQUALS":
+                        conditions.append(f"{field_expr} != {value_expr}")
+                    else:
+                        # Default to CONTAINS for backward compatibility
+                        conditions.append(f"{field_expr} LIKE LOWER('%{value}%')")
             elif db_filter.filter_type == "number":
-                # For number filters, support =, !=, >, <, >=, <=, NOT_EQUALS
-                if operator == "NOT_EQUALS":
-                    conditions.append(f"{field_expression} != {value}")
-                elif operator in ["=", "!=", ">", "<", ">=", "<="]:
-                    conditions.append(f"{field_expression} {operator} {value}")
+                # Check if value is a list (from pasted multiselect)
+                if isinstance(value, list):
+                    # Treat as IN clause for multiple values
+                    conditions.append(f"{field_expression} IN ({','.join(str(v) for v in value)})")
                 else:
-                    # Default to equals for backward compatibility
-                    conditions.append(f"{field_expression} = {value}")
+                    # For number filters, support =, !=, >, <, >=, <=, NOT_EQUALS
+                    if operator == "NOT_EQUALS":
+                        conditions.append(f"{field_expression} != {value}")
+                    elif operator in ["=", "!=", ">", "<", ">=", "<="]:
+                        conditions.append(f"{field_expression} {operator} {value}")
+                    else:
+                        # Default to equals for backward compatibility
+                        conditions.append(f"{field_expression} = {value}")
             elif db_filter.filter_type == "date":
                 # Use database-specific date functions
                 if db_type.lower() == "clickhouse":
@@ -934,10 +945,10 @@ class ReportsService:
                     condition = f"{date_func}({field_expression}) {operator} {date_func}('{value}')"
                     conditions.append(condition)
             elif db_filter.filter_type in ["dropdown", "multiselect"]:
-                if isinstance(value, list):
+                if isinstance(value, list) and len(value) > 0:
                     quoted_values = [f"'{v}'" for v in value]
                     conditions.append(f"{field_expression} IN ({','.join(quoted_values)})")
-                else:
+                elif not isinstance(value, list) and value:
                     conditions.append(f"{field_expression} = '{value}'")
 
         # Replace {{dynamic_filters}} placeholder with actual filter conditions

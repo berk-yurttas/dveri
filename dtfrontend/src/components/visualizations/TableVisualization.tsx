@@ -50,6 +50,29 @@ const TableFilterInput = React.memo<{
   const [localStartDate, setLocalStartDate] = React.useState<string>(filters[`${filterKey}_start`] || '')
   const [localEndDate, setLocalEndDate] = React.useState<string>(filters[`${filterKey}_end`] || '')
   const [searchTerm, setSearchTerm] = React.useState('')
+  const [pastedValues, setPastedValues] = React.useState<string[]>(() => {
+    // Initialize pasted values from stored filter if it's an array or comma-separated string
+    const storedValue = filters[filterKey]
+    if (Array.isArray(storedValue) && storedValue.length > 1) {
+      return storedValue
+    } else if (typeof storedValue === 'string' && storedValue.includes(',')) {
+      const values = storedValue.split(',').map(v => v.trim()).filter(v => v !== '')
+      return values.length > 1 ? values : []
+    }
+    return []
+  })
+  const [treatAsMultiselect, setTreatAsMultiselect] = React.useState(() => {
+    // Auto-enable treatAsMultiselect if we have multiple stored values
+    const storedValue = filters[filterKey]
+    if (Array.isArray(storedValue) && storedValue.length > 1) {
+      return true
+    } else if (typeof storedValue === 'string' && storedValue.includes(',')) {
+      const values = storedValue.split(',').map(v => v.trim()).filter(v => v !== '')
+      return values.length > 1
+    }
+    return false
+  })
+  const [showPastedValues, setShowPastedValues] = React.useState(false)
 
   // Dependent filters always show options; parent values are handled upstream when fetching options
 
@@ -67,6 +90,32 @@ const TableFilterInput = React.memo<{
       searchTimeoutRef.current = setTimeout(() => {
         onSearch(filterKey, value)
       }, 300)
+    }
+  }
+
+  // Handle paste event to detect Excel column data
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedText = e.clipboardData.getData('text')
+    
+    // Split by newlines (Excel column format) or commas
+    const values = pastedText
+      .split(/[\r\n]+/)
+      .map(v => v.trim())
+      .filter(v => v !== '')
+    
+    // If multiple values detected, treat as multiselect
+    if (values.length > 1) {
+      e.preventDefault()
+      setPastedValues(values)
+      setTreatAsMultiselect(true)
+      
+      // Set local value as comma-separated string
+      if (filter.type === 'multiselect' || filter.type === 'dropdown') {
+        setLocalValue(values.join(', '))
+      } else {
+        // For text/number filters, also convert to comma-separated
+        setLocalValue(values.join(', '))
+      }
     }
   }
 
@@ -100,10 +149,15 @@ const TableFilterInput = React.memo<{
       onFilterChange(`${filter.fieldName}_start`, localStartDate)
       onFilterChange(`${filter.fieldName}_end`, localEndDate)
     } else {
-      // For multiselect, convert comma-separated string to array
+      // For multiselect or when treating as multiselect, convert comma-separated string to array
       let valueToStore = localValue
-      if (filter.type === 'multiselect' && localValue) {
-        valueToStore = localValue.split(',').map((v: string) => v.trim()).filter((v: string) => v !== '')
+      if ((filter.type === 'multiselect' || treatAsMultiselect) && localValue) {
+        // Check if already an array (from initialization)
+        if (Array.isArray(localValue)) {
+          valueToStore = localValue
+        } else if (typeof localValue === 'string') {
+          valueToStore = localValue.split(',').map((v: string) => v.trim()).filter((v: string) => v !== '')
+        }
       }
 
       // Store operator first for text/number filters (before value to ensure it's available)
@@ -125,6 +179,9 @@ const TableFilterInput = React.memo<{
     setLocalStartDate('')
     setLocalEndDate('')
     setSearchTerm('')
+    setPastedValues([])
+    setTreatAsMultiselect(false)
+    setShowPastedValues(false)
 
     if (filter.type === 'date') {
       onFilterChange(`${filter.fieldName}_start`, '')
@@ -152,6 +209,7 @@ const TableFilterInput = React.memo<{
               value={localOperator}
               onChange={(e) => setLocalOperator(e.target.value)}
               className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
+              disabled={treatAsMultiselect}
             >
               {TEXT_FILTER_OPERATORS.map(op => (
                 <option key={op.value} value={op.value}>
@@ -164,12 +222,112 @@ const TableFilterInput = React.memo<{
             <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
             <input
               type="text"
-              value={localValue}
-              onChange={(e) => setLocalValue(e.target.value)}
-              placeholder={`${filter.displayName} ara...`}
+              value={treatAsMultiselect ? '' : localValue}
+              onChange={(e) => {
+                if (!treatAsMultiselect) {
+                  setLocalValue(e.target.value)
+                }
+              }}
+              onPaste={handlePaste}
+              placeholder={treatAsMultiselect ? `${pastedValues.length} değer yapıştırıldı` : `${filter.displayName} ara...`}
               className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
               autoFocus
+              readOnly={treatAsMultiselect}
             />
+            {treatAsMultiselect && pastedValues.length > 0 && (
+              <div 
+                className="mt-2"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onMouseUp={(e) => e.stopPropagation()}
+                onMouseMove={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerUp={(e) => e.stopPropagation()}
+                onPointerMove={(e) => e.stopPropagation()}
+              >
+                {!showPastedValues ? (
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setShowPastedValues(true)
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="px-2 py-1.5 text-xs bg-orange-50 border border-orange-200 rounded cursor-pointer hover:bg-orange-100 flex items-center justify-between"
+                  >
+                    <span className="text-orange-700 font-medium">
+                      {pastedValues.length} değer yapıştırıldı
+                    </span>
+                    <span className="text-orange-600 text-[10px]">▼ Göster</span>
+                  </div>
+                ) : (
+                  <div 
+                    className="border border-orange-200 rounded"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onMouseUp={(e) => e.stopPropagation()}
+                    onMouseMove={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onPointerUp={(e) => e.stopPropagation()}
+                    onPointerMove={(e) => e.stopPropagation()}
+                  >
+                    <div 
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowPastedValues(false)
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      className="px-2 py-1.5 text-xs bg-orange-50 border-b border-orange-200 cursor-pointer hover:bg-orange-100 flex items-center justify-between"
+                    >
+                      <span className="text-orange-700 font-medium">
+                        {pastedValues.length} değer
+                      </span>
+                      <span className="text-orange-600 text-[10px]">▲ Gizle</span>
+                    </div>
+                    <div 
+                      className="max-h-32 overflow-y-auto p-2 space-y-1 bg-white"
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onMouseUp={(e) => e.stopPropagation()}
+                      onMouseMove={(e) => e.stopPropagation()}
+                      onScroll={(e) => {
+                        e.stopPropagation()
+                        e.nativeEvent.stopImmediatePropagation()
+                      }}
+                      onWheel={(e) => {
+                        e.stopPropagation()
+                        e.nativeEvent.stopImmediatePropagation()
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onPointerUp={(e) => e.stopPropagation()}
+                      onPointerMove={(e) => e.stopPropagation()}
+                    >
+                      {pastedValues.map((value, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-xs bg-orange-50 px-2 py-1 rounded">
+                          <span className="truncate flex-1">{value}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const newValues = pastedValues.filter((_, i) => i !== idx)
+                              setPastedValues(newValues)
+                              if (newValues.length === 0) {
+                                setTreatAsMultiselect(false)
+                                setLocalValue('')
+                                setShowPastedValues(false)
+                              } else {
+                                setLocalValue(newValues.join(', '))
+                              }
+                            }}
+                            className="text-gray-500 hover:text-red-600 ml-2 flex-shrink-0"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -182,6 +340,7 @@ const TableFilterInput = React.memo<{
               value={localOperator}
               onChange={(e) => setLocalOperator(e.target.value)}
               className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
+              disabled={treatAsMultiselect}
             >
               {NUMBER_FILTER_OPERATORS.map(op => (
                 <option key={op.value} value={op.value}>
@@ -194,12 +353,112 @@ const TableFilterInput = React.memo<{
             <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
             <input
               type="number"
-              value={localValue}
-              onChange={(e) => setLocalValue(e.target.value)}
-              placeholder="Değer..."
+              value={treatAsMultiselect ? '' : localValue}
+              onChange={(e) => {
+                if (!treatAsMultiselect) {
+                  setLocalValue(e.target.value)
+                }
+              }}
+              onPaste={handlePaste}
+              placeholder={treatAsMultiselect ? `${pastedValues.length} değer yapıştırıldı` : "Değer..."}
               className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
               autoFocus
+              readOnly={treatAsMultiselect}
             />
+            {treatAsMultiselect && pastedValues.length > 0 && (
+              <div 
+                className="mt-2"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onMouseUp={(e) => e.stopPropagation()}
+                onMouseMove={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerUp={(e) => e.stopPropagation()}
+                onPointerMove={(e) => e.stopPropagation()}
+              >
+                {!showPastedValues ? (
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setShowPastedValues(true)
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="px-2 py-1.5 text-xs bg-orange-50 border border-orange-200 rounded cursor-pointer hover:bg-orange-100 flex items-center justify-between"
+                  >
+                    <span className="text-orange-700 font-medium">
+                      {pastedValues.length} değer yapıştırıldı
+                    </span>
+                    <span className="text-orange-600 text-[10px]">▼ Göster</span>
+                  </div>
+                ) : (
+                  <div 
+                    className="border border-orange-200 rounded"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onMouseUp={(e) => e.stopPropagation()}
+                    onMouseMove={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onPointerUp={(e) => e.stopPropagation()}
+                    onPointerMove={(e) => e.stopPropagation()}
+                  >
+                    <div 
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowPastedValues(false)
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      className="px-2 py-1.5 text-xs bg-orange-50 border-b border-orange-200 cursor-pointer hover:bg-orange-100 flex items-center justify-between"
+                    >
+                      <span className="text-orange-700 font-medium">
+                        {pastedValues.length} değer
+                      </span>
+                      <span className="text-orange-600 text-[10px]">▲ Gizle</span>
+                    </div>
+                    <div 
+                      className="max-h-32 overflow-y-auto p-2 space-y-1 bg-white"
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onMouseUp={(e) => e.stopPropagation()}
+                      onMouseMove={(e) => e.stopPropagation()}
+                      onScroll={(e) => {
+                        e.stopPropagation()
+                        e.nativeEvent.stopImmediatePropagation()
+                      }}
+                      onWheel={(e) => {
+                        e.stopPropagation()
+                        e.nativeEvent.stopImmediatePropagation()
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onPointerUp={(e) => e.stopPropagation()}
+                      onPointerMove={(e) => e.stopPropagation()}
+                    >
+                      {pastedValues.map((value, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-xs bg-orange-50 px-2 py-1 rounded">
+                          <span className="truncate flex-1">{value}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const newValues = pastedValues.filter((_, i) => i !== idx)
+                              setPastedValues(newValues)
+                              if (newValues.length === 0) {
+                                setTreatAsMultiselect(false)
+                                setLocalValue('')
+                                setShowPastedValues(false)
+                              } else {
+                                setLocalValue(newValues.join(', '))
+                              }
+                            }}
+                            className="text-gray-500 hover:text-red-600 ml-2 flex-shrink-0"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -231,32 +490,133 @@ const TableFilterInput = React.memo<{
         <div>
           <label className="block text-xs text-gray-600 mb-1">{filter.displayName}</label>
 
-          <div className="max-h-48 overflow-y-auto border border-gray-300 rounded">
-            <div
-              onClick={(e) => {
-                e.stopPropagation()
-                setLocalValue('')
-              }}
-              className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === '' ? 'bg-orange-100 font-medium' : ''}`}
+          <input
+            type="text"
+            value=""
+            onPaste={handlePaste}
+            placeholder="Yapıştır veya seç..."
+            className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 mb-2"
+          />
+
+          {treatAsMultiselect && pastedValues.length > 0 ? (
+            <div 
+              className="mt-2"
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onMouseUp={(e) => e.stopPropagation()}
+              onMouseMove={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => e.stopPropagation()}
+              onPointerMove={(e) => e.stopPropagation()}
             >
-              Tümü
+              {!showPastedValues ? (
+                <div 
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setShowPastedValues(true)
+                  }}
+                  className="px-2 py-1.5 text-xs bg-orange-50 border border-orange-200 rounded cursor-pointer hover:bg-orange-100 flex items-center justify-between"
+                >
+                  <span className="text-orange-700 font-medium">
+                    {pastedValues.length} değer yapıştırıldı
+                  </span>
+                  <span className="text-orange-600 text-[10px]">▼ Göster</span>
+                </div>
+              ) : (
+                <div 
+                  className="border border-orange-200 rounded"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onMouseUp={(e) => e.stopPropagation()}
+                  onMouseMove={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onPointerUp={(e) => e.stopPropagation()}
+                  onPointerMove={(e) => e.stopPropagation()}
+                >
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setShowPastedValues(false)
+                    }}
+                    className="px-2 py-1.5 text-xs bg-orange-50 border-b border-orange-200 cursor-pointer hover:bg-orange-100 flex items-center justify-between"
+                  >
+                    <span className="text-orange-700 font-medium">
+                      {pastedValues.length} değer
+                    </span>
+                    <span className="text-orange-600 text-[10px]">▲ Gizle</span>
+                  </div>
+                  <div 
+                    className="max-h-32 overflow-y-auto p-2 space-y-1 bg-white"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onMouseUp={(e) => e.stopPropagation()}
+                    onMouseMove={(e) => e.stopPropagation()}
+                    onScroll={(e) => {
+                      e.stopPropagation()
+                      e.nativeEvent.stopImmediatePropagation()
+                    }}
+                    onWheel={(e) => {
+                      e.stopPropagation()
+                      e.nativeEvent.stopImmediatePropagation()
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onPointerUp={(e) => e.stopPropagation()}
+                    onPointerMove={(e) => e.stopPropagation()}
+                  >
+                    {pastedValues.map((value, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-xs bg-orange-50 px-2 py-1 rounded">
+                        <span className="truncate flex-1">{value}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const newValues = pastedValues.filter((_, i) => i !== idx)
+                            setPastedValues(newValues)
+                            if (newValues.length === 0) {
+                              setTreatAsMultiselect(false)
+                              setLocalValue('')
+                              setShowPastedValues(false)
+                            } else {
+                              setLocalValue(newValues.join(', '))
+                            }
+                          }}
+                          className="text-gray-500 hover:text-red-600 ml-2 flex-shrink-0"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            {options.map((option: any, idx: number) => (
+          ) : (
+            <div className="max-h-48 overflow-y-auto border border-gray-300 rounded">
               <div
-                key={idx}
                 onClick={(e) => {
                   e.stopPropagation()
-                  setLocalValue(option.value)
+                  setLocalValue('')
                 }}
-                className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === option.value ? 'bg-orange-100 font-medium' : ''}`}
+                className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === '' ? 'bg-orange-100 font-medium' : ''}`}
               >
-                {option.label}
+                Tümü
               </div>
-            ))}
-            {options.length === 0 && (
-              <div className="px-3 py-2 text-xs text-gray-500">Seçenekler yükleniyor...</div>
-            )}
-          </div>
+              {options.map((option: any, idx: number) => (
+                <div
+                  key={idx}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setLocalValue(option.value)
+                  }}
+                  className={`px-3 py-2 text-xs hover:bg-orange-50 cursor-pointer ${localValue === option.value ? 'bg-orange-100 font-medium' : ''}`}
+                >
+                  {option.label}
+                </div>
+              ))}
+              {options.length === 0 && (
+                <div className="px-3 py-2 text-xs text-gray-500">Seçenekler yükleniyor...</div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -269,11 +629,103 @@ const TableFilterInput = React.memo<{
               type="text"
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
+              onPaste={handlePaste}
               onClick={(e) => e.stopPropagation()}
-              placeholder="Ara..."
+              placeholder="Ara veya yapıştır..."
               className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500"
               autoFocus
             />
+            {treatAsMultiselect && pastedValues.length > 0 && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onMouseUp={(e) => e.stopPropagation()}
+                onMouseMove={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerUp={(e) => e.stopPropagation()}
+                onPointerMove={(e) => e.stopPropagation()}
+              >
+                {!showPastedValues ? (
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setShowPastedValues(true)
+                    }}
+                    className="px-2 py-1.5 text-xs bg-orange-50 border border-orange-200 rounded cursor-pointer hover:bg-orange-100 flex items-center justify-between"
+                  >
+                    <span className="text-orange-700 font-medium">
+                      {pastedValues.length} değer yapıştırıldı
+                    </span>
+                    <span className="text-orange-600 text-[10px]">▼ Göster</span>
+                  </div>
+                ) : (
+                  <div 
+                    className="border border-orange-200 rounded"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onMouseUp={(e) => e.stopPropagation()}
+                    onMouseMove={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onPointerUp={(e) => e.stopPropagation()}
+                    onPointerMove={(e) => e.stopPropagation()}
+                  >
+                    <div 
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowPastedValues(false)
+                      }}
+                      className="px-2 py-1.5 text-xs bg-orange-50 border-b border-orange-200 cursor-pointer hover:bg-orange-100 flex items-center justify-between"
+                    >
+                      <span className="text-orange-700 font-medium">
+                        {pastedValues.length} değer
+                      </span>
+                      <span className="text-orange-600 text-[10px]">▲ Gizle</span>
+                    </div>
+                    <div 
+                      className="max-h-24 overflow-y-auto p-2 space-y-1 bg-white"
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onMouseUp={(e) => e.stopPropagation()}
+                      onMouseMove={(e) => e.stopPropagation()}
+                      onScroll={(e) => {
+                        e.stopPropagation()
+                        e.nativeEvent.stopImmediatePropagation()
+                      }}
+                      onWheel={(e) => {
+                        e.stopPropagation()
+                        e.nativeEvent.stopImmediatePropagation()
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onPointerUp={(e) => e.stopPropagation()}
+                      onPointerMove={(e) => e.stopPropagation()}
+                    >
+                      {pastedValues.map((value, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-xs bg-orange-50 px-2 py-1 rounded">
+                          <span className="truncate flex-1">{value}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const newValues = pastedValues.filter((_, i) => i !== idx)
+                              setPastedValues(newValues)
+                              if (newValues.length === 0) {
+                                setTreatAsMultiselect(false)
+                                setLocalValue('')
+                                setShowPastedValues(false)
+                              } else {
+                                setLocalValue(newValues.join(', '))
+                              }
+                            }}
+                            className="text-gray-500 hover:text-red-600 ml-2 flex-shrink-0"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div
               className="max-h-48 overflow-y-auto border border-gray-300 rounded p-2 space-y-1"
               onScroll={(e) => {
@@ -470,6 +922,31 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
     })
   }, [openPopovers])
 
+  // Close popovers on click outside, but not on scroll
+  React.useEffect(() => {
+    if (Object.keys(openPopovers).length === 0) return
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      
+      // Check if click is inside any popover
+      const isInsidePopover = target.closest('.fixed.w-64.p-4.bg-white.border')
+      
+      // Check if click is on a filter button
+      const isFilterButton = target.closest('.cursor-pointer.hover\\:bg-gray-100.p-1.rounded')
+      
+      if (!isInsidePopover && !isFilterButton) {
+        setOpenPopovers({})
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [openPopovers])
+
   return (
     <div style={{
       width: '100%',
@@ -582,6 +1059,13 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                                 style={{ top: position.top, left: adjustedLeft }}
                                 onClick={(e) => e.stopPropagation()}
                                 onMouseDown={(e) => e.stopPropagation()}
+                                onMouseUp={(e) => e.stopPropagation()}
+                                onMouseMove={(e) => e.stopPropagation()}
+                                onScroll={(e) => e.stopPropagation()}
+                                onWheel={(e) => e.stopPropagation()}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onPointerUp={(e) => e.stopPropagation()}
+                                onPointerMove={(e) => e.stopPropagation()}
                               >
                                 <TableFilterInput
                                   filter={filter}

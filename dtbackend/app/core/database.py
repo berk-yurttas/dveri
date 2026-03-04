@@ -62,3 +62,15 @@ def get_clickhouse_db():
         yield client
     finally:
         client.disconnect()
+
+# AFLOW MSSQL Connection
+def get_aflow_connection():
+    import pyodbc
+    connection_string = (
+        'DRIVER={ODBC Driver 17 for SQL Server};'
+        'SERVER=10.60.139.2,1433;'
+        'DATABASE=AFLOW;'
+        'UID=sa;'
+        'PWD=sapass-1'
+    )
+    return pyodbc.connect(connection_string)
