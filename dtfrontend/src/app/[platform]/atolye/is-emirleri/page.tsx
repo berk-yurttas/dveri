@@ -699,6 +699,11 @@ export default function WorkOrdersPage() {
   const tokensNeeded = calculateTokensNeeded();
   const hasEdits = priorityEdits.size > 0;
   const normalizedMerkezDizin = merkezDizin.trim().replace(/[\\/]+$/, "");
+  const openLocalPath = (e: React.MouseEvent, href: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    window.open(href, "_blank", "noopener,noreferrer");
+  };
 
   return (
     <div className="min-h-screen p-8 bg-gray-50">
@@ -857,10 +862,8 @@ export default function WorkOrdersPage() {
                             {rowParcaDokumanHref ? (
                               <a
                                 href={rowParcaDokumanHref}
-                                target="_blank"
-                                rel="noopener noreferrer"
                                 className="text-sm text-[#0f4c3a] underline hover:text-[#0a3a2c]"
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => openLocalPath(e, rowParcaDokumanHref)}
                               >
                                 Parça Dökümanları
                               </a>

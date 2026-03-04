@@ -624,6 +624,12 @@ export default function OperatorPage() {
     ? `file:///${encodeURI(parcaDokumanlariPath.replace(/\\/g, "/"))}`
     : null;
 
+  const openLocalPath = (e: React.MouseEvent, href: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    window.open(href, "_blank", "noopener,noreferrer");
+  };
+
   if (!isOperator && !isYonetici) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -750,9 +756,10 @@ export default function OperatorPage() {
               </div>
               <a
                 href={parcaDokumanlariHref || "#"}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="underline hover:text-indigo-700"
+                onClick={(e) => {
+                  if (parcaDokumanlariHref) openLocalPath(e, parcaDokumanlariHref);
+                }}
               >
                 Parça Dökümanları: {parcaDokumanlariPath}
               </a>
@@ -890,10 +897,8 @@ export default function OperatorPage() {
                               {rowParcaDokumanHref ? (
                                 <a
                                   href={rowParcaDokumanHref}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
                                   className="text-sm text-[#0f4c3a] underline hover:text-[#0a3a2c]"
-                                  onClick={(e) => e.stopPropagation()}
+                                  onClick={(e) => openLocalPath(e, rowParcaDokumanHref)}
                                 >
                                   Parça Dökümanları
                                 </a>
