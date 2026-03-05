@@ -522,7 +522,7 @@ export default function WorkOrdersPage() {
     setSelectedQrIndexByGroup((prev) => ({ ...prev, [groupId]: 0 }));
   }, [qrCodesByGroup]);
 
-  const renderQRToPng = (elementId: string, qrSize: number): Promise<string> => {
+  const getQrSvgMarkup = (elementId: string, qrSize: number): Promise<string> => {
     return new Promise((resolve, reject) => {
       const qrEl = document.getElementById(elementId);
       if (!qrEl) { reject(new Error(`QR element not found: ${elementId}`)); return; }
@@ -532,27 +532,9 @@ export default function WorkOrdersPage() {
       const clonedSvg = svgElement.cloneNode(true) as SVGElement;
       clonedSvg.setAttribute("width", qrSize.toString());
       clonedSvg.setAttribute("height", qrSize.toString());
-
-      const svgData = new XMLSerializer().serializeToString(clonedSvg);
-      const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-      const svgUrl = URL.createObjectURL(svgBlob);
-
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      const img = new Image();
-      img.onload = () => {
-        canvas.width = qrSize;
-        canvas.height = qrSize;
-        if (ctx) {
-          ctx.fillStyle = "white";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, qrSize, qrSize);
-          URL.revokeObjectURL(svgUrl);
-          resolve(canvas.toDataURL("image/png"));
-        }
-      };
-      img.onerror = () => { URL.revokeObjectURL(svgUrl); reject(new Error("Image load failed")); };
-      img.src = svgUrl;
+      clonedSvg.setAttribute("style", `width:${qrSize}px;height:${qrSize}px;display:block;margin:0 auto;`);
+      const svgMarkup = new XMLSerializer().serializeToString(clonedSvg);
+      resolve(svgMarkup);
     });
   };
 
@@ -577,10 +559,10 @@ export default function WorkOrdersPage() {
     }
   `;
 
-  const buildPackageCardHtml = (wo: GroupedWorkOrder, imageData: string, pkg: WorkOrderQrCode, qrSize: number) => `
+  const buildPackageCardHtml = (wo: GroupedWorkOrder, svgMarkup: string, pkg: WorkOrderQrCode, qrSize: number) => `
     <div class="package-card">
       <div style="text-align: center; margin-bottom: 16px;">
-        <img src="${imageData}" alt="QR Code" style="width: ${qrSize}px; height: ${qrSize}px;" />
+        ${svgMarkup}
       </div>
       <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
         <tbody>
@@ -602,7 +584,7 @@ export default function WorkOrdersPage() {
     const qrSize = 200;
     const elementId = `is-emri-qr-${wo.work_order_group_id}-${index}`;
     try {
-      const imageData = await renderQRToPng(elementId, qrSize);
+      const svgMarkup = await getQrSvgMarkup(elementId, qrSize);
       const printWindow = window.open("", "_blank");
       if (!printWindow) return;
       printWindow.document.write(`
@@ -612,7 +594,7 @@ export default function WorkOrdersPage() {
             <title>QR Kod - Paket ${pkg.package_index}</title>
             <style>${printPageStyles}</style>
           </head>
-          <body>${buildPackageCardHtml(wo, imageData, pkg, qrSize)}</body>
+          <body>${buildPackageCardHtml(wo, svgMarkup, pkg, qrSize)}</body>
         </html>
       `);
       printWindow.document.close();
@@ -626,14 +608,14 @@ export default function WorkOrdersPage() {
   const handlePrintAllQrs = async (wo: GroupedWorkOrder, packages: WorkOrderQrCode[]) => {
     const qrSize = 200;
     try {
-      const imageDataList = await Promise.all(
+      const svgMarkupList = await Promise.all(
         packages.map((pkg, idx) =>
-          renderQRToPng(`is-emri-qr-${wo.work_order_group_id}-${idx}`, qrSize).then((img) => ({ pkg, img }))
+          getQrSvgMarkup(`is-emri-qr-${wo.work_order_group_id}-${idx}`, qrSize).then((svg) => ({ pkg, svg }))
         )
       );
       const printWindow = window.open("", "_blank");
       if (!printWindow) return;
-      const html = imageDataList.map(({ pkg, img }) => buildPackageCardHtml(wo, img, pkg, qrSize)).join("");
+      const html = svgMarkupList.map(({ pkg, svg }) => buildPackageCardHtml(wo, svg, pkg, qrSize)).join("");
       printWindow.document.write(`
         <!DOCTYPE html>
         <html>
@@ -1102,16 +1084,62 @@ export default function WorkOrdersPage() {
                           </div>
                         </div>
                         <div className="text-sm">
-                          <div className="space-y-2">
-                            <p><span className="font-medium text-gray-600">Parça:</span> <span className="text-gray-900">{wo.part_number}</span></p>
-                            <p><span className="font-medium text-gray-600">Teklif:</span> <span className="text-gray-900">{wo.teklif_number}</span></p>
-                            <p><span className="font-medium text-gray-600">Sipariş:</span> <span className="text-gray-900">{wo.aselsan_order_number}</span></p>
-                            <p><span className="font-medium text-gray-600">Paket:</span> <span className="text-gray-900">{selectedPkg.package_index}/{wo.total_packages}</span></p>
-                            <p><span className="font-medium text-gray-600">Miktar:</span> <span className="text-gray-900">{selectedPkg.quantity}/{wo.total_quantity}</span></p>
-                          </div>
+                          <table className="w-full border-collapse">
+                            <tbody>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Ana Müşteri</td>
+                                <td className="py-2 text-gray-900">{wo.main_customer}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Sektör</td>
+                                <td className="py-2 text-gray-900">{wo.sector}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Gönderen Firma</td>
+                                <td className="py-2 text-gray-900">{wo.company_from}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Teklif Numarası</td>
+                                <td className="py-2 text-gray-900">{wo.teklif_number}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">{wo.main_customer} Sipariş Numarası</td>
+                                <td className="py-2 text-gray-900">
+                                  {wo.total_packages > 1 ? `${wo.aselsan_order_number}_${selectedPkg.package_index}` : wo.aselsan_order_number}
+                                </td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Sipariş Kalem Numarası</td>
+                                <td className="py-2 text-gray-900">{wo.order_item_number}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Parça Numarası</td>
+                                <td className="py-2 text-gray-900">{wo.part_number}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Toplam Sipariş Miktarı</td>
+                                <td className="py-2 text-gray-900">{selectedPkg.quantity}/{wo.total_quantity}</td>
+                              </tr>
+                              <tr>
+                                <td className="py-2 pr-3 font-medium text-gray-600">Hedef Bitirme Tarihi</td>
+                                <td className="py-2 text-gray-900">
+                                  {wo.target_date ? new Date(wo.target_date).toLocaleDateString("tr-TR") : "-"}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
                         </div>
                       </div>
                     )}
+
+                    {/* Hidden QR render targets for print-all flow */}
+                    <div className="hidden" aria-hidden="true">
+                      {packages.map((pkg, idx) => (
+                        <div key={`print-src-${pkg.package_index}-${idx}`} id={`is-emri-qr-${wo.work_order_group_id}-${idx}`}>
+                          <QRCodeSVG value={pkg.code} size={220} />
+                        </div>
+                      ))}
+                    </div>
 
                     <div className="mt-6 flex gap-3 justify-end">
                       {selectedPkg && (

@@ -166,8 +166,8 @@ export default function MusteriPage() {
     }
   };
 
-  // Helper to render a single QR SVG to a PNG data URL
-  const renderQRToPng = (elementId: string, qrSize: number): Promise<string> => {
+  // Helper to read QR SVG markup directly (CSP-safe, no blob URL)
+  const getQrSvgMarkup = (elementId: string, qrSize: number): Promise<string> => {
     return new Promise((resolve, reject) => {
       const qrEl = document.getElementById(elementId);
       if (!qrEl) { reject(new Error(`QR element not found: ${elementId}`)); return; }
@@ -177,33 +177,15 @@ export default function MusteriPage() {
       const clonedSvg = svgElement.cloneNode(true) as SVGElement;
       clonedSvg.setAttribute("width", qrSize.toString());
       clonedSvg.setAttribute("height", qrSize.toString());
-
-      const svgData = new XMLSerializer().serializeToString(clonedSvg);
-      const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-      const svgUrl = URL.createObjectURL(svgBlob);
-
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      const img = new Image();
-      img.onload = () => {
-        canvas.width = qrSize;
-        canvas.height = qrSize;
-        if (ctx) {
-          ctx.fillStyle = "white";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, qrSize, qrSize);
-          URL.revokeObjectURL(svgUrl);
-          resolve(canvas.toDataURL("image/png"));
-        }
-      };
-      img.onerror = () => { URL.revokeObjectURL(svgUrl); reject(new Error("Image load failed")); };
-      img.src = svgUrl;
+      clonedSvg.setAttribute("style", `width:${qrSize}px;height:${qrSize}px;display:block;margin:0 auto;`);
+      const svgMarkup = new XMLSerializer().serializeToString(clonedSvg);
+      resolve(svgMarkup);
     });
   };
 
   // Build the print HTML for one package card
   const buildPackageCardHtml = (
-    imageData: string,
+    svgMarkup: string,
     pkg: PackageInfo,
     qrSize: number,
     totalQuantity: number,
@@ -211,7 +193,7 @@ export default function MusteriPage() {
   ) => `
     <div class="package-card">
       <div style="text-align: center; margin-bottom: 16px;">
-        <img src="${imageData}" alt="QR Code" style="width: ${qrSize}px; height: ${qrSize}px;" />
+        ${svgMarkup}
       </div>
       <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
         <tbody>
@@ -257,8 +239,8 @@ export default function MusteriPage() {
 
     const qrSize = 200;
 
-    renderQRToPng(`qr-package-${packageIndex}`, qrSize)
-      .then((imageData) => {
+    getQrSvgMarkup(`qr-package-${packageIndex}`, qrSize)
+      .then((svgMarkup) => {
         const printWindow = window.open("", "_blank");
         if (!printWindow) return;
 
@@ -270,7 +252,7 @@ export default function MusteriPage() {
               <style>${printPageStyles}</style>
             </head>
             <body>
-              ${buildPackageCardHtml(imageData, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)}
+              ${buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)}
             </body>
           </html>
         `);
@@ -287,7 +269,7 @@ export default function MusteriPage() {
     const qrSize = 200;
 
     const renderPromises = generatedBatch.packages.map((pkg, index) =>
-      renderQRToPng(`qr-package-${index}`, qrSize).then((imageData) => ({ imageData, pkg }))
+      getQrSvgMarkup(`qr-package-${index}`, qrSize).then((svgMarkup) => ({ svgMarkup, pkg }))
     );
 
     Promise.all(renderPromises)
@@ -296,8 +278,8 @@ export default function MusteriPage() {
         if (!printWindow) return;
 
         const packagesHtml = results
-          .map(({ imageData, pkg }) =>
-            buildPackageCardHtml(imageData, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)
+          .map(({ svgMarkup, pkg }) =>
+            buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)
           )
           .join("");
 
