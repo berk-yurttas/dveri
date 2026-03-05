@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { ChevronDown, LogOut, Settings } from "lucide-react"
 import { type UserInfo } from "./types"
 import { api } from "@/lib/api"
+import { useUser } from "@/contexts/user-context"
 
 import { Button } from "./ui/button"
 import {
@@ -28,6 +29,7 @@ export function UserProfile({
   onPreferencesClick,
   onLogoutClick,
 }: UserProfileProps) {
+  const { user } = useUser()
   const [greeting, setGreeting] = useState<string>("Günaydın")
   const [preferencesOpen, setPreferencesOpen] = useState(false)
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
@@ -36,6 +38,8 @@ export function UserProfile({
   const [passwordLoading, setPasswordLoading] = useState(false)
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null)
+  const canChangePassword =
+    Array.isArray(user?.role) && user.role.some((role) => typeof role === "string" && role.startsWith("atolye:"))
 
   useEffect(() => {
     // Get current time in Turkish time (UTC+3)
@@ -106,18 +110,22 @@ export function UserProfile({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64 p-2 shadow-xl border-gray-200">
-          <DropdownMenuItem
-            onClick={() => {
-              setChangePasswordOpen(true)
-              setPasswordError(null)
-              setPasswordSuccess(null)
-            }}
-            className="px-3 py-2.5 cursor-pointer rounded-md hover:bg-gray-50 transition-colors"
-          >
-            <Settings className="mr-3 h-4 w-4" />
-            <span className="text-sm font-medium">Şifreni Değiştir</span>
-          </DropdownMenuItem>
-          {onLogoutClick && <DropdownMenuSeparator />}
+          {canChangePassword && (
+            <>
+              <DropdownMenuItem
+                onClick={() => {
+                  setChangePasswordOpen(true)
+                  setPasswordError(null)
+                  setPasswordSuccess(null)
+                }}
+                className="px-3 py-2.5 cursor-pointer rounded-md hover:bg-gray-50 transition-colors"
+              >
+                <Settings className="mr-3 h-4 w-4" />
+                <span className="text-sm font-medium">Şifreni Değiştir</span>
+              </DropdownMenuItem>
+              {onLogoutClick && <DropdownMenuSeparator />}
+            </>
+          )}
 
           {onLogoutClick && (
             <>
