@@ -135,13 +135,13 @@ export function useOrderFiles() {
       } catch {
         // If order folder is not found under current root, let user pick a new Merkez Dizin and retry once.
         if (typeof window === "undefined" || typeof window.showDirectoryPicker !== "function") {
-          throw new Error("Sipariş klasörü bulunamadı.");
+          throw new Error("Parça klasörü bulunamadı.");
         }
         let newHandle: FileSystemDirectoryHandle;
         try {
           newHandle = await window.showDirectoryPicker();
         } catch {
-          throw new Error("Sipariş klasörü bulunamadı. Lütfen yeni bir merkez dizin seçin.");
+          throw new Error("Parça klasörü bulunamadı. Lütfen yeni bir merkez dizin seçin.");
         }
 
         const granted = await ensureReadPermission(newHandle);
@@ -156,7 +156,7 @@ export function useOrderFiles() {
         try {
           return await tryReadOrderFolder(rootHandle);
         } catch {
-          throw new Error("Sipariş klasörü bulunamadı.");
+          throw new Error("Parça klasörü bulunamadı.");
         }
       }
     },
