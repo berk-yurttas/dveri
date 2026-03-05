@@ -108,31 +108,57 @@ export function useOrderFiles() {
 
   const getOrderFiles = useCallback(
     async (orderId: string): Promise<OrderFileItem[]> => {
-      const rootHandle = await getStoredDirectoryHandle();
       const folderName = orderId.trim();
       if (!folderName) {
         throw new Error("Geçersiz orderId.");
       }
 
-      let orderDir: FileSystemDirectoryHandle;
-      try {
-        orderDir = await rootHandle.getDirectoryHandle(folderName, { create: false });
-      } catch {
-        throw new Error("Sipariş klasörü bulunamadı.");
-      }
-
-      const files: OrderFileItem[] = [];
-      const directoryWithEntries = orderDir as FileSystemDirectoryHandle & {
-        entries: () => AsyncIterableIterator<[string, FileSystemHandle]>;
+      const tryReadOrderFolder = async (rootHandle: FileSystemDirectoryHandle) => {
+        const orderDir = await rootHandle.getDirectoryHandle(folderName, { create: false });
+        const files: OrderFileItem[] = [];
+        const directoryWithEntries = orderDir as FileSystemDirectoryHandle & {
+          entries: () => AsyncIterableIterator<[string, FileSystemHandle]>;
+        };
+        for await (const [, entry] of directoryWithEntries.entries()) {
+          if (entry.kind === "file") {
+            const fileHandle = entry as FileSystemFileHandle;
+            const file = await fileHandle.getFile();
+            files.push({ name: file.name, file });
+          }
+        }
+        return files;
       };
-      for await (const [, entry] of directoryWithEntries.entries()) {
-        if (entry.kind === "file") {
-          const fileHandle = entry as FileSystemFileHandle;
-          const file = await fileHandle.getFile();
-          files.push({ name: file.name, file });
+
+      let rootHandle = await getStoredDirectoryHandle();
+      try {
+        return await tryReadOrderFolder(rootHandle);
+      } catch {
+        // If order folder is not found under current root, let user pick a new Merkez Dizin and retry once.
+        if (typeof window === "undefined" || typeof window.showDirectoryPicker !== "function") {
+          throw new Error("Sipariş klasörü bulunamadı.");
+        }
+        let newHandle: FileSystemDirectoryHandle;
+        try {
+          newHandle = await window.showDirectoryPicker();
+        } catch {
+          throw new Error("Sipariş klasörü bulunamadı. Lütfen yeni bir merkez dizin seçin.");
+        }
+
+        const granted = await ensureReadPermission(newHandle);
+        if (!granted) {
+          throw new Error("Klasör izni iptal edilmiş. Lütfen tekrar seçin.");
+        }
+
+        await putHandle("ordersRootDirectory", newHandle);
+        setSelectedHandle(newHandle);
+        rootHandle = newHandle;
+
+        try {
+          return await tryReadOrderFolder(rootHandle);
+        } catch {
+          throw new Error("Sipariş klasörü bulunamadı.");
         }
       }
-      return files;
     },
     [getStoredDirectoryHandle]
   );
