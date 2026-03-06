@@ -1,3 +1,4 @@
+# Dockerfile for environment WITH internet access
 FROM python:3.11-bookworm
 
 WORKDIR /app
@@ -27,7 +28,6 @@ ENV ODBCINI=/etc/odbc.ini
 #     --index-url http://ftp.company.com.tr/simple/ \
 #     --trusted-host ftp.company.com.tr \
 #     -r requirements.txt
-
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
