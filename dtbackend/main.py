@@ -1,3 +1,10 @@
+import os
+
+# Set ODBC environment variables before any imports that might use them
+# This is critical for Linux systems to find ODBC drivers
+os.environ.setdefault('ODBCSYSINI', '/etc')
+os.environ.setdefault('ODBCINI', '/etc/odbc.ini')
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

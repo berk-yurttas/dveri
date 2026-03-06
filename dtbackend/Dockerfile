@@ -5,11 +5,21 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY dtbackend/requirements.txt .
 
-# System deps required by pyodbc (provides libodbc.so.2)
+# Install system dependencies and Microsoft ODBC Driver 17 for SQL Server
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    gnupg2 \
     unixodbc \
     unixodbc-dev \
+    && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
+    && curl https://packages.microsoft.com/config/debian/12/prod.list > /etc/apt/sources.list.d/mssql-release.list \
+    && apt-get update \
+    && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql17 \
     && rm -rf /var/lib/apt/lists/*
+
+# Set ODBC environment variables
+ENV ODBCSYSINI=/etc
+ENV ODBCINI=/etc/odbc.ini
 
 # RUN pip install --no-cache-dir \
 #     -i http://ftp.company.com.tr/simple/ \
