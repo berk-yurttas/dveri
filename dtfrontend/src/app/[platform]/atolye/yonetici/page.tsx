@@ -25,6 +25,7 @@ export default function YoneticiPage() {
     email: "",
     password: "",
     password_confirm: "",
+    musteri_department: "",
     station_id: "",
     role: "operator" as "musteri" | "operator",
   });
@@ -128,6 +129,13 @@ export default function YoneticiPage() {
           return;
         }
         payload.station_id = stationIdNum;
+      } else {
+        if (!userFormData.musteri_department.trim()) {
+          setYoneticiError("Müşteri rolü için şirket/departman bilgisi zorunludur");
+          setYoneticiLoading(false);
+          return;
+        }
+        payload.musteri_department = userFormData.musteri_department.trim();
       }
 
       await api.post("/romiot/station/stations/user", payload);
@@ -139,6 +147,7 @@ export default function YoneticiPage() {
         email: "",
         password: "",
         password_confirm: "",
+        musteri_department: "",
         station_id: "",
         role: "operator" as "musteri" | "operator",
       });
@@ -157,6 +166,7 @@ export default function YoneticiPage() {
       setYoneticiLoading(false);
     }
   };
+
 
   if (!isYonetici) {
     return (
@@ -199,56 +209,59 @@ export default function YoneticiPage() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Create Workshop Form */}
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Yeni Atölye Oluştur</h2>
-            <form onSubmit={handleCreateStation}>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">İsim *</label>
-                  <input
-                    type="text"
-                    value={stationFormData.name}
-                    onChange={(e) => setStationFormData({ ...stationFormData, name: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                    required
+          <div className="space-y-8">
+            {/* Create Workshop Form */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Yeni Atölye Oluştur</h2>
+              <form onSubmit={handleCreateStation}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">İsim *</label>
+                    <input
+                      type="text"
+                      value={stationFormData.name}
+                      onChange={(e) => setStationFormData({ ...stationFormData, name: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                      required
+                      disabled={yoneticiLoading}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Şirket *</label>
+                    <input
+                      type="text"
+                      value={stationFormData.company}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-900"
+                      readOnly
+                      disabled
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Şirket bilgisi otomatik olarak doldurulmuştur</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="is_exit_station"
+                      checked={stationFormData.is_exit_station}
+                      onChange={(e) => setStationFormData({ ...stationFormData, is_exit_station: e.target.checked })}
+                      className="h-4 w-4 text-[#0f4c3a] border-gray-300 rounded focus:ring-[#0f4c3a]"
+                      disabled={yoneticiLoading}
+                    />
+                    <label htmlFor="is_exit_station" className="text-sm font-medium text-gray-700">
+                      Çıkış Atölyesi
+                    </label>
+                    <span className="text-xs text-gray-500">(Bu atölyeden çıkan iş emirleri teslim edilmiş sayılır)</span>
+                  </div>
+                  <button
+                    type="submit"
                     disabled={yoneticiLoading}
-                  />
+                    className="w-full px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {yoneticiLoading ? "Oluşturuluyor..." : "Atölye Oluştur"}
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Şirket *</label>
-                  <input
-                    type="text"
-                    value={stationFormData.company}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-900"
-                    readOnly
-                    disabled
-                  />
-                  <p className="mt-1 text-xs text-gray-500">Şirket bilgisi otomatik olarak doldurulmuştur</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="is_exit_station"
-                    checked={stationFormData.is_exit_station}
-                    onChange={(e) => setStationFormData({ ...stationFormData, is_exit_station: e.target.checked })}
-                    className="h-4 w-4 text-[#0f4c3a] border-gray-300 rounded focus:ring-[#0f4c3a]"
-                    disabled={yoneticiLoading}
-                  />
-                  <label htmlFor="is_exit_station" className="text-sm font-medium text-gray-700">
-                    Çıkış Atölyesi
-                  </label>
-                  <span className="text-xs text-gray-500">(Bu atölyeden çıkan iş emirleri teslim edilmiş sayılır)</span>
-                </div>
-                <button
-                  type="submit"
-                  disabled={yoneticiLoading}
-                  className="w-full px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {yoneticiLoading ? "Oluşturuluyor..." : "Atölye Oluştur"}
-                </button>
-              </div>
-            </form>
+              </form>
+            </div>
+
           </div>
 
           {/* Create User Form */}
@@ -317,7 +330,7 @@ export default function YoneticiPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Rol *</label>
                   <select
                     value={userFormData.role}
-                    onChange={(e) => setUserFormData({ ...userFormData, role: e.target.value as "musteri" | "operator" })}
+                    onChange={(e) => setUserFormData({ ...userFormData, role: e.target.value as "musteri" | "operator", musteri_department: e.target.value === "musteri" ? userFormData.musteri_department : "" })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                     required
                     disabled={yoneticiLoading}
@@ -350,16 +363,25 @@ export default function YoneticiPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Şirket</label>
                   <input
                     type="text"
-                    value={userCompany || ""}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-900"
-                    readOnly
-                    disabled
+                    value={userFormData.role === "musteri" ? userFormData.musteri_department : (userCompany || "")}
+                    onChange={(e) => {
+                      if (userFormData.role === "musteri") {
+                        setUserFormData({ ...userFormData, musteri_department: e.target.value });
+                      }
+                    }}
+                    className={`w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 ${userFormData.role === "musteri" ? "bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500" : "bg-gray-100 cursor-not-allowed"}`}
+                    readOnly={userFormData.role !== "musteri"}
+                    disabled={yoneticiLoading}
                   />
-                  <p className="mt-1 text-xs text-gray-500">Kullanıcı otomatik olarak şirketinize atanacaktır</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {userFormData.role === "musteri"
+                      ? `Müşteri şirketi giriniz.`
+                      : "Kullanıcı otomatik olarak şirketinize atanacaktır"}
+                  </p>
                 </div>
                 <button
                   type="submit"
-                  disabled={yoneticiLoading || stations.length === 0}
+                  disabled={yoneticiLoading || (userFormData.role === "operator" && stations.length === 0)}
                   className="w-full px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {yoneticiLoading ? "Oluşturuluyor..." : "Kullanıcı Oluştur"}

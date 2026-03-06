@@ -23,6 +23,7 @@ interface BarcodeFormData {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
   part_number: string;
@@ -51,7 +52,22 @@ export default function MusteriPage() {
       if (musteriRole || yoneticiRole) {
         setIsMusteri(!!musteriRole);
         setIsYonetici(!!yoneticiRole);
-        setUserCompany(user.department || user.company || null);
+        const musteriCompanyRole = user.role.find(
+          (role) => typeof role === "string" && role.startsWith("atolye:musteri_company:")
+        );
+        if (musteriRole && typeof musteriCompanyRole === "string") {
+          const musteriCompany = musteriCompanyRole.replace("atolye:musteri_company:", "").trim();
+          setUserCompany(musteriCompany || null);
+        } else {
+          const departmentValue = (user.department || "").trim();
+          if (musteriRole && departmentValue.includes(":")) {
+            // Backward compatibility for old department format XXX:YYY
+            const [, musteriDepartment] = departmentValue.split(":", 2);
+            setUserCompany(musteriDepartment?.trim() || null);
+          } else {
+            setUserCompany(departmentValue || user.company || null);
+          }
+        }
       }
     }
   }, [user]);
@@ -61,6 +77,7 @@ export default function MusteriPage() {
     main_customer: "ASELSAN",
     sector: "",
     company_from: "",
+    teklif_number: "",
     aselsan_order_number: "",
     order_item_number: "",
     part_number: "",
@@ -89,6 +106,10 @@ export default function MusteriPage() {
       setError("Hedef Bitirme Tarihi zorunludur");
       return;
     }
+    if (!/^MKS-\d{6}$/.test(barcodeFormData.teklif_number.trim())) {
+      setError("Teklif Numarası formatı MKS-XXXXXX olmalıdır");
+      return;
+    }
 
     // Validate target_date is at least 7 days from today
     const today = new Date();
@@ -112,6 +133,7 @@ export default function MusteriPage() {
         main_customer: barcodeFormData.main_customer,
         sector: barcodeFormData.sector,
         company_from: barcodeFormData.company_from,
+        teklif_number: barcodeFormData.teklif_number.trim(),
         aselsan_order_number: barcodeFormData.aselsan_order_number,
         order_item_number: barcodeFormData.order_item_number,
         part_number: barcodeFormData.part_number,
@@ -144,8 +166,8 @@ export default function MusteriPage() {
     }
   };
 
-  // Helper to render a single QR SVG to a PNG data URL
-  const renderQRToPng = (elementId: string, qrSize: number): Promise<string> => {
+  // Helper to read QR SVG markup directly (CSP-safe, no blob URL)
+  const getQrSvgMarkup = (elementId: string, qrSize: number): Promise<string> => {
     return new Promise((resolve, reject) => {
       const qrEl = document.getElementById(elementId);
       if (!qrEl) { reject(new Error(`QR element not found: ${elementId}`)); return; }
@@ -155,33 +177,15 @@ export default function MusteriPage() {
       const clonedSvg = svgElement.cloneNode(true) as SVGElement;
       clonedSvg.setAttribute("width", qrSize.toString());
       clonedSvg.setAttribute("height", qrSize.toString());
-
-      const svgData = new XMLSerializer().serializeToString(clonedSvg);
-      const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-      const svgUrl = URL.createObjectURL(svgBlob);
-
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      const img = new Image();
-      img.onload = () => {
-        canvas.width = qrSize;
-        canvas.height = qrSize;
-        if (ctx) {
-          ctx.fillStyle = "white";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, qrSize, qrSize);
-          URL.revokeObjectURL(svgUrl);
-          resolve(canvas.toDataURL("image/png"));
-        }
-      };
-      img.onerror = () => { URL.revokeObjectURL(svgUrl); reject(new Error("Image load failed")); };
-      img.src = svgUrl;
+      clonedSvg.setAttribute("style", `width:${qrSize}px;height:${qrSize}px;display:block;margin:0 auto;`);
+      const svgMarkup = new XMLSerializer().serializeToString(clonedSvg);
+      resolve(svgMarkup);
     });
   };
 
   // Build the print HTML for one package card
   const buildPackageCardHtml = (
-    imageData: string,
+    svgMarkup: string,
     pkg: PackageInfo,
     qrSize: number,
     totalQuantity: number,
@@ -189,13 +193,14 @@ export default function MusteriPage() {
   ) => `
     <div class="package-card">
       <div style="text-align: center; margin-bottom: 16px;">
-        <img src="${imageData}" alt="QR Code" style="width: ${qrSize}px; height: ${qrSize}px;" />
+        ${svgMarkup}
       </div>
       <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
         <tbody>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600; width: 45%;">Ana Müşteri</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.main_customer}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.sector}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.company_from}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.teklif_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${totalPackages > 1 ? barcodeFormData.aselsan_order_number + "_" + pkg.package_index : barcodeFormData.aselsan_order_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Kalem Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.order_item_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.part_number}</td></tr>
@@ -234,8 +239,8 @@ export default function MusteriPage() {
 
     const qrSize = 200;
 
-    renderQRToPng(`qr-package-${packageIndex}`, qrSize)
-      .then((imageData) => {
+    getQrSvgMarkup(`qr-package-${packageIndex}`, qrSize)
+      .then((svgMarkup) => {
         const printWindow = window.open("", "_blank");
         if (!printWindow) return;
 
@@ -247,7 +252,7 @@ export default function MusteriPage() {
               <style>${printPageStyles}</style>
             </head>
             <body>
-              ${buildPackageCardHtml(imageData, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)}
+              ${buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)}
             </body>
           </html>
         `);
@@ -264,7 +269,7 @@ export default function MusteriPage() {
     const qrSize = 200;
 
     const renderPromises = generatedBatch.packages.map((pkg, index) =>
-      renderQRToPng(`qr-package-${index}`, qrSize).then((imageData) => ({ imageData, pkg }))
+      getQrSvgMarkup(`qr-package-${index}`, qrSize).then((svgMarkup) => ({ svgMarkup, pkg }))
     );
 
     Promise.all(renderPromises)
@@ -273,8 +278,8 @@ export default function MusteriPage() {
         if (!printWindow) return;
 
         const packagesHtml = results
-          .map(({ imageData, pkg }) =>
-            buildPackageCardHtml(imageData, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)
+          .map(({ svgMarkup, pkg }) =>
+            buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)
           )
           .join("");
 
@@ -384,6 +389,27 @@ export default function MusteriPage() {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-900"
                   readOnly
                   disabled
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Teklif Numarası *</label>
+                <input
+                  type="text"
+                  value={barcodeFormData.teklif_number}
+                  onChange={(e) => {
+                    const raw = e.target.value.toUpperCase();
+                    if (raw === "") {
+                      setBarcodeFormData({ ...barcodeFormData, teklif_number: "" });
+                      return;
+                    }
+                    const digits = raw.replace(/^MKS-?/, "").replace(/\D/g, "").slice(0, 6);
+                    setBarcodeFormData({ ...barcodeFormData, teklif_number: `MKS-${digits}` });
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                  placeholder="MKS-123456"
+                  pattern="^MKS-\d{6}$"
+                  title="Format: MKS-123456"
+                  required
                 />
               </div>
               <div>
@@ -539,6 +565,10 @@ export default function MusteriPage() {
                           <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">Gönderen Firma</td>
                             <td className="py-2 px-3 text-gray-900">{barcodeFormData.company_from}</td>
+                          </tr>
+                          <tr className="border-b border-gray-200">
+                            <td className="py-2 px-3 font-semibold text-gray-700">Teklif Numarası</td>
+                            <td className="py-2 px-3 text-gray-900">{barcodeFormData.teklif_number}</td>
                           </tr>
                           <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">{barcodeFormData.main_customer} Sipariş Numarası</td>

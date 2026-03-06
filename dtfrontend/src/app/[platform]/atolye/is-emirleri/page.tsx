@@ -3,6 +3,8 @@
 import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
+import QRCodeSVG from "react-qr-code";
+import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
 
 interface WorkOrderDetail {
   id: number;
@@ -15,6 +17,7 @@ interface WorkOrderDetail {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
   part_number: string;
@@ -44,6 +47,7 @@ interface GroupedWorkOrder {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
   total_quantity: number;
@@ -51,6 +55,12 @@ interface GroupedWorkOrder {
   priority: number;
   target_date: string | null;
   entries: WorkOrderDetail[];
+}
+
+interface WorkOrderQrCode {
+  code: string;
+  package_index: number;
+  quantity: number;
 }
 
 interface StationInfo {
@@ -74,6 +84,7 @@ export default function WorkOrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [isYonetici, setIsYonetici] = useState(false);
   const [isOperator, setIsOperator] = useState(false);
+  const [isMusteri, setIsMusteri] = useState(false);
   const [isSatinalma, setIsSatinalma] = useState(false);
   const [isAselsanSatinalma, setIsAselsanSatinalma] = useState(false);
   const [userCompany, setUserCompany] = useState<string>("");
@@ -115,6 +126,9 @@ export default function WorkOrdersPage() {
   const [assignLoading, setAssignLoading] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assignSuccess, setAssignSuccess] = useState<string | null>(null);
+  const [qrCodesByGroup, setQrCodesByGroup] = useState<Record<string, WorkOrderQrCode[]>>({});
+  const [qrModalGroupId, setQrModalGroupId] = useState<string | null>(null);
+  const [selectedQrIndexByGroup, setSelectedQrIndexByGroup] = useState<Record<string, number>>({});
 
   // Check user roles
   useEffect(() => {
@@ -128,6 +142,11 @@ export default function WorkOrdersPage() {
         typeof role === "string" && role === "atolye:operator"
       );
       setIsOperator(!!operatorRole);
+
+      const musteriRole = user.role.find((role) =>
+        typeof role === "string" && role === "atolye:musteri"
+      );
+      setIsMusteri(!!musteriRole);
 
       const satinalmaRole = user.role.find((role) =>
         typeof role === "string" && role === "atolye:satinalma"
@@ -162,10 +181,10 @@ export default function WorkOrdersPage() {
         console.error("Error fetching stations:", err);
       }
     };
-    if (isYonetici || isOperator || isSatinalma) {
+    if (isYonetici || isOperator || isSatinalma || isMusteri) {
       fetchStations();
     }
-  }, [isYonetici, isOperator, isSatinalma]);
+  }, [isYonetici, isOperator, isSatinalma, isMusteri]);
 
   // Fetch companies for ASELSAN satinalma
   useEffect(() => {
@@ -201,9 +220,10 @@ export default function WorkOrdersPage() {
     fetchTokens();
   }, [fetchTokens]);
 
+
   // Fetch work orders with search
   const fetchWorkOrders = useCallback(async () => {
-    if (!isYonetici && !isOperator && !isSatinalma) return;
+    if (!isYonetici && !isOperator && !isSatinalma && !isMusteri) return;
 
     try {
       setLoading(true);
@@ -230,7 +250,7 @@ export default function WorkOrdersPage() {
       setLoading(false);
       setInitialLoadDone(true);
     }
-  }, [isYonetici, isOperator, isSatinalma, isAselsanSatinalma, selectedCompany, currentPage, pageSize, debouncedSearch]);
+  }, [isYonetici, isOperator, isSatinalma, isMusteri, isAselsanSatinalma, selectedCompany, currentPage, pageSize, debouncedSearch]);
 
   useEffect(() => {
     fetchWorkOrders();
@@ -250,6 +270,7 @@ export default function WorkOrdersPage() {
           main_customer: order.main_customer,
           sector: order.sector,
           company_from: order.company_from,
+          teklif_number: order.teklif_number,
           aselsan_order_number: order.aselsan_order_number,
           order_item_number: order.order_item_number,
           total_quantity: order.total_quantity,
@@ -490,8 +511,131 @@ export default function WorkOrdersPage() {
     return <span className="text-gray-400 text-sm">-</span>;
   };
 
+  const fetchGroupQrCodes = useCallback(async (groupId: string) => {
+    if (qrCodesByGroup[groupId]) return;
+    const codes = await api.get<WorkOrderQrCode[]>(
+      `/romiot/station/qr-code/group/${encodeURIComponent(groupId)}`,
+      undefined,
+      { useCache: false }
+    );
+    setQrCodesByGroup((prev) => ({ ...prev, [groupId]: (codes || []).sort((a, b) => a.package_index - b.package_index) }));
+    setSelectedQrIndexByGroup((prev) => ({ ...prev, [groupId]: 0 }));
+  }, [qrCodesByGroup]);
+
+  const getQrSvgMarkup = (elementId: string, qrSize: number): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const qrEl = document.getElementById(elementId);
+      if (!qrEl) { reject(new Error(`QR element not found: ${elementId}`)); return; }
+      const svgElement = qrEl.querySelector("svg");
+      if (!svgElement) { reject(new Error(`SVG not found in: ${elementId}`)); return; }
+
+      const clonedSvg = svgElement.cloneNode(true) as SVGElement;
+      clonedSvg.setAttribute("width", qrSize.toString());
+      clonedSvg.setAttribute("height", qrSize.toString());
+      clonedSvg.setAttribute("style", `width:${qrSize}px;height:${qrSize}px;display:block;margin:0 auto;`);
+      const svgMarkup = new XMLSerializer().serializeToString(clonedSvg);
+      resolve(svgMarkup);
+    });
+  };
+
+  const printPageStyles = `
+    @page { margin: 10mm; size: A4; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+    .package-card {
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+      page-break-inside: avoid;
+      page-break-after: always;
+      max-width: 500px;
+      width: 100%;
+    }
+    .package-card:last-child { page-break-after: auto; }
+    @media print {
+      .package-card { page-break-inside: avoid; page-break-after: always; }
+      .package-card:last-child { page-break-after: auto; }
+    }
+  `;
+
+  const buildPackageCardHtml = (wo: GroupedWorkOrder, svgMarkup: string, pkg: WorkOrderQrCode, qrSize: number) => `
+    <div class="package-card">
+      <div style="text-align: center; margin-bottom: 16px;">
+        ${svgMarkup}
+      </div>
+      <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+        <tbody>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600; width: 45%;">Ana Müşteri</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.main_customer}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.sector}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.company_from}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.teklif_number}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${wo.main_customer} Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.total_packages > 1 ? wo.aselsan_order_number + "_" + pkg.package_index : wo.aselsan_order_number}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Kalem Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.order_item_number}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.part_number}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Toplam Sipariş Miktarı</td><td style="border: 1px solid #d1d5db; padding: 6px;">${pkg.quantity}/${wo.total_quantity}</td></tr>
+          ${wo.target_date ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Bitirme Tarihi</td><td style="border: 1px solid #d1d5db; padding: 6px;">${new Date(wo.target_date).toLocaleDateString("tr-TR")}</td></tr>` : ""}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const handlePrintSingleQr = async (wo: GroupedWorkOrder, pkg: WorkOrderQrCode, index: number) => {
+    const qrSize = 200;
+    const elementId = `is-emri-qr-${wo.work_order_group_id}-${index}`;
+    try {
+      const svgMarkup = await getQrSvgMarkup(elementId, qrSize);
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) return;
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>QR Kod - Paket ${pkg.package_index}</title>
+            <style>${printPageStyles}</style>
+          </head>
+          <body>${buildPackageCardHtml(wo, svgMarkup, pkg, qrSize)}</body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => { printWindow.print(); printWindow.close(); }, 300);
+    } catch (err) {
+      console.error("Error printing QR code:", err);
+    }
+  };
+
+  const handlePrintAllQrs = async (wo: GroupedWorkOrder, packages: WorkOrderQrCode[]) => {
+    const qrSize = 200;
+    try {
+      const svgMarkupList = await Promise.all(
+        packages.map((pkg, idx) =>
+          getQrSvgMarkup(`is-emri-qr-${wo.work_order_group_id}-${idx}`, qrSize).then((svg) => ({ pkg, svg }))
+        )
+      );
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) return;
+      const html = svgMarkupList.map(({ pkg, svg }) => buildPackageCardHtml(wo, svg, pkg, qrSize)).join("");
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>QR Kodlar - ${wo.work_order_group_id}</title>
+            <style>${printPageStyles}</style>
+          </head>
+          <body>${html}</body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+    } catch (err) {
+      console.error("Error printing all QR codes:", err);
+    }
+  };
+
   // Access check
-  if (!isYonetici && !isOperator && !isSatinalma) {
+  if (!isYonetici && !isOperator && !isSatinalma && !isMusteri) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -515,17 +659,18 @@ export default function WorkOrdersPage() {
 
   const tokensNeeded = calculateTokensNeeded();
   const hasEdits = priorityEdits.size > 0;
-
   return (
     <div className="min-h-screen p-8 bg-gray-50">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">İş Emirleri</h1>
           <p className="text-gray-600">
             {isSatinalma
               ? "İş emirlerinin öncelik sıralamasını belirleyin"
               : "Tüm iş emirlerinin detaylı bilgilerini görüntüleyin"}
           </p>
+          </div>
         </div>
 
         {/* Error / Success Messages */}
@@ -622,6 +767,9 @@ export default function WorkOrdersPage() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Numarası</th>
+                {!isMusteri && (
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Dökümanları</th>
+                )}
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Öncelik</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Müşteri Bilgisi</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Hangi Atölyede</th>
@@ -633,7 +781,7 @@ export default function WorkOrdersPage() {
             <tbody className="bg-white divide-y divide-gray-200">
               {groupedWorkOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={isMusteri ? 7 : 8} className="px-4 py-8 text-center text-gray-500">
                     {searchQuery
                       ? "Arama kriterlerinize uygun iş emri bulunamadı."
                       : "Henüz hiç iş emri kaydı bulunmamaktadır."}
@@ -657,7 +805,13 @@ export default function WorkOrdersPage() {
                         <td className="px-4 py-3">
                           <div className="text-sm font-medium text-gray-900">{wo.part_number}</div>
                           <div className="text-xs text-gray-500">{wo.aselsan_order_number}</div>
+                          <div className="text-xs text-gray-500">{wo.teklif_number}</div>
                         </td>
+                        {!isMusteri && (
+                          <td className="px-4 py-3">
+                            <OrderFilesViewer orderId={wo.part_number} />
+                          </td>
+                        )}
                         <td className="px-4 py-3">
                           {renderPriorityDisplay(wo)}
                         </td>
@@ -698,7 +852,7 @@ export default function WorkOrdersPage() {
                       {/* Expanded Details */}
                       {isExpanded && (
                         <tr key={`${key}-details`}>
-                          <td colSpan={7} className="px-0 py-0">
+                          <td colSpan={isMusteri ? 7 : 8} className="px-0 py-0">
                             <div className="bg-gray-50 border-t border-b border-gray-200 p-6">
                               {/* Summary */}
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 text-sm">
@@ -709,6 +863,10 @@ export default function WorkOrdersPage() {
                                 <div>
                                   <span className="text-gray-500">Sipariş Kalem No:</span>
                                   <p className="font-medium text-gray-900">{wo.order_item_number}</p>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Teklif No:</span>
+                                  <p className="font-medium text-gray-900">{wo.teklif_number}</p>
                                 </div>
                                 <div>
                                   <span className="text-gray-500">Toplam Paket:</span>
@@ -723,6 +881,26 @@ export default function WorkOrdersPage() {
                                   </div>
                                 )}
                               </div>
+
+                              {isMusteri && (
+                                <div className="mb-5">
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        await fetchGroupQrCodes(wo.work_order_group_id);
+                                        setQrModalGroupId(wo.work_order_group_id);
+                                      } catch (err) {
+                                        console.error("Error fetching group QR codes:", err);
+                                        setError("QR kodları yüklenirken hata oluştu");
+                                      }
+                                    }}
+                                    className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg text-sm font-medium transition-colors"
+                                  >
+                                    QR Kodları Gör / Yazdır
+                                  </button>
+                                </div>
+                              )}
 
                               {/* Station History */}
                               <h4 className="text-sm font-semibold text-gray-900 mb-3">Atölye Geçiş Geçmişi</h4>
@@ -855,6 +1033,137 @@ export default function WorkOrdersPage() {
           </div>
         </div>
       </div>
+
+      {qrModalGroupId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900">QR Kodları</h3>
+              <button
+                onClick={() => setQrModalGroupId(null)}
+                className="text-gray-500 hover:text-gray-700 text-xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-6">
+              {(() => {
+                const wo = groupedWorkOrders.find((g) => g.work_order_group_id === qrModalGroupId);
+                const packages = qrCodesByGroup[qrModalGroupId] || [];
+                const selectedIndex = selectedQrIndexByGroup[qrModalGroupId] || 0;
+                const selectedPkg = packages[selectedIndex];
+                if (!wo || packages.length === 0) {
+                  return <p className="text-sm text-gray-600">Bu iş emri için QR kod bulunamadı.</p>;
+                }
+
+                return (
+                  <div>
+                    <div className="mb-4 flex flex-wrap gap-2">
+                      {packages.map((pkg, idx) => (
+                        <button
+                          key={`${pkg.package_index}-${idx}`}
+                          onClick={() =>
+                            setSelectedQrIndexByGroup((prev) => ({ ...prev, [qrModalGroupId]: idx }))
+                          }
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                            selectedIndex === idx
+                              ? "bg-[#0f4c3a] text-white"
+                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          }`}
+                        >
+                          Paket {pkg.package_index}
+                        </button>
+                      ))}
+                    </div>
+
+                    {selectedPkg && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="flex justify-center">
+                          <div id={`is-emri-qr-${wo.work_order_group_id}-${selectedIndex}`} className="bg-white p-4 rounded-lg border border-gray-200">
+                            <QRCodeSVG value={selectedPkg.code} size={220} />
+                          </div>
+                        </div>
+                        <div className="text-sm">
+                          <table className="w-full border-collapse">
+                            <tbody>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Ana Müşteri</td>
+                                <td className="py-2 text-gray-900">{wo.main_customer}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Sektör</td>
+                                <td className="py-2 text-gray-900">{wo.sector}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Gönderen Firma</td>
+                                <td className="py-2 text-gray-900">{wo.company_from}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Teklif Numarası</td>
+                                <td className="py-2 text-gray-900">{wo.teklif_number}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">{wo.main_customer} Sipariş Numarası</td>
+                                <td className="py-2 text-gray-900">
+                                  {wo.total_packages > 1 ? `${wo.aselsan_order_number}_${selectedPkg.package_index}` : wo.aselsan_order_number}
+                                </td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Sipariş Kalem Numarası</td>
+                                <td className="py-2 text-gray-900">{wo.order_item_number}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Parça Numarası</td>
+                                <td className="py-2 text-gray-900">{wo.part_number}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Toplam Sipariş Miktarı</td>
+                                <td className="py-2 text-gray-900">{selectedPkg.quantity}/{wo.total_quantity}</td>
+                              </tr>
+                              <tr>
+                                <td className="py-2 pr-3 font-medium text-gray-600">Hedef Bitirme Tarihi</td>
+                                <td className="py-2 text-gray-900">
+                                  {wo.target_date ? new Date(wo.target_date).toLocaleDateString("tr-TR") : "-"}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Hidden QR render targets for print-all flow */}
+                    <div className="hidden" aria-hidden="true">
+                      {packages.map((pkg, idx) => (
+                        <div key={`print-src-${pkg.package_index}-${idx}`} id={`is-emri-qr-${wo.work_order_group_id}-${idx}`}>
+                          <QRCodeSVG value={pkg.code} size={220} />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-6 flex gap-3 justify-end">
+                      {selectedPkg && (
+                        <button
+                          onClick={() => handlePrintSingleQr(wo, selectedPkg, selectedIndex)}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Seçili QR Yazdır
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handlePrintAllQrs(wo, packages)}
+                        className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Tümünü Yazdır
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Modal */}
       {showConfirmModal && (

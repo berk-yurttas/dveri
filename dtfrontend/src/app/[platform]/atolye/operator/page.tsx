@@ -3,6 +3,7 @@
 import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "@/lib/api";
+import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
 
 type Mode = "entrance" | "exit" | null;
 
@@ -11,8 +12,10 @@ interface QRCodeData {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
+  part_number: string;
   quantity: number;
   total_quantity: number;
   package_index: number;
@@ -28,6 +31,7 @@ interface WorkOrder {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
   quantity: number;
@@ -50,6 +54,7 @@ interface WorkOrderDetail {
   main_customer: string;
   sector: string;
   company_from: string;
+  teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
   part_number: string;
@@ -77,6 +82,7 @@ interface GroupedWorkOrder {
   work_order_group_id: string;
   part_number: string;
   company_from: string;
+  teklif_number: string;
   main_customer: string;
   sector: string;
   aselsan_order_number: string;
@@ -116,6 +122,7 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
   const mainCustomer = qrCodeData.main_customer;
   const sector = qrCodeData.sector;
   const companyFrom = qrCodeData.company_from;
+  const teklifNumber = qrCodeData.teklif_number;
   const aselsanOrderNumber = qrCodeData.aselsan_order_number;
   const orderItemNumber = qrCodeData.order_item_number;
   const partNumber = qrCodeData.part_number;
@@ -129,6 +136,10 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
   if (!mainCustomer) errors.push("Ana Müşteri eksik");
   if (!sector) errors.push("Sektör eksik");
   if (!companyFrom) errors.push("Gönderen Firma eksik");
+  if (!teklifNumber) errors.push("Teklif Numarası eksik");
+  if (teklifNumber && !/^MKS-\d{6}$/.test(String(teklifNumber).trim())) {
+    errors.push("Teklif Numarası formatı geçersiz (MKS-XXXXXX)");
+  }
   if (!aselsanOrderNumber) errors.push("ASELSAN Sipariş Numarası eksik");
   if (!orderItemNumber) errors.push("Sipariş Kalem Numarası eksik");
   if (!partNumber) errors.push("Parça Numarası eksik");
@@ -156,6 +167,7 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
     main_customer: String(mainCustomer).trim(),
     sector: String(sector).trim(),
     company_from: String(companyFrom).trim(),
+    teklif_number: String(teklifNumber).trim(),
     aselsan_order_number: String(aselsanOrderNumber).trim(),
     order_item_number: String(orderItemNumber).trim(),
     part_number: String(partNumber).trim(),
@@ -215,6 +227,7 @@ export default function OperatorPage() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
+  const [lastScannedPartNumber, setLastScannedPartNumber] = useState<string | null>(null);
 
   // Check user roles and fetch station
   useEffect(() => {
@@ -268,6 +281,7 @@ export default function OperatorPage() {
             work_order_group_id: order.work_order_group_id,
             part_number: order.part_number,
             company_from: order.company_from,
+            teklif_number: order.teklif_number,
             main_customer: order.main_customer,
             sector: order.sector,
             aselsan_order_number: order.aselsan_order_number,
@@ -328,6 +342,9 @@ export default function OperatorPage() {
           if (/^\d+$/.test(code) && code.length % 5 === 0) {
             const chunks = code.match(/.{1,5}/g) || [];
             resolvedCode = chunks.map((chunk) => String.fromCharCode(parseInt(chunk, 10))).join("");
+            // Some scanners append CR/LF as numeric codes (e.g. 00013/00010)
+            // and those control characters break QR lookup.
+            resolvedCode = resolvedCode.replace(/[\r\n\t\0]/g, "").trim();
             console.log("QR Kod (numeric decode):", resolvedCode);
           }
 
@@ -336,6 +353,7 @@ export default function OperatorPage() {
             `/romiot/station/qr-code/retrieve/${encodeURIComponent(resolvedCode)}`
           );
           parsedData = response.data;
+          setLastScannedPartNumber((response.data.part_number || "").trim() || null);
           console.log("QR Kod Verisi Alındı:", parsedData);
         } catch (decodeError: any) {
           console.error("Decode Hatası:", decodeError);
@@ -425,6 +443,7 @@ export default function OperatorPage() {
                     main_customer: "Ana Müşteri",
                     sector: "Sektör",
                     company_from: "Gönderen Firma",
+                    teklif_number: "Teklif Numarası",
                     aselsan_order_number: "ASELSAN Sipariş Numarası",
                     order_item_number: "Sipariş Kalem Numarası",
                     part_number: "Parça Numarası",
@@ -693,6 +712,19 @@ export default function OperatorPage() {
           </div>
         )}
 
+        {/* Work order local file links (based on scanned QR) */}
+        {lastScannedPartNumber && (
+          <div className="mb-4 p-4 bg-indigo-50 border-l-4 border-indigo-500 rounded-lg shadow-sm">
+            <h3 className="text-sm font-semibold text-indigo-800 mb-2">İş Emri Dosya Linkleri</h3>
+            <div className="text-sm text-indigo-900 space-y-1">
+              <div>
+                <span className="font-medium">Parça No:</span> {lastScannedPartNumber}
+              </div>
+              <OrderFilesViewer orderId={lastScannedPartNumber} />
+            </div>
+          </div>
+        )}
+
         {/* Error Message */}
         {error && (
           <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg shadow-sm">
@@ -757,6 +789,7 @@ export default function OperatorPage() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Numarası</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Dökümanları</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Öncelik</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Müşteri Bilgisi</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Durum</th>
@@ -768,7 +801,7 @@ export default function OperatorPage() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {groupedWorkOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                      <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                         Bu atölyede henüz iş emri bulunmamaktadır.
                       </td>
                     </tr>
@@ -779,7 +812,6 @@ export default function OperatorPage() {
                       const daysInStation = getDaysInStation(wo.entries);
                       const isActive = hasActiveAtMyStation(wo.entries);
                       const stationStatus = getStationStatus(wo.entries);
-
                       // Count scanned/exited packages at my station
                       const myEntries = wo.entries.filter(e => e.station_id === stationId);
                       const scannedCount = myEntries.length;
@@ -810,6 +842,10 @@ export default function OperatorPage() {
                             <td className="px-4 py-3">
                               <div className="text-sm font-medium text-gray-900">{wo.part_number}</div>
                               <div className="text-xs text-gray-500">{wo.aselsan_order_number}</div>
+                              <div className="text-xs text-gray-500">{wo.teklif_number}</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <OrderFilesViewer orderId={wo.part_number} />
                             </td>
                             <td className="px-4 py-3">
                               {wo.priority > 0 ? (
@@ -867,7 +903,7 @@ export default function OperatorPage() {
                           {/* Expanded Details */}
                           {isExpanded && (
                             <tr key={`${key}-details`}>
-                              <td colSpan={7} className="px-0 py-0">
+                              <td colSpan={8} className="px-0 py-0">
                                 <div className="bg-gray-50 border-t border-b border-gray-200 p-4">
                                   {/* Summary info */}
                                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-xs">
@@ -878,6 +914,10 @@ export default function OperatorPage() {
                                     <div>
                                       <span className="text-gray-500">Sipariş Kalem No:</span>
                                       <p className="font-medium text-gray-900">{wo.order_item_number}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Teklif No:</span>
+                                      <p className="font-medium text-gray-900">{wo.teklif_number}</p>
                                     </div>
                                     <div>
                                       <span className="text-gray-500">Toplam Paket:</span>

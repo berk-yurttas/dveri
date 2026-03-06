@@ -102,7 +102,6 @@ export default function KullaniciYonetimiPage() {
 
   useEffect(() => {
     fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isYonetici]);
 
   const filteredUsers = useMemo(() => {
@@ -350,7 +349,6 @@ export default function KullaniciYonetimiPage() {
                     <option value="yonetici">Yönetici</option>
                     <option value="musteri">Müşteri</option>
                     <option value="operator">Operatör</option>
-                    <option value="satinalma">Satınalma</option>
                   </select>
                 </div>
 

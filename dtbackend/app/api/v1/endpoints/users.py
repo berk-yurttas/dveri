@@ -1,6 +1,8 @@
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import check_authenticated
@@ -10,6 +12,17 @@ from app.schemas.user import User
 from app.services.user_service import UserService
 
 router = APIRouter()
+
+
+class ChangePasswordRequest(BaseModel):
+    password: str = Field(..., min_length=6)
+    password_confirm: str = Field(..., min_length=6)
+
+    @model_validator(mode="after")
+    def validate_passwords(self):
+        if self.password != self.password_confirm:
+            raise ValueError("Şifreler eşleşmiyor")
+        return self
 
 
 @router.get("/login_redirect", dependencies=[])  # Empty dependencies to override global auth
@@ -235,6 +248,80 @@ async def get_departments(
     """
     departments = await UserService.retrieve_all_departments(current_user.username)
     return {"departments": departments}
+
+
+@router.put("/change-password")
+async def change_own_password(
+    payload: ChangePasswordRequest,
+    current_user: User = Depends(check_authenticated),
+):
+    """
+    Change authenticated user's own password in PocketBase.
+    """
+    if not settings.POCKETBASE_ADMIN_EMAIL or not settings.POCKETBASE_ADMIN_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="PocketBase yönetici bilgileri yapılandırılmamış",
+        )
+
+    user_id = (current_user.id or "").strip()
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Kullanıcı kimliği bulunamadı",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+            auth_response = await client.post(
+                f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
+                json={
+                    "identity": settings.POCKETBASE_ADMIN_EMAIL,
+                    "password": settings.POCKETBASE_ADMIN_PASSWORD,
+                },
+            )
+            if auth_response.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="PocketBase yönetici kimlik doğrulaması başarısız oldu",
+                )
+
+            token = auth_response.json().get("token")
+            if not token:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="PocketBase token alınamadı",
+                )
+
+            update_response = await client.patch(
+                f"{settings.POCKETBASE_URL}/api/collections/users/records/{user_id}",
+                json={
+                    "password": payload.password,
+                    "passwordConfirm": payload.password_confirm,
+                },
+                headers={"Authorization": token},
+            )
+
+            if update_response.status_code not in (200, 201):
+                detail = update_response.text
+                try:
+                    error_json = update_response.json()
+                    detail = error_json.get("message", detail)
+                except Exception:
+                    pass
+                raise HTTPException(
+                    status_code=update_response.status_code,
+                    detail=f"Şifre güncellenemedi: {detail}",
+                )
+
+            return {"message": "Şifre başarıyla güncellendi"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Şifre değiştirme işlemi başarısız: {str(e)}",
+        )
 
 
 @router.get("/search")

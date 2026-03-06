@@ -11,7 +11,7 @@ from app.core.auth import check_authenticated
 from app.core.config import settings
 from app.core.database import get_postgres_db, get_romiot_db
 from app.models.postgres_models import User as PostgresUser
-from app.models.romiot_models import Station
+from app.models.romiot_models import Station, WorkOrderLinkDirectory
 from app.schemas.station import Station as StationSchema
 from app.schemas.station import StationCreate, StationList
 from app.schemas.user import User
@@ -60,6 +60,15 @@ class ManagedUserUpdateRequest(BaseModel):
             if self.password != self.password_confirm:
                 raise ValueError("Şifreler eşleşmiyor")
         return self
+
+
+class WorkOrderLinkDirectoryRequest(BaseModel):
+    merkez_dizin: str = Field(..., min_length=1, max_length=1024, description="Merkez dizin (root directory)")
+
+
+class WorkOrderLinkDirectoryResponse(BaseModel):
+    company: str
+    merkez_dizin: str | None = None
 
 
 async def _authenticate_pocketbase_admin(client: httpx.AsyncClient) -> str:
@@ -113,6 +122,109 @@ def _extract_atolye_role(role_values: list[str] | None) -> ManagedUserRoleType |
     return None
 
 
+def _extract_musteri_company_from_roles(role_values: list[str] | None) -> str | None:
+    """
+    Extracts musteri company from supplemental role:
+    - atolye:musteri_company:<company>
+    """
+    if not role_values:
+        return None
+    prefix = "atolye:musteri_company:"
+    for role in role_values:
+        if isinstance(role, str) and role.startswith(prefix):
+            value = role[len(prefix):].strip()
+            if value:
+                return value
+    return None
+
+
+def _get_main_company_from_department(department: str | None) -> str:
+    department_value = (department or "").strip()
+    if not department_value:
+        return ""
+    if ":" in department_value:
+        return department_value.split(":", 1)[0].strip()
+    return department_value
+
+
+@router.get("/management/work-order-link-directory", response_model=WorkOrderLinkDirectoryResponse)
+async def get_work_order_link_directory(
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """
+    Returns the company's configured root directory for work-order file links.
+    Available to all atolye roles.
+    """
+    role_values = current_user.role if current_user.role and isinstance(current_user.role, list) else []
+    has_atolye_role = any(
+        role in {"atolye:operator", "atolye:yonetici", "atolye:musteri", "atolye:satinalma"}
+        for role in role_values
+    )
+    if not has_atolye_role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Atölye yetkisi gereklidir",
+        )
+
+    company = _get_main_company_from_department(current_user.department)
+    if not company:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Kullanıcı şirket bilgisi bulunamadı",
+        )
+
+    result = await romiot_db.execute(
+        select(WorkOrderLinkDirectory).where(WorkOrderLinkDirectory.company == company)
+    )
+    setting = result.scalar_one_or_none()
+
+    return WorkOrderLinkDirectoryResponse(
+        company=company,
+        merkez_dizin=setting.root_directory if setting else None,
+    )
+
+
+@router.put("/management/work-order-link-directory", response_model=WorkOrderLinkDirectoryResponse)
+async def upsert_work_order_link_directory(
+    data: WorkOrderLinkDirectoryRequest,
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """
+    Saves company's root directory for work-order file links.
+    Requires yonetici role.
+    """
+    user_company = await check_station_yonetici_role(current_user)
+    normalized_directory = data.merkez_dizin.strip()
+    if not normalized_directory:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Merkez dizin boş olamaz",
+        )
+
+    result = await romiot_db.execute(
+        select(WorkOrderLinkDirectory).where(WorkOrderLinkDirectory.company == user_company)
+    )
+    setting = result.scalar_one_or_none()
+
+    if not setting:
+        setting = WorkOrderLinkDirectory(
+            company=user_company,
+            root_directory=normalized_directory,
+        )
+        romiot_db.add(setting)
+    else:
+        setting.root_directory = normalized_directory
+
+    await romiot_db.commit()
+
+    return WorkOrderLinkDirectoryResponse(
+        company=user_company,
+        merkez_dizin=setting.root_directory,
+    )
+
+
 @router.get("/management/users", response_model=list[ManagedUserResponse])
 async def list_company_users(
     current_user: User = Depends(check_authenticated),
@@ -137,7 +249,6 @@ async def list_company_users(
                 response = await client.get(
                     f"{settings.POCKETBASE_URL}/api/collections/users/records",
                     params={
-                        "filter": f'department="{user_company}"',
                         "perPage": 200,
                         "page": page,
                         "sort": "name",
@@ -152,7 +263,10 @@ async def list_company_users(
 
                 payload = response.json()
                 items = payload.get("items", [])
-                all_pb_users.extend(items)
+                for item in items:
+                    department = (item.get("department") or "").strip()
+                    if department == user_company or department.startswith(f"{user_company}:"):
+                        all_pb_users.append(item)
                 total_pages = payload.get("totalPages", 1) or 1
                 page += 1
     except HTTPException:
@@ -244,7 +358,7 @@ async def update_company_user(
 
             target_pb_user = target_response.json()
             target_department = (target_pb_user.get("department") or "").strip()
-            if target_department != user_company:
+            if not (target_department == user_company or target_department.startswith(f"{user_company}:")):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Bu kullanıcı sizin şirketinize ait değil",
@@ -330,11 +444,24 @@ async def update_company_user(
                         detail=f"'{new_username}' kullanıcı adı zaten kullanılıyor",
                     )
 
+            department_for_payload = user_company
+            existing_role_values = target_pb_user.get("role") if isinstance(target_pb_user.get("role"), list) else []
+            pb_roles = [f"atolye:{new_role.value}"]
+            if new_role == ManagedUserRoleType.MUSTERI:
+                musteri_company = _extract_musteri_company_from_roles(existing_role_values)
+                if not musteri_company and target_department.startswith(f"{user_company}:"):
+                    # Backward compatibility for previously saved department format XXX:YYY
+                    musteri_company = target_department.split(":", 1)[1].strip()
+                if not musteri_company:
+                    # Fallback when converting role without explicit musteri company input
+                    musteri_company = user_company
+                pb_roles.append(f"atolye:musteri_company:{musteri_company}")
+
             pb_payload: dict = {
                 "username": new_username,
                 "name": user_data.name if user_data.name is not None else target_pb_user.get("name", ""),
-                "role": [f"atolye:{new_role.value}"],
-                "department": user_company,
+                "role": pb_roles,
+                "department": department_for_payload,
                 "company": user_company,
             }
             if user_data.password:
@@ -544,6 +671,7 @@ class UserCreateRequest(BaseModel):
     email: EmailStr = Field(..., description="Email address")
     password: str = Field(..., min_length=6, description="Password")
     password_confirm: str = Field(..., description="Password confirmation")
+    musteri_department: str | None = Field(None, min_length=1, description="Müşteri alt departman/şirket")
     station_id: int | None = Field(None, description="Station ID (required for operator, not for musteri)")
     role: UserRoleType = Field(..., description="Role: musteri or operator")
 
@@ -560,6 +688,12 @@ class UserCreateRequest(BaseModel):
         # Station ID should not be provided for musteri role
         if self.role == UserRoleType.MUSTERI and self.station_id is not None:
             raise ValueError('Müşteri rolü için atölye seçilmemelidir')
+
+        # Musteri department is required for musteri role
+        if self.role == UserRoleType.MUSTERI and not self.musteri_department:
+            raise ValueError('Müşteri rolü için şirket/departman bilgisi zorunludur')
+        if self.role == UserRoleType.OPERATOR and self.musteri_department is not None:
+            raise ValueError('Operatör rolü için müşteri şirket/departman bilgisi gönderilmemelidir')
         
         return self
 
@@ -621,6 +755,20 @@ async def create_user_for_station(
 
     # Construct the role with the new format: "atolye:<role>"
     full_role = f"atolye:{user_data.role.value}"
+
+    # Department mapping:
+    # - all roles keep main company in department
+    # - musteri-specific company is stored in an extra role
+    target_department = user_company
+    role_values = [full_role]
+    if user_data.role == UserRoleType.MUSTERI:
+        musteri_department = (user_data.musteri_department or "").strip()
+        if ":" in musteri_department:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Müşteri şirket/departman bilgisinde ':' karakteri kullanılamaz"
+            )
+        role_values.append(f"atolye:musteri_company:{musteri_department}")
 
     # Create user in PocketBase
     pb_user_id = None
@@ -708,8 +856,8 @@ async def create_user_for_station(
                 "password": user_data.password,
                 "passwordConfirm": user_data.password_confirm,
                 "name": user_data.name,
-                "role": [full_role],
-                "department": user_company,
+                "role": role_values,
+                "department": target_department,
                 "company": user_company,
             }
 
@@ -807,6 +955,7 @@ async def create_user_for_station(
         "email": user_data.email,
         "station_id": new_user.workshop_id,  # Will be None for musteri role
         "company": user_company,
+        "department": target_department,
         "role": full_role,
         "pocketbase_id": pb_user_id,
         "message": f"User created successfully. Role: {full_role}."

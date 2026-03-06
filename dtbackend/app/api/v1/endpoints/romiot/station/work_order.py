@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -8,7 +9,7 @@ from app.api.v1.endpoints.romiot.station.auth import check_station_operator_role
 from app.core.auth import check_authenticated
 from app.core.database import get_postgres_db, get_romiot_db
 from app.models.postgres_models import User as PostgresUser
-from app.models.romiot_models import PriorityToken, Station, WorkOrder
+from app.models.romiot_models import PriorityToken, QRCodeData, Station, WorkOrder
 from app.schemas.user import User
 from app.services.user_service import UserService
 from app.schemas.work_order import (
@@ -24,6 +25,18 @@ from app.schemas.work_order import (
 )
 
 router = APIRouter()
+
+
+def _extract_musteri_company_from_roles(role_values: list[str] | None) -> str | None:
+    if not role_values:
+        return None
+    prefix = "atolye:musteri_company:"
+    for role in role_values:
+        if isinstance(role, str) and role.startswith(prefix):
+            value = role[len(prefix):].strip()
+            if value:
+                return value
+    return None
 
 
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -113,6 +126,7 @@ async def create_work_order(
         main_customer=work_order_data.main_customer,
         sector=work_order_data.sector,
         company_from=work_order_data.company_from,
+        teklif_number=work_order_data.teklif_number,
         aselsan_order_number=work_order_data.aselsan_order_number,
         order_item_number=work_order_data.order_item_number,
         part_number=work_order_data.part_number,
@@ -349,19 +363,32 @@ async def get_all_work_orders(
     from sqlalchemy import case, desc
     
     # Company is now taken from department; roles are company-independent
-    has_atolye_role = (
-        current_user.role
-        and isinstance(current_user.role, list)
-        and any(
-            role in {"atolye:operator", "atolye:yonetici", "atolye:musteri", "atolye:satinalma"}
-            for role in current_user.role
-        )
+    role_values = current_user.role if current_user.role and isinstance(current_user.role, list) else []
+    has_atolye_role = any(
+        role in {"atolye:operator", "atolye:yonetici", "atolye:musteri", "atolye:satinalma"}
+        for role in role_values
     )
-    company = (current_user.department or "").strip()
+
+    department_value = (current_user.department or "").strip()
+    company = department_value
+    musteri_department = None
+    is_musteri = "atolye:musteri" in role_values
+    is_yonetici = "atolye:yonetici" in role_values
+    if is_musteri:
+        musteri_department = _extract_musteri_company_from_roles(role_values)
+        if not musteri_department and ":" in department_value:
+            # Backward compatibility for old department format XXX:YYY
+            company, musteri_department = department_value.split(":", 1)
+            company = company.strip()
+            musteri_department = musteri_department.strip()
+        if not musteri_department:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Müşteri şirket bilgisi rol üzerinde bulunamadı"
+            )
+
     is_aselsan_satinalma = (
-        current_user.role
-        and isinstance(current_user.role, list)
-        and "atolye:satinalma" in current_user.role
+        "atolye:satinalma" in role_values
         and company.upper() == "ASELSAN"
     )
     
@@ -383,7 +410,7 @@ async def get_all_work_orders(
     stations = stations_result.scalars().all()
     station_ids = [station.id for station in stations]
     
-    if not station_ids:
+    if not station_ids and not (is_yonetici or is_musteri):
         return PaginatedWorkOrderResponse(
             items=[],
             total=0,
@@ -400,6 +427,8 @@ async def get_all_work_orders(
         WorkOrder.station_id.in_(station_ids),
         WorkOrder.delivered == False,
     ]
+    if is_musteri and musteri_department:
+        base_conditions.append(WorkOrder.company_from == musteri_department)
 
     # Apply search filters (OR when both provided, AND individually)
     from sqlalchemy import or_
@@ -427,6 +456,8 @@ async def get_all_work_orders(
             WorkOrder.station_id.in_(filtered_station_ids),
             WorkOrder.delivered == False,
         ]
+        if is_musteri and musteri_department:
+            base_conditions.append(WorkOrder.company_from == musteri_department)
         if search_part_number and search_order_number:
             base_conditions.append(or_(
                 WorkOrder.part_number.ilike(f"%{search_part_number}%"),
@@ -436,6 +467,173 @@ async def get_all_work_orders(
             base_conditions.append(WorkOrder.part_number.ilike(f"%{search_part_number}%"))
         elif search_order_number:
             base_conditions.append(WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"))
+
+    # Yönetici and müşteri can also see created-but-not-scanned work orders from QR store.
+    # To include those groups in pagination, use Python-side grouping for these roles.
+    if is_yonetici or is_musteri:
+        scanned_result = await romiot_db.execute(
+            select(WorkOrder).where(and_(*base_conditions))
+        )
+        scanned_work_orders = scanned_result.scalars().all()
+
+        scanned_group_ids = {wo.work_order_group_id for wo in scanned_work_orders}
+        user_ids = list({wo.user_id for wo in scanned_work_orders if wo.user_id is not None})
+        user_map: dict[int, str | None] = {}
+        if user_ids:
+            users_result = await postgres_db.execute(
+                select(PostgresUser).where(PostgresUser.id.in_(user_ids))
+            )
+            users = users_result.scalars().all()
+            user_map = {user.id: user.name for user in users}
+
+        station_exit_map = {station.id: station.is_exit_station for station in stations}
+        grouped_entries: dict[str, list[WorkOrderDetail]] = {}
+        for wo in scanned_work_orders:
+            grouped_entries.setdefault(wo.work_order_group_id, []).append(
+                WorkOrderDetail(
+                    id=wo.id,
+                    station_id=wo.station_id,
+                    station_name=station_map.get(wo.station_id, "Unknown"),
+                    is_exit_station=station_exit_map.get(wo.station_id, False),
+                    user_id=wo.user_id,
+                    user_name=user_map.get(wo.user_id, "Unknown"),
+                    work_order_group_id=wo.work_order_group_id,
+                    main_customer=wo.main_customer,
+                    sector=wo.sector,
+                    company_from=wo.company_from,
+                    teklif_number=wo.teklif_number,
+                    aselsan_order_number=wo.aselsan_order_number,
+                    order_item_number=wo.order_item_number,
+                    part_number=wo.part_number,
+                    quantity=wo.quantity,
+                    total_quantity=wo.total_quantity,
+                    package_index=wo.package_index,
+                    total_packages=wo.total_packages,
+                    priority=wo.priority,
+                    prioritized_by=wo.prioritized_by,
+                    delivered=wo.delivered,
+                    target_date=wo.target_date,
+                    entrance_date=wo.entrance_date,
+                    exit_date=wo.exit_date,
+                )
+            )
+
+        if not search_station:
+            qr_rows_result = await romiot_db.execute(
+                select(QRCodeData).where(QRCodeData.company == target_company)
+            )
+            qr_rows = qr_rows_result.scalars().all()
+            synthetic_id = -1
+
+            for qr_row in qr_rows:
+                try:
+                    payload = json.loads(qr_row.data)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    continue
+
+                group_id = str(payload.get("work_order_group_id") or "").strip()
+                if not group_id or group_id in scanned_group_ids:
+                    continue
+
+                company_from = str(payload.get("company_from") or "").strip()
+                if is_musteri and musteri_department and company_from != musteri_department:
+                    continue
+
+                part_number = str(payload.get("part_number") or "")
+                order_number = str(payload.get("aselsan_order_number") or "")
+                if search_part_number and search_order_number:
+                    if (search_part_number.lower() not in part_number.lower()) and (
+                        search_order_number.lower() not in order_number.lower()
+                    ):
+                        continue
+                elif search_part_number and search_part_number.lower() not in part_number.lower():
+                    continue
+                elif search_order_number and search_order_number.lower() not in order_number.lower():
+                    continue
+
+                try:
+                    quantity = int(payload.get("quantity") or 0)
+                    total_quantity = int(payload.get("total_quantity") or 0)
+                    package_index = int(payload.get("package_index") or 0)
+                    total_packages = int(payload.get("total_packages") or 0)
+                except (TypeError, ValueError):
+                    continue
+
+                target_date_value = payload.get("target_date")
+                target_date = None
+                if isinstance(target_date_value, str) and target_date_value:
+                    try:
+                        target_date = datetime.fromisoformat(target_date_value).date()
+                    except ValueError:
+                        target_date = None
+
+                grouped_entries.setdefault(group_id, []).append(
+                    WorkOrderDetail(
+                        id=synthetic_id,
+                        station_id=0,
+                        station_name="Henüz okutulmadı",
+                        is_exit_station=False,
+                        user_id=0,
+                        user_name=None,
+                        work_order_group_id=group_id,
+                        main_customer=str(payload.get("main_customer") or ""),
+                        sector=str(payload.get("sector") or ""),
+                        company_from=company_from,
+                        teklif_number=str(payload.get("teklif_number") or "MKS-000000"),
+                        aselsan_order_number=order_number,
+                        order_item_number=str(payload.get("order_item_number") or ""),
+                        part_number=part_number,
+                        quantity=quantity,
+                        total_quantity=total_quantity,
+                        package_index=package_index,
+                        total_packages=total_packages,
+                        priority=0,
+                        prioritized_by=None,
+                        delivered=False,
+                        target_date=target_date,
+                        entrance_date=None,
+                        exit_date=None,
+                    )
+                )
+                synthetic_id -= 1
+
+        def _entry_sort_ts(entry: WorkOrderDetail) -> int:
+            dt = entry.exit_date or entry.entrance_date
+            if not dt:
+                return 0
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return int(dt.timestamp())
+
+        for group_id in grouped_entries:
+            grouped_entries[group_id].sort(key=_entry_sort_ts, reverse=True)
+
+        sorted_group_ids = sorted(
+            grouped_entries.keys(),
+            key=lambda gid: (
+                -max((entry.priority for entry in grouped_entries[gid]), default=0),
+                -int(any(entry.exit_date is None for entry in grouped_entries[gid])),
+                -max((_entry_sort_ts(entry) for entry in grouped_entries[gid]), default=0),
+            ),
+        )
+
+        total_groups = len(sorted_group_ids)
+        total_pages = (total_groups + page_size - 1) // page_size if total_groups > 0 else 0
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        selected_group_ids = sorted_group_ids[start_idx:end_idx]
+
+        detailed_work_orders: list[WorkOrderDetail] = []
+        for gid in selected_group_ids:
+            detailed_work_orders.extend(grouped_entries[gid])
+
+        return PaginatedWorkOrderResponse(
+            items=detailed_work_orders,
+            total=total_groups,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+        )
 
     # Create a CTE with group metadata using work_order_group_id
     group_metadata_cte = select(
@@ -486,6 +684,7 @@ async def get_all_work_orders(
         ranked_groups_cte.c.main_customer,
         ranked_groups_cte.c.sector,
         ranked_groups_cte.c.company_from,
+        ranked_groups_cte.c.teklif_number,
         ranked_groups_cte.c.aselsan_order_number,
         ranked_groups_cte.c.order_item_number,
         ranked_groups_cte.c.part_number,
@@ -535,6 +734,7 @@ async def get_all_work_orders(
             main_customer=row.main_customer,
             sector=row.sector,
             company_from=row.company_from,
+            teklif_number=row.teklif_number,
             aselsan_order_number=row.aselsan_order_number,
             order_item_number=row.order_item_number,
             part_number=row.part_number,
