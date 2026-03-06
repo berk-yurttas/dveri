@@ -71,48 +71,57 @@ def get_clickhouse_db():
 # AFLOW MSSQL Connection
 def get_aflow_connection():
     import pyodbc
-    import subprocess
-    import os
     
-    # Try to find an available SQL Server ODBC driver
-    available_drivers = [driver for driver in pyodbc.drivers() if 'SQL Server' in driver]
+    # Ensure ODBC environment is set for this connection
+    os.environ['ODBCSYSINI'] = '/etc'
     
-    if not available_drivers:
-        # Try to get drivers from odbcinst as fallback
+    # List of drivers to try in order
+    drivers_to_try = [
+        'ODBC Driver 18 for SQL Server',
+        'ODBC Driver 17 for SQL Server',
+    ]
+    
+    # Try to auto-detect drivers first
+    try:
+        available_drivers = [d for d in pyodbc.drivers() if 'SQL Server' in d]
+        if available_drivers:
+            print(f"Available SQL Server drivers: {available_drivers}")
+            # Prefer the ones in our list
+            for preferred in drivers_to_try:
+                if preferred in available_drivers:
+                    drivers_to_try = [preferred]
+                    break
+    except Exception as e:
+        print(f"Warning: Could not auto-detect drivers: {e}")
+    
+    # Try each driver in order
+    last_error = None
+    for driver in drivers_to_try:
         try:
-            result = subprocess.run(['odbcinst', '-q', '-d'], capture_output=True, text=True, check=False)
-            if 'ODBC Driver 17 for SQL Server' in result.stdout:
-                print("Warning: Driver found via odbcinst but not via pyodbc. Using ODBC Driver 17 for SQL Server.")
-                driver = 'ODBC Driver 17 for SQL Server'
-            elif 'ODBC Driver 18 for SQL Server' in result.stdout:
-                print("Warning: Driver found via odbcinst but not via pyodbc. Using ODBC Driver 18 for SQL Server.")
-                driver = 'ODBC Driver 18 for SQL Server'
-            else:
-                raise Exception(
-                    f"No SQL Server ODBC driver found. "
-                    f"pyodbc.drivers() returned: {pyodbc.drivers()}. "
-                    f"Please ensure ODBC Driver 17 or 18 is installed and ODBCSYSINI environment variable is set."
-                )
-        except FileNotFoundError:
-            raise Exception("No SQL Server ODBC driver found and odbcinst command not available.")
+            connection_string = (
+                f'DRIVER={{{driver}}};'
+                'SERVER=10.60.139.2,1433;'
+                'DATABASE=AFLOW;'
+                'UID=sa;'
+                'PWD=sapass-1;'
+                'TrustServerCertificate=yes;'
+            )
+            print(f"Attempting connection with driver: {driver}")
+            conn = pyodbc.connect(connection_string)
+            print(f"✓ Successfully connected with driver: {driver}")
+            return conn
+        except pyodbc.Error as e:
+            print(f"Failed with driver '{driver}': {e}")
+            last_error = e
+            continue
+    
+    # If all drivers failed, raise the last error
+    if last_error:
+        raise Exception(
+            f"Failed to connect to SQL Server with any available driver. "
+            f"Last error: {last_error}. "
+            f"Tried drivers: {drivers_to_try}. "
+            f"Please ensure ODBC Driver 17 or 18 is properly installed on Linux."
+        )
     else:
-        # Prefer ODBC Driver 18, then 17, then any available SQL Server driver
-        driver = None
-        for preferred in ['ODBC Driver 18 for SQL Server', 'ODBC Driver 17 for SQL Server']:
-            if preferred in available_drivers:
-                driver = preferred
-                break
-        
-        if not driver:
-            driver = available_drivers[0]
-    
-    connection_string = (
-        f'DRIVER={{{driver}}};'
-        'SERVER=10.60.139.2,1433;'
-        'DATABASE=AFLOW;'
-        'UID=sa;'
-        'PWD=sapass-1'
-    )
-    
-    print(f"Attempting connection with driver: {driver}")
-    return pyodbc.connect(connection_string)
+        raise Exception("No SQL Server ODBC drivers available to try.")
