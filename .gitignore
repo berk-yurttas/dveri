@@ -9,3 +9,6 @@ __pycache__/
 *.pyd
 .Python
 .env
+
+# Offline ODBC packages (binary .deb files)
+offline_packages/

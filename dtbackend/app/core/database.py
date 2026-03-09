@@ -1,8 +1,13 @@
+import os
 from clickhouse_driver import Client
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
 
 from app.core.config import settings
+
+# Ensure ODBC can find configuration on Linux
+if not os.environ.get('ODBCSYSINI'):
+    os.environ['ODBCSYSINI'] = '/etc'
 
 # PostgreSQL (for metadata) - Async
 postgres_engine = create_async_engine(
@@ -66,11 +71,57 @@ def get_clickhouse_db():
 # AFLOW MSSQL Connection
 def get_aflow_connection():
     import pyodbc
-    connection_string = (
-        'DRIVER={ODBC Driver 17 for SQL Server};'
-        'SERVER=10.60.139.2,1433;'
-        'DATABASE=AFLOW;'
-        'UID=sa;'
-        'PWD=sapass-1'
-    )
-    return pyodbc.connect(connection_string)
+    
+    # Ensure ODBC environment is set for this connection
+    os.environ['ODBCSYSINI'] = '/etc'
+    
+    # List of drivers to try in order
+    drivers_to_try = [
+        'ODBC Driver 18 for SQL Server',
+        'ODBC Driver 17 for SQL Server',
+    ]
+    
+    # Try to auto-detect drivers first
+    try:
+        available_drivers = [d for d in pyodbc.drivers() if 'SQL Server' in d]
+        if available_drivers:
+            print(f"Available SQL Server drivers: {available_drivers}")
+            # Prefer the ones in our list
+            for preferred in drivers_to_try:
+                if preferred in available_drivers:
+                    drivers_to_try = [preferred]
+                    break
+    except Exception as e:
+        print(f"Warning: Could not auto-detect drivers: {e}")
+    
+    # Try each driver in order
+    last_error = None
+    for driver in drivers_to_try:
+        try:
+            connection_string = (
+                f'DRIVER={{{driver}}};'
+                'SERVER=10.60.139.2,1433;'
+                'DATABASE=AFLOW;'
+                'UID=sa;'
+                'PWD=sapass-1;'
+                'TrustServerCertificate=yes;'
+            )
+            print(f"Attempting connection with driver: {driver}")
+            conn = pyodbc.connect(connection_string)
+            print(f"✓ Successfully connected with driver: {driver}")
+            return conn
+        except pyodbc.Error as e:
+            print(f"Failed with driver '{driver}': {e}")
+            last_error = e
+            continue
+    
+    # If all drivers failed, raise the last error
+    if last_error:
+        raise Exception(
+            f"Failed to connect to SQL Server with any available driver. "
+            f"Last error: {last_error}. "
+            f"Tried drivers: {drivers_to_try}. "
+            f"Please ensure ODBC Driver 17 or 18 is properly installed on Linux."
+        )
+    else:
+        raise Exception("No SQL Server ODBC drivers available to try.")
