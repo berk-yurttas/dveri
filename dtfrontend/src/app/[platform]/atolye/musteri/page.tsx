@@ -4,6 +4,7 @@ import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import QRCodeSVG from "react-qr-code";
+import { DateInput } from "@/components/ui/date-input";
 
 interface PackageInfo {
   code: string;
@@ -473,10 +474,9 @@ export default function MusteriPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Bitirme Tarihi *</label>
-                <input
-                  type="date"
+                <DateInput
                   value={barcodeFormData.target_date}
-                  onChange={(e) => setBarcodeFormData({ ...barcodeFormData, target_date: e.target.value })}
+                  onChange={(value) => setBarcodeFormData({ ...barcodeFormData, target_date: value })}
                   min={(() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split("T")[0]; })()}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                   required
