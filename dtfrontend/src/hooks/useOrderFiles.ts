@@ -129,35 +129,11 @@ export function useOrderFiles() {
         return files;
       };
 
-      let rootHandle = await getStoredDirectoryHandle();
+      const rootHandle = await getStoredDirectoryHandle();
       try {
         return await tryReadOrderFolder(rootHandle);
       } catch {
-        // If order folder is not found under current root, let user pick a new Merkez Dizin and retry once.
-        if (typeof window === "undefined" || typeof window.showDirectoryPicker !== "function") {
-          throw new Error("Parça klasörü bulunamadı.");
-        }
-        let newHandle: FileSystemDirectoryHandle;
-        try {
-          newHandle = await window.showDirectoryPicker();
-        } catch {
-          throw new Error("Parça klasörü bulunamadı. Lütfen yeni bir merkez dizin seçin.");
-        }
-
-        const granted = await ensureReadPermission(newHandle);
-        if (!granted) {
-          throw new Error("Klasör izni iptal edilmiş. Lütfen tekrar seçin.");
-        }
-
-        await putHandle("ordersRootDirectory", newHandle);
-        setSelectedHandle(newHandle);
-        rootHandle = newHandle;
-
-        try {
-          return await tryReadOrderFolder(rootHandle);
-        } catch {
-          throw new Error("Parça klasörü bulunamadı.");
-        }
+        throw new Error("Parça klasörü bulunamadı.");
       }
     },
     [getStoredDirectoryHandle]

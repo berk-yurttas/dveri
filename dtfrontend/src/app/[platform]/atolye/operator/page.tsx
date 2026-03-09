@@ -4,6 +4,7 @@ import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "@/lib/api";
 import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
+import QRCodeSVG from "react-qr-code";
 
 type Mode = "entrance" | "exit" | null;
 
@@ -108,6 +109,12 @@ interface WorkOrderExitResponse {
   total_packages: number;
   all_exited: boolean;
   message: string;
+}
+
+interface WorkOrderQrCode {
+  code: string;
+  package_index: number;
+  quantity: number;
 }
 
 // Map QR code data to API payload
@@ -228,6 +235,9 @@ export default function OperatorPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [lastScannedPartNumber, setLastScannedPartNumber] = useState<string | null>(null);
+  const [qrCodesByGroup, setQrCodesByGroup] = useState<Record<string, WorkOrderQrCode[]>>({});
+  const [qrModalGroupId, setQrModalGroupId] = useState<string | null>(null);
+  const [selectedQrIndexByGroup, setSelectedQrIndexByGroup] = useState<Record<string, number>>({});
 
   // Check user roles and fetch station
   useEffect(() => {
@@ -596,6 +606,17 @@ export default function OperatorPage() {
     return { text: stationName, active: false };
   };
 
+  const fetchGroupQrCodes = useCallback(async (groupId: string) => {
+    if (qrCodesByGroup[groupId]) return;
+    const codes = await api.get<WorkOrderQrCode[]>(
+      `/romiot/station/qr-code/group/${encodeURIComponent(groupId)}`,
+      undefined,
+      { useCache: false }
+    );
+    setQrCodesByGroup((prev) => ({ ...prev, [groupId]: (codes || []).sort((a, b) => a.package_index - b.package_index) }));
+    setSelectedQrIndexByGroup((prev) => ({ ...prev, [groupId]: 0 }));
+  }, [qrCodesByGroup]);
+
   if (!isOperator && !isYonetici) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -931,6 +952,24 @@ export default function OperatorPage() {
                                     )}
                                   </div>
 
+                                  <div className="mb-4">
+                                    <button
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        try {
+                                          await fetchGroupQrCodes(wo.work_order_group_id);
+                                          setQrModalGroupId(wo.work_order_group_id);
+                                        } catch (err) {
+                                          console.error("Error fetching group QR codes:", err);
+                                          setError("QR kodları yüklenirken hata oluştu");
+                                        }
+                                      }}
+                                      className="px-3 py-1.5 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg text-xs font-medium transition-colors"
+                                    >
+                                      QR Kodları Gör
+                                    </button>
+                                  </div>
+
                                   {/* Package progress bar */}
                                   <div className="mb-4 bg-white rounded p-3 border border-gray-200">
                                     <div className="flex items-center gap-2 mb-2">
@@ -1020,6 +1059,111 @@ export default function OperatorPage() {
             </div>
           )}
         </div>
+
+        {qrModalGroupId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+            <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900">QR Kodları</h3>
+                <button
+                  onClick={() => setQrModalGroupId(null)}
+                  className="text-gray-500 hover:text-gray-700 text-xl leading-none"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="p-6">
+                {(() => {
+                  const wo = groupedWorkOrders.find((g) => g.work_order_group_id === qrModalGroupId);
+                  const packages = qrCodesByGroup[qrModalGroupId] || [];
+                  const selectedIndex = selectedQrIndexByGroup[qrModalGroupId] || 0;
+                  const selectedPkg = packages[selectedIndex];
+                  if (!wo || packages.length === 0) {
+                    return <p className="text-sm text-gray-600">Bu iş emri için QR kod bulunamadı.</p>;
+                  }
+
+                  return (
+                    <div>
+                      <div className="mb-4 flex flex-wrap gap-2">
+                        {packages.map((pkg, idx) => (
+                          <button
+                            key={`${pkg.package_index}-${idx}`}
+                            onClick={() =>
+                              setSelectedQrIndexByGroup((prev) => ({ ...prev, [qrModalGroupId]: idx }))
+                            }
+                            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                              selectedIndex === idx
+                                ? "bg-[#0f4c3a] text-white"
+                                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                            }`}
+                          >
+                            Paket {pkg.package_index}
+                          </button>
+                        ))}
+                      </div>
+
+                      {selectedPkg && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="flex justify-center">
+                            <div className="bg-white p-4 rounded-lg border border-gray-200">
+                              <QRCodeSVG value={selectedPkg.code} size={220} />
+                            </div>
+                          </div>
+                          <div className="text-sm">
+                            <table className="w-full border-collapse">
+                              <tbody>
+                                <tr className="border-b border-gray-200">
+                                  <td className="py-2 pr-3 font-medium text-gray-600">Ana Müşteri</td>
+                                  <td className="py-2 text-gray-900">{wo.main_customer}</td>
+                                </tr>
+                                <tr className="border-b border-gray-200">
+                                  <td className="py-2 pr-3 font-medium text-gray-600">Sektör</td>
+                                  <td className="py-2 text-gray-900">{wo.sector}</td>
+                                </tr>
+                                <tr className="border-b border-gray-200">
+                                  <td className="py-2 pr-3 font-medium text-gray-600">Gönderen Firma</td>
+                                  <td className="py-2 text-gray-900">{wo.company_from}</td>
+                                </tr>
+                                <tr className="border-b border-gray-200">
+                                  <td className="py-2 pr-3 font-medium text-gray-600">Teklif Numarası</td>
+                                  <td className="py-2 text-gray-900">{wo.teklif_number}</td>
+                                </tr>
+                                <tr className="border-b border-gray-200">
+                                  <td className="py-2 pr-3 font-medium text-gray-600">{wo.main_customer} Sipariş Numarası</td>
+                                  <td className="py-2 text-gray-900">
+                                    {wo.total_packages > 1 ? `${wo.aselsan_order_number}_${selectedPkg.package_index}` : wo.aselsan_order_number}
+                                  </td>
+                                </tr>
+                                <tr className="border-b border-gray-200">
+                                  <td className="py-2 pr-3 font-medium text-gray-600">Sipariş Kalem Numarası</td>
+                                  <td className="py-2 text-gray-900">{wo.order_item_number}</td>
+                                </tr>
+                                <tr className="border-b border-gray-200">
+                                  <td className="py-2 pr-3 font-medium text-gray-600">Parça Numarası</td>
+                                  <td className="py-2 text-gray-900">{wo.part_number}</td>
+                                </tr>
+                                <tr className="border-b border-gray-200">
+                                  <td className="py-2 pr-3 font-medium text-gray-600">Toplam Sipariş Miktarı</td>
+                                  <td className="py-2 text-gray-900">{selectedPkg.quantity}/{wo.total_quantity}</td>
+                                </tr>
+                                <tr>
+                                  <td className="py-2 pr-3 font-medium text-gray-600">Hedef Bitirme Tarihi</td>
+                                  <td className="py-2 text-gray-900">
+                                    {wo.target_date ? new Date(wo.target_date).toLocaleDateString("tr-TR") : "-"}
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

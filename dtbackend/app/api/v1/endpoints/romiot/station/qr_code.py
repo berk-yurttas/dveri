@@ -66,20 +66,20 @@ async def generate_qr_code(
     Generate a compressed QR code by storing data and returning a short code.
     The short code (10-12 characters) can be used in QR instead of full JSON.
     Accepts any JSON structure for future flexibility.
-    Requires 'atolye:musteri' role.
+    Requires 'atolye:musteri' or 'atolye:yonetici' role.
     """
     # Company is now read from department; role is company-independent
     user_company = (current_user.department or "").strip()
-    has_musteri_role = (
+    has_create_role = (
         current_user.role
         and isinstance(current_user.role, list)
-        and "atolye:musteri" in current_user.role
+        and ("atolye:musteri" in current_user.role or "atolye:yonetici" in current_user.role)
     )
     
-    if not has_musteri_role or not user_company:
+    if not has_create_role or not user_company:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="QR kod oluşturma yetkisi yok. Müşteri rolü gereklidir."
+            detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir."
         )
     
     # Convert the data dict to JSON string
@@ -133,20 +133,20 @@ async def generate_qr_code_batch(
     Generate multiple QR codes for a work order, splitting by package quantity.
     For example: quantity=115, package_quantity=25 generates 5 QR codes
     (4 packages of 25 and 1 package of 15).
-    Requires 'atolye:musteri' role.
+    Requires 'atolye:musteri' or 'atolye:yonetici' role.
     """
     # Company is now read from department; role is company-independent
     user_company = (current_user.department or "").strip()
-    has_musteri_role = (
+    has_create_role = (
         current_user.role
         and isinstance(current_user.role, list)
-        and "atolye:musteri" in current_user.role
+        and ("atolye:musteri" in current_user.role or "atolye:yonetici" in current_user.role)
     )
     
-    if not has_musteri_role or not user_company:
+    if not has_create_role or not user_company:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="QR kod oluşturma yetkisi yok. Müşteri rolü gereklidir."
+            detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir."
         )
     
     # Calculate packages
