@@ -660,11 +660,11 @@ export default function WorkOrdersPage() {
   const tokensNeeded = calculateTokensNeeded();
   const hasEdits = priorityEdits.size > 0;
   return (
-    <div className="min-h-screen p-8 bg-gray-50">
+    <div className="min-h-screen p-4 sm:p-8 bg-gray-50">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8 flex items-start justify-between gap-4">
+        <div className="mb-6 sm:mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">İş Emirleri</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">İş Emirleri</h1>
           <p className="text-gray-600">
             {isSatinalma
               ? "İş emirlerinin öncelik sıralamasını belirleyin"
@@ -762,19 +762,19 @@ export default function WorkOrdersPage() {
         )}
 
         {/* Work Orders Table */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
+          <table className="min-w-[700px] w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Numarası</th>
-                {!isMusteri && (
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Dökümanları</th>
-                )}
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Öncelik</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Müşteri Bilgisi</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Hangi Atölyede</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Kaç Gündür Atölyede</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Adet</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Müşteri Bilgisi</th>
+                {!isMusteri && (
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Dökümanları</th>
+                )}
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 w-8"></th>
               </tr>
             </thead>
@@ -807,17 +807,8 @@ export default function WorkOrdersPage() {
                           <div className="text-xs text-gray-500">{wo.aselsan_order_number}</div>
                           <div className="text-xs text-gray-500">{wo.teklif_number}</div>
                         </td>
-                        {!isMusteri && (
-                          <td className="px-4 py-3">
-                            <OrderFilesViewer orderId={wo.part_number} />
-                          </td>
-                        )}
                         <td className="px-4 py-3">
                           {renderPriorityDisplay(wo)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-sm text-gray-900">{wo.company_from}</div>
-                          <div className="text-xs text-gray-500">{wo.main_customer} - {wo.sector}</div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
@@ -837,6 +828,15 @@ export default function WorkOrdersPage() {
                         <td className="px-4 py-3">
                           <span className="text-sm text-gray-900">{wo.total_quantity}</span>
                         </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm text-gray-900">{wo.company_from}</div>
+                          <div className="text-xs text-gray-500">{wo.main_customer} - {wo.sector}</div>
+                        </td>
+                        {!isMusteri && (
+                          <td className="px-4 py-3">
+                            <OrderFilesViewer orderId={wo.part_number} stationName={currentStation !== "-" ? currentStation : undefined} />
+                          </td>
+                        )}
                         <td className="px-4 py-3">
                           <svg
                             className={`h-5 w-5 text-gray-400 transition-transform ${isExpanded ? 'transform rotate-180' : ''}`}
@@ -959,7 +959,7 @@ export default function WorkOrdersPage() {
 
         {/* Pagination */}
         <div className="mt-4 bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-700">
                 Sayfa <span className="font-medium">{currentPage}</span> / <span className="font-medium">{totalPages}</span>

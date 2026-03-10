@@ -107,8 +107,8 @@ export default function MusteriPage() {
       setError("Hedef Bitirme Tarihi zorunludur");
       return;
     }
-    if (!/^MKS-\d{6}$/.test(barcodeFormData.teklif_number.trim())) {
-      setError("Teklif Numarası formatı MKS-XXXXXX olmalıdır");
+    if (!barcodeFormData.teklif_number.trim()) {
+      setError("Teklif Numarası zorunludur");
       return;
     }
 
@@ -315,9 +315,9 @@ export default function MusteriPage() {
   }
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50">
+    <div className="min-h-screen p-4 sm:p-8 bg-gray-50">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Barkod Oluştur</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6 sm:mb-8">Barkod Oluştur</h1>
 
         {error && (
           <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg shadow-sm">
@@ -336,7 +336,7 @@ export default function MusteriPage() {
         )}
 
         <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">İş Emri Bilgileri</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-6">İş Emri Bilgileri</h2>
           <form onSubmit={handleGenerateBarcode}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -357,6 +357,7 @@ export default function MusteriPage() {
                   <option value="ASELSAN">ASELSAN</option>
                   <option value="ROKETSAN">ROKETSAN</option>
                   <option value="TUSAŞ">TUSAŞ</option>
+                  <option value="DİĞER">DİĞER</option>
                 </select>
               </div>
               <div>
@@ -397,19 +398,9 @@ export default function MusteriPage() {
                 <input
                   type="text"
                   value={barcodeFormData.teklif_number}
-                  onChange={(e) => {
-                    const raw = e.target.value.toUpperCase();
-                    if (raw === "") {
-                      setBarcodeFormData({ ...barcodeFormData, teklif_number: "" });
-                      return;
-                    }
-                    const digits = raw.replace(/^MKS-?/, "").replace(/\D/g, "").slice(0, 6);
-                    setBarcodeFormData({ ...barcodeFormData, teklif_number: `MKS-${digits}` });
-                  }}
+                  onChange={(e) => setBarcodeFormData({ ...barcodeFormData, teklif_number: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                  placeholder="MKS-123456"
-                  pattern="^MKS-\d{6}$"
-                  title="Format: MKS-123456"
+                  placeholder="Teklif numarasını giriniz"
                   required
                 />
               </div>
@@ -496,9 +487,9 @@ export default function MusteriPage() {
         {/* Generated QR Codes Display */}
         {generatedBatch && (
           <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Oluşturulan QR Kodlar</h2>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Oluşturulan QR Kodlar</h2>
                 <p className="text-sm text-gray-600 mt-1">
                   İş Emri: {generatedBatch.work_order_group_id} - {generatedBatch.total_packages} paket, toplam{" "}
                   {generatedBatch.total_quantity} parça

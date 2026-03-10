@@ -212,11 +212,11 @@ export default function KullaniciYonetimiPage() {
   }
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50">
+    <div className="min-h-screen p-4 sm:p-8 bg-gray-50">
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Kullanıcı Yönetimi</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Kullanıcı Yönetimi</h1>
             <p className="text-gray-600 mt-1">Şirketinizdeki kullanıcıları yönetin</p>
           </div>
           <button
@@ -248,11 +248,11 @@ export default function KullaniciYonetimiPage() {
           />
         </div>
 
-        <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+        <div className="bg-white rounded-lg shadow-lg overflow-x-auto">
           {loading ? (
             <div className="p-8 text-center text-gray-500">Yükleniyor...</div>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200">
+            <table className="min-w-[600px] w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Kullanıcı Adı</th>

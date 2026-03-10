@@ -85,10 +85,10 @@ export function AppHeader({ title, subtitle, customActions = [], onMobileMenuCli
         </div>
       )}
       {/* Center title and subtitle on screen */}
-      <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10">
+      <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
         <div className="flex flex-col items-center">
-          {title && !isIvmePlatform && <h1 className="text-xl font-semibold text-white text-center whitespace-nowrap">{title}</h1>}
-          {subtitle && !isIvmePlatform && <h2 className="text-sm font-semibold text-white text-center whitespace-nowrap">{subtitle}</h2>}
+          {title && !isIvmePlatform && <h1 className="hidden sm:block text-xl font-semibold text-white text-center whitespace-nowrap">{title}</h1>}
+          {subtitle && !isIvmePlatform && <h2 className="hidden sm:block text-sm font-semibold text-white text-center whitespace-nowrap">{subtitle}</h2>}
           {isIvmePlatform && (
             <img src="/ivme-aselsan.png" alt="İvme Aselsan" className="h-15 w-auto" />
           )}
@@ -96,38 +96,38 @@ export function AppHeader({ title, subtitle, customActions = [], onMobileMenuCli
       </div>
       
       {!isIvmePlatform && (
-      <div className="relative z-10 flex items-center gap-4">
+      <div className="relative z-10 flex items-center gap-2 sm:gap-4">
         {/* Homepage Link */}
         <Button
           variant="ghost"
           size="sm"
           onClick={() => router.push('/')}
-          className="text-white hover:bg-white/20 flex items-center gap-2"
+          className="text-white hover:bg-white/20 flex items-center gap-1 sm:gap-2 px-2 sm:px-3"
         >
-          <Home className="h-4 w-4" />
-          <span className="text-sm font-medium">Anasayfaya Git</span>
+          <Home className="h-4 w-4 shrink-0" />
+          <span className="hidden sm:inline text-sm font-medium">Anasayfaya Git</span>
         </Button>
         {/* Vertical Divider */}
         <div className="h-6 w-px bg-white/10" aria-hidden="true" />
         {/* Icons from environment variables */}
         {process.env.NEXT_PUBLIC_NOTIFICATION_ICON && (
           <a href={process.env.NEXT_PUBLIC_NOTIFICATION_LINK || '#'} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
-            <img src={process.env.NEXT_PUBLIC_NOTIFICATION_ICON} alt="Notifications" className="h-8 w-8 brightness-0 invert" />
+            <img src={process.env.NEXT_PUBLIC_NOTIFICATION_ICON} alt="Notifications" className="h-6 w-6 sm:h-8 sm:w-8 brightness-0 invert" />
           </a>
         )}
         {process.env.NEXT_PUBLIC_MENU_ICON && (
           <a href={process.env.NEXT_PUBLIC_MENU_LINK || '#'} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
-            <img  src={process.env.NEXT_PUBLIC_MENU_ICON} alt="Menu" className="h-8 w-8 brightness-0 invert" />
+            <img src={process.env.NEXT_PUBLIC_MENU_ICON} alt="Menu" className="h-6 w-6 sm:h-8 sm:w-8 brightness-0 invert" />
           </a>
         )}
         {process.env.NEXT_PUBLIC_PHONE_ICON && (
           <a href={process.env.NEXT_PUBLIC_PHONE_LINK || '#'} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
-            <img src={process.env.NEXT_PUBLIC_PHONE_ICON} alt="Phone" className="h-8 w-8 brightness-0 invert" />
+            <img src={process.env.NEXT_PUBLIC_PHONE_ICON} alt="Phone" className="h-6 w-6 sm:h-8 sm:w-8 brightness-0 invert" />
           </a>
         )}
         {process.env.NEXT_PUBLIC_SAYFAM_ICON && (
           <a href={process.env.NEXT_PUBLIC_SAYFAM_LINK || '#'} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
-            <img src={process.env.NEXT_PUBLIC_SAYFAM_ICON} alt="Sayfam" className="h-8 w-8 brightness-0 invert" />
+            <img src={process.env.NEXT_PUBLIC_SAYFAM_ICON} alt="Sayfam" className="h-6 w-6 sm:h-8 sm:w-8 brightness-0 invert" />
           </a>
         )}
         {/* Vertical Divider Between Actions and User Profile */}

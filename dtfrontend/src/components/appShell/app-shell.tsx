@@ -87,7 +87,7 @@ export function AppShell({
   }
 
   return (
-    <div className="flex min-h-screen relative overflow-hidden">
+    <div className="flex min-h-screen relative">
 
       {isDerinizPlatform && (
         // Arc Background Overlay

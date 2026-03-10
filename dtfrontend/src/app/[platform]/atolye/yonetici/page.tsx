@@ -180,10 +180,10 @@ export default function YoneticiPage() {
   }
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50">
+    <div className="min-h-screen p-4 sm:p-8 bg-gray-50">
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Atölye Yönetimi</h1>
+        <div className="flex items-center justify-between mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Atölye Yönetimi</h1>
         </div>
 
         {yoneticiSuccess && (
@@ -212,7 +212,7 @@ export default function YoneticiPage() {
           <div className="space-y-8">
             {/* Create Workshop Form */}
             <div className="bg-white rounded-lg shadow-lg p-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">Yeni Atölye Oluştur</h2>
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-6">Yeni Atölye Oluştur</h2>
               <form onSubmit={handleCreateStation}>
                 <div className="space-y-4">
                   <div>
@@ -266,7 +266,7 @@ export default function YoneticiPage() {
 
           {/* Create User Form */}
           <div className="bg-white rounded-lg shadow-lg p-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Yeni Kullanıcı Oluştur</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-6">Yeni Kullanıcı Oluştur</h2>
             <form onSubmit={handleCreateUser}>
               <div className="space-y-4">
                 <div>
@@ -330,7 +330,15 @@ export default function YoneticiPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Rol *</label>
                   <select
                     value={userFormData.role}
-                    onChange={(e) => setUserFormData({ ...userFormData, role: e.target.value as "musteri" | "operator", musteri_department: e.target.value === "musteri" ? userFormData.musteri_department : "" })}
+                    onChange={(e) => {
+                      const newRole = e.target.value as "musteri" | "operator";
+                      setUserFormData(prev => ({
+                        ...prev,
+                        role: newRole,
+                        musteri_department: newRole === "musteri" ? prev.musteri_department : "",
+                        station_id: newRole === "operator" ? prev.station_id : "",
+                      }));
+                    }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                     required
                     disabled={yoneticiLoading}

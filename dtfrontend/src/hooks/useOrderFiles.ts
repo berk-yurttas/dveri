@@ -107,14 +107,21 @@ export function useOrderFiles() {
   }, [selectedHandle]);
 
   const getOrderFiles = useCallback(
-    async (orderId: string): Promise<OrderFileItem[]> => {
+    async (orderId: string, stationName?: string): Promise<OrderFileItem[]> => {
       const folderName = orderId.trim();
       if (!folderName) {
         throw new Error("Geçersiz orderId.");
       }
 
-      const tryReadOrderFolder = async (rootHandle: FileSystemDirectoryHandle) => {
-        const orderDir = await rootHandle.getDirectoryHandle(folderName, { create: false });
+      const readOrderFolder = async (rootHandle: FileSystemDirectoryHandle) => {
+        let searchRoot = rootHandle;
+        if (stationName) {
+          const station = stationName.trim();
+          if (station) {
+            searchRoot = await rootHandle.getDirectoryHandle(station, { create: false });
+          }
+        }
+        const orderDir = await searchRoot.getDirectoryHandle(folderName, { create: false });
         const files: OrderFileItem[] = [];
         const directoryWithEntries = orderDir as FileSystemDirectoryHandle & {
           entries: () => AsyncIterableIterator<[string, FileSystemHandle]>;
@@ -131,7 +138,7 @@ export function useOrderFiles() {
 
       const rootHandle = await getStoredDirectoryHandle();
       try {
-        return await tryReadOrderFolder(rootHandle);
+        return await readOrderFolder(rootHandle);
       } catch {
         throw new Error("Parça klasörü bulunamadı.");
       }

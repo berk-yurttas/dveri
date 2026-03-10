@@ -144,9 +144,6 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
   if (!sector) errors.push("Sektör eksik");
   if (!companyFrom) errors.push("Gönderen Firma eksik");
   if (!teklifNumber) errors.push("Teklif Numarası eksik");
-  if (teklifNumber && !/^MKS-\d{6}$/.test(String(teklifNumber).trim())) {
-    errors.push("Teklif Numarası formatı geçersiz (MKS-XXXXXX)");
-  }
   if (!aselsanOrderNumber) errors.push("ASELSAN Sipariş Numarası eksik");
   if (!orderItemNumber) errors.push("Sipariş Kalem Numarası eksik");
   if (!partNumber) errors.push("Parça Numarası eksik");
@@ -617,6 +614,80 @@ export default function OperatorPage() {
     setSelectedQrIndexByGroup((prev) => ({ ...prev, [groupId]: 0 }));
   }, [qrCodesByGroup]);
 
+  const getQrSvgMarkup = (elementId: string, qrSize: number): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const qrEl = document.getElementById(elementId);
+      if (!qrEl) { reject(new Error(`QR element not found: ${elementId}`)); return; }
+      const svgElement = qrEl.querySelector("svg");
+      if (!svgElement) { reject(new Error(`SVG not found in: ${elementId}`)); return; }
+      const clonedSvg = svgElement.cloneNode(true) as SVGElement;
+      clonedSvg.setAttribute("width", qrSize.toString());
+      clonedSvg.setAttribute("height", qrSize.toString());
+      clonedSvg.setAttribute("style", `width:${qrSize}px;height:${qrSize}px;display:block;margin:0 auto;`);
+      resolve(new XMLSerializer().serializeToString(clonedSvg));
+    });
+  };
+
+  const printPageStyles = `
+    @page { margin: 10mm; size: A4; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+    .package-card { border: 2px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 20px; page-break-inside: avoid; page-break-after: always; max-width: 500px; width: 100%; }
+    .package-card:last-child { page-break-after: auto; }
+    @media print { .package-card { page-break-inside: avoid; page-break-after: always; } .package-card:last-child { page-break-after: auto; } }
+  `;
+
+  const buildPackageCardHtml = (svgMarkup: string, pkg: { code: string; package_index: number; quantity: number }, wo: { main_customer: string; sector: string; company_from: string; teklif_number: string; aselsan_order_number: string; order_item_number: string; part_number: string; total_quantity: number; total_packages: number; target_date?: string | null }) => `
+    <div class="package-card">
+      <div style="text-align:center;margin-bottom:16px;">${svgMarkup}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <tbody>
+          <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;width:45%;">Ana Müşteri</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.main_customer}</td></tr>
+          <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Sektör</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.sector}</td></tr>
+          <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Gönderen Firma</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.company_from}</td></tr>
+          <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Teklif Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.teklif_number}</td></tr>
+          <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">${wo.main_customer} Sipariş Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.total_packages > 1 ? wo.aselsan_order_number + "_" + pkg.package_index : wo.aselsan_order_number}</td></tr>
+          <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Sipariş Kalem Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.order_item_number}</td></tr>
+          <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Parça Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.part_number}</td></tr>
+          <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Toplam Sipariş Miktarı</td><td style="border:1px solid #d1d5db;padding:6px;">${pkg.quantity}/${wo.total_quantity}</td></tr>
+          ${wo.target_date ? `<tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Hedef Bitirme Tarihi</td><td style="border:1px solid #d1d5db;padding:6px;">${new Date(wo.target_date).toLocaleDateString("tr-TR")}</td></tr>` : ""}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const handlePrintSingleQr = (groupId: string, pkgIndex: number) => {
+    const wo = groupedWorkOrders.find((g) => g.work_order_group_id === groupId);
+    const packages = qrCodesByGroup[groupId] || [];
+    const pkg = packages[pkgIndex];
+    if (!wo || !pkg) return;
+    getQrSvgMarkup(`op-qr-${groupId}-${pkgIndex}`, 200).then((svgMarkup) => {
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) return;
+      printWindow.document.write(`<!DOCTYPE html><html><head><title>QR Kod - Paket ${pkg.package_index}</title><style>${printPageStyles}</style></head><body>${buildPackageCardHtml(svgMarkup, pkg, wo)}</body></html>`);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => { printWindow.print(); printWindow.close(); }, 300);
+    }).catch((err) => console.error("Print error:", err));
+  };
+
+  const handlePrintAllQr = (groupId: string) => {
+    const wo = groupedWorkOrders.find((g) => g.work_order_group_id === groupId);
+    const packages = qrCodesByGroup[groupId] || [];
+    if (!wo || packages.length === 0) return;
+    Promise.all(packages.map((pkg, idx) =>
+      getQrSvgMarkup(`op-qr-${groupId}-${idx}`, 200).then((svgMarkup) => ({ svgMarkup, pkg }))
+    )).then((results) => {
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) return;
+      const packagesHtml = results.map(({ svgMarkup, pkg }) => buildPackageCardHtml(svgMarkup, pkg, wo)).join("");
+      printWindow.document.write(`<!DOCTYPE html><html><head><title>QR Kodlar - ${groupId}</title><style>${printPageStyles}</style></head><body>${packagesHtml}</body></html>`);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+    }).catch((err) => console.error("Print error:", err));
+  };
+
   if (!isOperator && !isYonetici) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -629,11 +700,11 @@ export default function OperatorPage() {
   }
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50">
+    <div className="min-h-screen p-4 sm:p-8 bg-gray-50">
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6 sm:mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Atölye İşlemleri</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Atölye İşlemleri</h1>
             {stationName && (
               <p className="text-gray-600 mt-1">Atölye: <span className="font-semibold">{stationName}</span></p>
             )}
@@ -641,7 +712,7 @@ export default function OperatorPage() {
         </div>
 
         {/* Mode Selection Buttons */}
-        <div className="grid grid-cols-2 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
           <button
             onClick={() => {
               setMode(mode === "entrance" ? null : "entrance");
@@ -741,7 +812,7 @@ export default function OperatorPage() {
               <div>
                 <span className="font-medium">Parça No:</span> {lastScannedPartNumber}
               </div>
-              <OrderFilesViewer orderId={lastScannedPartNumber} />
+              <OrderFilesViewer orderId={lastScannedPartNumber} stationName={stationName} />
             </div>
           </div>
         )}
@@ -805,17 +876,17 @@ export default function OperatorPage() {
               Yükleniyor...
             </div>
           ) : (
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
+            <div className="bg-white rounded-lg shadow overflow-x-auto">
+              <table className="min-w-[700px] w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Numarası</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Dökümanları</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Öncelik</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Müşteri Bilgisi</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Durum</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Kaç Gündür Atölyede</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Adet</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Müşteri Bilgisi</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Dökümanları</th>
                     <th className="px-4 py-3 w-8"></th>
                   </tr>
                 </thead>
@@ -866,9 +937,6 @@ export default function OperatorPage() {
                               <div className="text-xs text-gray-500">{wo.teklif_number}</div>
                             </td>
                             <td className="px-4 py-3">
-                              <OrderFilesViewer orderId={wo.part_number} />
-                            </td>
-                            <td className="px-4 py-3">
                               {wo.priority > 0 ? (
                                 <div className="flex items-center gap-1">
                                   {Array.from({ length: wo.priority }, (_, i) => (
@@ -879,10 +947,6 @@ export default function OperatorPage() {
                                   ))}
                                 </div>
                               ) : <span className="text-gray-400 text-sm">-</span>}
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="text-sm text-gray-900">{wo.company_from}</div>
-                              <div className="text-xs text-gray-500">{wo.main_customer} - {wo.sector}</div>
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex flex-col gap-1">
@@ -908,6 +972,13 @@ export default function OperatorPage() {
                             </td>
                             <td className="px-4 py-3">
                               <span className="text-sm text-gray-900">{wo.total_quantity}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="text-sm text-gray-900">{wo.company_from}</div>
+                              <div className="text-xs text-gray-500">{wo.main_customer} - {wo.sector}</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <OrderFilesViewer orderId={wo.part_number} stationName={stationName} />
                             </td>
                             <td className="px-4 py-3">
                               <svg
@@ -1084,22 +1155,49 @@ export default function OperatorPage() {
 
                   return (
                     <div>
-                      <div className="mb-4 flex flex-wrap gap-2">
+                      {/* Hidden QR codes for all packages (used by print) */}
+                      <div style={{ position: "absolute", opacity: 0, pointerEvents: "none", top: -9999 }}>
                         {packages.map((pkg, idx) => (
-                          <button
-                            key={`${pkg.package_index}-${idx}`}
-                            onClick={() =>
-                              setSelectedQrIndexByGroup((prev) => ({ ...prev, [qrModalGroupId]: idx }))
-                            }
-                            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                              selectedIndex === idx
-                                ? "bg-[#0f4c3a] text-white"
-                                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                            }`}
-                          >
-                            Paket {pkg.package_index}
-                          </button>
+                          <div key={idx} id={`op-qr-${qrModalGroupId}-${idx}`}>
+                            <QRCodeSVG value={pkg.code} size={200} />
+                          </div>
                         ))}
+                      </div>
+
+                      <div className="mb-4 flex flex-wrap gap-2 items-center justify-between">
+                        <div className="flex flex-wrap gap-2">
+                          {packages.map((pkg, idx) => (
+                            <button
+                              key={`${pkg.package_index}-${idx}`}
+                              onClick={() =>
+                                setSelectedQrIndexByGroup((prev) => ({ ...prev, [qrModalGroupId]: idx }))
+                              }
+                              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                                selectedIndex === idx
+                                  ? "bg-[#0f4c3a] text-white"
+                                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                              }`}
+                            >
+                              Paket {pkg.package_index}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handlePrintSingleQr(qrModalGroupId, selectedIndex)}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium"
+                          >
+                            Bu Paketi Yazdır
+                          </button>
+                          {packages.length > 1 && (
+                            <button
+                              onClick={() => handlePrintAllQr(qrModalGroupId)}
+                              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-800 text-white rounded-lg text-sm font-medium"
+                            >
+                              Tümünü Yazdır
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {selectedPkg && (
