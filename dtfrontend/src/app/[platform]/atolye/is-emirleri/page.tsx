@@ -111,6 +111,9 @@ export default function WorkOrdersPage() {
     };
   }, [searchQuery]);
 
+  // Operator's own station (for filtering)
+  const [operatorStationName, setOperatorStationName] = useState<string>("");
+
   // Station list
   const [stations, setStations] = useState<StationInfo[]>([]);
 
@@ -171,6 +174,14 @@ export default function WorkOrdersPage() {
     }
   }, [user]);
 
+  // Fetch operator's own station name (for filtering work orders to own station)
+  useEffect(() => {
+    if (!isOperator) return;
+    api.get<{ station_id: number; name: string; company: string }>("/romiot/station/stations/my-station")
+      .then((data) => setOperatorStationName(data.name))
+      .catch(() => {});
+  }, [isOperator]);
+
   // Fetch stations
   useEffect(() => {
     const fetchStations = async () => {
@@ -224,6 +235,8 @@ export default function WorkOrdersPage() {
   // Fetch work orders with search
   const fetchWorkOrders = useCallback(async () => {
     if (!isYonetici && !isOperator && !isSatinalma && !isMusteri) return;
+    // Wait for operator station to be loaded before fetching
+    if (isOperator && !operatorStationName) return;
 
     try {
       setLoading(true);
@@ -236,6 +249,7 @@ export default function WorkOrdersPage() {
         url += `&search_order_number=${encodeURIComponent(debouncedSearch)}`;
       }
       if (isAselsanSatinalma && selectedCompany) url += `&filter_company=${encodeURIComponent(selectedCompany)}`;
+      if (isOperator && operatorStationName) url += `&search_station=${encodeURIComponent(operatorStationName)}`;
 
       const data = await api.get<PaginatedResponse>(url, undefined, { useCache: false });
 
@@ -250,7 +264,7 @@ export default function WorkOrdersPage() {
       setLoading(false);
       setInitialLoadDone(true);
     }
-  }, [isYonetici, isOperator, isSatinalma, isMusteri, isAselsanSatinalma, selectedCompany, currentPage, pageSize, debouncedSearch]);
+  }, [isYonetici, isOperator, isSatinalma, isMusteri, isAselsanSatinalma, selectedCompany, currentPage, pageSize, debouncedSearch, operatorStationName]);
 
   useEffect(() => {
     fetchWorkOrders();
@@ -882,7 +896,7 @@ export default function WorkOrdersPage() {
                                 )}
                               </div>
 
-                              {isMusteri && (
+                              {(isMusteri || isYonetici || isOperator) && (
                                 <div className="mb-5">
                                   <button
                                     onClick={async (e) => {
