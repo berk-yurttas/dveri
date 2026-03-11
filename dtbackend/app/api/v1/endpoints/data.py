@@ -187,6 +187,33 @@ async def record_csuite_history(request: CSuiteHistoryRecordRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/csuite/tedarikci-kapasite", response_model=list[dict[str, Any]])
+async def get_csuite_tedarikci_kapasite(
+    postgres_db: AsyncSession = Depends(get_postgres_db)
+):
+    """Get CSuite supplier capacity rows directly from PostgreSQL."""
+    try:
+        rows = await postgres_db.execute(
+            text(
+                """
+                SELECT firma, name, value
+                FROM csuite.tedarikci_kapasite
+                ORDER BY firma, id
+                """
+            )
+        )
+        return [
+            {
+                "firma": str(row[0]),
+                "name": str(row[1]),
+                "value": int(row[2]) if row[2] is not None else 0,
+            }
+            for row in rows.all()
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/products", response_model=list[dict[str, Any]])
 async def get_product_list(db_client = Depends(get_db_client)):
     """Get list of all products for dropdown filters"""

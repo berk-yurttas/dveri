@@ -127,19 +127,6 @@ interface ReportData {
     supplierTableRows: SupplierTableRow[]
 }
 
-interface CSuiteHistoryResponse {
-    firma: string
-    latest_week: string | null
-    changes: {
-        tedarikci_kapasite_analizi: Record<string, number>
-        aselsan_kaynakli_durma: Record<string, number>
-    }
-    changes_percent: {
-        tedarikci_kapasite_analizi: Record<string, number>
-        aselsan_kaynakli_durma: Record<string, number>
-    }
-}
-
 interface CSuiteReportWidgetProps {
     widgetId?: string
 }
@@ -155,13 +142,6 @@ const aselsanDurmaLabels = [
     'Kablaj/EMM',
     'Kart Dizgi',
 ]
-
-function changeToTrend(change: number | undefined, fallback: string): string {
-    if (change === undefined || Number.isNaN(change)) return fallback
-    if (change > 0) return 'up'
-    if (change < 0) return 'down'
-    return 'neutral'
-}
 
 // ── Helper: run a SQL query via the main backend ──
 async function runQuery(sql: string): Promise<any[][]> {
@@ -327,51 +307,6 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         : CSUITE_COMPANY_OPTIONS.flatMap((firma) =>
                             [0, 0, 0].map((kapasite) => ({ firma, kapasite }))
                         )
-
-                // Persist a weekly snapshot and then use week-over-week deltas
-                // from JSON history to drive trend arrows.
-                try {
-                    const tedarikciSnapshot = Object.fromEntries(
-                        tedarikciItems.map((item, idx) => [tedarikciLabels[idx] || item.name, Number(item.value) || 0])
-                    )
-                    const aselsanSnapshot = Object.fromEntries(
-                        aselsanItems.map((item, idx) => [aselsanDurmaLabels[idx] || item.name, Number(item.value) || 0])
-                    )
-
-                    await api.post('/data/csuite/history/record', {
-                        firma: firmaForQueries,
-                        tedarikci_kapasite_analizi: tedarikciSnapshot,
-                        aselsan_kaynakli_durma: aselsanSnapshot,
-                        backfill_missing_weeks: true,
-                    }, undefined, { useQueue: false })
-
-                    const history = await api.get<CSuiteHistoryResponse>(
-                        `/data/csuite/history?firma=${encodeURIComponent(firmaForQueries)}&limit=10`,
-                        undefined,
-                        { useCache: false, useQueue: false }
-                    )
-
-                    if (history?.changes) {
-                        tedarikciItems = tedarikciItems.map((item, idx) => {
-                            const label = tedarikciLabels[idx] || item.name
-                            return {
-                                ...item,
-                                trend: changeToTrend(history.changes.tedarikci_kapasite_analizi?.[label], item.trend),
-                                changePct: history.changes_percent?.tedarikci_kapasite_analizi?.[label] ?? 0,
-                            }
-                        })
-                        aselsanItems = aselsanItems.map((item, idx) => {
-                            const label = aselsanDurmaLabels[idx] || item.name
-                            return {
-                                ...item,
-                                trend: changeToTrend(history.changes.aselsan_kaynakli_durma?.[label], item.trend),
-                                changePct: history.changes_percent?.aselsan_kaynakli_durma?.[label] ?? 0,
-                            }
-                        })
-                    }
-                } catch (historyErr) {
-                    console.warn('CSuite history record/read failed, using source trends only:', historyErr)
-                }
 
                 const reportData: ReportData = {
                     dijitalSkor: { value: dijitalValue },
