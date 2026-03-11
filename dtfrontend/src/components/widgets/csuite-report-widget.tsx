@@ -21,6 +21,15 @@ const alt_yapi_companies = [
     '3EN Savunma Havacılık'
 ]
 
+// Hard-coded company list for local/testing reliability.
+// This intentionally avoids dependency on DB company lookup.
+const CSUITE_COMPANY_OPTIONS = [
+    'Mikronmak Oto',
+    '3EN Savunma Havacılık',
+    'Delta Savunma',
+    'Nova Mekanik',
+]
+
 // ── SQL Queries ──
 const SQL = {
     getCompanies: `SELECT distinct("Firma") FROM puantaj.genel_skor ORDER BY "Firma"`,
@@ -72,6 +81,7 @@ const SQL = {
     getAltYapiCompaniesCount: `SELECT COUNT(DISTINCT "Firma") FROM mes_production.get_detailed_machines WHERE "EksenSayisi" IN ('Kart Dizgi Alt Yapisi', 'Kablo Üretim Alt Yapisi')`,
     getTotalCompaniesCount: `SELECT COUNT(DISTINCT "Firma") FROM mes_production.get_detailed_machines`,
     getTedarikciKapasite: (firma: string) => `SELECT name, value, unit, trend FROM ${S}tedarikci_kapasite WHERE firma = '${firma}' ORDER BY id`,
+    getTedarikciKapasiteAll: `SELECT firma, name, value FROM ${S}tedarikci_kapasite ORDER BY firma, id`,
     getAselsanDurma: (firma: string) => `SELECT name, value, unit, trend FROM ${S}aselsan_kaynakli_durma WHERE firma = '${firma}' ORDER BY id`,
     getTalasliCount: (firma: string) => `SELECT COUNT(DISTINCT kalem_adi) AS count FROM ${S}uretim_kalemleri WHERE firma = '${firma}' AND kategori = 'Talaşlı İmalat'`,
     getKablajCount: (firma: string) => `SELECT COUNT(DISTINCT kalem_adi) AS count FROM ${S}uretim_kalemleri WHERE firma = '${firma}' AND kategori = 'Kablaj/EMM'`,
@@ -92,11 +102,17 @@ interface MetricItem {
     value: number | string
     unit: string
     trend: string
+    changePct?: number
 }
 
 interface CncItem {
     eksenSayisi: number
     amount: number
+}
+
+interface SupplierTableRow {
+    firma: string
+    kapasite: number
 }
 
 interface ReportData {
@@ -108,6 +124,20 @@ interface ReportData {
     dizgiHatti: CncItem[]
     tepirikciKapasiteAnalizi: MetricItem[]
     bizdenKaynakliDurma: MetricItem[]
+    supplierTableRows: SupplierTableRow[]
+}
+
+interface CSuiteHistoryResponse {
+    firma: string
+    latest_week: string | null
+    changes: {
+        tedarikci_kapasite_analizi: Record<string, number>
+        aselsan_kaynakli_durma: Record<string, number>
+    }
+    changes_percent: {
+        tedarikci_kapasite_analizi: Record<string, number>
+        aselsan_kaynakli_durma: Record<string, number>
+    }
 }
 
 interface CSuiteReportWidgetProps {
@@ -126,6 +156,13 @@ const aselsanDurmaLabels = [
     'Kart Dizgi',
 ]
 
+function changeToTrend(change: number | undefined, fallback: string): string {
+    if (change === undefined || Number.isNaN(change)) return fallback
+    if (change > 0) return 'up'
+    if (change < 0) return 'down'
+    return 'neutral'
+}
+
 // ── Helper: run a SQL query via the main backend ──
 async function runQuery(sql: string): Promise<any[][]> {
     const res = await api.post<PreviewResponse>('/reports/preview', {
@@ -142,52 +179,32 @@ async function runQuery(sql: string): Promise<any[][]> {
 }
 
 // ── Trend arrow helper ──
-function TrendArrow({ trend }: { trend: string }) {
+function TrendArrow({ trend, changePct }: { trend: string; changePct?: number }) {
+    const pct = typeof changePct === 'number' ? changePct : 0
+    const pctSign = pct > 0 ? '+' : ''
+    const pctClass =
+        trend === 'up' ? 'text-green-600' :
+        trend === 'down' ? 'text-red-600' :
+        'text-gray-500'
+
     if (trend === 'up') {
-        return <span className="text-green-500 text-sm drop-shadow-sm">▲</span>
+        return (
+            <span className="inline-flex items-center gap-1">
+                <span className="text-green-500 text-sm drop-shadow-sm">▲</span>
+                <span className={`text-[10px] font-semibold ${pctClass}`}>{pctSign}{pct.toFixed(1)}%</span>
+            </span>
+        )
     }
     if (trend === 'down') {
-        return <span className="text-red-500 text-sm drop-shadow-sm">▼</span>
+        return (
+            <span className="inline-flex items-center gap-1">
+                <span className="text-red-500 text-sm drop-shadow-sm">▼</span>
+                <span className={`text-[10px] font-semibold ${pctClass}`}>{pct.toFixed(1)}%</span>
+            </span>
+        )
     }
-    return null
+    return <span className={`text-[10px] font-semibold ${pctClass}`}>{pct.toFixed(1)}%</span>
 }
-
-// ── Mini Trend Chart ──
-function MiniTrendChart({ data }: { data: number[] }) {
-    const max = Math.max(...data)
-    const min = Math.min(...data)
-    const range = max - min || 1
-    const width = 60
-    const height = 24
-    const points = data.map((value, i) => {
-        const x = (i / (data.length - 1)) * width
-        const y = height - ((value - min) / range) * height
-        return `${x},${y}`
-    }).join(' ')
-    
-    const isPositive = data[data.length - 1] >= data[0]
-    
-    return (
-        <svg width={width} height={height} className="inline-block">
-            <polyline
-                points={points}
-                fill="none"
-                stroke={isPositive ? '#10b981' : '#ef4444'}
-                strokeWidth="2"
-                strokeLinejoin="round"
-            />
-        </svg>
-    )
-}
-
-// ── Dummy supplier data ──
-const dummySuppliers = [
-    { name: 'Tedarikçi A', risk: 'Düşük', etki: 2500000, kapasite: 85, guven: 92, trend: [65, 70, 68, 75, 78, 85] },
-    { name: 'Tedarikçi B', risk: 'Orta', etki: 1800000, kapasite: 72, guven: 78, trend: [80, 78, 75, 74, 72, 70] },
-    { name: 'Tedarikçi C', risk: 'Yüksek', etki: 3200000, kapasite: 45, guven: 55, trend: [60, 58, 52, 48, 45, 42] },
-    { name: 'Tedarikçi D', risk: 'Düşük', etki: 1500000, kapasite: 90, guven: 95, trend: [85, 87, 88, 89, 90, 92] },
-    { name: 'Tedarikçi E', risk: 'Orta', etki: 2100000, kapasite: 68, guven: 72, trend: [70, 72, 68, 66, 68, 70] },
-]
 
 export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
     const instanceRef = useRef(widgetId || `csuite-report-${Math.random().toString(36).substr(2, 9)}`)
@@ -199,20 +216,9 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
     const [error, setError] = useState<string | null>(null)
     const [showTooltip, setShowTooltip] = useState(false)
 
-    // Load company list on mount
+    // Load company list from hard-coded options (not from DB query)
     useEffect(() => {
-        const loadCompanies = async () => {
-            try {
-                const rows = await runQuery(SQL.getCompanies)
-                const names = rows.map(r => r[0] as string)
-                setCompanies(['Tüm Firmalar', ...names])
-            } catch (err) {
-                console.error('Error loading companies:', err)
-                // Fallback to a default list
-                setCompanies(['Tüm Firmalar'])
-            }
-        }
-        loadCompanies()
+        setCompanies(['Tüm Firmalar', ...CSUITE_COMPANY_OPTIONS])
     }, [])
 
     // Fetch report data when selected company changes
@@ -242,6 +248,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     altYapiCompaniesRows,
                     totalCompaniesRows,
                     tedarikciRows,
+                    tedarikciAllRows,
                     aselsanRows,
                     talasliRows,
                     kablajRows,
@@ -263,6 +270,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         ['Kablaj/EMM', '72', '%', 'down'],
                         ['Kart Dizgi', '90', '%', 'up'],
                     ]),
+                    runQuery(SQL.getTedarikciKapasiteAll).catch(() => []),
                     runQuery(SQL.getAselsanDurma(firmaForQueries)).catch(() => [
                         ['Talaşlı İmalat', '0', '%', 'neutral'],
                         ['Kablaj/EMM', '0', '%', 'neutral'],
@@ -288,6 +296,83 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 const talasliPct = totalAB > 0 ? Math.round((countA / totalAB) * 100) : 0
                 const kablajPct = totalAB > 0 ? Math.round((countB / totalAB) * 100) : 0
 
+                let tedarikciItems: MetricItem[] = tedarikciRows.map((r, idx) => ({
+                    name: (tedarikciLabels[idx] || r[0]) as string,
+                    value: parseInt(r[1], 10),
+                    unit: r[2] as string,
+                    trend: (r[3] as string) || 'neutral',
+                    changePct: 0,
+                }))
+
+                let aselsanItems: MetricItem[] = aselsanRows.map((r, idx) => {
+                    const label = aselsanDurmaLabels[idx] || (r[0] as string)
+                    let computedValue = parseInt(r[1], 10)
+                    if (label === 'Talaşlı İmalat') computedValue = talasliPct
+                    if (label === 'Kablaj/EMM') computedValue = kablajPct
+                    return {
+                        name: label,
+                        value: computedValue,
+                        unit: r[2] as string,
+                        trend: (r[3] as string) || 'neutral',
+                        changePct: 0,
+                    }
+                })
+
+                const supplierTableRows: SupplierTableRow[] =
+                    tedarikciAllRows.length > 0
+                        ? tedarikciAllRows.map((r) => ({
+                            firma: String(r[0] ?? ''),
+                            kapasite: parseInt(r[2] ?? 0, 10) || 0,
+                        }))
+                        : CSUITE_COMPANY_OPTIONS.flatMap((firma) =>
+                            [0, 0, 0].map((kapasite) => ({ firma, kapasite }))
+                        )
+
+                // Persist a weekly snapshot and then use week-over-week deltas
+                // from JSON history to drive trend arrows.
+                try {
+                    const tedarikciSnapshot = Object.fromEntries(
+                        tedarikciItems.map((item, idx) => [tedarikciLabels[idx] || item.name, Number(item.value) || 0])
+                    )
+                    const aselsanSnapshot = Object.fromEntries(
+                        aselsanItems.map((item, idx) => [aselsanDurmaLabels[idx] || item.name, Number(item.value) || 0])
+                    )
+
+                    await api.post('/data/csuite/history/record', {
+                        firma: firmaForQueries,
+                        tedarikci_kapasite_analizi: tedarikciSnapshot,
+                        aselsan_kaynakli_durma: aselsanSnapshot,
+                        backfill_missing_weeks: true,
+                    }, undefined, { useQueue: false })
+
+                    const history = await api.get<CSuiteHistoryResponse>(
+                        `/data/csuite/history?firma=${encodeURIComponent(firmaForQueries)}&limit=10`,
+                        undefined,
+                        { useCache: false, useQueue: false }
+                    )
+
+                    if (history?.changes) {
+                        tedarikciItems = tedarikciItems.map((item, idx) => {
+                            const label = tedarikciLabels[idx] || item.name
+                            return {
+                                ...item,
+                                trend: changeToTrend(history.changes.tedarikci_kapasite_analizi?.[label], item.trend),
+                                changePct: history.changes_percent?.tedarikci_kapasite_analizi?.[label] ?? 0,
+                            }
+                        })
+                        aselsanItems = aselsanItems.map((item, idx) => {
+                            const label = aselsanDurmaLabels[idx] || item.name
+                            return {
+                                ...item,
+                                trend: changeToTrend(history.changes.aselsan_kaynakli_durma?.[label], item.trend),
+                                changePct: history.changes_percent?.aselsan_kaynakli_durma?.[label] ?? 0,
+                            }
+                        })
+                    }
+                } catch (historyErr) {
+                    console.warn('CSuite history record/read failed, using source trends only:', historyErr)
+                }
+
                 const reportData: ReportData = {
                     dijitalSkor: { value: dijitalValue },
                     kapsam: { first: kFirst, second: kSecond },
@@ -298,24 +383,9 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     })),
                     cmmSayisi: [{ eksenSayisi: 0, amount: cmmTotalCount }], // Store CMM total as single item
                     dizgiHatti: [{ eksenSayisi: 0, amount: dizgiTotalCount }], // Store Dizgi Hattı total as single item
-                    tepirikciKapasiteAnalizi: tedarikciRows.map(r => ({
-                        name: r[0] as string,
-                        value: parseInt(r[1], 10),
-                        unit: r[2] as string,
-                        trend: r[3] as string,
-                    })),
-                    bizdenKaynakliDurma: aselsanRows.map(r => {
-                        const name = r[0] as string
-                        let computedValue = parseInt(r[1], 10)
-                        if (name === 'Talaşlı İmalat') computedValue = talasliPct
-                        if (name === 'Kablaj/EMM') computedValue = kablajPct
-                        return {
-                            name,
-                            value: computedValue,
-                            unit: r[2] as string,
-                            trend: r[3] as string,
-                        }
-                    }),
+                    tepirikciKapasiteAnalizi: tedarikciItems,
+                    bizdenKaynakliDurma: aselsanItems,
+                    supplierTableRows,
                 }
 
                 setData(reportData)
@@ -371,6 +441,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
         dizgiHatti,
         tepirikciKapasiteAnalizi,
         bizdenKaynakliDurma,
+        supplierTableRows,
     } = data
 
     // Computed values
@@ -379,7 +450,6 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
     const kapsamPct = kapsam.second !== 0
         ? ((kapsam.first / kapsam.second) * 100).toFixed(1)
         : '0'
-
     return (
         <div className="w-full h-full p-6 bg-gradient-to-br from-white to-gray-50 rounded-xl border border-gray-200 shadow-lg flex flex-col gap-4 overflow-auto">
             {/* ─── Header ─── */}
@@ -430,7 +500,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
             </div>
 
             {/* ─── Top KPI Row ─── */}
-            <div className="grid grid-cols-3 gap-4 mb-2 flex-shrink-0">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-2 flex-shrink-0 w-full lg:max-w-[52%]">
                 {/* Dijital Skor */}
                 <div className="relative bg-gradient-to-br from-indigo-500 to-purple-600 p-5 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 group overflow-hidden">
                     <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
@@ -439,8 +509,9 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                             <span className="text-xs font-bold text-indigo-100 uppercase tracking-wider block mb-1">
                                 Dijital Skor
                             </span>
-                            <span className="text-4xl font-extrabold text-white drop-shadow-lg leading-tight">
+                            <span className="text-4xl font-extrabold text-white drop-shadow-lg leading-tight flex items-end gap-1">
                                 {dijitalSkor.value.toFixed(1)}
+                                <span className="text-base font-semibold text-indigo-100 mb-1">/ 100</span>
                             </span>
                             <p className="text-indigo-200 text-xs mt-2 font-medium">100 üzerinden ortalama</p>
                         </div>
@@ -513,9 +584,12 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 <div className="flex flex-col gap-4">
                     {/* CNC Sayısı */}
                     <div className="bg-white border-2 border-indigo-100 rounded-xl p-4 shadow-md hover:shadow-lg transition-all duration-300 hover:border-indigo-300 hover:-translate-y-1">
-                        <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider pb-3 border-b-2 border-indigo-100 block mb-3">
-                            CNC Sayısı
-                        </span>
+                        <div className="flex items-center gap-2 pb-3 border-b-2 border-indigo-100 mb-3">
+                            <div className="w-1 h-5 bg-gradient-to-b from-indigo-500 to-purple-600 rounded-full"></div>
+                            <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider">
+                                CNC Sayısı
+                            </span>
+                        </div>
                         <div className="flex justify-around items-center py-2">
                             {['3', '4', '5'].map((eksen) => {
                                 const item = cncSayisi.find(c => c.eksenSayisi.toString() === eksen)
@@ -532,9 +606,12 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
 
                     {/* CMM Sayısı */}
                     <div className="bg-white border-2 border-emerald-100 rounded-xl p-4 shadow-md hover:shadow-lg transition-all duration-300 hover:border-emerald-300 hover:-translate-y-1">
-                        <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider pb-3 border-b-2 border-emerald-100 block mb-3">
-                            CMM Sayısı
-                        </span>
+                        <div className="flex items-center gap-2 pb-3 border-b-2 border-emerald-100 mb-3">
+                            <div className="w-1 h-5 bg-gradient-to-b from-emerald-500 to-teal-600 rounded-full"></div>
+                            <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
+                                CMM Sayısı
+                            </span>
+                        </div>
                         <span className="text-4xl font-extrabold text-center block bg-gradient-to-br from-emerald-600 to-teal-600 bg-clip-text text-transparent">
                             {cmmTotal}
                         </span>
@@ -542,9 +619,12 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
 
                     {/* Dizgi Hattı */}
                     <div className="bg-white border-2 border-amber-100 rounded-xl p-4 shadow-md hover:shadow-lg transition-all duration-300 hover:border-amber-300 hover:-translate-y-1">
-                        <span className="text-xs font-bold text-amber-700 uppercase tracking-wider pb-3 border-b-2 border-amber-100 block mb-3">
-                            Dizgi Hattı
-                        </span>
+                        <div className="flex items-center gap-2 pb-3 border-b-2 border-amber-100 mb-3">
+                            <div className="w-1 h-5 bg-gradient-to-b from-amber-500 to-orange-600 rounded-full"></div>
+                            <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">
+                                Dizgi Hattı
+                            </span>
+                        </div>
                         <span className="text-4xl font-extrabold text-center block bg-gradient-to-br from-amber-600 to-orange-600 bg-clip-text text-transparent">
                             {dizgiTotal}
                         </span>
@@ -571,7 +651,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         <span className="text-2xl font-extrabold text-gray-900">
                                             {item.unit === '%' ? `%${item.value}` : item.value}
                                         </span>
-                                        <TrendArrow trend={item.trend} />
+                                        <TrendArrow trend={item.trend} changePct={item.changePct} />
                                     </div>
                                 </div>
                             ))}
@@ -596,7 +676,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         <span className="text-2xl font-extrabold text-gray-900">
                                             {item.unit === '%' ? `%${item.value}` : item.value}
                                         </span>
-                                        <TrendArrow trend={item.trend} />
+                                        <TrendArrow trend={item.trend} changePct={item.changePct} />
                                     </div>
                                 </div>
                             ))}
@@ -626,32 +706,20 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                             </tr>
                         </thead>
                         <tbody>
-                            {dummySuppliers.map((supplier, idx) => (
+                            {supplierTableRows.map((supplier, idx) => (
                                 <tr key={idx} className="border-b border-gray-100 hover:bg-gradient-to-r hover:from-violet-50 hover:to-transparent transition-all duration-200">
-                                    <td className="py-3 px-4 font-semibold text-gray-900">{supplier.name}</td>
-                                    <td className="py-3 px-4 text-center">
-                                        <span className={`inline-block px-3 py-1.5 rounded-full text-xs font-bold shadow-sm ${
-                                            supplier.risk === 'Düşük' ? 'bg-gradient-to-br from-green-400 to-emerald-500 text-white' :
-                                            supplier.risk === 'Orta' ? 'bg-gradient-to-br from-yellow-400 to-amber-500 text-white' :
-                                            'bg-gradient-to-br from-red-400 to-rose-500 text-white'
-                                        }`}>
-                                            {supplier.risk}
-                                        </span>
-                                    </td>
-                                    <td className="py-3 px-4 text-right font-bold text-gray-900">
+                                    <td className="py-3 px-4 font-semibold text-gray-900">{supplier.firma}</td>
+                                    <td className="py-3 px-4 text-center text-gray-500">-</td>
+                                    <td className="py-3 px-4 text-right text-gray-900">
                                         <span className="bg-gradient-to-br from-gray-100 to-gray-50 px-2 py-1 rounded">
-                                            ₺{supplier.etki.toLocaleString('tr-TR')}
+                                            -
                                         </span>
                                     </td>
-                                    <td className="py-3 px-4 text-center font-bold text-gray-900">
+                                    <td className="py-3 px-4 text-center text-gray-900">
                                         %{supplier.kapasite}
                                     </td>
-                                    <td className="py-3 px-4 text-center font-bold text-gray-900">
-                                        %{supplier.guven}
-                                    </td>
-                                    <td className="py-3 px-4 text-center">
-                                        <MiniTrendChart data={supplier.trend} />
-                                    </td>
+                                    <td className="py-3 px-4 text-center text-gray-500">-</td>
+                                    <td className="py-3 px-4 text-center text-gray-500">-</td>
                                 </tr>
                             ))}
                         </tbody>

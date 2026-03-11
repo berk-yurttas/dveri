@@ -4,15 +4,27 @@ from typing import Any
 from clickhouse_driver import Client
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_clickhouse_db
+from app.core.database import get_clickhouse_db, get_postgres_db
 from app.core.platform_db import DatabaseConnectionFactory
 from app.core.platform_middleware import get_optional_platform
 from app.models.postgres_models import Platform
 from app.schemas.data import WidgetQueryRequest
+from app.services.csuite_history_service import CSuiteHistoryService
 from app.services.data_service import DataService, WidgetFactory
 
 router = APIRouter()
+
+
+class CSuiteHistoryRecordRequest(BaseModel):
+    firma: str
+    tedarikci_kapasite_analizi: dict[str, int | float] = Field(default_factory=dict)
+    aselsan_kaynakli_durma: dict[str, int | float] = Field(default_factory=dict)
+    week: str | None = None
+    backfill_missing_weeks: bool = True
 
 def get_db_client(
     platform: Platform | None = Depends(get_optional_platform),
@@ -109,13 +121,67 @@ async def get_supported_widget_types():
 
 
 @router.get("/infrastructure", response_model=list[dict[str, Any]])
-async def get_infrastructure_list(db_client = Depends(get_db_client)):
+async def get_infrastructure_list(
+    db_client = Depends(get_db_client),
+    postgres_db: AsyncSession = Depends(get_postgres_db)
+):
     """Get list of available infrastructure/equipment for dropdown filters"""
     try:
         infrastructure_list = DataService.get_infrastructure_list(db_client)
         return infrastructure_list
     except ValueError as ve:
-        # Handle validation errors with 400 Bad Request
+        # Fallback: if platform source (e.g. ClickHouse) is unavailable in local
+        # dev, serve dummy infrastructure rows from PostgreSQL.
+        try:
+            rows = await postgres_db.execute(
+                text(
+                    """
+                    SELECT id, display_name
+                    FROM infrastructure_dummy
+                    ORDER BY id
+                    """
+                )
+            )
+            fallback = [
+                {"id": int(row[0]), "name": str(row[1]), "value": int(row[0])}
+                for row in rows.all()
+            ]
+            if fallback:
+                return fallback
+        except Exception:
+            pass
+        # Keep original behavior when fallback is not available.
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/csuite/history", response_model=dict[str, Any])
+async def get_csuite_history(
+    firma: str = Query(..., description="Company name"),
+    limit: int = Query(10, ge=1, le=52, description="Number of weekly snapshots to return")
+):
+    """Get CSuite weekly history and latest week-over-week changes for a company."""
+    try:
+        return CSuiteHistoryService.get_company_history(firma=firma, limit=limit)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/csuite/history/record", response_model=dict[str, Any])
+async def record_csuite_history(request: CSuiteHistoryRecordRequest):
+    """Record (or update) weekly CSuite metrics for a company and keep last 10 weeks."""
+    try:
+        return CSuiteHistoryService.record_snapshot(
+            firma=request.firma,
+            tedarikci_kapasite_analizi=request.tedarikci_kapasite_analizi,
+            aselsan_kaynakli_durma=request.aselsan_kaynakli_durma,
+            week=request.week,
+            backfill_missing_weeks=request.backfill_missing_weeks,
+        )
+    except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

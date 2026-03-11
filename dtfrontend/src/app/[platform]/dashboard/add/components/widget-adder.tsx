@@ -58,7 +58,8 @@ const platformWidgetMapping: { [key: string]: string[] } = {
     'test_equipment-widget',
     'equipment_test-widget',
     'equipment_last_user-widget',
-    'hardware_last_user-widget'
+    'hardware_last_user-widget',
+    'csuite_report-widget'
   ],
   'ivme': [
     'capacity_analysis-widget',

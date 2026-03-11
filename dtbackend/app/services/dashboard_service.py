@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.postgres_models import Dashboard, DashboardUser, Platform
+from app.models.postgres_models import Dashboard, DashboardUser, Platform, User
 from app.schemas.dashboard import DashboardCreate, DashboardUpdate
 from app.services.user_service import UserService
 from app.schemas.user import User as UserSchema
@@ -129,15 +129,14 @@ class DashboardService:
         platform: Platform = None,
         subplatform: str = None,
         user_role: list[str] = []
-    ) -> list[Dashboard]:
+    ) -> list[dict]:
         """Get all dashboards by username"""
         db_user = await UserService.get_user_by_username(db, username)
-        if not user:
+        if not db_user:
             return []
 
         # Get dashboards where user is in the users relationship OR dashboard is public
-        from sqlalchemy import or_, and_, cast, String, literal
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy import and_, cast, literal, or_, String
         from sqlalchemy.dialects.postgresql import ARRAY
 
         # Check if user is admin
@@ -180,26 +179,44 @@ class DashboardService:
             # Use PostgreSQL array @> operator (contains) with proper type casting
             filters.append(Dashboard.tags.op('@>')(cast([subplatform], ARRAY(String))))
 
-        # Main query: dashboards where user has access
-        query = select(Dashboard).options(joinedload(Dashboard.owner)).where(
+        # Select list-safe columns only. Avoid selecting optional columns that can
+        # be missing in some local DB schemas (causes runtime 500).
+        query = select(
+            Dashboard.id,
+            Dashboard.title,
+            Dashboard.is_public,
+            Dashboard.owner_id,
+            Dashboard.layout_config,
+            Dashboard.widgets,
+            Dashboard.created_at,
+            Dashboard.updated_at,
+            User.name.label("owner_name")
+        ).outerjoin(
+            User, User.id == Dashboard.owner_id
+        ).where(
             and_(*filters)
         ).offset(skip).limit(limit)
 
         result = await db.execute(query)
-        dashboards = result.scalars().all()
+        dashboards = result.mappings().all()
 
-        # Set is_favorite field and owner_name for each dashboard
+        dashboard_list: list[dict] = []
         for dashboard in dashboards:
             is_favorite_query = select(DashboardUser).where(
-                DashboardUser.dashboard_id == dashboard.id,
+                DashboardUser.dashboard_id == dashboard["id"],
                 DashboardUser.user_id == db_user.id
             )
             is_favorite_result = await db.execute(is_favorite_query)
             dashboard_user = is_favorite_result.scalar_one_or_none()
-            dashboard.is_favorite = dashboard_user.is_favorite if dashboard_user else False
-            dashboard.owner_name = dashboard.owner.name if dashboard.owner else None
+            dashboard_data = dict(dashboard)
+            dashboard_data["is_favorite"] = dashboard_user.is_favorite if dashboard_user else False
+            # Keep response schema-compatible defaults for optional ACL fields.
+            dashboard_data["allowed_departments"] = []
+            dashboard_data["allowed_users"] = []
+            dashboard_data["tags"] = []
+            dashboard_list.append(dashboard_data)
 
-        return dashboards
+        return dashboard_list
 
     @staticmethod
     async def add_favorite_dashboard(

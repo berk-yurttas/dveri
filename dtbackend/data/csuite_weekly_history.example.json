@@ -1,0 +1,94 @@
+{
+  "companies": {
+    "Mikronmak Oto": [
+      {
+        "week": "2026-W01",
+        "recorded_at": "2026-01-05T09:00:00+00:00",
+        "tedarikci_kapasite_analizi": {
+          "Talaşlı İmalat": 78,
+          "Kablaj/EMM": 66,
+          "Kart Dizgi": 84
+        },
+        "aselsan_kaynakli_durma": {
+          "Talaşlı İmalat": 18,
+          "Kablaj/EMM": 14,
+          "Kart Dizgi": 20
+        }
+      },
+      {
+        "week": "2026-W02",
+        "recorded_at": "2026-01-12T09:00:00+00:00",
+        "tedarikci_kapasite_analizi": {
+          "Talaşlı İmalat": 81,
+          "Kablaj/EMM": 68,
+          "Kart Dizgi": 86
+        },
+        "aselsan_kaynakli_durma": {
+          "Talaşlı İmalat": 16,
+          "Kablaj/EMM": 13,
+          "Kart Dizgi": 18
+        }
+      },
+      {
+        "week": "2026-W03",
+        "recorded_at": "2026-01-19T09:00:00+00:00",
+        "tedarikci_kapasite_analizi": {
+          "Talaşlı İmalat": 85,
+          "Kablaj/EMM": 72,
+          "Kart Dizgi": 90
+        },
+        "aselsan_kaynakli_durma": {
+          "Talaşlı İmalat": 12,
+          "Kablaj/EMM": 9,
+          "Kart Dizgi": 15
+        }
+      }
+    ],
+    "3EN Savunma Havacılık": [
+      {
+        "week": "2026-W01",
+        "recorded_at": "2026-01-05T09:00:00+00:00",
+        "tedarikci_kapasite_analizi": {
+          "Talaşlı İmalat": 74,
+          "Kablaj/EMM": 62,
+          "Kart Dizgi": 80
+        },
+        "aselsan_kaynakli_durma": {
+          "Talaşlı İmalat": 20,
+          "Kablaj/EMM": 16,
+          "Kart Dizgi": 22
+        }
+      },
+      {
+        "week": "2026-W02",
+        "recorded_at": "2026-01-12T09:00:00+00:00",
+        "tedarikci_kapasite_analizi": {
+          "Talaşlı İmalat": 76,
+          "Kablaj/EMM": 65,
+          "Kart Dizgi": 84
+        },
+        "aselsan_kaynakli_durma": {
+          "Talaşlı İmalat": 18,
+          "Kablaj/EMM": 14,
+          "Kart Dizgi": 19
+        }
+      },
+      {
+        "week": "2026-W03",
+        "recorded_at": "2026-01-19T09:00:00+00:00",
+        "tedarikci_kapasite_analizi": {
+          "Talaşlı İmalat": 78,
+          "Kablaj/EMM": 69,
+          "Kart Dizgi": 88
+        },
+        "aselsan_kaynakli_durma": {
+          "Talaşlı İmalat": 14,
+          "Kablaj/EMM": 11,
+          "Kart Dizgi": 17
+        }
+      }
+    ]
+  },
+  "updated_at": "2026-03-11T10:00:00+00:00"
+}
+
