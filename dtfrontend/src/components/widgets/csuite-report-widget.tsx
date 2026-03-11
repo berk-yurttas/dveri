@@ -195,6 +195,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [showTooltip, setShowTooltip] = useState(false)
+    const [showCmmTooltip, setShowCmmTooltip] = useState(false)
 
     // Load company list from hard-coded options (not from DB query)
     useEffect(() => {
@@ -546,6 +547,24 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                             <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
                                 CMM Sayısı
                             </span>
+                            <div className="relative inline-flex">
+                                <button
+                                    onMouseEnter={() => setShowCmmTooltip(true)}
+                                    onMouseLeave={() => setShowCmmTooltip(false)}
+                                    className="text-emerald-400 hover:text-emerald-600 transition-all duration-200 hover:scale-110"
+                                    aria-label="CMM bilgi"
+                                >
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                    </svg>
+                                </button>
+                                {showCmmTooltip && (
+                                    <div className="absolute left-0 top-6 z-50 w-64 p-2 bg-gray-900 text-white text-[11px] rounded-lg shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+                                        Bütün altyapıdaki sayıyı göstermektedir
+                                        <div className="absolute -top-1 left-2 w-2 h-2 bg-gray-900 transform rotate-45"></div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         <span className="text-4xl font-extrabold text-center block bg-gradient-to-br from-emerald-600 to-teal-600 bg-clip-text text-transparent">
                             {cmmTotal}
