@@ -6,10 +6,11 @@ import { useOrderFiles } from "@/hooks/useOrderFiles";
 interface OrderFilesViewerProps {
   orderId: string;
   stationName?: string;
+  allStationNames?: string[];
   className?: string;
 }
 
-export function OrderFilesViewer({ orderId, stationName, className }: OrderFilesViewerProps) {
+export function OrderFilesViewer({ orderId, stationName, allStationNames, className }: OrderFilesViewerProps) {
   const { getOrderFiles, openFile } = useOrderFiles();
   const [loading, setLoading] = useState(false);
   const [files, setFiles] = useState<{ name: string; file: File }[]>([]);
@@ -20,7 +21,7 @@ export function OrderFilesViewer({ orderId, stationName, className }: OrderFiles
     setLoading(true);
     setError(null);
     try {
-      const nextFiles = await getOrderFiles(orderId, stationName);
+      const nextFiles = await getOrderFiles(orderId, stationName, allStationNames);
       setFiles(nextFiles);
       setOpened(true);
     } catch (err: any) {

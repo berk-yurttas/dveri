@@ -212,6 +212,7 @@ export default function OperatorPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [stationId, setStationId] = useState<number | null>(null);
   const [stationName, setStationName] = useState<string>("");
+  const [allStationNames, setAllStationNames] = useState<string[]>([]);
   const [qrCodeInput, setQRCodeInput] = useState("");
   const qrCodeBufferRef = useRef<string>("");
   const qrCodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -262,6 +263,10 @@ export default function OperatorPage() {
         };
         fetchOperatorStation();
       }
+      // Fetch all station names for Parça Dökümanları generic folder detection
+      api.get<{ id: number; name: string; company: string; is_exit_station: boolean }[]>("/romiot/station/stations/")
+        .then((data) => setAllStationNames((data || []).map((s) => s.name)))
+        .catch(() => {});
     }
   }, [user]);
 
@@ -812,7 +817,7 @@ export default function OperatorPage() {
               <div>
                 <span className="font-medium">Parça No:</span> {lastScannedPartNumber}
               </div>
-              <OrderFilesViewer orderId={lastScannedPartNumber} stationName={stationName} />
+              <OrderFilesViewer orderId={lastScannedPartNumber} stationName={stationName} allStationNames={allStationNames} />
             </div>
           </div>
         )}
@@ -978,7 +983,7 @@ export default function OperatorPage() {
                               <div className="text-xs text-gray-500">{wo.main_customer} - {wo.sector}</div>
                             </td>
                             <td className="px-4 py-3">
-                              <OrderFilesViewer orderId={wo.part_number} stationName={stationName} />
+                              <OrderFilesViewer orderId={wo.part_number} stationName={stationName} allStationNames={allStationNames} />
                             </td>
                             <td className="px-4 py-3">
                               <svg

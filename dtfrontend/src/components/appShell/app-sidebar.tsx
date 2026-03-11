@@ -31,11 +31,12 @@ interface AppSidebarProps {
   mobileOpen?: boolean
   isIvmePlatform?: boolean
   platformInfo?: PlatformInfo
+  mobileBreakpoint?: number
 }
 
-export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPathname, onNavigationItemClick, onLogout, logoutLoading = false, mobileOpen, isIvmePlatform, platformInfo }: AppSidebarProps) {
+export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPathname, onNavigationItemClick, onLogout, logoutLoading = false, mobileOpen, isIvmePlatform, platformInfo, mobileBreakpoint = 800 }: AppSidebarProps) {
   const router = useRouter()
-  const isDesktop = useMediaQuery("(min-width: 800px)")
+  const isDesktop = useMediaQuery(`(min-width: ${mobileBreakpoint}px)`)
   const [isExpanded, setIsExpanded] = useState(false)
   const [expandedSubmenus, setExpandedSubmenus] = useState<Set<string>>(new Set())
 
@@ -96,7 +97,7 @@ export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPat
         <a
           href={item.href}
           className={`flex items-center ${
-            !isDesktop && mobileOpen ? "justify-start" : "justify-center md:justify-start"
+            (!isDesktop && mobileOpen) || isDesktop ? "justify-start" : "justify-center"
           } gap-3 rounded-md p-2 text-sm transition-colors ${
             level > 0 ? "ml-4" : ""
           } ${
@@ -144,7 +145,7 @@ export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPat
     <div className="h-full relative" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
       <div
         className={`fixed inset-y-0 left-0 z-40 flex h-full transition-[width] duration-300 ease-in-out ${
-          mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+          mobileOpen || isDesktop ? "translate-x-0" : "-translate-x-full"
         } ${sidebarWidth} ${isIvmePlatform ? 'pt-[85px]' : 'pt-16'}`}
       >
         <div className="flex h-full w-full flex-col bg-gray-50 overflow-hidden shadow-lg">

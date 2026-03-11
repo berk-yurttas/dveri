@@ -848,7 +848,7 @@ export default function WorkOrdersPage() {
                         </td>
                         {!isMusteri && (
                           <td className="px-4 py-3">
-                            <OrderFilesViewer orderId={wo.part_number} stationName={currentStation !== "-" ? currentStation : undefined} />
+                            <OrderFilesViewer orderId={wo.part_number} stationName={currentStation !== "-" ? currentStation : undefined} allStationNames={stations.map((s) => s.name)} />
                           </td>
                         )}
                         <td className="px-4 py-3">

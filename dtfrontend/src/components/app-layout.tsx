@@ -318,6 +318,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
         notificationCount={3}
         userInfo={userInfo}
         headerColor={headerColor}
+        mobileBreakpoint={pathname.includes('/atolye') ? 1250 : 800}
       >
         {children}
       </AppShell>

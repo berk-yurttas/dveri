@@ -22,10 +22,11 @@ interface AppHeaderProps {
   onLogoutClick?: () => void
   userInfo?: UserInfo
   headerColor?: string
+  mobileBreakpoint?: number
 }
 
-export function AppHeader({ title, subtitle, customActions = [], onMobileMenuClick, onPreferencesClick, onLogoutClick, userInfo, headerColor = "#1e3a8a" }: AppHeaderProps) {
-  const isMobile = useMediaQuery("(max-width: 799px)")
+export function AppHeader({ title, subtitle, customActions = [], onMobileMenuClick, onPreferencesClick, onLogoutClick, userInfo, headerColor = "#1e3a8a", mobileBreakpoint = 800 }: AppHeaderProps) {
+  const isMobile = useMediaQuery(`(max-width: ${mobileBreakpoint - 1}px)`)
   const { platform } = usePlatform()
   const router = useRouter()
 
