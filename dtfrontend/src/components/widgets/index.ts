@@ -25,6 +25,7 @@ export { TestEquipmentWidget } from './test-equipment-widget'
 export { EquipmentTestWidget } from './equipment-test-widget'
 export { EquipmentLastUserWidget } from './equipment-last-user-widget'
 export { HardwareLastUserWidget } from './hardware-last-user-widget'
+export { CSuiteReportWidget } from './csuite-report-widget'
 
 // Export widget configurations
 import { EfficiencyWidget } from './efficiency-widget'
@@ -54,6 +55,7 @@ import { TestEquipmentWidget } from './test-equipment-widget'
 import { EquipmentTestWidget } from './equipment-test-widget'
 import { EquipmentLastUserWidget } from './equipment-last-user-widget'
 import { HardwareLastUserWidget } from './hardware-last-user-widget'
+import { CSuiteReportWidget } from './csuite-report-widget'
 
 export const widgetConfigs = [
   EfficiencyWidget.config,
@@ -82,5 +84,6 @@ export const widgetConfigs = [
   TestEquipmentWidget.config,
   EquipmentTestWidget.config,
   EquipmentLastUserWidget.config,
-  HardwareLastUserWidget.config
+  HardwareLastUserWidget.config,
+  CSuiteReportWidget.config
 ]

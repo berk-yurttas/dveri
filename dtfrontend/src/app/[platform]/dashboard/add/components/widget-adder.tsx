@@ -66,7 +66,8 @@ const platformWidgetMapping: { [key: string]: string[] } = {
     'kablaj_duruslar-widget',
     'mekanik_hatalar-widget',
     'employee_count-widget',
-    'aselsan_sivas-widget'
+    'aselsan_sivas-widget',
+    'csuite_report-widget'
   ],
 }
 
