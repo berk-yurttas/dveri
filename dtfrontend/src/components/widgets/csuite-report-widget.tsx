@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, type ReactNode } from "react"
 import { api } from "@/lib/api"
 
 // Widget configuration
@@ -29,6 +29,24 @@ const CSUITE_COMPANY_OPTIONS = [
     'Delta Savunma',
     'Nova Mekanik',
 ]
+
+// Responsible person infographic content (update as needed).
+const CSUITE_RESPONSIBLE_CONTACT = {
+    name: 'Yetkili Kişi',
+    role: 'CSuite Dashboard Sorumlusu',
+    phone: '+90 5XX XXX XX XX',
+    // Example: '/images/csuite-responsible.jpg'
+    imageUrl: '',
+}
+
+function getInitials(name: string): string {
+    return name
+        .trim()
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase() ?? '')
+        .join('') || 'YK'
+}
 
 // ── SQL Queries ──
 const SQL = {
@@ -97,6 +115,20 @@ interface PreviewResponse {
     message?: string
 }
 
+interface CSuiteHistoryResponse {
+    firma: string
+    weeks: Array<Record<string, any>>
+    latest_week: string | null
+    changes: {
+        tedarikci_kapasite_analizi: Record<string, number>
+        aselsan_kaynakli_durma: Record<string, number>
+    }
+    changes_percent: {
+        tedarikci_kapasite_analizi: Record<string, number>
+        aselsan_kaynakli_durma: Record<string, number>
+    }
+}
+
 interface MetricItem {
     name: string
     value: number | string
@@ -158,6 +190,53 @@ async function runQuery(sql: string): Promise<any[][]> {
     return []
 }
 
+// Fixes common UTF-8/Latin-1 mojibake such as "HavacÄ±lÄ±k" -> "Havacılık".
+function normalizeDisplayText(value: unknown): string {
+    const text = String(value ?? '')
+    const likelyMojibake = /[ÃÄÅÐÑ]/.test(text)
+    if (!likelyMojibake) return text
+
+    try {
+        const bytes = Uint8Array.from(Array.from(text).map((ch) => ch.charCodeAt(0) & 0xff))
+        const decoded = new TextDecoder('utf-8').decode(bytes)
+        return decoded.includes('\uFFFD') ? text : decoded
+    } catch {
+        return text
+    }
+}
+
+function normalizeCompanyKey(value: unknown): string {
+    return normalizeDisplayText(value)
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLocaleLowerCase('tr-TR')
+}
+
+function trendFromDelta(delta: number): string {
+    if (delta > 0) return 'up'
+    if (delta < 0) return 'down'
+    return 'neutral'
+}
+
+function InfoTooltip({
+    show,
+    children,
+    className = "",
+}: {
+    show: boolean
+    children: ReactNode
+    className?: string
+}) {
+    return (
+        <div
+            className={`absolute z-50 w-max max-w-[320px] rounded-lg bg-gray-800/95 px-3 py-2 text-[11px] leading-relaxed text-white shadow-2xl transition-all duration-200 ease-out ${show ? "opacity-100 translate-y-0 scale-100" : "pointer-events-none opacity-0 -translate-y-1 scale-95"} ${className}`}
+        >
+            {children}
+            <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-800"></div>
+        </div>
+    )
+}
+
 // ── Trend arrow helper ──
 function TrendArrow({ trend, changePct }: { trend: string; changePct?: number }) {
     const pct = typeof changePct === 'number' ? changePct : 0
@@ -183,7 +262,12 @@ function TrendArrow({ trend, changePct }: { trend: string; changePct?: number })
             </span>
         )
     }
-    return <span className={`text-[10px] font-semibold ${pctClass}`}>{pct.toFixed(1)}%</span>
+    return (
+        <span className="inline-flex items-center gap-1">
+            <span className="text-gray-500 text-sm drop-shadow-sm">◆</span>
+            <span className={`text-[10px] font-semibold ${pctClass}`}>{pct.toFixed(1)}%</span>
+        </span>
+    )
 }
 
 export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
@@ -214,8 +298,11 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
             try {
                 const isAll = selectedCompany === 'Tüm Firmalar'
 
-                // Use first company from the list as default for "Tüm Firmalar"
-                const firmaForQueries = isAll && companies.length > 1 ? companies[1] : selectedCompany
+                // When "Tüm Firmalar" is selected, metric boxes still need one concrete
+                // firma for per-firma queries.
+                const firstRealCompany =
+                    companies.find((c) => c !== 'Tüm Firmalar') || CSUITE_COMPANY_OPTIONS[0]
+                const firmaForQueries = isAll ? firstRealCompany : selectedCompany
 
                 // Run all queries in parallel for performance
                 // Some queries have fallback data if tables don't exist
@@ -277,7 +364,25 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 const talasliPct = totalAB > 0 ? Math.round((countA / totalAB) * 100) : 0
                 const kablajPct = totalAB > 0 ? Math.round((countB / totalAB) * 100) : 0
 
-                let tedarikciItems: MetricItem[] = tedarikciRows.map((r, idx) => ({
+                const fallbackTedarikciRows =
+                    tedarikciRows.length > 0
+                        ? []
+                        : tedarikciAllRows
+                            .filter((r) => normalizeCompanyKey(r[0]) === normalizeCompanyKey(firmaForQueries))
+                            .map((r) => [r[1], r[2], '%', 'neutral'])
+
+                const effectiveTedarikciRows = tedarikciRows.length > 0 ? tedarikciRows : fallbackTedarikciRows
+
+                const tedarikciOrder = new Map(tedarikciLabels.map((label, idx) => [label, idx]))
+                effectiveTedarikciRows.sort((a, b) => {
+                    const aKey = normalizeDisplayText(a[0])
+                    const bKey = normalizeDisplayText(b[0])
+                    const aOrder = tedarikciOrder.get(aKey) ?? 999
+                    const bOrder = tedarikciOrder.get(bKey) ?? 999
+                    return aOrder - bOrder
+                })
+
+                let tedarikciItems: MetricItem[] = effectiveTedarikciRows.map((r, idx) => ({
                     name: (tedarikciLabels[idx] || r[0]) as string,
                     value: parseInt(r[1], 10),
                     unit: r[2] as string,
@@ -299,10 +404,65 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     }
                 })
 
+                // Use JSON-backed weekly history for trend direction and percentage changes.
+                try {
+                    const tedarikciPayload = Object.fromEntries(
+                        tedarikciItems.map((item) => [item.name, Number(item.value) || 0])
+                    )
+                    const aselsanPayload = Object.fromEntries(
+                        aselsanItems.map((item) => [item.name, Number(item.value) || 0])
+                    )
+
+                    let history = await api.get<CSuiteHistoryResponse>(
+                        `/data/csuite/history?firma=${encodeURIComponent(firmaForQueries)}&limit=10`,
+                        undefined,
+                        { useCache: false }
+                    ).catch(() => null)
+
+                    if (!history || !Array.isArray(history.weeks) || history.weeks.length < 2) {
+                        history = await api.post<CSuiteHistoryResponse>(
+                            '/data/csuite/history/record',
+                            {
+                                firma: firmaForQueries,
+                                tedarikci_kapasite_analizi: tedarikciPayload,
+                                aselsan_kaynakli_durma: aselsanPayload,
+                                backfill_missing_weeks: true,
+                            }
+                        ).catch(() => history)
+                    }
+
+                    const tChangesPct = history?.changes_percent?.tedarikci_kapasite_analizi || {}
+                    const aChangesPct = history?.changes_percent?.aselsan_kaynakli_durma || {}
+                    const tChanges = history?.changes?.tedarikci_kapasite_analizi || {}
+                    const aChanges = history?.changes?.aselsan_kaynakli_durma || {}
+
+                    tedarikciItems = tedarikciItems.map((item) => {
+                        const key = item.name
+                        const delta = Number(tChanges[key] ?? 0)
+                        return {
+                            ...item,
+                            trend: trendFromDelta(delta),
+                            changePct: Number(tChangesPct[key] ?? 0),
+                        }
+                    })
+
+                    aselsanItems = aselsanItems.map((item) => {
+                        const key = item.name
+                        const delta = Number(aChanges[key] ?? 0)
+                        return {
+                            ...item,
+                            trend: trendFromDelta(delta),
+                            changePct: Number(aChangesPct[key] ?? 0),
+                        }
+                    })
+                } catch (historyErr) {
+                    console.warn('CSuite history unavailable, using SQL trend fields.', historyErr)
+                }
+
                 const supplierTableRows: SupplierTableRow[] =
                     tedarikciAllRows.length > 0
                         ? tedarikciAllRows.map((r) => ({
-                            firma: String(r[0] ?? ''),
+                            firma: normalizeDisplayText(r[0]),
                             kapasite: parseInt(r[2] ?? 0, 10) || 0,
                         }))
                         : CSUITE_COMPANY_OPTIONS.flatMap((firma) =>
@@ -337,9 +497,16 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
             }
         }
 
+        // Wait until company options are initialized to avoid querying with
+        // firma='Tüm Firmalar' for per-firma SQL blocks.
+        if (selectedCompany === 'Tüm Firmalar' && companies.length === 0) {
+            setLoading(false)
+            return
+        }
+
         fetchReport()
         return () => { cancelled = true }
-    }, [selectedCompany])
+    }, [selectedCompany, companies])
 
     // ── Loading state ──
     if (loading) {
@@ -403,16 +570,68 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                             </svg>
                         </button>
-                        {showTooltip && (
-                            <div className="absolute left-0 top-7 z-50 w-80 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
-                                Harvard Business Review, Gartner, McKinsey araştırmalarına göre C-Level Dashboard özellikleri belirlenmiştir.
-                                <div className="absolute -top-1 left-2 w-2 h-2 bg-gray-900 transform rotate-45"></div>
-                            </div>
-                        )}
+                        <InfoTooltip show={showTooltip} className="left-1/2 top-8 -translate-x-1/2">
+                            Harvard Business Review, Gartner, McKinsey araştırmalarına göre C-Level Dashboard özellikleri belirlenmiştir.
+                        </InfoTooltip>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-3">
+                    <div className="relative hidden sm:block group">
+                        <div
+                            className="flex items-center gap-3 rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2 shadow-sm transition-all duration-300 hover:border-indigo-300 hover:shadow-md"
+                            tabIndex={0}
+                        >
+                            <div className="h-9 w-9 overflow-hidden rounded-lg border border-indigo-200 bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-sm">
+                                {CSUITE_RESPONSIBLE_CONTACT.imageUrl ? (
+                                    <img
+                                        src={CSUITE_RESPONSIBLE_CONTACT.imageUrl}
+                                        alt={CSUITE_RESPONSIBLE_CONTACT.name}
+                                        className="h-full w-full object-cover"
+                                    />
+                                ) : (
+                                    <div className="flex h-full w-full items-center justify-center text-xs font-bold tracking-wide">
+                                        {getInitials(CSUITE_RESPONSIBLE_CONTACT.name)}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="leading-tight">
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">Grafik Sorumlusu</p>
+                                <p className="text-xs font-semibold text-gray-800">{CSUITE_RESPONSIBLE_CONTACT.name}</p>
+                                <p className="text-[11px] text-gray-600">{CSUITE_RESPONSIBLE_CONTACT.phone}</p>
+                            </div>
+                        </div>
+
+                        <div className="pointer-events-none absolute right-0 top-full z-40 mt-3 w-64 translate-y-1 scale-95 opacity-0 transition-all duration-250 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:scale-100 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:scale-100 group-focus-within:opacity-100">
+                            <div className="absolute -top-2 right-8 h-4 w-4 rotate-45 rounded-[2px] border-l border-t border-indigo-100 bg-white"></div>
+                            <div className="overflow-hidden rounded-3xl border border-indigo-100/90 bg-white/95 shadow-[0_20px_45px_-20px_rgba(79,70,229,0.45)] backdrop-blur-sm">
+                                <div className="relative h-32 w-full bg-gradient-to-br from-indigo-100 via-violet-100 to-purple-100">
+                                    {CSUITE_RESPONSIBLE_CONTACT.imageUrl ? (
+                                        <img
+                                            src={CSUITE_RESPONSIBLE_CONTACT.imageUrl}
+                                            alt={CSUITE_RESPONSIBLE_CONTACT.name}
+                                            className="h-full w-full object-cover"
+                                        />
+                                    ) : (
+                                        <div className="flex h-full w-full items-center justify-center">
+                                            <div className="flex h-16 w-16 items-center justify-center rounded-[1.1rem] bg-gradient-to-br from-indigo-500 to-purple-600 text-xl font-bold text-white shadow-lg">
+                                                {getInitials(CSUITE_RESPONSIBLE_CONTACT.name)}
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/35 to-transparent"></div>
+                                </div>
+                                <div className="space-y-1.5 px-4 py-3.5">
+                                    <p className="text-sm font-bold text-gray-900">{CSUITE_RESPONSIBLE_CONTACT.name}</p>
+                                    <p className="text-xs font-medium text-indigo-600">{CSUITE_RESPONSIBLE_CONTACT.role}</p>
+                                    <div className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-1 text-xs text-gray-700">
+                                        {CSUITE_RESPONSIBLE_CONTACT.phone}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
                         Firma
                     </label>
@@ -558,12 +777,9 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                                     </svg>
                                 </button>
-                                {showCmmTooltip && (
-                                    <div className="absolute left-0 top-6 z-50 w-64 p-2 bg-gray-900 text-white text-[11px] rounded-lg shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
-                                        Bütün altyapıdaki sayıyı göstermektedir
-                                        <div className="absolute -top-1 left-2 w-2 h-2 bg-gray-900 transform rotate-45"></div>
-                                    </div>
-                                )}
+                                <InfoTooltip show={showCmmTooltip} className="left-1/2 top-7 max-w-[220px] -translate-x-1/2">
+                                    Bütün altyapıdaki sayıyı göstermektedir
+                                </InfoTooltip>
                             </div>
                         </div>
                         <span className="text-4xl font-extrabold text-center block bg-gradient-to-br from-emerald-600 to-teal-600 bg-clip-text text-transparent">

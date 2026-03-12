@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 
 # Set ODBC environment variables before any imports that might use them
 # This is critical for Linux systems to find ODBC drivers
@@ -12,12 +13,24 @@ from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.middleware import AuthMiddleware
 from app.core.platform_middleware import PlatformMiddleware
+from app.services.csuite_history_scheduler import CSuiteHistoryScheduler
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Start background scheduler that writes one snapshot per company per ISO week.
+    CSuiteHistoryScheduler.start()
+    try:
+        yield
+    finally:
+        await CSuiteHistoryScheduler.stop()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="Dashboard Backend API",
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan,
 )
 
 # Add platform middleware (before auth to set platform context)

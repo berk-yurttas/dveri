@@ -89,6 +89,14 @@ class Settings(BaseSettings):
     OPENPROJECT_TALEP_SAHIBI_CUSTOM_FIELD_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_TALEP_SAHIBI_CUSTOM_FIELD_ID", "3")))
     OPENPROJECT_BIRIM_CUSTOM_FIELD_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_BIRIM_CUSTOM_FIELD_ID", "4")))
 
+    # CSuite weekly history scheduler
+    CSUITE_HISTORY_SCHEDULER_ENABLED: bool = Field(
+        default_factory=lambda: os.getenv("CSUITE_HISTORY_SCHEDULER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    )
+    CSUITE_HISTORY_SCHEDULER_INTERVAL_SECONDS: int = Field(
+        default_factory=lambda: int(os.getenv("CSUITE_HISTORY_SCHEDULER_INTERVAL_SECONDS", str(6 * 60 * 60)))
+    )
+
     @property
     def postgres_database_url(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
