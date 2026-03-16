@@ -25,6 +25,7 @@ export interface AppShellProps {
   notificationCount?: number
   userInfo?: UserInfo
   headerColor?: string
+  mobileBreakpoint?: number
 }
 
 export function AppShell({
@@ -42,13 +43,14 @@ export function AppShell({
   notificationCount,
   userInfo,
   headerColor,
+  mobileBreakpoint = 800,
 }: AppShellProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false)
   const [contactModalOpen, setContactModalOpen] = useState(false)
   const [feedbackText, setFeedbackText] = useState('')
   const [showSuccessMessage, setShowSuccessMessage] = useState(false)
-  const isDesktop = useMediaQuery("(min-width: 800px)")
+  const isDesktop = useMediaQuery(`(min-width: ${mobileBreakpoint}px)`)
   const { platform } = usePlatform()
 
   // Check if platform is 'ivme' for custom spacing
@@ -115,9 +117,9 @@ export function AppShell({
           ></div>
         </div>
       )}
-      {mobileSidebarOpen && currentPathname !== '/' && (
+      {mobileSidebarOpen && currentPathname !== '/' && !isDesktop && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          className="fixed inset-0 z-30 bg-black/50"
           onClick={() => setMobileSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -244,7 +246,7 @@ export function AppShell({
         </div>
       )}
 
-      <AppHeader title={title} subtitle={subtitle} customActions={customHeaderActions} onMobileMenuClick={currentPathname !== '/' ? toggleMobileSidebar : undefined} onPreferencesClick={onPreferencesClick} onLogoutClick={onLogoutClick} userInfo={userInfo} headerColor={headerColor} />
+      <AppHeader title={title} subtitle={subtitle} customActions={customHeaderActions} onMobileMenuClick={currentPathname !== '/' ? toggleMobileSidebar : undefined} onPreferencesClick={onPreferencesClick} onLogoutClick={onLogoutClick} userInfo={userInfo} headerColor={headerColor} mobileBreakpoint={mobileBreakpoint} />
 
       {/* Only show sidebar when not on homepage and not on Seyir platform home page */}
       {currentPathname !== '/' && !isSeyirHomePage && (
@@ -256,6 +258,7 @@ export function AppShell({
           logoutLoading={logoutLoading}
           mobileOpen={mobileSidebarOpen}
           isIvmePlatform={isIvmePlatform}
+          mobileBreakpoint={mobileBreakpoint}
           platformInfo={platform ? {
             name: platform.display_name,
             logo: platform.logo_url || '',
@@ -264,7 +267,7 @@ export function AppShell({
         />
       )}
 
-      <div className={`relative z-10 flex flex-1 flex-col ${currentPathname === '/' || isSeyirHomePage ? 'md:ml-0' : 'md:ml-16'
+      <div className={`relative z-10 flex flex-1 flex-col ${currentPathname === '/' || isSeyirHomePage || !isDesktop ? 'ml-0' : 'ml-16'
         } bg-gray-50/80 backdrop-blur-sm ${isIvmePlatform ? 'pt-[100px]' : 'pt-16'
         }`}>
         <main className="flex-1 p-4">{children}</main>

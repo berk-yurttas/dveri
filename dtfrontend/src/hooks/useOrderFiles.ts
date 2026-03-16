@@ -107,30 +107,52 @@ export function useOrderFiles() {
   }, [selectedHandle]);
 
   const getOrderFiles = useCallback(
-    async (orderId: string, stationName?: string): Promise<OrderFileItem[]> => {
+    async (orderId: string, stationName?: string, allStationNames?: string[]): Promise<OrderFileItem[]> => {
       const folderName = orderId.trim();
       if (!folderName) {
         throw new Error("Geçersiz orderId.");
       }
 
-      const readOrderFolder = async (rootHandle: FileSystemDirectoryHandle) => {
-        let searchRoot = rootHandle;
-        if (stationName) {
-          const station = stationName.trim();
-          if (station) {
-            searchRoot = await rootHandle.getDirectoryHandle(station, { create: false });
-          }
-        }
-        const orderDir = await searchRoot.getDirectoryHandle(folderName, { create: false });
+      const readFilesFromDir = async (dirHandle: FileSystemDirectoryHandle): Promise<OrderFileItem[]> => {
         const files: OrderFileItem[] = [];
-        const directoryWithEntries = orderDir as FileSystemDirectoryHandle & {
+        const dirWithEntries = dirHandle as FileSystemDirectoryHandle & {
           entries: () => AsyncIterableIterator<[string, FileSystemHandle]>;
         };
-        for await (const [, entry] of directoryWithEntries.entries()) {
+        for await (const [, entry] of dirWithEntries.entries()) {
           if (entry.kind === "file") {
-            const fileHandle = entry as FileSystemFileHandle;
-            const file = await fileHandle.getFile();
+            const file = await (entry as FileSystemFileHandle).getFile();
             files.push({ name: file.name, file });
+          }
+        }
+        return files;
+      };
+
+      const readOrderFolder = async (rootHandle: FileSystemDirectoryHandle) => {
+        const orderDir = await rootHandle.getDirectoryHandle(folderName, { create: false });
+        const files: OrderFileItem[] = [];
+        const orderDirWithEntries = orderDir as FileSystemDirectoryHandle & {
+          entries: () => AsyncIterableIterator<[string, FileSystemHandle]>;
+        };
+        const currentStation = stationName?.trim() ?? "";
+        const knownStations = allStationNames?.map((s) => s.trim()) ?? [];
+
+        for await (const [name, entry] of orderDirWithEntries.entries()) {
+          if (entry.kind !== "directory") continue;
+          const subDir = entry as FileSystemDirectoryHandle;
+          if (knownStations.length > 0) {
+            const isAtolyeFolder = knownStations.includes(name);
+            if (isAtolyeFolder) {
+              // Only include if it matches the current station
+              if (currentStation && name === currentStation) {
+                files.push(...(await readFilesFromDir(subDir)));
+              }
+            } else {
+              // Generic folder — always include
+              files.push(...(await readFilesFromDir(subDir)));
+            }
+          } else {
+            // No station context — include everything
+            files.push(...(await readFilesFromDir(subDir)));
           }
         }
         return files;
