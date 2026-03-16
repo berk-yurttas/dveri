@@ -680,6 +680,7 @@ export default function PlatformHome() {
                 // Tüm ÜstMalzeme bilgilerini topla (unique)
                 const ustMalzemeler = [...new Set(
                   zascs15Data
+                    .filter((item: any) => String(item['Kademe']) === '1')
                     .map((item: any) => item['ÜstMalzeme'])
                     .filter((m: string) => m && m !== '-')
                 )];

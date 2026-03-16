@@ -62,6 +62,8 @@ export default function SubPlatformPage() {
   const hasDerinizAdmin = user?.role && Array.isArray(user.role) &&
     user.role.includes('deriniz:admin');
   
+  const hasIdariAccess = (user?.role && Array.isArray(user.role) && (user.role.includes('odak:satinalma') || user.role.includes('miras:admin')));
+  
   const [dashboards, setDashboards] = useState<DashboardList[]>([]);
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
@@ -823,7 +825,7 @@ export default function SubPlatformPage() {
           <div className="mb-12">
             <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6">
               <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-1">
                   <div className="p-3 rounded-lg bg-blue-500 text-white">
                     <BarChart3 className="h-6 w-6" />
                   </div>
@@ -832,6 +834,15 @@ export default function SubPlatformPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
+                  {hasIdariAccess && (
+                    <button
+                      onClick={() => router.push(`/${platformCode}/personel`)}
+                      className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors shadow-lg"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Yeni Kayıt
+                    </button>
+                  )}
                   {/* Firma Filter */}
                   {firmaOptions.length > 0 && (
                     <div className="relative">
