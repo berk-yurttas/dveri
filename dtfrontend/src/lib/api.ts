@@ -114,8 +114,7 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}, cacheO
     // Support for AbortController passed in options
     // SAP endpoints get 30 minute timeout, others get 30 second timeout
     const controller = new AbortController()
-    const isSapRequest = endpoint.includes('/sap_seyir/')
-    const timeoutId = setTimeout(() => controller.abort(), isSapRequest ? 1800000 : 30000)
+    const timeoutId = setTimeout(() => controller.abort(), 1800000)
     
     const signal = options.signal || controller.signal
     
