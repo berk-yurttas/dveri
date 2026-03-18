@@ -48,9 +48,9 @@ def sanitize_sql_query(query: str) -> str:
         if re.search(pattern, sanitized_query, re.IGNORECASE):
             raise ValueError(f"Query contains potentially dangerous SQL: {pattern}")
 
-    # Ensure query starts with SELECT
-    if not re.match(r'^\s*SELECT\s+', sanitized_query, re.IGNORECASE):
-        raise ValueError("Only SELECT queries are allowed")
+    # Ensure query starts with SELECT OR WITH
+    if not re.match(r'^\s*(SELECT|WITH)\s+', sanitized_query, re.IGNORECASE):
+        raise ValueError("Only SELECT OR WITH queries are allowed")
 
     return sanitized_query
 

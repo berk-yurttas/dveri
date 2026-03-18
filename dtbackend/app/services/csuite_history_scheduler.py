@@ -4,10 +4,10 @@ import asyncio
 import logging
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal
-from app.services.csuite_history_store import CSuiteHistoryStore, JsonCSuiteHistoryStore
+from app.services.csuite_history_store import CSuiteHistoryStore, DatabaseCSuiteHistoryStore, JsonCSuiteHistoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +18,91 @@ class CSuiteHistoryScheduler:
 
     It does not blindly write on every tick: for each firma, it writes at most
     one record per ISO week (e.g. 2026-W11).
+    
+    This scheduler uses the IVME platform database for fetching CSuite data.
     """
 
     _task: asyncio.Task | None = None
     _stop_event: asyncio.Event | None = None
     _interval_seconds = max(60, int(settings.CSUITE_HISTORY_SCHEDULER_INTERVAL_SECONDS))
     _history_store: CSuiteHistoryStore = JsonCSuiteHistoryStore()
+    _ivme_session_maker: async_sessionmaker | None = None
+    _database_store: DatabaseCSuiteHistoryStore | None = None  # For Talaşlı İmalat doluluk
+
+    @classmethod
+    async def _get_ivme_session_maker(cls) -> async_sessionmaker:
+        """
+        Get or create the IVME database session maker.
+        Fetches the IVME platform configuration from the platforms table and creates
+        an async engine for it.
+        """
+        if cls._ivme_session_maker is not None:
+            return cls._ivme_session_maker
+
+        # Import here to avoid circular imports
+        from app.core.database import AsyncSessionLocal
+        from app.models.postgres_models import Platform
+
+        # Fetch IVME platform configuration
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                text("SELECT db_type, db_config FROM platforms WHERE code = 'ivme' AND is_active = true")
+            )
+            row = result.fetchone()
+            
+            if not row:
+                raise ValueError(
+                    "IVME platform not found or inactive in the database. "
+                    "Please configure the IVME platform with proper database settings."
+                )
+            
+            db_type, db_config = row
+            
+            if db_type.lower() != "postgresql":
+                raise ValueError(
+                    f"IVME platform must use PostgreSQL database, but found: {db_type}"
+                )
+            
+            if not db_config:
+                raise ValueError("IVME platform has no database configuration (db_config is null)")
+
+            # Build connection string from db_config
+            host = db_config.get("host", "localhost")
+            port = db_config.get("port", 5432)
+            database = db_config.get("database")
+            user = db_config.get("user")
+            password = db_config.get("password")
+
+            if not all([database, user]):
+                raise ValueError(
+                    f"IVME platform database configuration is incomplete. "
+                    f"Required: database, user. Found: {list(db_config.keys())}"
+                )
+
+            connection_string = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
+            
+            # Create async engine for IVME database
+            ivme_engine = create_async_engine(
+                connection_string,
+                echo=True,
+                pool_pre_ping=True,
+                pool_size=5,
+                max_overflow=10
+            )
+            
+            cls._ivme_session_maker = async_sessionmaker(
+                ivme_engine,
+                class_=AsyncSession,
+                expire_on_commit=False
+            )
+            
+            # Initialize database store for Talaşlı İmalat doluluk oranı only
+            cls._database_store = DatabaseCSuiteHistoryStore(cls._ivme_session_maker, platform="talasli_imalat")
+            
+            logger.info(f"Created IVME database connection: {host}:{port}/{database}")
+            logger.info("Initialized database store for Talaşlı İmalat doluluk tracking")
+        
+        return cls._ivme_session_maker
 
     @classmethod
     def configure_history_store(cls, store: CSuiteHistoryStore) -> None:
@@ -79,72 +158,97 @@ class CSuiteHistoryScheduler:
     async def run_once(cls) -> dict[str, int]:
         current_week = cls._history_store.current_week_key()
         per_firma_tedarikci: dict[str, dict[str, int]] = {}
-        per_firma_aselsan: dict[str, dict[str, int]] = {}
 
-        async with AsyncSessionLocal() as session:
-            tedarikci_rows = await session.execute(
-                text(
-                    """
-                    SELECT firma, name, value
-                    FROM csuite.tedarikci_kapasite
-                    ORDER BY firma, id
-                    """
-                )
-            )
-            for row in tedarikci_rows.all():
-                firma = str(row[0] or "").strip()
-                name = str(row[1] or "").strip()
-                value = int(row[2] or 0)
-                if not firma or not name:
-                    continue
-                per_firma_tedarikci.setdefault(firma, {})[name] = value
+        # Get IVME session maker
+        ivme_session_maker = await cls._get_ivme_session_maker()
 
-            # Optional source; some environments may not have this table yet.
+        async with ivme_session_maker() as session:
+            # For Talaşlı İmalat: Fetch from MES production function
             try:
-                aselsan_rows = await session.execute(
+                mes_rows = await session.execute(
                     text(
                         """
-                        SELECT firma, name, value
-                        FROM csuite.aselsan_kaynakli_durma
-                        ORDER BY firma, id
+                        SELECT "Firma Adı", "Aylık Planlanan Doluluk Oranı"
+                        FROM mes_production.get_firma_makina_planlanan_doluluk
                         """
                     )
                 )
-                for row in aselsan_rows.all():
+                for row in mes_rows.all():
                     firma = str(row[0] or "").strip()
-                    name = str(row[1] or "").strip()
-                    value = int(row[2] or 0)
-                    if not firma or not name:
+                    doluluk_orani = row[1]
+                    if not firma:
                         continue
-                    per_firma_aselsan.setdefault(firma, {})[name] = value
-            except Exception:
-                logger.debug(
-                    "Skipping csuite.aselsan_kaynakli_durma snapshot; table unavailable in this environment"
-                )
+                    # Convert doluluk_orani to integer (0-100 range)
+                    try:
+                        value = int(float(doluluk_orani or 0))
+                        value = max(0, min(100, value))  # Clamp to 0-100
+                    except (ValueError, TypeError):
+                        value = 0
+                    
+                    per_firma_tedarikci.setdefault(firma, {})["Talaşlı İmalat"] = value
+                    logger.debug(f"MES data: {firma} - Talaşlı İmalat = {value}%")
+            except Exception as e:
+                logger.warning(f"Failed to fetch MES production data for Talaşlı İmalat: {e}")
+            
+            # For Kablaj/EMM and Kart Dizgi: These are under construction
+            # TODO: Add data sources when tables/functions are available
+            # For now, we'll populate with placeholder zeros for consistency in the data structure
+            for firma in per_firma_tedarikci.keys():
+                per_firma_tedarikci[firma].setdefault("Kablaj/EMM", 0)
+                per_firma_tedarikci[firma].setdefault("Kart Dizgi", 0)
+            
+            logger.debug("Kablaj/EMM and Kart Dizgi set to 0 (under construction)")
 
         total_firmas = 0
-        written = 0
+        written_json = 0
+        written_db = 0
 
-        all_firmas = sorted(set(per_firma_tedarikci.keys()) | set(per_firma_aselsan.keys()))
+        all_firmas = sorted(set(per_firma_tedarikci.keys()))
         for firma in all_firmas:
             total_firmas += 1
-            if cls._history_store.latest_week_for_company(firma) == current_week:
-                continue
-
-            cls._history_store.write_weekly_snapshot(
-                firma=firma,
-                week=current_week,
-                tedarikci_kapasite_analizi=per_firma_tedarikci.get(firma, {}),
-                aselsan_kaynakli_durma=per_firma_aselsan.get(firma, {}),
-            )
-            written += 1
+            
+            # Write Talaşlı İmalat doluluk to database
+            if firma in per_firma_tedarikci and "Talaşlı İmalat" in per_firma_tedarikci[firma]:
+                try:
+                    # Check if we already have this week's data in the database
+                    latest_db_week = await cls._database_store.latest_week_for_company_async(firma)
+                    logger.debug(f"Checking {firma}: latest_week={latest_db_week}, current_week={current_week}")
+                    
+                    if latest_db_week != current_week:
+                        logger.info(f"Writing doluluk to DB: firma={firma}, tedarikci={per_firma_tedarikci[firma]}")
+                        
+                        await cls._database_store.write_weekly_snapshot_async(
+                            firma=firma,
+                            week=current_week,
+                            tedarikci_kapasite_analizi=per_firma_tedarikci[firma],
+                            aselsan_kaynakli_durma={},  # Not storing durma in history
+                        )
+                        written_db += 1
+                        logger.info(f"✓ Wrote Talaşlı İmalat doluluk data to database for {firma}")
+                    else:
+                        logger.debug(f"Skipping {firma} - week {current_week} already recorded")
+                except Exception as e:
+                    logger.error(f"Failed to write Talaşlı İmalat data to database for {firma}: {e}", exc_info=True)
+            
+            # Write Kablaj/EMM and Kart Dizgi to JSON (currently under construction, so all zeros)
+            # This is for future compatibility when these categories become available
+            latest_json_week = cls._history_store.latest_week_for_company(firma)
+            if latest_json_week != current_week:
+                cls._history_store.write_weekly_snapshot(
+                    firma=firma,
+                    week=current_week,
+                    tedarikci_kapasite_analizi=per_firma_tedarikci.get(firma, {}),
+                    aselsan_kaynakli_durma={},  # Not storing durma in history
+                )
+                written_json += 1
 
         logger.info(
-            "CSuite weekly snapshot tick complete: firmas=%s written=%s week=%s",
+            "CSuite weekly snapshot tick complete: firmas=%s written_db=%s written_json=%s week=%s",
             total_firmas,
-            written,
+            written_db,
+            written_json,
             current_week,
         )
-        return {"firmas": total_firmas, "written": written}
+        return {"firmas": total_firmas, "written": written_db + written_json}
 
 

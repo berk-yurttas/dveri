@@ -94,6 +94,7 @@ class CSuiteHistoryService:
                 {
                     "week": week_key,
                     "recorded_at": datetime.now(timezone.utc).isoformat(),
+                    "is_synthetic": True,  # Flag to mark synthetic/backfilled data
                     "tedarikci_kapasite_analizi": {
                         c: cls._synthetic_value(firma, c, tedarikci.get(c, 0), offset) for c in cls._categories
                     },
@@ -111,7 +112,7 @@ class CSuiteHistoryService:
         tedarikci_kapasite_analizi: dict[str, float | int],
         aselsan_kaynakli_durma: dict[str, float | int],
         week: str | None = None,
-        backfill_missing_weeks: bool = True,
+        backfill_missing_weeks: bool = False,  # Disabled by default
     ) -> dict[str, Any]:
         firma = firma.strip()
         if not firma:
@@ -142,8 +143,9 @@ class CSuiteHistoryService:
             else:
                 entries[existing_idx] = new_entry
 
-            if backfill_missing_weeks and len(entries) <= 1:
-                entries.extend(cls._build_backfill_entries(firma, target_week, tedarikci, aselsan))
+            # Backfill disabled - do not generate synthetic data
+            # if backfill_missing_weeks and len(entries) <= 1:
+            #     entries.extend(cls._build_backfill_entries(firma, target_week, tedarikci, aselsan))
 
             entries = cls._sorted_weeks(entries)[-10:]
             companies[firma] = entries
@@ -166,7 +168,9 @@ class CSuiteHistoryService:
 
         weeks = cls._sorted_weeks(entries)[-max(1, min(limit, 52)) :]
         latest = weeks[-1] if weeks else None
-        previous = weeks[-2] if len(weeks) > 1 else None
+        
+        # Compare with 4 weeks ago (last month) only if we have at least 5 weeks of data
+        comparison = weeks[-5] if len(weeks) >= 5 else None
 
         changes = {
             "tedarikci_kapasite_analizi": {c: 0 for c in cls._categories},
@@ -176,10 +180,10 @@ class CSuiteHistoryService:
             "tedarikci_kapasite_analizi": {c: 0.0 for c in cls._categories},
             "aselsan_kaynakli_durma": {c: 0.0 for c in cls._categories},
         }
-        if latest and previous:
+        if latest and comparison:
             for c in cls._categories:
                 l_t = int(latest.get("tedarikci_kapasite_analizi", {}).get(c, 0))
-                p_t = int(previous.get("tedarikci_kapasite_analizi", {}).get(c, 0))
+                p_t = int(comparison.get("tedarikci_kapasite_analizi", {}).get(c, 0))
                 changes["tedarikci_kapasite_analizi"][c] = l_t - p_t
                 if p_t == 0:
                     changes_percent["tedarikci_kapasite_analizi"][c] = 0.0
@@ -187,7 +191,7 @@ class CSuiteHistoryService:
                     changes_percent["tedarikci_kapasite_analizi"][c] = round(((l_t - p_t) / p_t) * 100, 1)
 
                 l_a = int(latest.get("aselsan_kaynakli_durma", {}).get(c, 0))
-                p_a = int(previous.get("aselsan_kaynakli_durma", {}).get(c, 0))
+                p_a = int(comparison.get("aselsan_kaynakli_durma", {}).get(c, 0))
                 changes["aselsan_kaynakli_durma"][c] = l_a - p_a
                 if p_a == 0:
                     changes_percent["aselsan_kaynakli_durma"][c] = 0.0
