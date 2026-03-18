@@ -21,6 +21,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
+        # Never auth-gate CORS preflight requests.
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         # Skip auth for excluded paths
         if any(request.url.path.startswith(path) for path in self.exclude_paths):
             return await call_next(request)

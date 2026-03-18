@@ -12,7 +12,13 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
 
     # CORS
-    BACKEND_CORS_ORIGINS: list[str] | str = ["http://localhost:3000", "http://localhost:8080"]
+    BACKEND_CORS_ORIGINS: list[str] | str = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://localhost:8080",
+    ]
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
@@ -82,6 +88,14 @@ class Settings(BaseSettings):
     OPENPROJECT_PLATFORM_CUSTOM_FIELD_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_PLATFORM_CUSTOM_FIELD_ID", "2")))
     OPENPROJECT_TALEP_SAHIBI_CUSTOM_FIELD_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_TALEP_SAHIBI_CUSTOM_FIELD_ID", "3")))
     OPENPROJECT_BIRIM_CUSTOM_FIELD_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_BIRIM_CUSTOM_FIELD_ID", "4")))
+
+    # CSuite weekly history scheduler
+    CSUITE_HISTORY_SCHEDULER_ENABLED: bool = Field(
+        default_factory=lambda: os.getenv("CSUITE_HISTORY_SCHEDULER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    )
+    CSUITE_HISTORY_SCHEDULER_INTERVAL_SECONDS: int = Field(
+        default_factory=lambda: int(os.getenv("CSUITE_HISTORY_SCHEDULER_INTERVAL_SECONDS", str(6 * 60 * 60)))
+    )
 
     @property
     def postgres_database_url(self) -> str:
