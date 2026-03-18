@@ -287,7 +287,7 @@ export default function Home() {
 
   const handlePlatformSelect = (platform: PlatformType) => {
     const { code: platformCode, display_name: displayName, logo_url: logoUrl, theme_config } = platform;
-    const isUnderConstruction = theme_config?.underConstruction || false;
+    const isUnderConstruction = theme_config?.underConstruction ?? false;
 
     // Check access permissions
     if (!checkAccess(platform, user)) {
@@ -388,7 +388,7 @@ export default function Home() {
                 };
                 const isHovered = hoveredPlatform === platform.code;
 
-                const isUnderConstruction = platform.theme_config?.underConstruction || false;
+                const isUnderConstruction = platform.theme_config?.underConstruction ?? false;
 
                 return (
                   <div

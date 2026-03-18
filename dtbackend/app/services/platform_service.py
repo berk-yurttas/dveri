@@ -64,7 +64,7 @@ class PlatformService:
         limit: int = 100,
         include_inactive: bool = False,
         search: str | None = None
-    ) -> list[dict]:
+    ) -> list[Platform]:
         """
         Get list of platforms with optional filtering
 
@@ -80,15 +80,7 @@ class PlatformService:
         """
         # Select only stable/list-safe columns to avoid hard failures when optional
         # columns exist in ORM models but are not yet present in local DB schema.
-        query = select(
-            Platform.id,
-            Platform.code,
-            Platform.name,
-            Platform.display_name,
-            Platform.db_type,
-            Platform.is_active,
-            Platform.created_at,
-        )
+        query = select(Platform)
 
         # Filter by active status
         if not include_inactive:
@@ -109,7 +101,7 @@ class PlatformService:
         query = query.offset(skip).limit(limit)
 
         result = await db.execute(query)
-        return [dict(row) for row in result.mappings().all()]
+        return result.scalars().all()
 
     @staticmethod
     async def get_platform_by_id(

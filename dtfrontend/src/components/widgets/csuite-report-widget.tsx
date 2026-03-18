@@ -259,8 +259,8 @@ const SQL = {
     getOpenOrdersByFirma: (firma: string) => `
         SELECT COALESCE(SUM(REPLACE(REPLACE("Açık MG de", '.', ''), ',', '.')::numeric), 0)::numeric(10,2) AS total 
         FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari
-        LEFT JOIN mes_production.company_mapping ON mes_production.seyir_alt_yuklenici_mesuretim_kayitlari."Satıcı Tanım" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production.seyir_alt_yuklenici_mesuretim_kayitlari' 
-        WHERE mes_production.company_mapping."value" = '${firma}'
+        LEFT JOIN mes_production.company_mapping ON mes_production.seyir_alt_yuklenici_mesuretim_kayitlari."Satıcı Tanım" = mes_production.company_mapping."key"
+        WHERE mes_production.company_mapping."key" = '${firma}'
     `,
     getSupplierRiskAnalysis: `
         WITH CompanyTrend AS (
@@ -293,7 +293,7 @@ const SQL = {
             "Kapasite" / 10.0 as kapasite_points,
             NTILE(10) OVER(ORDER BY "Oran" ASC) * ("Kapasite" / 10.0) as "Risk"
         FROM CompanyStats
-        INNER JOIN mes_production.company_mapping ON CompanyStats."Tedarikçi" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production.company_mapping'
+        INNER JOIN mes_production.company_mapping ON CompanyStats."Tedarikçi" = mes_production.company_mapping."key"
         ORDER BY "Kapasite" ASC, order_points DESC, "Oran" DESC
     `,
 }
