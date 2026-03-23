@@ -56,6 +56,8 @@ export default function KullaniciYonetimiPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [filterRole, setFilterRole] = useState("");
+  const [filterAtolye, setFilterAtolye] = useState("");
 
   const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null);
   const [formData, setFormData] = useState<EditFormData>({
@@ -106,13 +108,15 @@ export default function KullaniciYonetimiPage() {
 
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) =>
-      [u.username, u.name || "", u.email || "", u.station_name || ""].some((v) =>
+    return users.filter((u) => {
+      const matchesSearch = !q || [u.username, u.name || "", u.email || "", u.station_name || ""].some((v) =>
         v.toLowerCase().includes(q)
-      )
-    );
-  }, [users, search]);
+      );
+      const matchesRole = !filterRole || u.role === filterRole;
+      const matchesAtolye = !filterAtolye || (u.station_name || "").toLowerCase().includes(filterAtolye.toLowerCase());
+      return matchesSearch && matchesRole && matchesAtolye;
+    });
+  }, [users, search, filterRole, filterAtolye]);
 
   const openEditModal = (target: ManagedUser) => {
     const role: RoleType = target.role || "musteri";
@@ -261,6 +265,40 @@ export default function KullaniciYonetimiPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Atölye</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">E-posta</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">İşlem</th>
+                </tr>
+                <tr className="bg-gray-100 border-b border-gray-200">
+                  {/* Kullanıcı Adı — covered by global search */}
+                  <td className="px-4 py-2" />
+                  {/* İsim — covered by global search */}
+                  <td className="px-4 py-2" />
+                  {/* Rol */}
+                  <td className="px-4 py-2">
+                    <select
+                      value={filterRole}
+                      onChange={(e) => setFilterRole(e.target.value)}
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                    >
+                      <option value="">Hepsi</option>
+                      <option value="yonetici">Yönetici</option>
+                      <option value="musteri">Müşteri</option>
+                      <option value="operator">Operatör</option>
+                      <option value="satinalma">Satınalma</option>
+                    </select>
+                  </td>
+                  {/* Atölye */}
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      placeholder="Filtrele..."
+                      value={filterAtolye}
+                      onChange={(e) => setFilterAtolye(e.target.value)}
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+                    />
+                  </td>
+                  {/* E-posta — covered by global search */}
+                  <td className="px-4 py-2" />
+                  {/* İşlem */}
+                  <td className="px-4 py-2" />
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">

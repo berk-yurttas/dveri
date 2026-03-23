@@ -99,6 +99,16 @@ export default function WorkOrdersPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Column filter state
+  const [filterStation, setFilterStation] = useState("");
+  const [filterCustomer, setFilterCustomer] = useState("");
+  const [filterPriorityMin, setFilterPriorityMin] = useState<number | null>(null);
+  const [filterDaysMin, setFilterDaysMin] = useState<number | null>(null);
+  const [debouncedFilterStation, setDebouncedFilterStation] = useState("");
+  const [debouncedFilterCustomer, setDebouncedFilterCustomer] = useState("");
+  const [debouncedFilterDaysMin, setDebouncedFilterDaysMin] = useState<number | null>(null);
+  const filterTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Debounce search input
   useEffect(() => {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
@@ -110,6 +120,25 @@ export default function WorkOrdersPage() {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     };
   }, [searchQuery]);
+
+  // Debounce text/number column filters
+  useEffect(() => {
+    if (filterTimeoutRef.current) clearTimeout(filterTimeoutRef.current);
+    filterTimeoutRef.current = setTimeout(() => {
+      setDebouncedFilterStation(filterStation);
+      setDebouncedFilterCustomer(filterCustomer);
+      setDebouncedFilterDaysMin(filterDaysMin);
+      setCurrentPage(1);
+    }, 400);
+    return () => {
+      if (filterTimeoutRef.current) clearTimeout(filterTimeoutRef.current);
+    };
+  }, [filterStation, filterCustomer, filterDaysMin]);
+
+  // Priority select resets page immediately
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterPriorityMin]);
 
   // Operator's own station (for filtering)
   const [operatorStationName, setOperatorStationName] = useState<string>("");
@@ -250,6 +279,10 @@ export default function WorkOrdersPage() {
       }
       if (isAselsanSatinalma && selectedCompany) url += `&filter_company=${encodeURIComponent(selectedCompany)}`;
       if (isOperator && operatorStationName) url += `&search_station=${encodeURIComponent(operatorStationName)}`;
+      if (!isOperator && debouncedFilterStation) url += `&search_station=${encodeURIComponent(debouncedFilterStation)}`;
+      if (debouncedFilterCustomer) url += `&filter_customer=${encodeURIComponent(debouncedFilterCustomer)}`;
+      if (filterPriorityMin !== null) url += `&filter_priority_min=${filterPriorityMin}`;
+      if (debouncedFilterDaysMin !== null) url += `&filter_days_min=${debouncedFilterDaysMin}`;
 
       const data = await api.get<PaginatedResponse>(url, undefined, { useCache: false });
 
@@ -264,11 +297,18 @@ export default function WorkOrdersPage() {
       setLoading(false);
       setInitialLoadDone(true);
     }
-  }, [isYonetici, isOperator, isSatinalma, isMusteri, isAselsanSatinalma, selectedCompany, currentPage, pageSize, debouncedSearch, operatorStationName]);
+  }, [isYonetici, isOperator, isSatinalma, isMusteri, isAselsanSatinalma, selectedCompany, currentPage, pageSize, debouncedSearch, operatorStationName, debouncedFilterStation, debouncedFilterCustomer, filterPriorityMin, debouncedFilterDaysMin]);
 
   useEffect(() => {
     fetchWorkOrders();
   }, [fetchWorkOrders]);
+
+  const clearFilters = () => {
+    setFilterStation("");
+    setFilterCustomer("");
+    setFilterPriorityMin(null);
+    setFilterDaysMin(null);
+  };
 
   // Group work orders by work_order_group_id
   const groupWorkOrdersByGroup = (orders: WorkOrderDetail[]): GroupedWorkOrder[] => {
@@ -758,6 +798,14 @@ export default function WorkOrdersPage() {
               </div>
             )}
           </div>
+          {(filterStation || filterCustomer || filterPriorityMin !== null || filterDaysMin !== null) && (
+            <button
+              onClick={clearFilters}
+              className="mt-2 text-xs text-red-600 hover:text-red-800 underline"
+            >
+              Sütun filtrelerini temizle
+            </button>
+          )}
         </div>
 
         {/* Satinalma: Submit Button */}
@@ -790,6 +838,62 @@ export default function WorkOrdersPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Dökümanları</th>
                 )}
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 w-8"></th>
+              </tr>
+              <tr className="bg-gray-100 border-b border-gray-200">
+                {/* Parça Numarası — covered by global search */}
+                <td className="px-4 py-2" />
+                {/* Öncelik */}
+                <td className="px-4 py-2">
+                  <select
+                    value={filterPriorityMin ?? ""}
+                    onChange={(e) => setFilterPriorityMin(e.target.value ? Number(e.target.value) : null)}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                  >
+                    <option value="">Hepsi</option>
+                    <option value="1">≥ 1</option>
+                    <option value="2">≥ 2</option>
+                    <option value="3">≥ 3</option>
+                    <option value="4">≥ 4</option>
+                    <option value="5">= 5</option>
+                  </select>
+                </td>
+                {/* Hangi Atölyede — text filter (hidden for operators, already auto-filtered) */}
+                <td className="px-4 py-2">
+                  {!isOperator && (
+                    <input
+                      type="text"
+                      placeholder="Filtrele..."
+                      value={filterStation}
+                      onChange={(e) => setFilterStation(e.target.value)}
+                      className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+                    />
+                  )}
+                </td>
+                {/* Kaç Gündür Atölyede */}
+                <td className="px-4 py-2">
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="≥ gün"
+                    value={filterDaysMin ?? ""}
+                    onChange={(e) => setFilterDaysMin(e.target.value !== "" ? Number(e.target.value) : null)}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+                  />
+                </td>
+                {/* Adet — no filter */}
+                <td className="px-4 py-2" />
+                {/* Müşteri Bilgisi */}
+                <td className="px-4 py-2">
+                  <input
+                    type="text"
+                    placeholder="Filtrele..."
+                    value={filterCustomer}
+                    onChange={(e) => setFilterCustomer(e.target.value)}
+                    className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+                  />
+                </td>
+                {!isMusteri && <td className="px-4 py-2" />}
+                <td className="px-4 py-2" />
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">

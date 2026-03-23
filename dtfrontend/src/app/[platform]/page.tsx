@@ -1228,6 +1228,14 @@ export default function PlatformHome() {
     fetchData();
   }, [platformCode, platformData]);
 
+  const openPopupWindow = (url: string) => {
+    const w = Math.round(screen.width * 0.9);
+    const h = Math.round(screen.height * 0.9);
+    const l = Math.round((screen.width - w) / 2);
+    const t = Math.round((screen.height - h) / 2);
+    window.open(url, 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`);
+  };
+
   const handleCreateDashboard = () => {
     router.push(`/${platformCode}/dashboard/add`);
   };
@@ -2774,7 +2782,7 @@ export default function PlatformHome() {
                           // Navigate after delay
                           navigationTimerRef.current = setTimeout(() => {
                             if (finalUrl.startsWith('http')) {
-                              window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                              openPopupWindow(finalUrl);
                             } else {
                               router.push(finalUrl);
                             }
@@ -2784,7 +2792,7 @@ export default function PlatformHome() {
                         } else {
                           // For other platforms, navigate immediately
                           if (finalUrl.startsWith('http')) {
-                            window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                            openPopupWindow(finalUrl);
                           } else {
                             router.push(finalUrl);
                           }
@@ -2839,7 +2847,7 @@ export default function PlatformHome() {
                             // Navigate after delay
                             navigationTimerRef.current = setTimeout(() => {
                               if (finalUrl.startsWith('http')) {
-                                window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                                openPopupWindow(finalUrl);
                               } else {
                                 router.push(finalUrl);
                               }
@@ -2849,7 +2857,7 @@ export default function PlatformHome() {
                           } else {
                             // For other platforms, navigate immediately
                             if (finalUrl.startsWith('http')) {
-                              window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                              openPopupWindow(finalUrl);
                             } else {
                               router.push(finalUrl);
                             }
@@ -2937,7 +2945,7 @@ export default function PlatformHome() {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 if (subfeatureUrl.startsWith('http')) {
-                                  window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
+                                  openPopupWindow(subfeatureUrl);
                                 } else {
                                   router.push(subfeatureUrl);
                                 }
@@ -2971,7 +2979,7 @@ export default function PlatformHome() {
                                 }
 
                                 if (subfeatureUrl.startsWith('http')) {
-                                  window.open(subfeatureUrl, '_blank', 'noopener,noreferrer');
+                                  openPopupWindow(subfeatureUrl);
                                 } else {
                                   router.push(subfeatureUrl);
                                 }

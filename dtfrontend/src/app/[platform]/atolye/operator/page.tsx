@@ -237,6 +237,14 @@ export default function OperatorPage() {
   const [qrModalGroupId, setQrModalGroupId] = useState<string | null>(null);
   const [selectedQrIndexByGroup, setSelectedQrIndexByGroup] = useState<Record<string, number>>({});
 
+  // Column filter state
+  const [filterCustomer, setFilterCustomer] = useState("");
+  const [filterPriorityMin, setFilterPriorityMin] = useState<number | null>(null);
+  const [filterDaysMin, setFilterDaysMin] = useState<number | null>(null);
+  const [debouncedFilterCustomer, setDebouncedFilterCustomer] = useState("");
+  const [debouncedFilterDaysMin, setDebouncedFilterDaysMin] = useState<number | null>(null);
+  const filterTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Check user roles and fetch station
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
@@ -270,14 +278,36 @@ export default function OperatorPage() {
     }
   }, [user]);
 
+  // Debounce text/number column filters
+  useEffect(() => {
+    if (filterTimeoutRef.current) clearTimeout(filterTimeoutRef.current);
+    filterTimeoutRef.current = setTimeout(() => {
+      setDebouncedFilterCustomer(filterCustomer);
+      setDebouncedFilterDaysMin(filterDaysMin);
+      setCurrentPage(1);
+    }, 400);
+    return () => {
+      if (filterTimeoutRef.current) clearTimeout(filterTimeoutRef.current);
+    };
+  }, [filterCustomer, filterDaysMin]);
+
+  // Priority select resets page immediately
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterPriorityMin]);
+
   // Fetch work orders filtered to operator's station
   const fetchWorkOrders = useCallback(async () => {
     if (!isOperator || !stationName) return;
     try {
       setTableLoading(true);
       const timestamp = new Date().getTime();
+      let url = `/romiot/station/work-orders/all?page=${currentPage}&page_size=20&search_station=${encodeURIComponent(stationName)}&_t=${timestamp}`;
+      if (debouncedFilterCustomer) url += `&filter_customer=${encodeURIComponent(debouncedFilterCustomer)}`;
+      if (filterPriorityMin !== null) url += `&filter_priority_min=${filterPriorityMin}`;
+      if (debouncedFilterDaysMin !== null) url += `&filter_days_min=${debouncedFilterDaysMin}`;
       const data = await api.get<PaginatedResponse>(
-        `/romiot/station/work-orders/all?page=${currentPage}&page_size=20&search_station=${encodeURIComponent(stationName)}&_t=${timestamp}`,
+        url,
         undefined,
         { useCache: false }
       );
@@ -315,7 +345,7 @@ export default function OperatorPage() {
     } finally {
       setTableLoading(false);
     }
-  }, [isOperator, stationName, currentPage]);
+  }, [isOperator, stationName, currentPage, debouncedFilterCustomer, filterPriorityMin, debouncedFilterDaysMin]);
 
   useEffect(() => {
     fetchWorkOrders();
@@ -893,6 +923,53 @@ export default function OperatorPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Müşteri Bilgisi</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Parça Dökümanları</th>
                     <th className="px-4 py-3 w-8"></th>
+                  </tr>
+                  <tr className="bg-gray-100 border-b border-gray-200">
+                    {/* Parça Numarası — no filter */}
+                    <td className="px-4 py-2" />
+                    {/* Öncelik */}
+                    <td className="px-4 py-2">
+                      <select
+                        value={filterPriorityMin ?? ""}
+                        onChange={(e) => setFilterPriorityMin(e.target.value ? Number(e.target.value) : null)}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                      >
+                        <option value="">Hepsi</option>
+                        <option value="1">≥ 1</option>
+                        <option value="2">≥ 2</option>
+                        <option value="3">≥ 3</option>
+                        <option value="4">≥ 4</option>
+                        <option value="5">= 5</option>
+                      </select>
+                    </td>
+                    {/* Durum — no filter */}
+                    <td className="px-4 py-2" />
+                    {/* Kaç Gündür Atölyede */}
+                    <td className="px-4 py-2">
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="≥ gün"
+                        value={filterDaysMin ?? ""}
+                        onChange={(e) => setFilterDaysMin(e.target.value !== "" ? Number(e.target.value) : null)}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+                      />
+                    </td>
+                    {/* Adet — no filter */}
+                    <td className="px-4 py-2" />
+                    {/* Müşteri Bilgisi */}
+                    <td className="px-4 py-2">
+                      <input
+                        type="text"
+                        placeholder="Filtrele..."
+                        value={filterCustomer}
+                        onChange={(e) => setFilterCustomer(e.target.value)}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+                      />
+                    </td>
+                    {/* Parça Dökümanları — no filter */}
+                    <td className="px-4 py-2" />
+                    <td className="px-4 py-2" />
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">

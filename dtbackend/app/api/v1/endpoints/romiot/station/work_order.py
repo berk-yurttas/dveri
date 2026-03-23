@@ -346,6 +346,9 @@ async def get_all_work_orders(
     search_part_number: str | None = Query(None, description="Search by part number"),
     search_order_number: str | None = Query(None, description="Search by order number"),
     filter_company: str | None = Query(None, description="Filter by company (ASELSAN satinalma only)"),
+    filter_customer: str | None = Query(None, description="OR search across company_from, main_customer, sector"),
+    filter_priority_min: int | None = Query(None, ge=1, le=5, description="Minimum priority level"),
+    filter_days_min: int | None = Query(None, ge=0, description="Min days the group has been in its current station"),
     current_user: User = Depends(check_authenticated),
     romiot_db: AsyncSession = Depends(get_romiot_db),
     postgres_db: AsyncSession = Depends(get_postgres_db)
@@ -441,6 +444,27 @@ async def get_all_work_orders(
         base_conditions.append(WorkOrder.part_number.ilike(f"%{search_part_number}%"))
     elif search_order_number:
         base_conditions.append(WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"))
+
+    # Column filters
+    from sqlalchemy import or_
+    if filter_customer:
+        base_conditions.append(or_(
+            WorkOrder.company_from.ilike(f"%{filter_customer}%"),
+            WorkOrder.main_customer.ilike(f"%{filter_customer}%"),
+            WorkOrder.sector.ilike(f"%{filter_customer}%"),
+        ))
+    if filter_priority_min is not None:
+        base_conditions.append(WorkOrder.priority >= filter_priority_min)
+    if filter_days_min is not None:
+        from sqlalchemy import text as sa_text
+        threshold_expr = func.now() - sa_text(f"INTERVAL '{filter_days_min} days'")
+        days_subquery = select(WorkOrder.work_order_group_id).where(
+            and_(
+                WorkOrder.exit_date.is_(None),
+                WorkOrder.entrance_date <= threshold_expr,
+            )
+        ).distinct()
+        base_conditions.append(WorkOrder.work_order_group_id.in_(days_subquery))
 
     # If searching by station name, filter station_ids
     if search_station:
@@ -551,6 +575,15 @@ async def get_all_work_orders(
                 elif search_order_number and search_order_number.lower() not in order_number.lower():
                     continue
 
+                if filter_customer:
+                    lc = filter_customer.lower()
+                    if not (
+                        lc in company_from.lower()
+                        or lc in str(payload.get("main_customer") or "").lower()
+                        or lc in str(payload.get("sector") or "").lower()
+                    ):
+                        continue
+
                 try:
                     quantity = int(payload.get("quantity") or 0)
                     total_quantity = int(payload.get("total_quantity") or 0)
@@ -616,6 +649,36 @@ async def get_all_work_orders(
                 -max((_entry_sort_ts(entry) for entry in grouped_entries[gid]), default=0),
             ),
         )
+
+        # Apply column filters on grouped data
+        if filter_customer:
+            lc = filter_customer.lower()
+            sorted_group_ids = [
+                gid for gid in sorted_group_ids
+                if any(
+                    lc in (e.company_from or "").lower()
+                    or lc in (e.main_customer or "").lower()
+                    or lc in (e.sector or "").lower()
+                    for e in grouped_entries[gid]
+                )
+            ]
+        if filter_priority_min is not None:
+            sorted_group_ids = [
+                gid for gid in sorted_group_ids
+                if max((e.priority for e in grouped_entries[gid]), default=0) >= filter_priority_min
+            ]
+        if filter_days_min is not None:
+            now = datetime.now(timezone.utc)
+            def _group_days(gid: str) -> int:
+                active = [e for e in grouped_entries[gid] if e.exit_date is None and e.entrance_date]
+                if not active:
+                    return 0
+                oldest = min(active, key=lambda e: e.entrance_date)
+                dt = oldest.entrance_date
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return (now - dt).days
+            sorted_group_ids = [gid for gid in sorted_group_ids if _group_days(gid) >= filter_days_min]
 
         total_groups = len(sorted_group_ids)
         total_pages = (total_groups + page_size - 1) // page_size if total_groups > 0 else 0
