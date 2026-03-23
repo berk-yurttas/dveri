@@ -78,6 +78,8 @@ class PlatformService:
         Returns:
             List of platforms
         """
+        # Select only stable/list-safe columns to avoid hard failures when optional
+        # columns exist in ORM models but are not yet present in local DB schema.
         query = select(Platform)
 
         # Filter by active status

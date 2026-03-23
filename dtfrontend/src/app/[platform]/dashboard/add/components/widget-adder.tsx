@@ -58,7 +58,8 @@ const platformWidgetMapping: { [key: string]: string[] } = {
     'test_equipment-widget',
     'equipment_test-widget',
     'equipment_last_user-widget',
-    'hardware_last_user-widget'
+    'hardware_last_user-widget',
+    'csuite_report-widget'
   ],
   'ivme': [
     'capacity_analysis-widget',
@@ -66,7 +67,8 @@ const platformWidgetMapping: { [key: string]: string[] } = {
     'kablaj_duruslar-widget',
     'mekanik_hatalar-widget',
     'employee_count-widget',
-    'aselsan_sivas-widget'
+    'aselsan_sivas-widget',
+    'csuite_report-widget'
   ],
 }
 
