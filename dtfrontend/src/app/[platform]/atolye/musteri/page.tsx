@@ -156,7 +156,11 @@ export default function MusteriPage() {
       if (err.message) {
         try {
           const errorObj = JSON.parse(err.message);
-          errorMessage = errorObj.detail || errorMessage;
+          if (Array.isArray(errorObj.detail)) {
+            errorMessage = errorObj.detail.map((e: any) => e.msg).join(", ");
+          } else {
+            errorMessage = errorObj.detail || errorMessage;
+          }
         } catch {
           errorMessage = err.message;
         }
