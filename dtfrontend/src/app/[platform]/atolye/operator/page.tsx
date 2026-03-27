@@ -677,7 +677,7 @@ export default function OperatorPage() {
     @media print { .package-card { page-break-inside: avoid; page-break-after: always; } .package-card:last-child { page-break-after: auto; } }
   `;
 
-  const buildPackageCardHtml = (svgMarkup: string, pkg: { code: string; package_index: number; quantity: number }, wo: { main_customer: string; sector: string; company_from: string; teklif_number: string; aselsan_order_number: string; order_item_number: string; part_number: string; total_quantity: number; total_packages: number; target_date?: string | null }) => `
+  const buildPackageCardHtml = (svgMarkup: string, pkg: { code: string; package_index: number; quantity: number }, wo: { main_customer: string; sector: string; company_from: string; teklif_number: string; aselsan_order_number: string; order_item_number: string; part_number: string; revision_number?: string; total_quantity: number; total_packages: number; target_date?: string | null }) => `
     <div class="package-card">
       <div style="text-align:center;margin-bottom:16px;">${svgMarkup}</div>
       <table style="width:100%;border-collapse:collapse;font-size:11px;">
