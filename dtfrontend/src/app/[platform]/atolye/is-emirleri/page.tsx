@@ -21,6 +21,7 @@ interface WorkOrderDetail {
   aselsan_order_number: string;
   order_item_number: string;
   part_number: string;
+  revision_number: string;
   quantity: number;
   total_quantity: number;
   package_index: number;
@@ -44,6 +45,7 @@ interface PaginatedResponse {
 interface GroupedWorkOrder {
   work_order_group_id: string;
   part_number: string;
+  revision_number: string;
   main_customer: string;
   sector: string;
   company_from: string;
@@ -321,6 +323,7 @@ export default function WorkOrdersPage() {
         grouped.set(key, {
           work_order_group_id: order.work_order_group_id,
           part_number: order.part_number,
+          revision_number: order.revision_number,
           main_customer: order.main_customer,
           sector: order.sector,
           company_from: order.company_from,
@@ -626,7 +629,7 @@ export default function WorkOrdersPage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.teklif_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${wo.main_customer} Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.total_packages > 1 ? wo.aselsan_order_number + "_" + pkg.package_index : wo.aselsan_order_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Kalem Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.order_item_number}</td></tr>
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.part_number}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.part_number}${wo.revision_number ? "/" + wo.revision_number : ""}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Toplam Sipariş Miktarı</td><td style="border: 1px solid #d1d5db; padding: 6px;">${pkg.quantity}/${wo.total_quantity}</td></tr>
           ${wo.target_date ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Bitirme Tarihi</td><td style="border: 1px solid #d1d5db; padding: 6px;">${new Date(wo.target_date).toLocaleDateString("tr-TR")}</td></tr>` : ""}
         </tbody>
@@ -921,7 +924,7 @@ export default function WorkOrdersPage() {
                         onClick={() => toggleWorkOrder(key)}
                       >
                         <td className="px-4 py-3">
-                          <div className="text-sm font-medium text-gray-900">{wo.part_number}</div>
+                          <div className="text-sm font-medium text-gray-900">{wo.part_number}{wo.revision_number ? `/${wo.revision_number}` : ""}</div>
                           <div className="text-xs text-gray-500">{wo.aselsan_order_number}</div>
                           <div className="text-xs text-gray-500">{wo.teklif_number}</div>
                         </td>
@@ -1232,7 +1235,7 @@ export default function WorkOrdersPage() {
                               </tr>
                               <tr className="border-b border-gray-200">
                                 <td className="py-2 pr-3 font-medium text-gray-600">Parça Numarası</td>
-                                <td className="py-2 text-gray-900">{wo.part_number}</td>
+                                <td className="py-2 text-gray-900">{wo.part_number}{wo.revision_number ? `/${wo.revision_number}` : ""}</td>
                               </tr>
                               <tr className="border-b border-gray-200">
                                 <td className="py-2 pr-3 font-medium text-gray-600">Toplam Sipariş Miktarı</td>
