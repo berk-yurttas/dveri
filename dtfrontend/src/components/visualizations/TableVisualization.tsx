@@ -2,7 +2,7 @@ import React from 'react'
 import { createPortal } from 'react-dom'
 import { Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { QueryData, QueryResult, FilterData } from './types'
-import { RowColorRule } from '@/types/reports'
+import { RowColorRule, ColumnValueColorRule } from '@/types/reports'
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -851,6 +851,40 @@ const getRowTextColor = (
   return undefined
 }
 
+// Helper function to evaluate column value color rules and return cell color
+const getCellValueColor = (
+  cellValue: any,
+  columnName: string,
+  rules?: ColumnValueColorRule[]
+): string | undefined => {
+  if (!rules || rules.length === 0) return undefined
+
+  const cellValueStr = cellValue?.toString() || ''
+
+  for (const rule of rules) {
+    if (rule.columnName !== columnName) continue
+
+    // If value is empty, color entire column
+    if (!rule.value || rule.value === '') {
+      return rule.color
+    }
+
+    const ruleValueStr = rule.value?.toString() || ''
+    let matches = false
+
+    if (rule.matchType === 'contains') {
+      matches = cellValueStr.toLowerCase().includes(ruleValueStr.toLowerCase())
+    } else {
+      // Default is 'exact' match
+      matches = cellValueStr === ruleValueStr
+    }
+
+    if (matches) return rule.color
+  }
+
+  return undefined
+}
+
 interface TableVisualizationProps {
   query: QueryData
   result: QueryResult
@@ -1102,6 +1136,9 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                     const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
                     const showTooltip = cellValue.length > 50
 
+                    // Get cell-specific color based on column value color rules
+                    const cellColor = getCellValueColor(cell, columns[cellIndex], query.visualization.chartOptions?.columnValueColorRules)
+
                     // Insert line break every 50 characters
                     const formatTooltipText = (text: string) => {
                       const chunks = []
@@ -1112,7 +1149,7 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
                     }
 
                   return (
-                    <td key={cellIndex} className={`${currentSize.cellPadding} ${currentSize.text} whitespace-nowrap`} style={{ color: rowTextColor || '#1f2937' }}>
+                    <td key={cellIndex} className={`${currentSize.cellPadding} ${currentSize.text} whitespace-nowrap`} style={{ color: cellColor || rowTextColor || '#1f2937' }}>
                       {showTooltip ? (
                         <div className="relative group">
                           <span className="cursor-help">{displayValue}</span>

@@ -50,7 +50,7 @@ function getInitials(name: string): string {
 
 // ── SQL Queries ──
 const SQL = {
-    getCompanies: `SELECT DISTINCT key as company, value FROM mes_production.company_mapping ORDER BY value asc`,
+    getCompanies: `SELECT DISTINCT key as company FROM mes_production.company_mapping`,
     getDijitalSkorAll: `SELECT AVG("Toplam Puan")::numeric AS value FROM puantaj.genel_skor`,
     getDijitalSkorByFirma: (firma: string) => `SELECT AVG("Toplam Puan")::numeric AS value FROM puantaj.genel_skor LEFT JOIN mes_production.company_mapping ON puantaj.genel_skor."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'puantaj.genel_skor' WHERE mes_production.company_mapping."key" = '${firma}'`,
     getCncAll: `

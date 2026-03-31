@@ -38,6 +38,18 @@ class RowColorRule(BaseModel):
         populate_by_name = True
         from_attributes = True
 
+# Column Value Color Rule Schema (for table visualizations)
+class ColumnValueColorRule(BaseModel):
+    id: str
+    column_name: str = Field(..., alias="columnName")
+    value: Any | None = None  # Can be string or number; if None/empty, colors entire column
+    color: str
+    match_type: Literal['exact', 'contains'] | None = Field('exact', alias="matchType")
+
+    class Config:
+        populate_by_name = True
+        from_attributes = True
+
 # Chart Options Schema
 class ChartOptions(BaseModel):
     # Bar/Line/Area specific
@@ -101,6 +113,9 @@ class ChartOptions(BaseModel):
 
     # Row coloring for table visualizations
     row_color_rules: list[RowColorRule] | None = Field([], alias="rowColorRules")
+
+    # Column value coloring for table visualizations
+    column_value_color_rules: list[ColumnValueColorRule] | None = Field([], alias="columnValueColorRules")
 
     class Config:
         populate_by_name = True  # Allow both field names and aliases
