@@ -3517,6 +3517,196 @@ export default function EditReportPage() {
                             )}
                           </div>
                         )}
+
+                        {/* Column Value Coloring Configuration - Only for Table/Expandable */}
+                        {(query.visualization.type === 'table' || query.visualization.type === 'expandable') && (
+                          <div className="space-y-2 mt-4">
+                            <div className="flex items-center gap-1.5 bg-purple-50 px-2 py-1.5 rounded border border-purple-200/50">
+                              <BarChart3 className="w-3 h-3 text-purple-600" />
+                              <h3 className="text-xs font-semibold text-slate-800">Kolon Değer Renklendirme</h3>
+                              {(query.visualization.chartOptions?.columnValueColorRules?.length ?? 0) > 0 && (
+                                <Badge variant="secondary" className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0">
+                                  {query.visualization.chartOptions?.columnValueColorRules?.length}
+                                </Badge>
+                              )}
+                            </div>
+
+                            {(!query.visualization.chartOptions?.columnValueColorRules || query.visualization.chartOptions.columnValueColorRules.length === 0) ? (
+                              <div className="text-center py-4 border border-dashed border-slate-200 rounded bg-slate-50/50">
+                                <BarChart3 className="w-4 h-4 text-slate-400 mx-auto mb-1" />
+                                <p className="text-[10px] text-slate-500 mb-2">Henüz kural yok</p>
+                                <Button
+                                  onClick={() => {
+                                    const newRule = {
+                                      id: generateId(),
+                                      columnName: availableFields[0] || '',
+                                      value: '',
+                                      color: '#8B5CF6',
+                                      matchType: 'exact' as const
+                                    }
+                                    updateVisualization(queryIndex, {
+                                      chartOptions: {
+                                        ...query.visualization.chartOptions,
+                                        columnValueColorRules: [newRule]
+                                      }
+                                    })
+                                  }}
+                                  size="sm"
+                                  disabled={availableFields.length === 0}
+                                  className="h-6 text-[10px] bg-purple-500 hover:bg-purple-600 text-white"
+                                >
+                                  <Plus className="w-2.5 h-2.5 mr-0.5" />
+                                  Kural Ekle
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                {query.visualization.chartOptions.columnValueColorRules.map((rule, ruleIndex) => (
+                                  <div key={rule.id} className="p-2 bg-white rounded border border-purple-200">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-[10px] font-semibold text-slate-700">Kural {ruleIndex + 1}</span>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                          const updatedRules = (query.visualization.chartOptions?.columnValueColorRules || []).filter((_, i) => i !== ruleIndex)
+                                          updateVisualization(queryIndex, {
+                                            chartOptions: {
+                                              ...query.visualization.chartOptions,
+                                              columnValueColorRules: updatedRules
+                                            }
+                                          })
+                                        }}
+                                        className="h-5 w-5 p-0 text-red-500 hover:bg-red-50 hover:text-red-600"
+                                      >
+                                        <Trash2 className="w-2.5 h-2.5" />
+                                      </Button>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-1.5">
+                                      <div className="space-y-0.5">
+                                        <Label className="text-[9px] text-slate-600">Kolon</Label>
+                                        <Select
+                                          value={rule.columnName}
+                                          onValueChange={(value) => {
+                                            const updatedRules = [...(query.visualization.chartOptions?.columnValueColorRules || [])]
+                                            updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], columnName: value }
+                                            updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                columnValueColorRules: updatedRules
+                                              }
+                                            })
+                                          }}
+                                          className="h-6 text-[10px]"
+                                        >
+                                          {availableFields.map((field) => (
+                                            <option key={field} value={field}>{field}</option>
+                                          ))}
+                                        </Select>
+                                      </div>
+                                      <div className="space-y-0.5">
+                                        <Label className="text-[9px] text-slate-600">Eşleşme</Label>
+                                        <Select
+                                          value={rule.matchType || 'exact'}
+                                          onValueChange={(value: string) => {
+                                            const updatedRules = [...(query.visualization.chartOptions?.columnValueColorRules || [])]
+                                            updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], matchType: value as 'exact' | 'contains' }
+                                            updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                columnValueColorRules: updatedRules
+                                              }
+                                            })
+                                          }}
+                                          className="h-6 text-[10px]"
+                                        >
+                                          <option value="exact">Tam Eşit</option>
+                                          <option value="contains">İçerir</option>
+                                        </Select>
+                                      </div>
+                                      <div className="space-y-0.5">
+                                        <Label className="text-[9px] text-slate-600">Değer (boş=tüm kolon)</Label>
+                                        <Input
+                                          value={rule.value}
+                                          onChange={(e) => {
+                                            const updatedRules = [...(query.visualization.chartOptions?.columnValueColorRules || [])]
+                                            updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], value: e.target.value }
+                                            updateVisualization(queryIndex, {
+                                              chartOptions: {
+                                                ...query.visualization.chartOptions,
+                                                columnValueColorRules: updatedRules
+                                              }
+                                            })
+                                          }}
+                                          placeholder="boş=tüm kolon"
+                                          className="h-6 text-[10px]"
+                                        />
+                                      </div>
+                                      <div className="space-y-0.5">
+                                        <Label className="text-[9px] text-slate-600">Renk</Label>
+                                        <div className="flex gap-1">
+                                          <input
+                                            type="color"
+                                            value={rule.color}
+                                            onChange={(e) => {
+                                              const updatedRules = [...(query.visualization.chartOptions?.columnValueColorRules || [])]
+                                              updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], color: e.target.value }
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  columnValueColorRules: updatedRules
+                                                }
+                                              })
+                                            }}
+                                            className="w-6 h-6 rounded cursor-pointer border border-slate-200"
+                                          />
+                                          <Input
+                                            value={rule.color}
+                                            onChange={(e) => {
+                                              const updatedRules = [...(query.visualization.chartOptions?.columnValueColorRules || [])]
+                                              updatedRules[ruleIndex] = { ...updatedRules[ruleIndex], color: e.target.value }
+                                              updateVisualization(queryIndex, {
+                                                chartOptions: {
+                                                  ...query.visualization.chartOptions,
+                                                  columnValueColorRules: updatedRules
+                                                }
+                                              })
+                                            }}
+                                            placeholder="#8B5CF6"
+                                            className="h-6 text-[10px] flex-1"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                                <Button
+                                  onClick={() => {
+                                    const newRule = {
+                                      id: generateId(),
+                                      columnName: availableFields[0] || '',
+                                      value: '',
+                                      color: '#8B5CF6',
+                                      matchType: 'exact' as const
+                                    }
+                                    updateVisualization(queryIndex, {
+                                      chartOptions: {
+                                        ...query.visualization.chartOptions,
+                                        columnValueColorRules: [...(query.visualization.chartOptions?.columnValueColorRules || []), newRule]
+                                      }
+                                    })
+                                  }}
+                                  size="sm"
+                                  disabled={availableFields.length === 0}
+                                  className="w-full h-6 text-[10px] bg-purple-500 hover:bg-purple-600 text-white"
+                                >
+                                  <Plus className="w-2.5 h-2.5 mr-0.5" />
+                                  Kural Ekle
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 

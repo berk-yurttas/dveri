@@ -4,7 +4,7 @@ import { Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, ChevronDown, Loa
 import { QueryData, QueryResult } from './types'
 import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 import { reportsService } from '@/services/reports'
-import { RowColorRule } from '@/types/reports'
+import { RowColorRule, ColumnValueColorRule } from '@/types/reports'
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -1718,6 +1718,40 @@ const getRowTextColor = (
   return undefined
 }
 
+// Helper function to evaluate column value color rules and return cell color
+const getCellValueColor = (
+  cellValue: any,
+  columnName: string,
+  rules?: ColumnValueColorRule[]
+): string | undefined => {
+  if (!rules || rules.length === 0) return undefined
+
+  const cellValueStr = cellValue?.toString() || ''
+
+  for (const rule of rules) {
+    if (rule.columnName !== columnName) continue
+
+    // If value is empty, color entire column
+    if (!rule.value || rule.value === '') {
+      return rule.color
+    }
+
+    const ruleValueStr = rule.value?.toString() || ''
+    let matches = false
+
+    if (rule.matchType === 'contains') {
+      matches = cellValueStr.toLowerCase().includes(ruleValueStr.toLowerCase())
+    } else {
+      // Default is 'exact' match
+      matches = cellValueStr === ruleValueStr
+    }
+
+    if (matches) return rule.color
+  }
+
+  return undefined
+}
+
 export const ExpandableTableVisualization: React.FC<ExpandableTableVisualizationProps> = ({
   query,
   result,
@@ -2141,8 +2175,11 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                             const cellValue = cell?.toString() || ''
                             const displayValue = cellValue.length > 100 ? cellValue.substring(0, 100) + '...' : cellValue
 
+                            // Get cell-specific color based on column value color rules
+                            const cellColor = getCellValueColor(cell, nested.columns[cellIndex], query.visualization.chartOptions?.columnValueColorRules)
+
                             return (
-                              <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: nestedRowTextColor || '#374151' }}>
+                              <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: cellColor || nestedRowTextColor || '#374151' }}>
                                 {displayValue}
                               </td>
                             )
@@ -2460,8 +2497,11 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                       const cellValue = cell?.toString() || ''
                       const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
 
+                      // Get cell-specific color based on column value color rules
+                      const cellColor = getCellValueColor(cell, columns[cellIndex], query.visualization.chartOptions?.columnValueColorRules)
+
                       return (
-                        <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: rowTextColor || '#1f2937' }}>
+                        <td key={cellIndex} className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: cellColor || rowTextColor || '#1f2937' }}>
                           <span>{displayValue}</span>
                         </td>
                       )
