@@ -1,5 +1,6 @@
 env
 venv/
+.venv/
 .next
 dist
 node_modules
