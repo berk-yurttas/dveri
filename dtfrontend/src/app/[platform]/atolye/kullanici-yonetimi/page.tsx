@@ -5,6 +5,23 @@ import { api } from "@/lib/api";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
+function validatePassword(password: string): string | null {
+  if (password.length < 8) return "Şifre en az 8 karakter olmalıdır";
+  if (!/[A-Z]/.test(password)) return "Şifre en az 1 büyük harf içermelidir";
+  if (!/[a-z]/.test(password)) return "Şifre en az 1 küçük harf içermelidir";
+  if (!/[^a-zA-Z0-9]/.test(password)) return "Şifre en az 1 özel karakter içermelidir";
+  for (let i = 0; i <= password.length - 4; i++) {
+    const d = [0, 1, 2, 3].map((j) => password.charCodeAt(i + j));
+    if (d.every((c) => c >= 48 && c <= 57)) {
+      if (d[1] === d[0] + 1 && d[2] === d[1] + 1 && d[3] === d[2] + 1)
+        return "Şifre 4 veya daha fazla ardışık artan rakam içeremez";
+      if (d[1] === d[0] - 1 && d[2] === d[1] - 1 && d[3] === d[2] - 1)
+        return "Şifre 4 veya daha fazla ardışık azalan rakam içeremez";
+    }
+  }
+  return null;
+}
+
 type RoleType = "yonetici" | "musteri" | "operator" | "satinalma";
 
 interface ManagedUser {
@@ -173,6 +190,8 @@ export default function KullaniciYonetimiPage() {
         if (!formData.password || !formData.password_confirm) {
           throw new Error("Şifre güncelleme için şifre ve tekrar alanlarını doldurun");
         }
+        const pwError = validatePassword(formData.password);
+        if (pwError) throw new Error(pwError);
         if (formData.password !== formData.password_confirm) {
           throw new Error("Şifreler eşleşmiyor");
         }
@@ -416,7 +435,7 @@ export default function KullaniciYonetimiPage() {
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
-                    minLength={6}
+                    minLength={8}
                     disabled={saving}
                   />
                 </div>
@@ -428,7 +447,7 @@ export default function KullaniciYonetimiPage() {
                     value={formData.password_confirm}
                     onChange={(e) => setFormData({ ...formData, password_confirm: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
-                    minLength={6}
+                    minLength={8}
                     disabled={saving}
                   />
                 </div>

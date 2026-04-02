@@ -4,6 +4,23 @@ import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 
+function validatePassword(password: string): string | null {
+  if (password.length < 8) return "Şifre en az 8 karakter olmalıdır";
+  if (!/[A-Z]/.test(password)) return "Şifre en az 1 büyük harf içermelidir";
+  if (!/[a-z]/.test(password)) return "Şifre en az 1 küçük harf içermelidir";
+  if (!/[^a-zA-Z0-9]/.test(password)) return "Şifre en az 1 özel karakter içermelidir";
+  for (let i = 0; i <= password.length - 4; i++) {
+    const d = [0, 1, 2, 3].map((j) => password.charCodeAt(i + j));
+    if (d.every((c) => c >= 48 && c <= 57)) {
+      if (d[1] === d[0] + 1 && d[2] === d[1] + 1 && d[3] === d[2] + 1)
+        return "Şifre 4 veya daha fazla ardışık artan rakam içeremez";
+      if (d[1] === d[0] - 1 && d[2] === d[1] - 1 && d[3] === d[2] - 1)
+        return "Şifre 4 veya daha fazla ardışık azalan rakam içeremez";
+    }
+  }
+  return null;
+}
+
 interface Station {
   id: number;
   name: string;
@@ -106,6 +123,12 @@ export default function YoneticiPage() {
     setYoneticiSuccess(null);
 
     try {
+      const pwError = validatePassword(userFormData.password);
+      if (pwError) {
+        setYoneticiError(pwError);
+        setYoneticiLoading(false);
+        return;
+      }
       if (userFormData.password !== userFormData.password_confirm) {
         setYoneticiError("Şifreler eşleşmiyor");
         setYoneticiLoading(false);
@@ -311,7 +334,7 @@ export default function YoneticiPage() {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                     required
                     disabled={yoneticiLoading}
-                    minLength={6}
+                    minLength={8}
                   />
                 </div>
                 <div>
@@ -323,7 +346,7 @@ export default function YoneticiPage() {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                     required
                     disabled={yoneticiLoading}
-                    minLength={6}
+                    minLength={8}
                   />
                 </div>
                 <div>
