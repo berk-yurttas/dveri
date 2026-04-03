@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { WidgetAdder } from "./components/widget-adder"
-import { CapacityAnalysisWidget, EfficiencyWidget, EmployeeCountWidget, ExcelExportWidget, GaugeWidget, KablajDuruslarWidget, MachineOeeWidget, MeasurementWidget, MekanikHatalarWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationAnalysisWidget, TestDurationWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget, TestPlanVersionWidget, TestSoftwareVersionWidget, TestEquipmentWidget, EquipmentTestWidget, EquipmentLastUserWidget, HardwareLastUserWidget, CSuiteReportWidget } from "@/components/widgets"
+import { CapacityAnalysisWidget, EfficiencyWidget, EmployeeCountWidget, ExcelExportWidget, GaugeWidget, KablajDuruslarWidget, MachineOeeWidget, MeasurementWidget, MekanikHatalarWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationAnalysisWidget, TestDurationWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget, TestPlanVersionWidget, TestSoftwareVersionWidget, TestEquipmentWidget, EquipmentTestWidget, EquipmentLastUserWidget, HardwareLastUserWidget, CSuiteReportWidget, FeragatFormuWidget } from "@/components/widgets"
 import { dashboardService } from "@/services/dashboard"
 import { CreateDashboardRequest, PlacedWidget as PlacedWidgetType } from "@/types/dashboard"
 import { useDashboards } from "@/contexts/dashboard-context"
@@ -131,6 +131,8 @@ const renderWidgetContent = (widget: PlacedWidget, dateFrom: string, dateTo: str
       return <HardwareLastUserWidget widgetId={widget.id} {...dateFilterProps} />
     case 'csuite_report':
       return <CSuiteReportWidget widgetId={widget.id} />
+    case 'feragat_formu':
+      return <FeragatFormuWidget widgetId={widget.id} />
     default:
       return (
         <div className="flex flex-col items-center justify-center h-full">

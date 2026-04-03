@@ -14,7 +14,7 @@ import { Calendar, User, Eye, EyeOff,
   Map as MapIcon, Camera, Music, Heart, Star, Target, Gauge, Cpu,
   Wifi, Battery, HardDrive, Smartphone, Plus, Layout, Edit, Trash2, X
 } from "lucide-react";
-import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget, TestPlanVersionWidget, TestSoftwareVersionWidget, TestEquipmentWidget, EquipmentTestWidget, EquipmentLastUserWidget, HardwareLastUserWidget, CSuiteReportWidget } from "@/components/widgets";
+import { EfficiencyWidget, GaugeWidget, ProductTestWidget, SerialNoComparisonWidget, TestAnalysisWidget, TestDurationWidget, ExcelExportWidget, MeasurementWidget, TestDurationAnalysisWidget, CapacityAnalysisWidget, MachineOeeWidget, KablajDuruslarWidget, MekanikHatalarWidget, EmployeeCountWidget, AverageTenureWidget, EducationDistributionWidget, AverageSalaryWidget, AbsenteeismWidget, PendingWorkWidget, KablajUretimRateWidget, AselsanSivasWidget, TestPlanVersionWidget, TestSoftwareVersionWidget, TestEquipmentWidget, EquipmentTestWidget, EquipmentLastUserWidget, HardwareLastUserWidget, CSuiteReportWidget, FeragatFormuWidget } from "@/components/widgets";
 import { DateInput } from "@/components/ui/date-input";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import { DepartmentSelectModal } from "@/components/reports/department-select-modal";
@@ -129,6 +129,8 @@ const renderWidgetContent = (widget: any, index: number, dateFrom: string, dateT
       return <HardwareLastUserWidget widgetId={widget.id || `widget-${index}`} {...dateFilterProps} />;
     case 'csuite_report':
       return <CSuiteReportWidget widgetId={widget.id || `widget-${index}`} />;
+    case 'feragat_formu':
+      return <FeragatFormuWidget widgetId={widget.id || `widget-${index}`} />;
     default:
       // Fallback widget display
       const config = widget.config || {};
