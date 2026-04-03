@@ -15,5 +15,12 @@
       <jdbc-url>jdbc:clickhouse://localhost:8123/default</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
+    <data-source source="LOCAL" name="servicechecker@localhost" uuid="7875eccc-69a2-4a7b-aff1-ba5074673376">
+      <driver-ref>postgresql</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>org.postgresql.Driver</jdbc-driver>
+      <jdbc-url>jdbc:postgresql://localhost:5432/servicechecker</jdbc-url>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
   </component>
 </project>

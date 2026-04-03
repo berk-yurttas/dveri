@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: servicechecker
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d servicechecker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  web:
+    build: .
+    ports:
+      - "${PORT:-5031}:5000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/servicechecker
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      FLASK_DEBUG: "0"
+      CHECK_INTERVAL_MINUTES: ${CHECK_INTERVAL_MINUTES:-5}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-10}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
