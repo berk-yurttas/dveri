@@ -1277,8 +1277,8 @@ export default function PlatformHome() {
   }, [platformCode, platformData]);
 
   const openPopupWindow = (url: string) => {
-    const w = Math.round(screen.width * 0.9);
-    const h = Math.round(screen.height * 0.9);
+    const w = Math.round(screen.width);
+    const h = Math.round(screen.height);
     const l = Math.round((screen.width - w) / 2);
     const t = Math.round((screen.height - h) / 2);
     window.open(url, 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`);

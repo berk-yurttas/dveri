@@ -50,9 +50,9 @@ function getInitials(name: string): string {
 
 // ── SQL Queries ──
 const SQL = {
-    getCompanies: `SELECT DISTINCT key as company FROM mes_production.company_mapping ORDER BY value`,
-    getDijitalSkorAll: `SELECT AVG("Toplam Puan")::numeric(10,2) AS value FROM puantaj.genel_skor`,
-    getDijitalSkorByFirma: (firma: string) => `SELECT AVG("Toplam Puan")::numeric(10,2) AS value FROM puantaj.genel_skor LEFT JOIN mes_production.company_mapping ON puantaj.genel_skor."Firma" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'puantaj.genel_skor' WHERE mes_production.company_mapping."value" = '${firma}'`,
+    getCompanies: `SELECT DISTINCT key as company FROM mes_production.company_mapping`,
+    getDijitalSkorAll: `SELECT AVG("Toplam Puan")::numeric AS value FROM puantaj.genel_skor`,
+    getDijitalSkorByFirma: (firma: string) => `SELECT AVG("Toplam Puan")::numeric AS value FROM puantaj.genel_skor LEFT JOIN mes_production.company_mapping ON puantaj.genel_skor."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'puantaj.genel_skor' WHERE mes_production.company_mapping."key" = '${firma}'`,
     getCncAll: `
         SELECT count(*) as "Toplam", "EksenSayisi"
         FROM mes_production.get_detailed_machines
@@ -64,8 +64,8 @@ const SQL = {
     getCncByFirma: (firma: string) => `
         SELECT count(*) as "Toplam", "EksenSayisi"
         FROM mes_production.get_detailed_machines
-        LEFT JOIN mes_production.company_mapping ON mes_production.get_detailed_machines."Firma" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production.get_detailed_machines' 
-        WHERE mes_production.company_mapping."value" = '${firma}' AND "EksenSayisi" NOT IN ('Kart Dizgi Alt Yapisi', 'Kablo Üretim Alt Yapisi')
+        LEFT JOIN mes_production.company_mapping ON mes_production.get_detailed_machines."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.get_detailed_machines' 
+        WHERE mes_production.company_mapping."key" = '${firma}' AND "EksenSayisi" NOT IN ('Kart Dizgi Alt Yapisi', 'Kablo Üretim Alt Yapisi')
           AND ("Tip" ILIKE '%cnc%' AND "TezgahAdi" ILIKE '%cnc%' OR "TezgahNo" ILIKE '%cnc%')
         GROUP BY "EksenSayisi"
         ORDER BY "EksenSayisi"
@@ -79,8 +79,8 @@ const SQL = {
     getCmmByFirma: (firma: string) => `
         SELECT count(*) as "Toplam"
         FROM mes_production.get_detailed_machines
-        LEFT JOIN mes_production.company_mapping ON mes_production.get_detailed_machines."Firma" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production.get_detailed_machines' 
-        WHERE mes_production.company_mapping."value" = '${firma}' AND "EksenSayisi" NOT IN ('Kart Dizgi Alt Yapisi', 'Kablo Üretim Alt Yapisi')
+        LEFT JOIN mes_production.company_mapping ON mes_production.get_detailed_machines."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.get_detailed_machines' 
+        WHERE mes_production.company_mapping."key" = '${firma}' AND "EksenSayisi" NOT IN ('Kart Dizgi Alt Yapisi', 'Kablo Üretim Alt Yapisi')
           AND ("Tip" ILIKE '%cmm%' AND "TezgahAdi" ILIKE '%cmm%' OR "TezgahNo" ILIKE '%cmm%')
     `,
     getDizgiHattiAll: `
@@ -91,17 +91,18 @@ const SQL = {
     getDizgiHattiByFirma: (firma: string) => `
         SELECT count(*) as "Toplam"
         FROM mes_production.get_detailed_machines
-        LEFT JOIN mes_production.company_mapping ON mes_production.get_detailed_machines."Firma" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production.get_detailed_machines' 
+        LEFT JOIN mes_production.company_mapping ON mes_production.get_detailed_machines."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.get_detailed_machines' 
         WHERE "EksenSayisi" IN ('Kart Dizgi Alt Yapisi')
-          AND mes_production.company_mapping."value" = '${firma}'
+          AND mes_production.company_mapping."key" = '${firma}'
     `,
     getKapsamFirst: `
         SELECT COALESCE(SUM(
             CAST(
                 REPLACE(REPLACE("Açık MG de", '.', ''), ',', '.') AS NUMERIC
             )
-        ), 0)::numeric(10,2) AS value 
-        FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
+        ), 0)::numeric AS value 
+        FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari
+        INNER JOIN mes_production.company_mapping ON mes_production.seyir_alt_yuklenici_mesuretim_kayitlari."Satıcı Tanım" = mes_production.company_mapping."key"
         WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur'
     `,
     getKapsamSecond: `
@@ -109,8 +110,9 @@ const SQL = {
             CAST(
                 REPLACE(REPLACE("Açık MG de", '.', ''), ',', '.') AS NUMERIC
             )
-        ), 0)::numeric(10,2) AS value 
+        ), 0)::numeric AS value 
         FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari
+        INNER JOIN mes_production.company_mapping ON mes_production.seyir_alt_yuklenici_mesuretim_kayitlari."Satıcı Tanım" = mes_production.company_mapping."key"
     `,
     getKapsamByFirma: (firma: string) => `
         SELECT 
@@ -118,32 +120,32 @@ const SQL = {
                 CASE WHEN "İş Emri Durumu" != 'MES Kaydı Yoktur' 
                 THEN CAST(REPLACE(REPLACE("Açık MG de", '.', ''), ',', '.') AS NUMERIC)
                 ELSE 0 END
-            ), 0)::numeric(10,2) AS first,
+            ), 0)::numeric AS first,
             COALESCE(SUM(
                 CAST(REPLACE(REPLACE("Açık MG de", '.', ''), ',', '.') AS NUMERIC)
-            ), 0)::numeric(10,2) AS second
+            ), 0)::numeric AS second
         FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari
         LEFT JOIN mes_production.company_mapping ON mes_production.seyir_alt_yuklenici_mesuretim_kayitlari."Satıcı Tanım" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production.seyir_alt_yuklenici_mesuretim_kayitlari' 
         WHERE mes_production.company_mapping."value" = '${firma}'
     `,
     getAltYapiCompaniesCount: `SELECT COUNT(DISTINCT "TezgahAdi") FROM mes_production.get_detailed_machines WHERE "EksenSayisi" IN ('Kart Dizgi Alt Yapisi', 'Kablo Üretim Alt Yapisi')`,
     getTotalCompaniesCount: `SELECT COUNT(DISTINCT "TezgahAdi") FROM mes_production.get_detailed_machines`,
-    getAltYapiCompaniesCountByFirma: (firma: string) => `SELECT COUNT(DISTINCT "TezgahAdi") FROM mes_production.get_detailed_machines WHERE "EksenSayisi" IN ('Kart Dizgi Alt Yapisi', 'Kablo Üretim Alt Yapisi') AND "Firma" = '${firma}'`,
-    getTotalCompaniesCountByFirma: (firma: string) => `SELECT COUNT(DISTINCT "TezgahAdi") FROM mes_production.get_detailed_machines WHERE "Firma" = '${firma}'`,
+    getAltYapiCompaniesCountByFirma: (firma: string) => `SELECT COUNT(DISTINCT "TezgahAdi") FROM mes_production.get_detailed_machines LEFT JOIN mes_production.company_mapping ON mes_production.get_detailed_machines."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.get_detailed_machines' WHERE "EksenSayisi" IN ('Kart Dizgi Alt Yapisi', 'Kablo Üretim Alt Yapisi') AND mes_production.company_mapping."key" = '${firma}'`,
+    getTotalCompaniesCountByFirma: (firma: string) => `SELECT COUNT(DISTINCT "TezgahAdi") FROM mes_production.get_detailed_machines LEFT JOIN mes_production.company_mapping ON mes_production.get_detailed_machines."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.get_detailed_machines' WHERE mes_production.company_mapping."key" = '${firma}'`,
     getTedarikciKapasite: (firma: string) => `SELECT name, value, unit, trend FROM ${S}tedarikci_kapasite WHERE firma = '${firma}' ORDER BY id`,
     getTedarikciKapasiteAll: `SELECT firma, name, value FROM ${S}tedarikci_kapasite ORDER BY firma, id`,
     getTalasliImalatDoluluk: (firma: string) => `
         SELECT 
-            "Aylık Planlanan Doluluk Oranı"::numeric(10,2) as value
+            "Aylık Planlanan Doluluk Oranı"::numeric as value
         FROM mes_production.firma_makina_planlanan_doluluk_history
-        LEFT JOIN mes_production.company_mapping ON mes_production.firma_makina_planlanan_doluluk_history."Firma Adı" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production.firma_makina_planlanan_doluluk_history' 
-        WHERE mes_production.company_mapping."value" = '${firma}'
+        LEFT JOIN mes_production.company_mapping ON mes_production.firma_makina_planlanan_doluluk_history."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.firma_makina_planlanan_doluluk_history' 
+        WHERE mes_production.company_mapping."key" = '${firma}'
         ORDER BY week DESC
         LIMIT 1
     `,
     getTalasliImalatDolulukAll: `
         SELECT 
-            AVG("Aylık Planlanan Doluluk Oranı")::numeric(10,2) as value
+            AVG("Aylık Planlanan Doluluk Oranı")::numeric as value
         FROM (
             SELECT DISTINCT ON ("Firma Adı") 
                 "Firma Adı",
@@ -191,8 +193,8 @@ const SQL = {
             LIMIT 1
         )
         SELECT 
-            AVG(l."Aylık Planlanan Doluluk Oranı")::numeric(10,2) as current_value,
-            AVG(c.comparison_value)::numeric(10,2) as comparison_value,
+            AVG(l."Aylık Planlanan Doluluk Oranı")::numeric as current_value,
+            AVG(c.comparison_value)::numeric as comparison_value,
             COUNT(DISTINCT l."Firma Adı") as total_firmas
         FROM latest_per_firma l
         LEFT JOIN comparison_per_firma c ON l."Firma Adı" = c."Firma Adı"
@@ -201,63 +203,64 @@ const SQL = {
     getTalasliCount: (firma: string) => `SELECT COUNT(DISTINCT kalem_adi) AS count FROM ${S}uretim_kalemleri WHERE firma = '${firma}' AND kategori = 'Talaşlı İmalat'`,
     getKablajCount: (firma: string) => `SELECT COUNT(DISTINCT kalem_adi) AS count FROM ${S}uretim_kalemleri WHERE firma = '${firma}' AND kategori = 'Kablaj/EMM'`,
     getTalasliDuruslarCurrentMonth: `
-        SELECT COUNT(*) as count
-        FROM mes_production.mekanik_duruslar_v3
-        WHERE TO_DATE("StartTime", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE)
+        SELECT COUNT(DISTINCT "Aselsan İş Emri Numarası") as count
+        FROM mes_production.mekanik_duran_is_listesi
+        WHERE TO_DATE("İşlem Başlangıç Tarihi", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE)
     `,
     getTalasliDuruslarPreviousMonth: `
-        SELECT COUNT(*) as count
-        FROM mes_production.mekanik_duruslar_v3
-        WHERE TO_DATE("StartTime", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-          AND TO_DATE("StartTime", 'YYYY-MM-DD HH24:MI:SS') < DATE_TRUNC('month', CURRENT_DATE)
+        SELECT COUNT(DISTINCT "Aselsan İş Emri Numarası") as count
+        FROM mes_production.mekanik_duran_is_listesi
+        WHERE TO_DATE("İşlem Başlangıç Tarihi", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+          AND TO_DATE("İşlem Başlangıç Tarihi", 'YYYY-MM-DD HH24:MI:SS') < DATE_TRUNC('month', CURRENT_DATE)
     `,
     getKablajDuruslarCurrentMonth: `
-        SELECT COUNT(*) as count
-        FROM mes_production.kablo_duruslar_v3
+        SELECT COUNT(DISTINCT "WORKORDERNO") as count
+        FROM mes_production.kablaj_tum_duruslar
         WHERE TO_DATE("STOP_START_DATE", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE)
     `,
     getKablajDuruslarPreviousMonth: `
-        SELECT COUNT(*) as count
-        FROM mes_production.kablo_duruslar_v3
+        SELECT COUNT(DISTINCT "WORKORDERNO") as count
+        FROM mes_production.kablaj_tum_duruslar
         WHERE TO_DATE("STOP_START_DATE", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
           AND TO_DATE("STOP_START_DATE", 'YYYY-MM-DD HH24:MI:SS') < DATE_TRUNC('month', CURRENT_DATE)
     `,
     getTalasliDuruslarCurrentMonthByFirma: (firma: string) => `
-        SELECT COUNT(*) as count
-        FROM mes_production.mekanik_duruslar_v3
-        LEFT JOIN mes_production.company_mapping ON mes_production.mekanik_duruslar_v3."NAME" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production.mekanik_duruslar_v3' 
-        WHERE mes_production.company_mapping."value" = '${firma}'
-          AND TO_DATE("StartTime", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE)
+        SELECT COUNT(DISTINCT "Aselsan İş Emri Numarası") as count
+        FROM mes_production.mekanik_duran_is_listesi
+        LEFT JOIN mes_production.company_mapping ON mes_production.mekanik_duran_is_listesi."NAME" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.mekanik_duran_is_listesi' 
+        WHERE mes_production.company_mapping."key" = '${firma}'
+          AND TO_DATE("İşlem Başlangıç Tarihi", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE)
     `,
     getTalasliDuruslarPreviousMonthByFirma: (firma: string) => `
-        SELECT COUNT(*) as count
-        FROM mes_production.mekanik_duruslar_v3
-        LEFT JOIN mes_production.company_mapping ON mes_production.mekanik_duruslar_v3."NAME" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production.mekanik_duruslar_v3' 
-        WHERE mes_production.company_mapping."value" = '${firma}'
-          AND TO_DATE("StartTime", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-          AND TO_DATE("StartTime", 'YYYY-MM-DD HH24:MI:SS') < DATE_TRUNC('month', CURRENT_DATE)
+        SELECT COUNT(DISTINCT "Aselsan İş Emri Numarası") as count
+        FROM mes_production.mekanik_duran_is_listesi
+        LEFT JOIN mes_production.company_mapping ON mes_production.mekanik_duran_is_listesi."NAME" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.mekanik_duran_is_listesi' 
+        WHERE mes_production.company_mapping."key" = '${firma}'
+          AND TO_DATE("İşlem Başlangıç Tarihi", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+          AND TO_DATE("İşlem Başlangıç Tarihi", 'YYYY-MM-DD HH24:MI:SS') < DATE_TRUNC('month', CURRENT_DATE)
     `,
     getKablajDuruslarCurrentMonthByFirma: (firma: string) => `
-        SELECT COUNT(*) as count
-        FROM mes_production.kablo_duruslar_v3
-        LEFT JOIN mes_production.company_mapping ON mes_production.kablo_duruslar_v3."Firma" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production.kablo_duruslar_v3' 
-        WHERE mes_production.company_mapping."value" = '${firma}'
+        SELECT COUNT(DISTINCT "WORKORDERNO") as count
+        FROM mes_production.kablaj_tum_duruslar
+        LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_tum_duruslar."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_tum_duruslar' 
+        WHERE mes_production.company_mapping."key" = '${firma}'
           AND TO_DATE("STOP_START_DATE", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE)
     `,
     getKablajDuruslarPreviousMonthByFirma: (firma: string) => `
-        SELECT COUNT(*) as count
-        FROM mes_production.kablo_duruslar_v3
-        LEFT JOIN mes_production.company_mapping ON mes_production.kablo_duruslar_v3."Firma" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production.kablo_duruslar_v3' 
-        WHERE mes_production.company_mapping."value" = '${firma}'
+        SELECT COUNT(DISTINCT "WORKORDERNO") as count
+        FROM mes_production.kablaj_tum_duruslar
+        LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_tum_duruslar."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_tum_duruslar' 
+        WHERE mes_production.company_mapping."key" = '${firma}'
           AND TO_DATE("STOP_START_DATE", 'YYYY-MM-DD HH24:MI:SS') >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
           AND TO_DATE("STOP_START_DATE", 'YYYY-MM-DD HH24:MI:SS') < DATE_TRUNC('month', CURRENT_DATE)
     `,
     getOpenOrdersAll: `
-        SELECT COALESCE(SUM(REPLACE(REPLACE("Açık MG de", '.', ''), ',', '.')::numeric), 0)::numeric(10,2) AS total 
+        SELECT COALESCE(SUM(REPLACE(REPLACE("Açık MG de", '.', ''), ',', '.')::numeric), 0)::numeric AS total 
         FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari
+        INNER JOIN mes_production.company_mapping ON mes_production.seyir_alt_yuklenici_mesuretim_kayitlari."Satıcı Tanım" = mes_production.company_mapping."key"
     `,
     getOpenOrdersByFirma: (firma: string) => `
-        SELECT COALESCE(SUM(REPLACE(REPLACE("Açık MG de", '.', ''), ',', '.')::numeric), 0)::numeric(10,2) AS total 
+        SELECT COALESCE(SUM(REPLACE(REPLACE("Açık MG de", '.', ''), ',', '.')::numeric), 0)::numeric AS total 
         FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari
         LEFT JOIN mes_production.company_mapping ON mes_production.seyir_alt_yuklenici_mesuretim_kayitlari."Satıcı Tanım" = mes_production.company_mapping."key"
         WHERE mes_production.company_mapping."key" = '${firma}'
@@ -282,6 +285,41 @@ const SQL = {
             LEFT JOIN mes_production.company_mapping cm ON cm.key = mk."Satıcı Tanım"
             LEFT JOIN mes_production.get_firma_makina_planlanan_doluluk pd ON pd."Firma Adı" = cm.value
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = cm.value
+            GROUP BY mk."Satıcı Tanım", cd."Trend"
+        )
+        SELECT
+            "Tedarikçi",
+            "Etki",
+            "Kapasite",
+            "Trend",
+            NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
+            "Kapasite" / 10.0 as kapasite_points,
+            NTILE(10) OVER(ORDER BY "Oran" ASC) * ("Kapasite" / 10.0) as "Risk"
+        FROM CompanyStats
+        INNER JOIN mes_production.company_mapping ON CompanyStats."Tedarikçi" = mes_production.company_mapping."key"
+        ORDER BY "Kapasite" ASC, order_points DESC, "Oran" DESC
+    `,
+    getSupplierRiskAnalysisByFirma: (firma: string) => `
+        WITH CompanyTrend AS (
+            SELECT 
+                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY week) as "Trend", 
+                "Firma Adı" 
+            FROM mes_production.firma_makina_planlanan_doluluk_history 
+            GROUP BY "Firma Adı"
+        ),
+        CompanyStats AS (
+            SELECT
+                mk."Satıcı Tanım" as "Tedarikçi",
+                SUM(REPLACE(REPLACE(mk."Açık MG de", '.', ''), ',', '.')::numeric) as "Etki",
+                AVG(pd."Aylık Planlanan Doluluk Oranı") as "Kapasite",
+                ROUND((SUM(REPLACE(REPLACE(mk."Açık MG de", '.', ''), ',', '.')::numeric) * 100.0 / 
+                    NULLIF(SUM(SUM(REPLACE(REPLACE(mk."Açık MG de", '.', ''), ',', '.')::numeric)) OVER(), 0)), 5) as "Oran",
+                cd."Trend" as "Trend"
+            FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari mk
+            LEFT JOIN mes_production.company_mapping cm ON cm.key = mk."Satıcı Tanım"
+            LEFT JOIN mes_production.get_firma_makina_planlanan_doluluk pd ON pd."Firma Adı" = cm.value
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = cm.value
+            WHERE mk."Satıcı Tanım" = '${firma}'
             GROUP BY mk."Satıcı Tanım", cd."Trend"
         )
         SELECT
@@ -478,6 +516,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
     const [showTooltip, setShowTooltip] = useState(false)
     const [showCmmTooltip, setShowCmmTooltip] = useState(false)
     const [showResponsibleTooltip, setShowResponsibleTooltip] = useState(false)
+    const [showRiskTooltip, setShowRiskTooltip] = useState(false)
     
     // Pagination state for supplier risk table
     const [currentPage, setCurrentPage] = useState(1)
@@ -549,7 +588,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     runQuery(isAll ? SQL.getTalasliDuruslarPreviousMonth : SQL.getTalasliDuruslarPreviousMonthByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getKablajDuruslarCurrentMonth : SQL.getKablajDuruslarCurrentMonthByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getKablajDuruslarPreviousMonth : SQL.getKablajDuruslarPreviousMonthByFirma(selectedCompany)),
-                    runQuery(SQL.getSupplierRiskAnalysis),
+                    runQuery(isAll ? SQL.getSupplierRiskAnalysis : SQL.getSupplierRiskAnalysisByFirma(firmaForQueries)),
                 ])
 
                 const dijitalRows = queryResults[0].status === 'fulfilled' ? queryResults[0].value : null
@@ -707,14 +746,16 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         trend = (matchingRow[3] as string) || 'neutral'
                     }
                     
-                    // Override with calculated percentages from duruslar views
+                    // Override with actual counts from duruslar views
                     if (label === 'Talaşlı İmalat') {
-                        computedValue = talasliDurusPct
+                        computedValue = talasliDurusCurrent
+                        unit = ''
                         trend = talasliDurusTrend
                         changePct = talasliDurusChange
                     }
                     if (label === 'Kablaj/EMM') {
-                        computedValue = kablajDurusPct
+                        computedValue = kablajDurusCurrent
+                        unit = ''
                         trend = kablajDurusTrend
                         changePct = kablajDurusChange
                     }
@@ -1009,7 +1050,10 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
             {/* ─── Top KPI Row ─── */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-2 flex-shrink-0">
                 {/* Dijital Skor */}
-                <div className="relative bg-gradient-to-br from-indigo-500 to-purple-600 p-5 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 group overflow-hidden">
+                <div 
+                    onClick={() => window.open('/ivme/reports/16', '_blank')}
+                    className="relative bg-gradient-to-br from-indigo-500 to-purple-600 p-5 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 group overflow-hidden cursor-pointer"
+                >
                     <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
                     <div className="relative z-10 flex items-start justify-between">
                         <div>
@@ -1250,28 +1294,36 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         <div className="flex items-center gap-2 mb-4 pb-3 border-b-2 border-rose-100">
                             <div className="w-1 h-6 bg-gradient-to-b from-rose-500 to-pink-600 rounded-full"></div>
                             <h2 className="text-base font-bold text-gray-800 tracking-tight">
-                                Duruşlar
+                                Duruşlar (İş Emri Bazında)
                             </h2>
                         </div>
                         {bizdenKaynakliDurma.length > 0 ? (
                             <div className="grid grid-cols-3 gap-4">
-                                {bizdenKaynakliDurma.map((item, idx) => (
-                                    <div key={`aselsan-${idx}`} className="bg-gradient-to-br from-gray-50 to-white border-2 border-gray-100 rounded-xl p-4 flex flex-col gap-2 transition-all duration-300 hover:border-rose-400 hover:shadow-md hover:-translate-y-1">
-                                        <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                            {aselsanDurmaLabels[idx] || item.name}
-                                        </span>
-                                        {item.value !== null ? (
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-2xl font-extrabold text-gray-900">
-                                                    {item.unit === '%' ? `%${item.value}` : item.value}
-                                                </span>
-                                                <TrendArrow trend={item.trend} changePct={item.changePct} />
-                                            </div>
-                                        ) : (
-                                            <span className="text-sm font-bold text-gray-400">Yapım Aşamasında</span>
-                                        )}
-                                    </div>
-                                ))}
+                                {bizdenKaynakliDurma.map((item, idx) => {
+                                    const isTalasliOrKablaj = idx === 0 || idx === 1
+                                    return (
+                                        <div key={`aselsan-${idx}`} className="bg-gradient-to-br from-gray-50 to-white border-2 border-gray-100 rounded-xl p-4 flex flex-col gap-2 transition-all duration-300 hover:border-rose-400 hover:shadow-md hover:-translate-y-1">
+                                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                {aselsanDurmaLabels[idx] || item.name}
+                                            </span>
+                                            {item.value !== null ? (
+                                                <>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-2xl font-extrabold text-gray-900">
+                                                            {item.unit === '%' ? `%${item.value}` : item.value}
+                                                        </span>
+                                                        <TrendArrow trend={item.trend} changePct={item.changePct} />
+                                                    </div>
+                                                    {isTalasliOrKablaj && (
+                                                        <span className="text-xs text-gray-500 font-medium">Son 30 Gün</span>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <span className="text-sm font-bold text-gray-400">Yapım Aşamasında</span>
+                                            )}
+                                        </div>
+                                    )
+                                })}
                             </div>
                         ) : (
                             <div className="flex items-center justify-center py-12">
@@ -1290,10 +1342,12 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         Tedarikçi Risk Analizi
                     </h2>
                     <span className="text-xs text-gray-500 font-medium">
-                        ({supplierTableRows.length} kayıt)
+                        ({supplierTableRows.filter(row => row.etki >= 1000000).length} kayıt)
                     </span>
                 </div>
-                {supplierTableRows.length > 0 ? (
+                {(() => {
+                    const filteredRows = supplierTableRows.filter(row => row.etki >= 1000000)
+                    return filteredRows.length > 0 ? (
                     <>
                         <div className="overflow-x-auto rounded-lg">
                             <table className="w-full text-sm">
@@ -1301,15 +1355,41 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                     <tr className="bg-gradient-to-r from-violet-50 to-purple-50 border-b-2 border-violet-200">
                                         <th className="text-left py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs">Tedarikçi</th>
                                         <th className="text-right py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs">Etki</th>
-                                        <th className="text-center py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs">Risk</th>
+                                        <th className="text-center py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs">
+                                            <div className="inline-flex items-center gap-1">
+                                                <span>Risk</span>
+                                                <div className="relative inline-flex">
+                                                    <button
+                                                        onMouseEnter={() => setShowRiskTooltip(true)}
+                                                        onMouseLeave={() => setShowRiskTooltip(false)}
+                                                        className="text-gray-400 hover:text-violet-600 transition-all duration-200 hover:scale-110"
+                                                        aria-label="Risk hesaplama bilgisi"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                                        </svg>
+                                                    </button>
+                                                    <InfoTooltip show={showRiskTooltip} className="left-1/2 top-7 max-w-[320px] -translate-x-1/2">
+                                                        <div className="space-y-2">
+                                                            <p className="font-semibold">Risk Hesaplama:</p>
+                                                            <p>Risk = Sipariş Puanı × (Kapasite / 10)</p>
+                                                            <p className="text-xs">• Sipariş Puanı: Sipariş miktarına göre 1-10 arası (yüksek sipariş = yüksek puan)</p>
+                                                            <p className="text-xs">• Kapasite Puanı: Makine kapasitesinin 10'a bölümü</p>
+                                                            <p className="text-xs mt-1 italic">Yüksek sipariş ve yüksek kapasite yüksek risk anlamına gelir.</p>
+                                                        </div>
+                                                    </InfoTooltip>
+                                                </div>
+                                            </div>
+                                        </th>
                                         <th className="text-center py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs">Kapasite</th>
                                         <th className="text-center py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs">Trend</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {(() => {
-                                        // Sort by Etki (impact) in descending order
-                                        const sorted = [...supplierTableRows].sort((a, b) => b.etki - a.etki)
+                                        // Filter out rows with etki < 1M and sort by Etki (impact) in descending order
+                                        const filtered = supplierTableRows.filter(row => row.etki >= 1000000)
+                                        const sorted = [...filtered].sort((a, b) => b.etki - a.etki)
                                         
                                         // Paginate
                                         const startIdx = (currentPage - 1) * itemsPerPage
@@ -1325,16 +1405,24 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                     </span>
                                                 </td>
                                                 <td className="py-3 px-4 text-center">
-                                                    <span className={`px-3 py-1 rounded font-bold ${
-                                                        supplier.risk >= 7 ? 'bg-red-100 text-red-700' :
-                                                        supplier.risk >= 4 ? 'bg-amber-100 text-amber-700' :
-                                                        'bg-green-100 text-green-700'
-                                                    }`}>
-                                                        {supplier.risk.toFixed(2)}
-                                                    </span>
+                                                    {supplier.risk > 0 ? (
+                                                        <span className={`px-3 py-1 rounded font-bold ${
+                                                            supplier.risk >= 70 ? 'bg-red-100 text-red-700' :
+                                                            supplier.risk >= 30 ? 'bg-amber-100 text-amber-700' :
+                                                            'bg-green-100 text-green-700'
+                                                        }`}>
+                                                            {supplier.risk.toFixed(2)}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-gray-400 text-sm">-</span>
+                                                    )}
                                                 </td>
                                                 <td className="py-3 px-4 text-center text-gray-900 font-medium">
-                                                    %{supplier.kapasite.toFixed(1)}
+                                                    {supplier.kapasite > 0 ? (
+                                                        `%${supplier.kapasite.toFixed(1)}`
+                                                    ) : (
+                                                        <span className="text-gray-400 text-sm">-</span>
+                                                    )}
                                                 </td>
                                                 <td className="py-3 px-4 text-center">
                                                     {supplier.trend && supplier.trend.length > 0 ? (
@@ -1401,14 +1489,15 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         
                         {/* Pagination Controls */}
                         {(() => {
-                            const totalPages = Math.ceil(supplierTableRows.length / itemsPerPage)
+                            const filteredRows = supplierTableRows.filter(row => row.etki >= 1000000)
+                            const totalPages = Math.ceil(filteredRows.length / itemsPerPage)
                             
                             if (totalPages <= 1) return null
                             
                             return (
                                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
                                     <div className="text-sm text-gray-600">
-                                        Sayfa {currentPage} / {totalPages} ({supplierTableRows.length} kayıt)
+                                        Sayfa {currentPage} / {totalPages} ({filteredRows.length} kayıt)
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <button
@@ -1425,9 +1514,6 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         >
                                             Önceki
                                         </button>
-                                        <span className="px-3 py-1.5 text-sm font-medium">
-                                            {currentPage}
-                                        </span>
                                         <button
                                             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                             disabled={currentPage === totalPages}
@@ -1451,7 +1537,8 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     <div className="flex items-center justify-center py-12">
                         <span className="text-xl font-bold text-gray-400">Veri Yok</span>
                     </div>
-                )}
+                )
+                })()}
             </div>
         </div>
     )

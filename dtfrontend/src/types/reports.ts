@@ -63,6 +63,15 @@ export interface RowColorRule {
   color: string
 }
 
+// Column Value Coloring Configuration for Table/Expandable Table
+export interface ColumnValueColorRule {
+  id: string
+  columnName: string
+  value: string | number  // If empty, colors entire column
+  color: string
+  matchType?: 'exact' | 'contains'  // How to match the value
+}
+
 // Visualization Configuration Types
 export interface VisualizationConfig {
   type: 'table' | 'expandable' | 'bar' | 'line' | 'pie' | 'area' | 'scatter' | 'pareto' | 'boxplot' | 'histogram' | 'card'
@@ -116,6 +125,9 @@ export interface VisualizationConfig {
 
     // Table/Expandable table specific - Row coloring rules
     rowColorRules?: RowColorRule[]
+
+    // Table/Expandable table specific - Column value coloring rules
+    columnValueColorRules?: ColumnValueColorRule[]
 
     // Reference line for bar and line charts
     referenceLineField?: string

@@ -28,6 +28,7 @@ interface BarcodeFormData {
   aselsan_order_number: string;
   order_item_number: string;
   part_number: string;
+  revision_number: string;
   quantity: number;
   package_quantity: number;
   target_date: string;
@@ -82,6 +83,7 @@ export default function MusteriPage() {
     aselsan_order_number: "",
     order_item_number: "",
     part_number: "",
+    revision_number: "",
     quantity: 0,
     package_quantity: 0,
     target_date: "",
@@ -111,6 +113,10 @@ export default function MusteriPage() {
       setError("Teklif Numarası zorunludur");
       return;
     }
+    if (!barcodeFormData.revision_number.trim()) {
+      setError("Revizyon Numarası zorunludur");
+      return;
+    }
 
     // Validate target_date is at least 7 days from today
     const today = new Date();
@@ -138,6 +144,7 @@ export default function MusteriPage() {
         aselsan_order_number: barcodeFormData.aselsan_order_number,
         order_item_number: barcodeFormData.order_item_number,
         part_number: barcodeFormData.part_number,
+        revision_number: barcodeFormData.revision_number,
         quantity: barcodeFormData.quantity,
         package_quantity: effectivePackageQuantity,
         target_date: barcodeFormData.target_date,
@@ -156,7 +163,11 @@ export default function MusteriPage() {
       if (err.message) {
         try {
           const errorObj = JSON.parse(err.message);
-          errorMessage = errorObj.detail || errorMessage;
+          if (Array.isArray(errorObj.detail)) {
+            errorMessage = errorObj.detail.map((e: any) => e.msg).join(", ");
+          } else {
+            errorMessage = errorObj.detail || errorMessage;
+          }
         } catch {
           errorMessage = err.message;
         }
@@ -204,7 +215,7 @@ export default function MusteriPage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.teklif_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${totalPackages > 1 ? barcodeFormData.aselsan_order_number + "_" + pkg.package_index : barcodeFormData.aselsan_order_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Kalem Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.order_item_number}</td></tr>
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.part_number}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.part_number}${barcodeFormData.revision_number ? "/" + barcodeFormData.revision_number : ""}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Toplam Sipariş Miktarı</td><td style="border: 1px solid #d1d5db; padding: 6px;">${pkg.quantity}/${totalQuantity}</td></tr>
           ${barcodeFormData.target_date ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Bitirme Tarihi</td><td style="border: 1px solid #d1d5db; padding: 6px;">${new Date(barcodeFormData.target_date).toLocaleDateString("tr-TR")}</td></tr>` : ""}
         </tbody>
@@ -437,6 +448,17 @@ export default function MusteriPage() {
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Revizyon Numarası *</label>
+                <input
+                  type="text"
+                  value={barcodeFormData.revision_number}
+                  onChange={(e) => setBarcodeFormData({ ...barcodeFormData, revision_number: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                  placeholder="Revizyon numarasını giriniz"
+                  required
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Toplam Sipariş Miktarı *</label>
                 <input
                   type="number"
@@ -575,7 +597,7 @@ export default function MusteriPage() {
                           </tr>
                           <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">{barcodeFormData.main_customer} Parça Numarası</td>
-                            <td className="py-2 px-3 text-gray-900">{barcodeFormData.part_number}</td>
+                            <td className="py-2 px-3 text-gray-900">{barcodeFormData.part_number}{barcodeFormData.revision_number ? `/${barcodeFormData.revision_number}` : ""}</td>
                           </tr>
                           <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">Toplam Sipariş Miktarı</td>

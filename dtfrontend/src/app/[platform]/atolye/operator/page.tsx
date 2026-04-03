@@ -17,6 +17,7 @@ interface QRCodeData {
   aselsan_order_number: string;
   order_item_number: string;
   part_number: string;
+  revision_number: string;
   quantity: number;
   total_quantity: number;
   package_index: number;
@@ -59,6 +60,7 @@ interface WorkOrderDetail {
   aselsan_order_number: string;
   order_item_number: string;
   part_number: string;
+  revision_number: string;
   quantity: number;
   total_quantity: number;
   package_index: number;
@@ -82,6 +84,7 @@ interface PaginatedResponse {
 interface GroupedWorkOrder {
   work_order_group_id: string;
   part_number: string;
+  revision_number: string;
   company_from: string;
   teklif_number: string;
   main_customer: string;
@@ -322,6 +325,7 @@ export default function OperatorPage() {
           grouped.set(key, {
             work_order_group_id: order.work_order_group_id,
             part_number: order.part_number,
+            revision_number: order.revision_number,
             company_from: order.company_from,
             teklif_number: order.teklif_number,
             main_customer: order.main_customer,
@@ -489,6 +493,7 @@ export default function OperatorPage() {
                     aselsan_order_number: "ASELSAN Sipariş Numarası",
                     order_item_number: "Sipariş Kalem Numarası",
                     part_number: "Parça Numarası",
+                    revision_number: "Revizyon Numarası",
                     quantity: "Toplam Sipariş Miktarı",
                     station_id: "Atölye ID",
                     work_order_group_id: "İş Emri Grup ID",
@@ -672,7 +677,7 @@ export default function OperatorPage() {
     @media print { .package-card { page-break-inside: avoid; page-break-after: always; } .package-card:last-child { page-break-after: auto; } }
   `;
 
-  const buildPackageCardHtml = (svgMarkup: string, pkg: { code: string; package_index: number; quantity: number }, wo: { main_customer: string; sector: string; company_from: string; teklif_number: string; aselsan_order_number: string; order_item_number: string; part_number: string; total_quantity: number; total_packages: number; target_date?: string | null }) => `
+  const buildPackageCardHtml = (svgMarkup: string, pkg: { code: string; package_index: number; quantity: number }, wo: { main_customer: string; sector: string; company_from: string; teklif_number: string; aselsan_order_number: string; order_item_number: string; part_number: string; revision_number?: string; total_quantity: number; total_packages: number; target_date?: string | null }) => `
     <div class="package-card">
       <div style="text-align:center;margin-bottom:16px;">${svgMarkup}</div>
       <table style="width:100%;border-collapse:collapse;font-size:11px;">
@@ -683,7 +688,7 @@ export default function OperatorPage() {
           <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Teklif Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.teklif_number}</td></tr>
           <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">${wo.main_customer} Sipariş Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.total_packages > 1 ? wo.aselsan_order_number + "_" + pkg.package_index : wo.aselsan_order_number}</td></tr>
           <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Sipariş Kalem Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.order_item_number}</td></tr>
-          <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Parça Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.part_number}</td></tr>
+          <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Parça Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.part_number}${wo.revision_number ? "/" + wo.revision_number : ""}</td></tr>
           <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Toplam Sipariş Miktarı</td><td style="border:1px solid #d1d5db;padding:6px;">${pkg.quantity}/${wo.total_quantity}</td></tr>
           ${wo.target_date ? `<tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Hedef Bitirme Tarihi</td><td style="border:1px solid #d1d5db;padding:6px;">${new Date(wo.target_date).toLocaleDateString("tr-TR")}</td></tr>` : ""}
         </tbody>
@@ -1014,7 +1019,7 @@ export default function OperatorPage() {
                             }}
                           >
                             <td className="px-4 py-3">
-                              <div className="text-sm font-medium text-gray-900">{wo.part_number}</div>
+                              <div className="text-sm font-medium text-gray-900">{wo.part_number}{wo.revision_number ? `/${wo.revision_number}` : ""}</div>
                               <div className="text-xs text-gray-500">{wo.aselsan_order_number}</div>
                               <div className="text-xs text-gray-500">{wo.teklif_number}</div>
                             </td>
@@ -1320,7 +1325,7 @@ export default function OperatorPage() {
                                 </tr>
                                 <tr className="border-b border-gray-200">
                                   <td className="py-2 pr-3 font-medium text-gray-600">Parça Numarası</td>
-                                  <td className="py-2 text-gray-900">{wo.part_number}</td>
+                                  <td className="py-2 text-gray-900">{wo.part_number}{wo.revision_number ? `/${wo.revision_number}` : ""}</td>
                                 </tr>
                                 <tr className="border-b border-gray-200">
                                   <td className="py-2 pr-3 font-medium text-gray-600">Toplam Sipariş Miktarı</td>

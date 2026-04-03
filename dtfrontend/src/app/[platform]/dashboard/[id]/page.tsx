@@ -459,35 +459,37 @@ export default function DashboardPage() {
       </div>
 
       {/* Date Filter Section */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <Calendar className="h-5 w-5 text-gray-500" />
-            <span className="text-sm font-medium text-gray-700">Tarih Filtresi:</span>
-          </div>
+      {!(dashboard.widgets?.length === 1 && dashboard.widgets[0]?.widget_type === 'csuite_report') && (
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
-              <label htmlFor="dateFrom" className="text-sm text-gray-600">Başlangıç:</label>
-              <DateInput
-                value={dateFrom}
-                onChange={setDateFrom}
-                className="px-3 py-1 text-sm"
-              />
+              <Calendar className="h-5 w-5 text-gray-500" />
+              <span className="text-sm font-medium text-gray-700">Tarih Filtresi:</span>
             </div>
-            <div className="flex items-center space-x-2">
-              <label htmlFor="dateTo" className="text-sm text-gray-600">Bitiş:</label>
-              <DateInput
-                value={dateTo}
-                onChange={setDateTo}
-                className="px-3 py-1 text-sm"
-              />
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <label htmlFor="dateFrom" className="text-sm text-gray-600">Başlangıç:</label>
+                <DateInput
+                  value={dateFrom}
+                  onChange={setDateFrom}
+                  className="px-3 py-1 text-sm"
+                />
+              </div>
+              <div className="flex items-center space-x-2">
+                <label htmlFor="dateTo" className="text-sm text-gray-600">Bitiş:</label>
+                <DateInput
+                  value={dateTo}
+                  onChange={setDateTo}
+                  className="px-3 py-1 text-sm"
+                />
+              </div>
             </div>
           </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Bu tarih aralığı tüm widget'lar için filtre olarak kullanılacaktır
+          </p>
         </div>
-        <p className="text-xs text-gray-500 mt-2">
-          Bu tarih aralığı tüm widget'lar için filtre olarak kullanılacaktır
-        </p>
-      </div>
+      )}
 
       {/* Error Message */}
       {error && (

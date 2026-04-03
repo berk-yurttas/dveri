@@ -11,7 +11,7 @@ interface OrderFilesViewerProps {
 }
 
 export function OrderFilesViewer({ orderId, stationName, allStationNames, className }: OrderFilesViewerProps) {
-  const { getOrderFiles, openFile } = useOrderFiles();
+  const { getOrderFiles, openFile, selectOrdersFolder } = useOrderFiles();
   const [loading, setLoading] = useState(false);
   const [files, setFiles] = useState<{ name: string; file: File }[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -21,6 +21,23 @@ export function OrderFilesViewer({ orderId, stationName, allStationNames, classN
     setLoading(true);
     setError(null);
     try {
+      const nextFiles = await getOrderFiles(orderId, stationName, allStationNames);
+      setFiles(nextFiles);
+      setOpened(true);
+    } catch (err: any) {
+      setFiles([]);
+      setError(err?.message || "Dosyalar alınamadı.");
+      setOpened(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRetryWithNewFolder = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await selectOrdersFolder();
       const nextFiles = await getOrderFiles(orderId, stationName, allStationNames);
       setFiles(nextFiles);
       setOpened(true);
@@ -47,7 +64,14 @@ export function OrderFilesViewer({ orderId, stationName, allStationNames, classN
       {opened && (
         <div className="mt-2">
           {error ? (
-            <p className="text-xs text-red-700">{error}</p>
+            <button
+              type="button"
+              onClick={handleRetryWithNewFolder}
+              className="text-xs text-red-700 underline hover:text-red-900 text-left"
+              title="Farklı klasör seçmek için tıklayın"
+            >
+              {error}
+            </button>
           ) : files.length === 0 ? (
             <p className="text-xs text-gray-500">Dosya bulunamadı.</p>
           ) : (
