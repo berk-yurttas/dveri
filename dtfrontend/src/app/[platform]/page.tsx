@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useParams } from "next/navigation";
 import {
@@ -65,6 +65,12 @@ import { Feedback } from "@/components/feedback/feedback";
 import DOMPurify from 'dompurify';
 import { checkAccess } from "@/lib/utils";
 import { TableVisualization } from "@/components/visualizations/TableVisualization";
+import { ServiceStatusBadge } from "@/components/service-status-badge";
+import {
+  fetchServiceStatus,
+  buildExternalHealthLookup,
+  type ServiceCheckerEndpoint,
+} from "@/lib/service-status";
 
 // Icon mapping
 const iconMap: { [key: string]: any } = {
@@ -159,9 +165,51 @@ export default function PlatformHome() {
   const [isMounted, setIsMounted] = useState(false);
   const [isLoadingPage, setIsLoadingPage] = useState(false);
 
+  const [serviceStatusEnabled, setServiceStatusEnabled] = useState(false);
+  const [serviceEndpoints, setServiceEndpoints] = useState<ServiceCheckerEndpoint[]>([]);
+  const [serviceStatusFetchError, setServiceStatusFetchError] = useState(false);
+
+  const externalHealthLookup = useMemo(
+    () =>
+      buildExternalHealthLookup(
+        serviceStatusEnabled,
+        serviceEndpoints,
+        serviceStatusFetchError
+      ),
+    [serviceStatusEnabled, serviceEndpoints, serviceStatusFetchError]
+  );
+
   // Check if mounted (client-side)
   useEffect(() => {
     setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await fetchServiceStatus();
+        console.log("FETCHED SERVICE STATUS:", data);
+        if (cancelled) return;
+        setServiceStatusEnabled(data.enabled);
+        setServiceEndpoints(data.endpoints ?? []);
+        // Only treat as fatal if we got no endpoints (otherwise still show green/red)
+        setServiceStatusFetchError(
+          Boolean(data.error) && !(data.endpoints && data.endpoints.length > 0)
+        );
+      } catch {
+        if (cancelled) return;
+        setServiceStatusEnabled(false);
+        setServiceEndpoints([]);
+        setServiceStatusFetchError(true);
+      }
+    };
+    load();
+    const intervalId = setInterval(load, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
   }, []);
 
   // Lock body scroll when modal is open
@@ -1340,6 +1388,11 @@ export default function PlatformHome() {
                     featureUrl = `/${platformCode}${featureUrl.startsWith('/') ? '' : '/'}${featureUrl}`;
                   }
 
+                  const amomExternalHttpUrl =
+                    featureUrl && String(featureUrl).trim().startsWith("http")
+                      ? String(featureUrl).trim()
+                      : null;
+
                   const handleFeatureClick = () => {
                     console.log('Feature clicked:', feature.title, 'underConstruction:', feature.underConstruction);
                     
@@ -1371,9 +1424,17 @@ export default function PlatformHome() {
                   return (
                     <div
                       key={index}
-                      className="flex flex-col items-center cursor-pointer group"
+                      className="relative flex flex-col items-center cursor-pointer group"
                       onClick={handleFeatureClick}
                     >
+                      {amomExternalHttpUrl && (
+                        <div className="absolute -top-1 right-0 z-10 pointer-events-none drop-shadow-sm">
+                          <ServiceStatusBadge
+                            health={externalHealthLookup(amomExternalHttpUrl)}
+                            size="lg"
+                          />
+                        </div>
+                      )}
                       <div className="relative group-hover:scale-110 transition-all duration-300">
                         <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                           <div className="w-full h-full rounded-lg overflow-hidden bg-white">
@@ -1902,8 +1963,18 @@ export default function PlatformHome() {
               >
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-3 border-b bg-gradient-to-r from-blue-900 to-blue-700">
-                  <h3 className="text-white font-semibold text-base">{iconPopup.title}</h3>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <h3 className="text-white font-semibold text-base truncate">{iconPopup.title}</h3>
+                    {iconPopup.url.startsWith("http") && (
+                      <ServiceStatusBadge
+                        health={externalHealthLookup(iconPopup.url)}
+                        variant="onDark"
+                        size="lg"
+                        className="shrink-0"
+                      />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={() => window.open(iconPopup.url, '_blank')}
                       className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"
@@ -2713,6 +2784,10 @@ export default function PlatformHome() {
                 // If feature has a URL, or if it's the atolye feature for atolye users, make it clickable
                 // Use the corrected featureUrl if it was modified for atolye feature
                 const urlToUse = featureUrl || feature.url;
+                const externalHttpUrl =
+                  urlToUse && String(urlToUse).trim().startsWith("http")
+                    ? String(urlToUse).trim()
+                    : null;
 
                 // If feature has subfeatures, clicking should expand/collapse
                 // Otherwise, if it has a URL, navigate to it
@@ -2799,7 +2874,7 @@ export default function PlatformHome() {
                         }
                       }
                     }}
-                    className={`block transition-all duration-300 rounded-lg ${hasSubfeatures || hasUrl ? 'hover:scale-105 cursor-pointer' : ''
+                    className={`relative block transition-all duration-300 rounded-lg ${hasSubfeatures || hasUrl ? 'hover:scale-105 cursor-pointer' : ''
                       } ${shouldDim ? 'opacity-40' : 'opacity-100'} ${platformCode === 'romiot' && isHovered ? 'ring-2 ring-[#FF5620]' : ''
                       }`}
                     role={hasSubfeatures || hasUrl ? "button" : undefined}
@@ -2866,6 +2941,14 @@ export default function PlatformHome() {
                       }
                     }}
                   >
+                    {externalHttpUrl && (
+                      <div className="absolute top-1.5 right-1.5 z-10 pointer-events-none drop-shadow-sm">
+                        <ServiceStatusBadge
+                          health={externalHealthLookup(externalHttpUrl)}
+                          size="lg"
+                        />
+                      </div>
+                    )}
                     {cardContent}
                   </div>
                 );
@@ -2914,6 +2997,11 @@ export default function PlatformHome() {
                           subfeatureUrl = `/${platformCode}${subfeatureUrl.startsWith('/') ? '' : '/'}${subfeatureUrl}`;
                         }
 
+                        const subExternalHttpUrl =
+                          hasSubfeatureUrl && subfeatureUrl.startsWith("http")
+                            ? subfeatureUrl
+                            : null;
+
                         return (
                           <div
                             key={`${index}-sub-${subIndex}`}
@@ -2951,7 +3039,7 @@ export default function PlatformHome() {
                                 }
                               }
                             }}
-                            className={`opacity-0 ${hasSubfeatureUrl ? "block hover:scale-105 transition-all cursor-pointer" : "block transition-all"}`}
+                            className={`relative opacity-0 ${hasSubfeatureUrl ? "block hover:scale-105 transition-all cursor-pointer" : "block transition-all"}`}
                             style={{
                               animation: `slideUp 0.4s ease-out ${subIndex * 0.1}s forwards`
                             }}
@@ -2986,7 +3074,15 @@ export default function PlatformHome() {
                               }
                             }}
                           >
-                            <div className="bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300 h-[180px] flex flex-col">
+                            <div className="relative bg-white rounded-lg shadow-xl shadow-slate-200 p-6 hover:shadow-2xl transition-all duration-300 h-[180px] flex flex-col">
+                              {subExternalHttpUrl && (
+                                <div className="absolute bottom-3 right-3 z-10 pointer-events-none drop-shadow-sm">
+                                  <ServiceStatusBadge
+                                    health={externalHealthLookup(subExternalHttpUrl)}
+                                    size="lg"
+                                  />
+                                </div>
+                              )}
                               <div
                                 className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
                                 style={{ backgroundColor: feature.backgroundColor || '#EFF6FF' }}

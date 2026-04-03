@@ -97,6 +97,17 @@ class Settings(BaseSettings):
         default_factory=lambda: int(os.getenv("CSUITE_HISTORY_SCHEDULER_INTERVAL_SECONDS", str(6 * 60 * 60)))
     )
 
+    # ServiceChecker: proxy to Flask app for /api/v1/service-status.
+    # Missing env → default http://127.0.0.1:5000 (local ServiceChecker).
+    # SERVICE_CHECKER_BASE_URL= (empty) disables integration.
+    SERVICE_CHECKER_BASE_URL: str = Field(
+        default_factory=lambda: (
+            "http://127.0.0.1:5000"
+            if os.getenv("SERVICE_CHECKER_BASE_URL") is None
+            else os.getenv("SERVICE_CHECKER_BASE_URL", "").strip()
+        )
+    )
+
     @property
     def postgres_database_url(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
