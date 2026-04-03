@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime, timezone
 
@@ -9,8 +10,9 @@ from app.api.v1.endpoints.romiot.station.auth import check_station_operator_role
 from app.core.auth import check_authenticated
 from app.core.database import get_postgres_db, get_romiot_db
 from app.models.postgres_models import User as PostgresUser
-from app.models.romiot_models import PriorityToken, QRCodeData, Station, WorkOrder
+from app.models.romiot_models import CompanyIntegration, PriorityToken, QRCodeData, Station, WorkOrder
 from app.schemas.user import User
+from app.services.mekasan_service import send_production_order
 from app.services.user_service import UserService
 from app.schemas.work_order import (
     WorkOrder as WorkOrderSchema,
@@ -118,6 +120,16 @@ async def create_work_order(
         existing_priority = existing_group_record.priority
         existing_prioritized_by = existing_group_record.prioritized_by
 
+    # Look up QR creation time if a qr_code short code was provided
+    qr_created_at = None
+    if work_order_data.qr_code:
+        qr_record_result = await romiot_db.execute(
+            select(QRCodeData).where(QRCodeData.code == work_order_data.qr_code)
+        )
+        qr_record = qr_record_result.scalar_one_or_none()
+        if qr_record:
+            qr_created_at = qr_record.created_at
+
     # Create new work order entry for this package
     new_work_order = WorkOrder(
         station_id=work_order_data.station_id,
@@ -130,11 +142,14 @@ async def create_work_order(
         aselsan_order_number=work_order_data.aselsan_order_number,
         order_item_number=work_order_data.order_item_number,
         part_number=work_order_data.part_number,
+        revision_number=work_order_data.revision_number,
         quantity=work_order_data.quantity,
         total_quantity=work_order_data.total_quantity,
         package_index=work_order_data.package_index,
         total_packages=work_order_data.total_packages,
         target_date=work_order_data.target_date,
+        qr_code=work_order_data.qr_code,
+        qr_created_at=qr_created_at,
         exit_date=None,
         priority=existing_priority,
         prioritized_by=existing_prioritized_by,
@@ -161,6 +176,21 @@ async def create_work_order(
         message = f"Tüm paketler okundu! İş emri girişi tamamlandı. ({packages_scanned}/{total_packages})"
     else:
         message = f"Paket {work_order_data.package_index} okundu. ({packages_scanned}/{total_packages})"
+
+    # Fire-and-forget: push entrance event to external integration (e.g. Mekasan)
+    station_result = await romiot_db.execute(
+        select(Station).where(Station.id == work_order_data.station_id)
+    )
+    station_obj = station_result.scalar_one_or_none()
+    if station_obj:
+        integration_result = await romiot_db.execute(
+            select(CompanyIntegration).where(CompanyIntegration.company == station_obj.company)
+        )
+        integration = integration_result.scalar_one_or_none()
+        if integration and integration.api_url and integration.api_key:
+            asyncio.create_task(
+                send_production_order(new_work_order, station_obj, integration.api_url, integration.api_key, station_obj.company)
+            )
 
     return WorkOrderCreateResponse(
         work_order=WorkOrderSchema.model_validate(new_work_order),
@@ -277,6 +307,21 @@ async def update_exit_date(
         message = f"Tüm paketlerin çıkışı yapıldı! İş emri çıkışı tamamlandı. ({packages_exited}/{total_packages})"
     else:
         message = f"Paket {update_data.package_index} çıkışı yapıldı. ({packages_exited}/{total_packages})"
+
+    # Fire-and-forget: push exit event to external integration (e.g. Mekasan)
+    exit_station_result = await romiot_db.execute(
+        select(Station).where(Station.id == update_data.station_id)
+    )
+    exit_station_obj = exit_station_result.scalar_one_or_none()
+    if exit_station_obj:
+        exit_integration_result = await romiot_db.execute(
+            select(CompanyIntegration).where(CompanyIntegration.company == exit_station_obj.company)
+        )
+        exit_integration = exit_integration_result.scalar_one_or_none()
+        if exit_integration and exit_integration.api_url and exit_integration.api_key:
+            asyncio.create_task(
+                send_production_order(work_order, exit_station_obj, exit_integration.api_url, exit_integration.api_key, exit_station_obj.company)
+            )
 
     return WorkOrderExitResponse(
         work_order=WorkOrderSchema.model_validate(work_order),

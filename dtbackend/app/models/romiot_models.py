@@ -12,6 +12,7 @@ class Station(PostgreSQLBase):
     name = Column(String(255), nullable=False)
     company = Column(String(255), nullable=False)
     is_exit_station = Column(Boolean, nullable=False, server_default="false")
+    station_order_code = Column(Integer, nullable=True)
 
     work_orders = relationship("WorkOrder", back_populates="station", cascade="all, delete-orphan")
 
@@ -51,6 +52,11 @@ class WorkOrder(PostgreSQLBase):
 
     # Target date
     target_date = Column(Date, nullable=True)
+
+    # Mekasan integration fields
+    revision_number = Column(String(255), nullable=True)
+    qr_code = Column(String(20), nullable=True)         # Short code that was scanned
+    qr_created_at = Column(DateTime(timezone=True), nullable=True)  # When the QR was created
 
     # Priority (assigned by satinalma role, 0-5)
     priority = Column(Integer, nullable=False, server_default="0")
@@ -101,6 +107,21 @@ class QRCodeData(PostgreSQLBase):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # Expiry timestamp (optional - for cleanup of old QR codes)
     expires_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class CompanyIntegration(PostgreSQLBase):
+    """
+    Stores per-company external API credentials for integrations (e.g. Mekasan).
+    Auto-created (with null credentials) when a station is first created for a company.
+    """
+    __tablename__ = "company_integrations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company = Column(String(255), nullable=False, unique=True, index=True)
+    api_url = Column(String(1024), nullable=True)
+    api_key = Column(String(512), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class WorkOrderLinkDirectory(PostgreSQLBase):

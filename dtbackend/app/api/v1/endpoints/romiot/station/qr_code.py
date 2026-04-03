@@ -186,6 +186,7 @@ async def generate_qr_code_batch(
             "aselsan_order_number": batch_data.aselsan_order_number,
             "order_item_number": batch_data.order_item_number,
             "part_number": batch_data.part_number,
+            "revision_number": batch_data.revision_number,
             "quantity": pkg_qty,
             "total_quantity": total_quantity,
             "package_index": i,

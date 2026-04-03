@@ -19,11 +19,14 @@ class WorkOrderBase(BaseModel):
     aselsan_order_number: str = Field(..., description="ASELSAN Sipariş Numarası")
     order_item_number: str = Field(..., description="Sipariş Kalem Numarası")
     part_number: str = Field(..., description="Parça Numarası")
+    revision_number: str | None = Field(None, description="Revizyon Numarası")
     quantity: int = Field(..., description="Bu paketin parça sayısı")
     total_quantity: int = Field(..., description="Toplam sipariş miktarı")
     package_index: int = Field(..., description="Parti sırası (1-based)")
     total_packages: int = Field(..., description="Toplam parti sayısı")
     target_date: date | None = Field(None, description="Hedef Bitirme Tarihi")
+    qr_code: str | None = Field(None, description="QR kodu (tarama sırasında kullanılan kısa kod)")
+    qr_created_at: datetime | None = Field(None, description="QR kodunun oluşturulma tarihi")
 
 
 class WorkOrderCreate(WorkOrderBase):
@@ -81,6 +84,7 @@ class WorkOrderList(BaseModel):
     aselsan_order_number: str
     order_item_number: str
     part_number: str
+    revision_number: str | None = None
     quantity: int
     total_quantity: int
     package_index: int
@@ -91,6 +95,8 @@ class WorkOrderList(BaseModel):
     target_date: date | None = None
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
+    qr_code: str | None = None
+    qr_created_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -112,6 +118,7 @@ class WorkOrderDetail(BaseModel):
     aselsan_order_number: str
     order_item_number: str
     part_number: str
+    revision_number: str | None = None
     quantity: int
     total_quantity: int
     package_index: int
@@ -122,6 +129,8 @@ class WorkOrderDetail(BaseModel):
     target_date: date | None = None
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
+    qr_code: str | None = None
+    qr_created_at: datetime | None = None
 
     class Config:
         from_attributes = True

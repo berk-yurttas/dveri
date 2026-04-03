@@ -12,7 +12,7 @@ from app.core.auth import check_authenticated
 from app.core.config import settings
 from app.core.database import get_postgres_db, get_romiot_db
 from app.models.postgres_models import User as PostgresUser
-from app.models.romiot_models import Station, WorkOrderLinkDirectory
+from app.models.romiot_models import CompanyIntegration, Station, WorkOrderLinkDirectory
 from app.schemas.station import Station as StationSchema
 from app.schemas.station import StationCreate, StationList
 from app.schemas.user import User
@@ -592,12 +592,21 @@ async def create_station(
     new_station = Station(
         name=station_data.name,
         company=station_data.company,
-        is_exit_station=station_data.is_exit_station
+        is_exit_station=station_data.is_exit_station,
+        station_order_code=station_data.station_order_code,
     )
 
     romiot_db.add(new_station)
     await romiot_db.commit()
     await romiot_db.refresh(new_station)
+
+    # Auto-create CompanyIntegration record if not already present
+    integration_result = await romiot_db.execute(
+        select(CompanyIntegration).where(CompanyIntegration.company == station_data.company)
+    )
+    if not integration_result.scalar_one_or_none():
+        romiot_db.add(CompanyIntegration(company=station_data.company))
+        await romiot_db.commit()
 
     return new_station
 
@@ -1048,6 +1057,7 @@ async def update_station(
     station.name = station_data.name
     station.company = station_data.company
     station.is_exit_station = station_data.is_exit_station
+    station.station_order_code = station_data.station_order_code
 
     await romiot_db.commit()
     await romiot_db.refresh(station)
