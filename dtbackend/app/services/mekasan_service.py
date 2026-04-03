@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 async def send_production_order(work_order, station, api_url: str, api_key: str, company: str) -> None:
     """
-    Sends work order data to the Mekasan PostProductionOrdersMekasan endpoint.
+    Sends work order data to the endpoint specified in api_url.
     Fire-and-forget: logs errors but never raises, so caller is never blocked.
 
     Called after both entrance (exit_date=None, ActualQuantity=0)
@@ -41,7 +41,7 @@ async def send_production_order(work_order, station, api_url: str, api_key: str,
     try:
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.post(
-                f"{api_url.rstrip('/')}/PostProductionOrdersMekasan",
+                api_url,
                 json=payload,
                 headers={
                     "Authorization": api_key,
