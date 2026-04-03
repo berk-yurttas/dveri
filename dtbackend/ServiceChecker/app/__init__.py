@@ -32,10 +32,24 @@ def create_app(config_class=Config):
     def run_scheduled_checks():
         with app.app_context():
             from app.health import check_all_endpoints
-
-            check_all_endpoints()
+            
+            app.logger.info("Running scheduled health checks...")
+            try:
+                count = check_all_endpoints()
+                app.logger.info(f"Scheduled check completed: {count} endpoints checked")
+            except Exception as e:
+                app.logger.error(f"Error during scheduled checks: {e}", exc_info=True)
 
     if _should_start_scheduler(app) and not scheduler.running:
+        # Configure scheduler with better misfire handling
+        scheduler.configure(
+            job_defaults={
+                'coalesce': True,  # Combine multiple missed runs into one
+                'max_instances': 1,  # Only one instance of the job at a time
+                'misfire_grace_time': 30  # Allow 30 seconds grace for missed schedules
+            }
+        )
+        
         scheduler.add_job(
             func=run_scheduled_checks,
             trigger=IntervalTrigger(minutes=app.config["CHECK_INTERVAL_MINUTES"]),
@@ -44,6 +58,9 @@ def create_app(config_class=Config):
             next_run_time=datetime.now()
         )
         scheduler.start()
+        app.logger.info(
+            f"Health check scheduler started with {app.config['CHECK_INTERVAL_MINUTES']}-minute interval"
+        )
 
     @app.teardown_appcontext
     def shutdown_session(exception=None):

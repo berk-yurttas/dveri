@@ -1,5 +1,6 @@
 import time
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import urllib3
 import requests
@@ -31,8 +32,8 @@ def check_endpoint(endpoint: ApiEndpoint, timeout_seconds: int) -> None:
         target_url = endpoint.check_url if getattr(endpoint, 'check_url', None) else endpoint.url
         resp = requests.request(
             method,
-            target_url,
-            headers=headers,
+            target_url, 
+            headers=headers, 
             timeout=timeout_seconds,
             allow_redirects=True,
             verify=False,  # Bypass corporate SSL proxy interception
@@ -40,7 +41,15 @@ def check_endpoint(endpoint: ApiEndpoint, timeout_seconds: int) -> None:
         status_code = resp.status_code
         ok = _is_success_status(status_code)
     except RequestException as e:
-        current_app.logger.error(f"Health check failed for {endpoint.url}: {e}")
+        error_msg = str(e)
+        # Provide helpful hint for localhost connection issues
+        if "localhost" in endpoint.url.lower() and ("Connection refused" in error_msg or "Failed to establish" in error_msg):
+            current_app.logger.error(
+                f"Health check failed for {endpoint.url}: {e} "
+                f"(Note: If running in Docker, use 'host.docker.internal' instead of 'localhost')"
+            )
+        else:
+            current_app.logger.error(f"Health check failed for {endpoint.url}: {e}")
         ok = False
     elapsed_ms = (time.perf_counter() - start) * 1000.0
 
@@ -62,10 +71,42 @@ def check_endpoint(endpoint: ApiEndpoint, timeout_seconds: int) -> None:
 
 
 def check_all_endpoints() -> int:
+    """Check all active endpoints concurrently for faster execution."""
     timeout = current_app.config["REQUEST_TIMEOUT_SECONDS"]
     endpoints = ApiEndpoint.query.filter_by(is_active=True).all()
-    for ep in endpoints:
-        check_endpoint(ep, timeout)
-    if endpoints:
-        db.session.commit()
+    
+    if not endpoints:
+        return 0
+    
+    start_time = time.perf_counter()
+    current_app.logger.info(f"Starting health checks for {len(endpoints)} endpoints...")
+    
+    # Use ThreadPoolExecutor for concurrent checks (max 10 threads to avoid overwhelming)
+    max_workers = min(10, len(endpoints))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all check tasks
+        future_to_endpoint = {
+            executor.submit(check_endpoint, ep, timeout): ep 
+            for ep in endpoints
+        }
+        
+        # Wait for all to complete
+        completed = 0
+        for future in as_completed(future_to_endpoint):
+            ep = future_to_endpoint[future]
+            try:
+                future.result()
+                completed += 1
+            except Exception as e:
+                current_app.logger.error(f"Exception checking endpoint {ep.url}: {e}")
+                completed += 1
+    
+    # Commit all changes at once
+    db.session.commit()
+    
+    elapsed = time.perf_counter() - start_time
+    current_app.logger.info(
+        f"Completed {completed}/{len(endpoints)} health checks in {elapsed:.2f}s"
+    )
+    
     return len(endpoints)

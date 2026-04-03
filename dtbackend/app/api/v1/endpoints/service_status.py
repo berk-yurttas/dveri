@@ -48,6 +48,7 @@ async def get_service_status(db: AsyncSession = Depends(get_postgres_db)) -> dic
                     theme = p.theme_config or {}
                     features = theme.get("features", [])
                     for f in features:
+                        # Check main feature URL
                         f_url = f.get("url", "").strip()
                         if f_url.startswith("http") and f_url not in existing_urls:
                             # Add to existing_urls to avoid duplicates in the same pass
@@ -61,6 +62,22 @@ async def get_service_status(db: AsyncSession = Depends(get_postgres_db)) -> dic
                                 json={"name": f"Auto: {name}", "url": f_url, "is_active": True}
                             )
                             new_tasks.append(coro)
+                        
+                        # Check subfeatures
+                        subfeatures = f.get("subfeatures", [])
+                        for sf in subfeatures:
+                            sf_url = sf.get("url", "").strip()
+                            if sf_url.startswith("http") and sf_url not in existing_urls:
+                                existing_urls.add(sf_url)
+                                sf_name = sf.get("title") or sf.get("name") or sf_url
+                                parent_name = f.get("title") or f.get("name") or "Feature"
+                                
+                                logger.info(f"Auto-enrolling new service check for subfeature {sf_url}")
+                                coro = client.post(
+                                    url,
+                                    json={"name": f"Auto: {parent_name} - {sf_name}", "url": sf_url, "is_active": True}
+                                )
+                                new_tasks.append(coro)
                 
                 if new_tasks:
                     results = await asyncio.gather(*new_tasks, return_exceptions=True)
