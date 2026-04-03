@@ -33,7 +33,8 @@ const widgetIconMap: { [key: string]: any } = {
   "test-analysis-widget": BarChart3,
   "test_duration-widget": Clock,
   "measurement-widget": TrendingUp,
-  "aselsan_sivas-widget": Database
+  "aselsan_sivas-widget": Database,
+  "feragat_formu-widget": FileText
 }
 
 // Generate available widgets from component configurations
@@ -69,6 +70,12 @@ const platformWidgetMapping: { [key: string]: string[] } = {
     'employee_count-widget',
     'aselsan_sivas-widget',
     'csuite_report-widget'
+  ],
+  'seyir': [
+    'feragat_formu-widget'
+  ],
+  'amom': [
+    'feragat-formu-widget'
   ],
 }
 

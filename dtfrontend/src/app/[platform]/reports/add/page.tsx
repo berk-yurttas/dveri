@@ -3787,6 +3787,9 @@ export default function AddReportPage() {
                                   disabled={availableFields.length === 0}
                                   className="w-full h-6 text-[10px] bg-pink-500 hover:bg-pink-600 text-white"
                                 >
+                                  <Plus className="w-2.5 h-2.5 mr-0.5" />
+                                  Kural Ekle
+                                </Button>
                               </div>
                             )}
                           </div>
