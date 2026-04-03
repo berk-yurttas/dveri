@@ -53,6 +53,23 @@ export function UserProfile({
       setGreeting("İyi günler")
     }
   }, [])
+  const validatePassword = (password: string): string | null => {
+    if (password.length < 8) return "Şifre en az 8 karakter olmalıdır";
+    if (!/[A-Z]/.test(password)) return "Şifre en az 1 büyük harf içermelidir";
+    if (!/[a-z]/.test(password)) return "Şifre en az 1 küçük harf içermelidir";
+    if (!/[^a-zA-Z0-9]/.test(password)) return "Şifre en az 1 özel karakter içermelidir";
+    for (let i = 0; i <= password.length - 4; i++) {
+      const d = [0, 1, 2, 3].map((j) => password.charCodeAt(i + j));
+      if (d.every((c) => c >= 48 && c <= 57)) {
+        if (d[1] === d[0] + 1 && d[2] === d[1] + 1 && d[3] === d[2] + 1)
+          return "Şifre 4 veya daha fazla ardışık artan rakam içeremez";
+        if (d[1] === d[0] - 1 && d[2] === d[1] - 1 && d[3] === d[2] - 1)
+          return "Şifre 4 veya daha fazla ardışık azalan rakam içeremez";
+      }
+    }
+    return null;
+  }
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     setPasswordError(null)
@@ -60,6 +77,11 @@ export function UserProfile({
 
     if (!newPassword || !newPasswordConfirm) {
       setPasswordError("Şifre alanları zorunludur.")
+      return
+    }
+    const pwError = validatePassword(newPassword)
+    if (pwError) {
+      setPasswordError(pwError)
       return
     }
     if (newPassword !== newPasswordConfirm) {
@@ -157,7 +179,7 @@ export function UserProfile({
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  minLength={6}
+                  minLength={8}
                   required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900"
                 />
@@ -168,7 +190,7 @@ export function UserProfile({
                   type="password"
                   value={newPasswordConfirm}
                   onChange={(e) => setNewPasswordConfirm(e.target.value)}
-                  minLength={6}
+                  minLength={8}
                   required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900"
                 />

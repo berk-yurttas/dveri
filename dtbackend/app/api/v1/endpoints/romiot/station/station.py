@@ -1,3 +1,4 @@
+import re
 from enum import Enum
 
 import httpx
@@ -44,11 +45,29 @@ class ManagedUserResponse(BaseModel):
     is_self: bool = False
 
 
+def _validate_password_strength(password: str) -> None:
+    if len(password) < 8:
+        raise ValueError("Şifre en az 8 karakter olmalıdır")
+    if not re.search(r"[A-Z]", password):
+        raise ValueError("Şifre en az 1 büyük harf içermelidir")
+    if not re.search(r"[a-z]", password):
+        raise ValueError("Şifre en az 1 küçük harf içermelidir")
+    if not re.search(r"[^a-zA-Z0-9]", password):
+        raise ValueError("Şifre en az 1 özel karakter içermelidir")
+    for i in range(len(password) - 3):
+        seq = [ord(password[i + j]) for j in range(4)]
+        if all(48 <= c <= 57 for c in seq):
+            if seq[1] == seq[0] + 1 and seq[2] == seq[1] + 1 and seq[3] == seq[2] + 1:
+                raise ValueError("Şifre 4 veya daha fazla ardışık artan rakam içeremez")
+            if seq[1] == seq[0] - 1 and seq[2] == seq[1] - 1 and seq[3] == seq[2] - 1:
+                raise ValueError("Şifre 4 veya daha fazla ardışık azalan rakam içeremez")
+
+
 class ManagedUserUpdateRequest(BaseModel):
     username: str | None = Field(None, min_length=1, description="Updated username")
     name: str | None = Field(None, min_length=1, description="Updated full name")
-    password: str | None = Field(None, min_length=6, description="New password")
-    password_confirm: str | None = Field(None, min_length=6, description="New password confirmation")
+    password: str | None = Field(None, min_length=8, description="New password")
+    password_confirm: str | None = Field(None, min_length=8, description="New password confirmation")
     role: ManagedUserRoleType | None = Field(None, description="Atolye role")
     station_id: int | None = Field(None, description="Station ID for operator role")
 
@@ -57,6 +76,7 @@ class ManagedUserUpdateRequest(BaseModel):
         if self.password is not None or self.password_confirm is not None:
             if not self.password or not self.password_confirm:
                 raise ValueError("Şifre güncelleme için şifre ve şifre tekrar birlikte girilmelidir")
+            _validate_password_strength(self.password)
             if self.password != self.password_confirm:
                 raise ValueError("Şifreler eşleşmiyor")
         return self
@@ -669,7 +689,7 @@ class UserCreateRequest(BaseModel):
     username: str = Field(..., min_length=1, description="Username")
     name: str = Field(..., min_length=1, description="Full name")
     email: EmailStr = Field(..., description="Email address")
-    password: str = Field(..., min_length=6, description="Password")
+    password: str = Field(..., min_length=8, description="Password")
     password_confirm: str = Field(..., description="Password confirmation")
     musteri_department: str | None = Field(None, min_length=1, description="Müşteri alt departman/şirket")
     station_id: int | None = Field(None, description="Station ID (required for operator, not for musteri)")
@@ -677,6 +697,8 @@ class UserCreateRequest(BaseModel):
 
     @model_validator(mode='after')
     def validate_data(self):
+        # Check password strength
+        _validate_password_strength(self.password)
         # Check password match
         if self.password != self.password_confirm:
             raise ValueError('Şifreler eşleşmiyor')

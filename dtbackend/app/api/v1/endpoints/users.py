@@ -1,4 +1,6 @@
 
+import re
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
@@ -14,12 +16,31 @@ from app.services.user_service import UserService
 router = APIRouter()
 
 
+def _validate_password_strength(password: str) -> None:
+    if len(password) < 8:
+        raise ValueError("Şifre en az 8 karakter olmalıdır")
+    if not re.search(r"[A-Z]", password):
+        raise ValueError("Şifre en az 1 büyük harf içermelidir")
+    if not re.search(r"[a-z]", password):
+        raise ValueError("Şifre en az 1 küçük harf içermelidir")
+    if not re.search(r"[^a-zA-Z0-9]", password):
+        raise ValueError("Şifre en az 1 özel karakter içermelidir")
+    for i in range(len(password) - 3):
+        seq = [ord(password[i + j]) for j in range(4)]
+        if all(48 <= c <= 57 for c in seq):
+            if seq[1] == seq[0] + 1 and seq[2] == seq[1] + 1 and seq[3] == seq[2] + 1:
+                raise ValueError("Şifre 4 veya daha fazla ardışık artan rakam içeremez")
+            if seq[1] == seq[0] - 1 and seq[2] == seq[1] - 1 and seq[3] == seq[2] - 1:
+                raise ValueError("Şifre 4 veya daha fazla ardışık azalan rakam içeremez")
+
+
 class ChangePasswordRequest(BaseModel):
-    password: str = Field(..., min_length=6)
-    password_confirm: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8)
+    password_confirm: str = Field(..., min_length=8)
 
     @model_validator(mode="after")
     def validate_passwords(self):
+        _validate_password_strength(self.password)
         if self.password != self.password_confirm:
             raise ValueError("Şifreler eşleşmiyor")
         return self
