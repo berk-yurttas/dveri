@@ -12,7 +12,7 @@ from app.core.database import get_postgres_db, get_romiot_db
 from app.models.postgres_models import User as PostgresUser
 from app.models.romiot_models import CompanyIntegration, PriorityToken, QRCodeData, Station, WorkOrder
 from app.schemas.user import User
-from app.services.mekasan_service import send_production_order
+from app.services.toy_api_service import send_production_order
 from app.services.user_service import UserService
 from app.schemas.work_order import (
     WorkOrder as WorkOrderSchema,
