@@ -137,22 +137,27 @@ export function useOrderFiles() {
         const knownStations = allStationNames?.map((s) => s.trim()) ?? [];
 
         for await (const [name, entry] of orderDirWithEntries.entries()) {
-          if (entry.kind !== "directory") continue;
-          const subDir = entry as FileSystemDirectoryHandle;
-          if (knownStations.length > 0) {
-            const isAtolyeFolder = knownStations.includes(name);
-            if (isAtolyeFolder) {
-              // Only include if it matches the current station
-              if (currentStation && name === currentStation) {
+          if (entry.kind === "file") {
+            // Files directly in the order folder — always include
+            const file = await (entry as FileSystemFileHandle).getFile();
+            files.push({ name: file.name, file });
+          } else if (entry.kind === "directory") {
+            const subDir = entry as FileSystemDirectoryHandle;
+            if (knownStations.length > 0) {
+              const isAtolyeFolder = knownStations.includes(name);
+              if (isAtolyeFolder) {
+                // Only include if it matches the current station
+                if (currentStation && name === currentStation) {
+                  files.push(...(await readFilesFromDir(subDir)));
+                }
+              } else {
+                // Generic folder (not any known atolye) — always include
                 files.push(...(await readFilesFromDir(subDir)));
               }
             } else {
-              // Generic folder — always include
+              // No station context — include everything
               files.push(...(await readFilesFromDir(subDir)));
             }
-          } else {
-            // No station context — include everything
-            files.push(...(await readFilesFromDir(subDir)));
           }
         }
         return files;
