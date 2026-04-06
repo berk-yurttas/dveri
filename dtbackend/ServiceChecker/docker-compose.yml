@@ -1,6 +1,8 @@
 services:
   db:
     image: postgres:16-alpine
+    ports:
+      - "5450:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -16,14 +18,24 @@ services:
 
   web:
     build: .
+    network_mode: "bridge"
     ports:
       - "${PORT:-5031}:5000"
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/servicechecker
+      # Use public IP or localhost for database connection since we're on host network
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@18.210.5.151:5450/servicechecker}
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       FLASK_DEBUG: "0"
       CHECK_INTERVAL_MINUTES: ${CHECK_INTERVAL_MINUTES:-5}
       REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-10}
+      HTTP_PROXY: ${HTTP_PROXY:-http://18.210.5.151:5031}
+      HTTPS_PROXY: ${HTTPS_PROXY:-http://18.210.5.151:5031}
+      NO_PROXY: "localhost,127.0.0.1,db"
     depends_on:
       db:
         condition: service_healthy
