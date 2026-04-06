@@ -81,12 +81,20 @@ def check_all_endpoints() -> int:
     start_time = time.perf_counter()
     current_app.logger.info(f"Starting health checks for {len(endpoints)} endpoints...")
     
+    # Get the Flask app context to pass to threads
+    app = current_app._get_current_object()
+    
+    def check_endpoint_with_context(endpoint):
+        """Wrapper to run check_endpoint with Flask app context."""
+        with app.app_context():
+            check_endpoint(endpoint, timeout)
+    
     # Use ThreadPoolExecutor for concurrent checks (max 10 threads to avoid overwhelming)
     max_workers = min(10, len(endpoints))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all check tasks
         future_to_endpoint = {
-            executor.submit(check_endpoint, ep, timeout): ep 
+            executor.submit(check_endpoint_with_context, ep): ep 
             for ep in endpoints
         }
         
