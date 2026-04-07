@@ -1,9 +1,10 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
 from typing import List
 import pandas as pd
 import io
 from app.core.database import get_aflow_connection
-import pyodbc
+from app.core.auth import check_authenticated
+from app.schemas.user import User
 
 router = APIRouter()
 
@@ -225,7 +226,8 @@ async def get_personel_data():
 
 @router.post("/upload-tezgah-excel")
 async def upload_tezgah_excel(
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    current_user: User = Depends(check_authenticated)
 ):
     """Upload Excel file with machine (tezgah) data"""
     
@@ -233,9 +235,20 @@ async def upload_tezgah_excel(
         raise HTTPException(status_code=400, detail="File must be an Excel file (.xlsx or .xls)")
     
     try:
+        # Get user's department as default firma
+        user_firma = (current_user.department or "").strip()
+        if not user_firma:
+            raise HTTPException(status_code=400, detail="User department not found. Cannot determine firma.")
+        
+        print(f"User firma from department: {user_firma}")
+        
         # Read Excel file
         contents = await file.read()
         df = pd.read_excel(io.BytesIO(contents))
+        
+        # Check if 'Firma' column exists in Excel
+        has_firma_column = 'Firma' in df.columns
+        print(f"Excel has 'Firma' column: {has_firma_column}")
         
         # Debug: Print column names and first few rows
         print("\n" + "="*80)
@@ -249,48 +262,45 @@ async def upload_tezgah_excel(
         # Parse data
         records = []
         
-        # Column mapping
-        column_map = {
-            'Firma': 'Firma',
-            'Tezgah No': 'TezgahNo',
-            'Mes Entegrasyonu Var Mı ?': 'MesEntegrasyon',
-            'Makine Adı': 'MakineAdi',
-            'Tip': 'Tip',
-            'Model Yılı': 'ModelYili',
-            'Marka': 'Marka',
-            'Seri No': 'SeriNo',
-            'Aselsan Bölüm': 'AselsanBolum',
-            'Proje': 'Proje',
-            'Ölçüler': 'Olculer',
-            'Eksen Sayısı': 'EksenSayisi',
-            'Max Devir': 'MaxDevir'
-        }
+        # Column mapping - updated to match new Excel template
+        # Expected columns: Firma (optional), Tezgah No, Tezgah Adı, Tip, Model Yılı, Marka, Ölçüler, 
+        #                   Eksen Sayısı, Max Devir, Seri No, Aselsan Bölüm, Proje, 
+        #                   ASELSAN'a Çalışan Tezgah
+        # If 'Firma' column doesn't exist, use user's department
         
         # Iterate through rows
         for idx, row in df.iterrows():
             try:
-                # Skip empty rows
-                if pd.isna(row['Firma']) or str(row['Firma']).strip() == '':
+                # Determine firma value
+                if has_firma_column:
+                    # If Firma column exists, use it (or user's firma if empty)
+                    firma_value = str(row['Firma']).strip() if pd.notna(row['Firma']) and str(row['Firma']).strip() != '' else user_firma
+                else:
+                    # If Firma column doesn't exist, use user's firma
+                    firma_value = user_firma
+                
+                # Skip rows where all key fields are empty (except Firma)
+                if pd.isna(row['Tezgah No']) or str(row['Tezgah No']).strip() == '':
                     continue
                 
                 record = {
-                    'Firma': str(row['Firma']).strip() if pd.notna(row['Firma']) else None,
+                    'Firma': firma_value,
                     'TezgahNo': str(row['Tezgah No']).strip() if pd.notna(row['Tezgah No']) else None,
-                    'MesEntegrasyon': str(row['Mes Entegrasyonu Var Mı ?']).strip() if pd.notna(row['Mes Entegrasyonu Var Mı ?']) else None,
-                    'MakineAdi': str(row['Makine Adı']).strip() if pd.notna(row['Makine Adı']) else None,
+                    'TezgahAdi': str(row['Tezgah Adı']).strip() if pd.notna(row['Tezgah Adı']) else None,
                     'Tip': str(row['Tip']).strip() if pd.notna(row['Tip']) else None,
                     'ModelYili': int(row['Model Yılı']) if pd.notna(row['Model Yılı']) else None,
                     'Marka': str(row['Marka']).strip() if pd.notna(row['Marka']) else None,
+                    'Olculer': str(row['Ölçüler']).strip() if pd.notna(row['Ölçüler']) else None,
+                    'EksenSayisi': int(row['Eksen Sayısı']) if pd.notna(row['Eksen Sayısı']) else None,
+                    'MaxDevir': int(row['Max Devir']) if pd.notna(row['Max Devir']) else 0,
                     'SeriNo': str(row['Seri No']).strip() if pd.notna(row['Seri No']) else None,
                     'AselsanBolum': str(row['Aselsan Bölüm']).strip() if pd.notna(row['Aselsan Bölüm']) else None,
                     'Proje': str(row['Proje']).strip() if pd.notna(row['Proje']) else None,
-                    'Olculer': str(row['Ölçüler']).strip() if pd.notna(row['Ölçüler']) else None,
-                    'EksenSayisi': int(row['Eksen Sayısı']) if pd.notna(row['Eksen Sayısı']) else None,
-                    'MaxDevir': int(row['Max Devir']) if pd.notna(row['Max Devir']) else 0
+                    'AselsanaCalisanTezgah': str(row['ASELSAN\'a Çalışan Tezgah']).strip() if pd.notna(row['ASELSAN\'a Çalışan Tezgah']) else None
                 }
                 
                 records.append(record)
-                print(f"Row {idx}: {record['Firma']} - {record['TezgahNo']} - {record['MakineAdi']}")
+                print(f"Row {idx}: {record['Firma']} - {record['TezgahNo']} - {record['TezgahAdi']}")
                 
             except Exception as e:
                 print(f"Error parsing row {idx}: {str(e)}")
@@ -306,15 +316,11 @@ async def upload_tezgah_excel(
         cursor = conn.cursor()
         
         try:
-            # Delete all existing records
-            cursor.execute("DELETE FROM dbo.Mes_Machines_Manual_Data_out")
-            print("Deleted existing records")
-            
-            # Insert new records
+            # Insert new records (without deleting existing ones)
             insert_query = """
                 INSERT INTO dbo.Mes_Machines_Manual_Data_out 
-                (Firma, TezgahNo, MakineAdi, Tip, ModelYili, Marka, SeriNo, 
-                 AselsanBolum, Proje, Olculer, EksenSayisi, MaxDevir, MesEntegrasyon)
+                (Firma, TezgahNo, TezgahAdi, Tip, ModelYili, Marka, Olculer, 
+                 EksenSayisi, MaxDevir, SeriNo, AselsanBolum, Proje, AselsanaCalisanTezgah)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             
@@ -323,17 +329,17 @@ async def upload_tezgah_excel(
                     insert_query,
                     record['Firma'],
                     record['TezgahNo'],
-                    record['MakineAdi'],
+                    record['TezgahAdi'],
                     record['Tip'],
                     record['ModelYili'],
                     record['Marka'],
-                    record['SeriNo'],
-                    record['AselsanBolum'],
-                    record['Proje'],
                     record['Olculer'],
                     record['EksenSayisi'],
                     record['MaxDevir'],
-                    record['MesEntegrasyon']
+                    record['SeriNo'],
+                    record['AselsanBolum'],
+                    record['Proje'],
+                    record['AselsanaCalisanTezgah']
                 )
             
             conn.commit()
