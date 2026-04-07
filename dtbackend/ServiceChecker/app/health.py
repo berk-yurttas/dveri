@@ -40,6 +40,20 @@ def check_endpoint(endpoint: ApiEndpoint, timeout_seconds: int) -> None:
         )
         status_code = resp.status_code
         ok = _is_success_status(status_code)
+        
+        # Optionally check JSON response body for {"health": 1} or {"health": 0}
+        # If JSON with "health" field exists, use it; otherwise fall back to status code
+        try:
+            json_data = resp.json()
+            if isinstance(json_data, dict) and "health" in json_data:
+                health_value = json_data.get("health")
+                ok = bool(health_value == 1)
+                current_app.logger.debug(
+                    f"Health check for {endpoint.name}: health={health_value}, ok={ok}"
+                )
+        except (ValueError, TypeError, AttributeError):
+            pass
+        
     except RequestException as e:
         error_msg = str(e)
         # Provide helpful hint for localhost connection issues

@@ -118,7 +118,7 @@ export const announcementService = {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await fetch(`${API_BASE_URL}/announcements/upload-image/`, {
+    const response = await fetch(`${API_BASE_URL}/announcements/upload-image`, {
       method: 'POST',
       credentials: 'include',
       body: formData,
@@ -131,6 +131,25 @@ export const announcementService = {
     
     const data = await response.json();
     return data.url; // PocketBase URL'i döner
+  },
+
+  async uploadFile(file: File): Promise<string> {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch(`${API_BASE_URL}/announcements/upload-image`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`File upload failed: ${error}`);
+    }
+    
+    const data = await response.json();
+    return data.url;
   },
 };
 
