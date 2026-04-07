@@ -218,7 +218,7 @@ async def upload_announcement_image(
                 data = upload_response.json()
 
                 # Construct file URL: /api/files/{collectionName}/{recordId}/{filename}
-                file_url = f"{settings.POCKETBASE_URL}/api/files/files/{data['id']}/{data['document']}"
+                file_url = f"{settings.POCKETBASE_SAVE_URL}/api/files/files/{data['id']}/{data['document']}"
 
                 return {
                     "url": file_url,
