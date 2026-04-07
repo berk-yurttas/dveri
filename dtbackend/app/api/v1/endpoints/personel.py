@@ -329,8 +329,8 @@ async def upload_tezgah_excel(
                     'MaxDevir': int(row['Max Devir']) if pd.notna(row['Max Devir']) else 0,
                     'SeriNo': str(row['Seri No']).strip() if pd.notna(row['Seri No']) else None,
                     'AselsanBolum': str(row['Aselsan Bölüm']).strip() if pd.notna(row['Aselsan Bölüm']) else None,
-                    'Proje': str(row['Proje']).strip() if pd.notna(row['Proje']) else None,
-                    'AselsanaCalisanTezgah': str(row['ASELSAN\'a Çalışan Tezgah']).strip() if pd.notna(row['ASELSAN\'a Çalışan Tezgah']) else None
+                    'Proje': str(row['Proje']).strip() if 'Proje' in df.columns and pd.notna(row.get('Proje')) else None,
+                    'AselsanaCalisanTezgah': str(row['ASELSAN\'a Çalışan Tezgah']).strip() if 'ASELSAN\'a Çalışan Tezgah' in df.columns and pd.notna(row.get('ASELSAN\'a Çalışan Tezgah')) else None
                 }
                 
                 records.append(record)
