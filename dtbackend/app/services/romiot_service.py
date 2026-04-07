@@ -102,7 +102,7 @@ class RomiotService:
                         COUNT(*) AS "Test Adedi"
                     FROM
                         f16.f16_calisma_durumu
-                    WHERE tarih >= '{start_str}' AND tarih <= '{end_str}'
+                    WHERE giristarihi >= '{start_str}' AND cikistarihi <= '{end_str}'
                 )
             ) AS combined_stats
             """

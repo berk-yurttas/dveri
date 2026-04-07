@@ -1,10 +1,8 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from typing import List
 import pandas as pd
 import io
 from app.core.database import get_aflow_connection
-from app.core.auth import check_authenticated
-from app.schemas.user import User
 
 router = APIRouter()
 
@@ -227,20 +225,20 @@ async def get_personel_data():
 @router.post("/upload-tezgah-excel")
 async def upload_tezgah_excel(
     file: UploadFile = File(...),
-    current_user: User = Depends(check_authenticated)
+    firma: str = Form(None)
 ):
-    """Upload Excel file with machine (tezgah) data"""
+    """Upload Excel file with machine (tezgah) data
+    
+    Args:
+        file: Excel file to upload
+        firma: Optional firma name. If provided, used as default when Excel doesn't have Firma column.
+               If not provided, Firma column in Excel is required.
+    """
     
     if not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(status_code=400, detail="File must be an Excel file (.xlsx or .xls)")
     
     try:
-        # Get user's department as default firma
-        user_firma = (current_user.department or "").strip()
-        if not user_firma:
-            raise HTTPException(status_code=400, detail="User department not found. Cannot determine firma.")
-        
-        print(f"User firma from department: {user_firma}")
         
         # Read Excel file
         contents = await file.read()
@@ -249,6 +247,15 @@ async def upload_tezgah_excel(
         # Check if 'Firma' column exists in Excel
         has_firma_column = 'Firma' in df.columns
         print(f"Excel has 'Firma' column: {has_firma_column}")
+        
+        # Validate that we have a way to determine firma
+        if not has_firma_column and not firma:
+            raise HTTPException(
+                status_code=400, 
+                detail="Excel file must have 'Firma' column, or firma parameter must be provided"
+            )
+        
+        print(f"Firma parameter: {firma}")
         
         # Debug: Print column names and first few rows
         print("\n" + "="*80)
@@ -273,11 +280,18 @@ async def upload_tezgah_excel(
             try:
                 # Determine firma value
                 if has_firma_column:
-                    # If Firma column exists, use it (or user's firma if empty)
-                    firma_value = str(row['Firma']).strip() if pd.notna(row['Firma']) and str(row['Firma']).strip() != '' else user_firma
+                    # If Firma column exists, use it (or firma parameter if empty)
+                    firma_value = str(row['Firma']).strip() if pd.notna(row['Firma']) and str(row['Firma']).strip() != '' else (firma or '')
                 else:
-                    # If Firma column doesn't exist, use user's firma
-                    firma_value = user_firma
+                    # If Firma column doesn't exist, use firma parameter
+                    firma_value = firma or ''
+                
+                # Validate firma_value is not empty
+                if not firma_value:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Row {idx + 1}: Firma value is required but not found"
+                    )
                 
                 # Skip rows where Tezgah No is empty
                 if pd.isna(row['Tezgah No']) or str(row['Tezgah No']).strip() == '':

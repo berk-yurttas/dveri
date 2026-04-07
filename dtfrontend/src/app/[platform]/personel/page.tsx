@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Upload, Download, AlertCircle, CheckCircle2, Loader2, Users, FileSpreadsheet, Wrench, TrendingUp } from "lucide-react"
 import { useParams } from "next/navigation"
+import { useUser } from "@/contexts/user-context"
 
 type TabType = 'kablaj' | 'talasli' | 'tezgah'
 type FirmaTipi = 'kablaj' | 'talasli'
@@ -10,6 +11,7 @@ type FirmaTipi = 'kablaj' | 'talasli'
 export default function PersonelPage() {
   const params = useParams()
   const platformCode = params?.platform as string
+  const { user } = useUser()
 
   const [activeTab, setActiveTab] = useState<TabType>('kablaj')
   const [uploading, setUploading] = useState(false)
@@ -122,6 +124,11 @@ export default function PersonelPage() {
       const token = localStorage.getItem('access_token')
       const formData = new FormData()
       formData.append('file', selectedFile)
+      
+      // Add user's department as firma parameter if available
+      if (user?.department) {
+        formData.append('firma', user.department)
+      }
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/personel/upload-tezgah-excel`, {
         method: 'POST',
