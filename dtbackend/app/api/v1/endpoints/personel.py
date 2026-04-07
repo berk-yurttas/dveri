@@ -279,19 +279,39 @@ async def upload_tezgah_excel(
                     # If Firma column doesn't exist, use user's firma
                     firma_value = user_firma
                 
-                # Skip rows where all key fields are empty (except Firma)
+                # Skip rows where Tezgah No is empty
                 if pd.isna(row['Tezgah No']) or str(row['Tezgah No']).strip() == '':
                     continue
+                
+                # Validate required fields: Tezgah Adı, Tip, Model Yılı, Marka, Ölçüler, Eksen Sayısı
+                required_fields = {
+                    'Tezgah Adı': row['Tezgah Adı'],
+                    'Tip': row['Tip'],
+                    'Model Yılı': row['Model Yılı'],
+                    'Marka': row['Marka'],
+                    'Ölçüler': row['Ölçüler'],
+                    'Eksen Sayısı': row['Eksen Sayısı']
+                }
+                
+                missing_fields = []
+                for field_name, field_value in required_fields.items():
+                    if pd.isna(field_value) or (isinstance(field_value, str) and field_value.strip() == ''):
+                        missing_fields.append(field_name)
+                
+                if missing_fields:
+                    error_msg = f"Satır {idx + 1}: Gerekli alanlar eksik: {', '.join(missing_fields)}"
+                    print(f"Error: {error_msg}")
+                    raise HTTPException(status_code=400, detail=error_msg)
                 
                 record = {
                     'Firma': firma_value,
                     'TezgahNo': str(row['Tezgah No']).strip() if pd.notna(row['Tezgah No']) else None,
-                    'TezgahAdi': str(row['Tezgah Adı']).strip() if pd.notna(row['Tezgah Adı']) else None,
-                    'Tip': str(row['Tip']).strip() if pd.notna(row['Tip']) else None,
-                    'ModelYili': int(row['Model Yılı']) if pd.notna(row['Model Yılı']) else None,
-                    'Marka': str(row['Marka']).strip() if pd.notna(row['Marka']) else None,
-                    'Olculer': str(row['Ölçüler']).strip() if pd.notna(row['Ölçüler']) else None,
-                    'EksenSayisi': int(row['Eksen Sayısı']) if pd.notna(row['Eksen Sayısı']) else None,
+                    'TezgahAdi': str(row['Tezgah Adı']).strip(),
+                    'Tip': str(row['Tip']).strip(),
+                    'ModelYili': int(row['Model Yılı']),
+                    'Marka': str(row['Marka']).strip(),
+                    'Olculer': str(row['Ölçüler']).strip(),
+                    'EksenSayisi': int(row['Eksen Sayısı']),
                     'MaxDevir': int(row['Max Devir']) if pd.notna(row['Max Devir']) else 0,
                     'SeriNo': str(row['Seri No']).strip() if pd.notna(row['Seri No']) else None,
                     'AselsanBolum': str(row['Aselsan Bölüm']).strip() if pd.notna(row['Aselsan Bölüm']) else None,
@@ -302,6 +322,8 @@ async def upload_tezgah_excel(
                 records.append(record)
                 print(f"Row {idx}: {record['Firma']} - {record['TezgahNo']} - {record['TezgahAdi']}")
                 
+            except HTTPException:
+                raise
             except Exception as e:
                 print(f"Error parsing row {idx}: {str(e)}")
                 continue
