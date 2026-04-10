@@ -212,6 +212,43 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         return field ? extractValue(field.value) : ''
     }
 
+    // Get Görev list based on Feragat Türü
+    const getGorevList = (): string[] => {
+        const feragatTuru = getFieldValue('Feragat Türü')
+
+        if (feragatTuru === 'Radar') {
+            return [
+                "Radar Program Dir.",
+                "Radar Sistem Müh. Dir.",
+                "Radom Düşük Gör. ve İleri Malz. Tsr. Dir.",
+                "Yazılım Mühendisliği Dir.",
+                "Mekanik Sis. Ve Platform Ent. Tsr. Dir.",
+                "Süreç Tasarım ve Ürün Yön. Dir.",
+                "Test ve Doğrulama Dir.",
+                "Üretim Dir.",
+                "Entegre Lojistik Destek Dir.",
+                "Kalite Yönetim Dir."
+            ]
+        } else if (feragatTuru === 'Elektronik Harp') {
+            return [
+                "Elektronik Harp Prog. Dir",
+                "Hab. EH ve Kendini Kor. Sis. Müh. Dir.",
+                "Radar Elektronik Harp Sis. Müh. Dir.",
+                "Donanım Tasarım Dir.",
+                "Radom Düşük Gör. ve İleri Malz. Tsr. Dir.",
+                "Yazılım Mühendisliği Dir.",
+                "Mekanik Sis. Ve Platform Ent. Tsr. Dir.",
+                "Süreç Tasarım ve Ürün Yön. Dir.",
+                "Test ve Doğrulama Dir.",
+                "Üretim Dir.",
+                "Entegre Lojistik Destek Dir.",
+                "Kalite Yönetim Dir."
+            ]
+        }
+        
+        return []
+    }
+
     // Loading state
     if (loading) {
         return (
@@ -358,7 +395,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                     </div>
 
                     {/* B. TALEP EDİLEN FERAGAT Section */}
-                    <div>
+                    <div className="mb-6">
                         <div className="bg-blue-700 text-white font-bold text-center py-2 mb-4">
                             B. TALEP EDİLEN FERAGAT
                         </div>
@@ -370,6 +407,38 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                             </div>
                         </div>
                     </div>
+
+                    {/* F. KONTROL Section */}
+                    {getGorevList().length > 0 && (
+                        <div className="mb-6">
+                            <div className="bg-blue-700 text-white font-bold text-center py-2 mb-4">
+                                F. KONTROL
+                            </div>
+                            
+                            <div className="border-2 border-blue-300 rounded-lg overflow-hidden">
+                                <table className="w-full text-xs">
+                                    <thead>
+                                        <tr className="bg-blue-100 border-b-2 border-blue-300">
+                                            <th className="text-center py-2 px-3 font-bold text-blue-900 border-r border-blue-300">Görev</th>
+                                            <th className="text-center py-2 px-3 font-bold text-blue-900 border-r border-blue-300">Ad Soyad</th>
+                                            <th className="text-center py-2 px-3 font-bold text-blue-900 border-r border-blue-300">İmza</th>
+                                            <th className="text-center py-2 px-3 font-bold text-blue-900">Tarih</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {getGorevList().map((gorev, idx) => (
+                                            <tr key={idx} className="border-b border-blue-200 hover:bg-blue-50">
+                                                <td className="py-3 px-3 text-gray-800 font-medium border-r border-blue-200">{gorev}</td>
+                                                <td className="py-3 px-3 text-gray-700 border-r border-blue-200">&nbsp;</td>
+                                                <td className="py-3 px-3 text-gray-700 border-r border-blue-200">&nbsp;</td>
+                                                <td className="py-3 px-3 text-gray-700">&nbsp;</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Data Table */}
                     <div className="mt-6 border-2 border-gray-200 rounded-lg overflow-hidden">

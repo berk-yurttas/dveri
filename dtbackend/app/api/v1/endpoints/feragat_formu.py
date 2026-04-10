@@ -5,7 +5,9 @@ Generates PDF matching the Excel form layout exactly
 import io
 import json
 from typing import Any
+from datetime import datetime
 
+import httpx
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -25,6 +27,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
 from app.core.auth import check_authenticated
+from app.core.config import settings
 from app.schemas.user import User
 
 router = APIRouter()
@@ -68,6 +71,126 @@ def get_seyir_connection():
     return psycopg2.connect(**SEYIR_DB_CONFIG)
 
 
+async def get_pocketbase_user(username: str) -> dict:
+    """Get user information from PocketBase by username"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Authenticate as admin
+            if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:
+                auth_response = await client.post(
+                    f"{settings.POCKETBASE_URL}/api/collections/_superusers/auth-with-password",
+                    json={
+                        "identity": settings.POCKETBASE_ADMIN_EMAIL,
+                        "password": settings.POCKETBASE_ADMIN_PASSWORD
+                    }
+                )
+                if auth_response.status_code != 200:
+                    return {"name": username, "surname": ""}
+                
+                auth_token = auth_response.json().get("token", "")
+                
+                # Get user by username
+                user_response = await client.get(
+                    f"{settings.POCKETBASE_URL}/api/collections/users/records",
+                    params={"filter": f'username="{username}"'},
+                    headers={"Authorization": f"Bearer {auth_token}"}
+                )
+                
+                if user_response.status_code == 200:
+                    users = user_response.json().get("items", [])
+                    if users:
+                        user = users[0]
+                        return {
+                            "name": user.get("name", ""),
+                            "surname": user.get("surname", "")
+                        }
+        
+        return {"name": username, "surname": ""}
+    except Exception as e:
+        print(f"Error fetching PocketBase user {username}: {e}")
+        return {"name": username, "surname": ""}
+
+
+def get_step_definitions_data(job_instance_id: str) -> dict:
+    """Get step definitions data for sections E, F, G"""
+    try:
+        print(f"[get_step_definitions_data] Starting with job_instance_id: {job_instance_id}")
+        print(f"[get_step_definitions_data] job_instance_id type: {type(job_instance_id)}")
+        
+        conn = get_seyir_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Query using job_step_instances table
+            # Note: Using named parameters to avoid tuple index issues
+            query = """
+                SELECT 
+                    sd.name,
+                    si.assignee,
+                    si.completed_at
+                FROM 
+                    job_step_instances si
+                LEFT JOIN step_definitions sd ON si.step_definition_id = sd.id
+                WHERE si.job_instance_id = %(job_id)s
+                AND sd.name LIKE '%%Onayı'
+                AND si.status = 'done'
+                ORDER BY sd.id
+            """
+            
+            print(f"[get_step_definitions_data] About to execute query")
+            print(f"[get_step_definitions_data] Query params: {{'job_id': '{job_instance_id}'}}")
+            
+            # Execute the query with named parameters
+            cursor.execute(query, {'job_id': job_instance_id})
+            
+            print(f"[get_step_definitions_data] Query executed successfully")
+            rows = cursor.fetchall()
+            print(f"[get_step_definitions_data] Found {len(rows)} rows")
+            
+            # Build a dictionary keyed by the Görev name (without " Onayı")
+            step_data = {}
+            for idx, row in enumerate(rows):
+                try:
+                    print(f"[get_step_definitions_data] Processing row {idx}: {row}")
+                    
+                    # Check if row has enough columns
+                    if len(row) < 3:
+                        print(f"[get_step_definitions_data] Row {idx} has insufficient columns: {len(row)}")
+                        continue
+                    
+                    name = row[0] if row[0] else ""
+                    assignee = row[1] if row[1] else ""
+                    completed_at = row[2] if len(row) > 2 else None
+                    
+                    # Remove " Onayı" from the name to get the Görev
+                    gorev = name.replace(" Onayı", "").strip()
+                    
+                    if gorev:  # Only add if we have a valid gorev name
+                        step_data[gorev] = {
+                            "assignee": assignee,
+                            "completed_at": completed_at
+                        }
+                        print(f"[get_step_definitions_data] Added: {gorev} -> {assignee}")
+                except Exception as row_error:
+                    import traceback
+                    traceback.print_exc()
+                    print(f"[get_step_definitions_data] Error processing row {idx}: {row_error}")
+                    continue
+            
+            print(f"[get_step_definitions_data] Returning {len(step_data)} step definitions")
+            return step_data
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        print(f"[get_step_definitions_data] Error getting step definitions data: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
+
 def extract_value(jsonb_value: Any) -> str:
     """Extract string value from JSONB field"""
     if not jsonb_value:
@@ -94,7 +217,7 @@ def extract_value(jsonb_value: Any) -> str:
     return str(jsonb_value)
 
 
-def create_feragat_pdf(job_instance_id: str) -> bytes:
+async def create_feragat_pdf(job_instance_id: str) -> bytes:
     """Generate PDF for Uyarlama Feragat Formu matching Excel screenshot"""
     
     # Query data from database
@@ -131,12 +254,29 @@ def create_feragat_pdf(job_instance_id: str) -> bytes:
         cursor.close()
         conn.close()
     
-    # Helper to get field value
+    # Get step definitions data for E, F, G sections
+    step_data = get_step_definitions_data(job_instance_id)
+    
+    # Fetch user names from PocketBase for each assignee
+    user_cache = {}
+    for gorev, info in step_data.items():
+        assignee = info["assignee"]
+        if assignee and assignee not in user_cache:
+            user_info = await get_pocketbase_user(assignee)
+            user_cache[assignee] = user_info
+    
+    # Helper to get field value by name
     def get_field(key_part: str) -> str:
         for key, value in form_data.items():
             if key_part.lower() in key.lower():
                 return value
         return ''
+    
+    # Helper to get signature value for a Görev
+    def get_signature(gorev: str) -> str:
+        # Look for attribute with name like "Görev Onayı"
+        signature_key = f"{gorev} Onayı"
+        return form_data.get(signature_key, "")
     
     # Create PDF with portrait orientation (A4)
     buffer = io.BytesIO()
@@ -255,6 +395,10 @@ def create_feragat_pdf(job_instance_id: str) -> bytes:
     ]))
     elements.append(header_table)
     
+    # Get Feragat Türü to determine layout
+    feragat_turu = form_data.get("Feragat Türü", "")
+    print(f"[create_feragat_pdf] Feragat Türü: {feragat_turu}")
+    
     # Section A header - NO SPACER, directly attached
     section_a = Table([[Paragraph('<b>A. GENEL BİLGİLER</b>', 
                                   ParagraphStyle('SecA', fontSize=10, alignment=1, textColor=colors.white, fontName=FONT_NAME_BOLD))]], 
@@ -267,147 +411,311 @@ def create_feragat_pdf(job_instance_id: str) -> bytes:
     ]))
     elements.append(section_a)
     
-    # Row 1: Split into 2 sub-rows - labels and values
-    row1_data = [
-        # Sub-row 1: Labels (blue background)
-        [
-            Paragraph('<b>1. Proje No</b>', 
-                      ParagraphStyle('L1', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            '',  # Column 1 (part of Proje No span)
-            Paragraph('<b>2. Proje Tanımı</b>', 
-                      ParagraphStyle('L2', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            '',  # Column 3 (part of Proje Tanımı span)
-            Paragraph('<b>3. Müşteri</b>', 
-                      ParagraphStyle('L3', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            '',  # Column 5 (part of Müşteri span)
-            Paragraph('<b>4. Proje Tipi</b>', 
-                      ParagraphStyle('L4', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            '',  # Column 7 (part of Proje Tipi span)
-        ],
-        # Sub-row 2: Values from database (white background)
-        [
-            Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje No (Proje dörtlü kodu ve U-P" + chr(39) + "li kodu)", "")}</font>', 
-                      ParagraphStyle('V1', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-            '',  # Column 1 (part of value span)
-            Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tanımı ( Proje Adı )", "")}</font>', 
-                      ParagraphStyle('V2', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-            '',  # Column 3 (part of value span)
-            Paragraph(f'<font size=8 color="#374151">{form_data.get("Müşteri (Proje Ana Sözleşmesi" + chr(39) + "nin imza makamı)", "")}</font>', 
-                      ParagraphStyle('V3', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-            '',  # Column 5 (part of value span)
-            Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tipi", "")}</font>', 
-                      ParagraphStyle('V4', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-            '',  # Column 7 (part of value span)
+    # Section A content differs based on Feragat Türü
+    if feragat_turu == "Alt Yüklenici":
+        # Alt Yüklenici layout
+        # Row 1: 3 fields spanning full width
+        row1_alt_data = [
+            # Sub-row 1: Labels
+            [
+                Paragraph('<b>1. Firma Adı/Satıcı no</b>', 
+                          ParagraphStyle('AL1', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',
+                '',
+                Paragraph('<b>2. Firmaya Daha Önceden Gerçekleştirilen Tetkik</b>', 
+                          ParagraphStyle('AL2', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',
+                Paragraph('<b>3. Firmaya Ait Önceden Alınan Feragatlar</b>', 
+                          ParagraphStyle('AL3', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',
+                ''
+            ],
+            # Sub-row 2: Values
+            [
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Firma Adı/Satıcı no", "")}</font>', 
+                          ParagraphStyle('AV1', fontSize=8, fontName=FONT_NAME)),
+                '',
+                '',
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Firmaya Daha Önceden Gerçekleştirilen Tetkik", "")}</font>', 
+                          ParagraphStyle('AV2', fontSize=8, fontName=FONT_NAME)),
+                '',
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Firmaya Ait Önceden Alınan Feragatlar", "")}</font>', 
+                          ParagraphStyle('AV3', fontSize=8, fontName=FONT_NAME)),
+                '',
+                ''
+            ]
         ]
-    ]
-    
-    row1_table = Table(row1_data, colWidths=[col_width]*8)
-    row1_table.setStyle(TableStyle([
-        # Spans for both rows
-        # Row 0 (labels):
-        ('SPAN', (0, 0), (1, 0)),  # Proje No
-        ('SPAN', (2, 0), (3, 0)),  # Proje Tanımı
-        ('SPAN', (4, 0), (5, 0)),  # Müşteri
-        ('SPAN', (6, 0), (7, 0)),  # Proje Tipi
         
-        # Row 1 (values):
-        ('SPAN', (0, 1), (1, 1)),  # Proje No value
-        ('SPAN', (2, 1), (3, 1)),  # Proje Tanımı value
-        ('SPAN', (4, 1), (5, 1)),  # Müşteri value
-        ('SPAN', (6, 1), (7, 1)),  # Proje Tipi value
+        row1_alt_table = Table(row1_alt_data, colWidths=[col_width]*8)
+        row1_alt_table.setStyle(TableStyle([
+            ('SPAN', (0, 0), (2, 0)),  # Firma Adı label
+            ('SPAN', (3, 0), (4, 0)),  # Tetkik label
+            ('SPAN', (5, 0), (7, 0)),  # Feragatlar label
+            ('SPAN', (0, 1), (2, 1)),  # Firma Adı value
+            ('SPAN', (3, 1), (4, 1)),  # Tetkik value
+            ('SPAN', (5, 1), (7, 1)),  # Feragatlar value
+            ('GRID', (0, 0), (-1, -1), 1, blue_border),
+            ('BACKGROUND', (0, 0), (-1, 0), blue_bg),
+            ('BACKGROUND', (0, 1), (-1, 1), colors.white),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(row1_alt_table)
         
-        # Borders
-        ('GRID', (0, 0), (-1, -1), 1, blue_border),
-        
-        # Background: Row 0 (labels) blue, Row 1 (values) white
-        ('BACKGROUND', (0, 0), (-1, 0), blue_bg),  # All labels blue
-        ('BACKGROUND', (0, 1), (-1, 1), colors.white),  # All values white
-        
-        # Alignment
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('LEFTPADDING', (0, 0), (-1, -1), 5),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-    ]))
-    elements.append(row1_table)
-    
-    # Row 2: 8 columns with different layout
-    # Columns 0-1: Proje Aşaması (2 cols)
-    # Columns 2-3: Proje Süresi (2 cols)
-    # Columns 4-5: İlgili Süreçler + Feragat Sorumlusu (under Müşteri, 2 cols total)
-    # Columns 6-7: Feragat Bildirim Numarası (under Proje Tipi, 2 cols)
-    
-    # Row 2: Split into 2 sub-rows to separate labels from values
-    # Sub-row 1: Labels with blue background
-    # Sub-row 2: Values with white background
-    row2_data = [
-        # Sub-row 1: Labels (blue background for attribute names)
-        [
-            Paragraph('<b>5. Proje Aşaması</b>', 
-                      ParagraphStyle('L5', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            '',  # Column 1 (part of Proje Aşaması span)
-            Paragraph('<b>6. Proje Süresi (ay)</b>', 
-                      ParagraphStyle('L6', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            '',  # Column 3 (part of Proje Süresi span)
-            Paragraph('<b>7. İlgili Süreçler</b>', 
-                      ParagraphStyle('L7', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            Paragraph('<b>8. Feragat Sorumlusu</b>', 
-                      ParagraphStyle('L8', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            Paragraph('<b>9. Feragat Bildirim Numarası</b>', 
-                      ParagraphStyle('L9', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            '',  # Column 7 (part of Feragat Bildirim span)
-        ],
-        # Sub-row 2: Values from database (white background)
-        [
-            Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Aşaması", "")}</font>', 
-                      ParagraphStyle('V5', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-            '',  # Column 1 (part of value span)
-            Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Süresi (ay)", "")}</font>', 
-                      ParagraphStyle('V6', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-            '',  # Column 3 (part of value span)
-            Paragraph(f'<font size=8 color="#374151">{form_data.get("İlgili Süreçler ( Hangi Süreçler Etkileniyor? )", "")}</font>', 
-                      ParagraphStyle('V7', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-            Paragraph(f'<font size=8 color="#374151">{form_data.get("Feragat Sorumlusu", "")}</font>', 
-                      ParagraphStyle('V8', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-            Paragraph(f'<font size=8 color="#374151">{form_data.get("Feragat Bildirim Numarası (Feragatin koordinasyonu için başlatılan bildirim numarası)", "")}</font>', 
-                      ParagraphStyle('V9', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-            '',  # Column 7 (part of value span)
+        # Row 2: Proje No, Proje Tanımı, Müşteri, Proje Tipi (same as Radar/EH)
+        row2_alt_data = [
+            [
+                Paragraph('<b>4. Proje No</b>', 
+                          ParagraphStyle('AL4', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',
+                Paragraph('<b>5. Proje Tanımı</b>', 
+                          ParagraphStyle('AL5', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',
+                Paragraph('<b>6. Müşteri</b>', 
+                          ParagraphStyle('AL6', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',
+                Paragraph('<b>7. Proje Tipi</b>', 
+                          ParagraphStyle('AL7', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                ''
+            ],
+            [
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje No", "")}</font>', 
+                          ParagraphStyle('AV4', fontSize=8, fontName=FONT_NAME)),
+                '',
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tanımı", "")}</font>', 
+                          ParagraphStyle('AV5', fontSize=8, fontName=FONT_NAME)),
+                '',
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Müşteri", "")}</font>', 
+                          ParagraphStyle('AV6', fontSize=8, fontName=FONT_NAME)),
+                '',
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tipi", "")}</font>', 
+                          ParagraphStyle('AV7', fontSize=8, fontName=FONT_NAME)),
+                ''
+            ]
         ]
-    ]
-    
-    row2_table = Table(row2_data, colWidths=[col_width]*8)
-    row2_table.setStyle(TableStyle([
-        # Spans for both rows
-        # Row 0 (labels):
-        ('SPAN', (0, 0), (1, 0)),  # Proje Aşaması - columns 0-1
-        ('SPAN', (2, 0), (3, 0)),  # Proje Süresi - columns 2-3
-        # İlgili Süreçler - column 4 (1 col)
-        # Feragat Sorumlusu - column 5 (1 col)
-        ('SPAN', (6, 0), (7, 0)),  # Feragat Bildirim - columns 6-7
         
-        # Row 1 (values):
-        ('SPAN', (0, 1), (1, 1)),  # Proje Aşaması value - columns 0-1
-        ('SPAN', (2, 1), (3, 1)),  # Proje Süresi value - columns 2-3
-        # İlgili Süreçler value - column 4 (1 col)
-        # Feragat Sorumlusu value - column 5 (1 col)
-        ('SPAN', (6, 1), (7, 1)),  # Feragat Bildirim value - columns 6-7
+        row2_alt_table = Table(row2_alt_data, colWidths=[col_width]*8)
+        row2_alt_table.setStyle(TableStyle([
+            ('SPAN', (0, 0), (1, 0)),  # Proje No label
+            ('SPAN', (2, 0), (3, 0)),  # Proje Tanımı label
+            ('SPAN', (4, 0), (5, 0)),  # Müşteri label
+            ('SPAN', (6, 0), (7, 0)),  # Proje Tipi label
+            ('SPAN', (0, 1), (1, 1)),  # Proje No value
+            ('SPAN', (2, 1), (3, 1)),  # Proje Tanımı value
+            ('SPAN', (4, 1), (5, 1)),  # Müşteri value
+            ('SPAN', (6, 1), (7, 1)),  # Proje Tipi value
+            ('GRID', (0, 0), (-1, -1), 1, blue_border),
+            ('BACKGROUND', (0, 0), (-1, 0), blue_bg),
+            ('BACKGROUND', (0, 1), (-1, 1), colors.white),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(row2_alt_table)
         
-        # Borders
-        ('GRID', (0, 0), (-1, -1), 1, blue_border),
+        # Row 3: 6 fields
+        row3_alt_data = [
+            [
+                Paragraph('<b>8. Malzeme No</b>', 
+                          ParagraphStyle('AL8', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                Paragraph('<b>9. Malzeme Tanımı</b>', 
+                          ParagraphStyle('AL9', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',
+                Paragraph('<b>10. Alım Türü</b>', 
+                          ParagraphStyle('AL10', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                Paragraph('<b>11. Alım Adedi</b>', 
+                          ParagraphStyle('AL11', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                Paragraph('<b>12. İşin Sorumlusu/Bölümü</b>', 
+                          ParagraphStyle('AL12', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',
+                Paragraph('<b>13. Bildirim No</b>', 
+                          ParagraphStyle('AL13', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD))
+            ],
+            [
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Malzeme No", "")}</font>', 
+                          ParagraphStyle('AV8', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Malzeme Tanımı", "")}</font>', 
+                          ParagraphStyle('AV9', fontSize=8, fontName=FONT_NAME)),
+                '',
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Alım Türü", "")}</font>', 
+                          ParagraphStyle('AV10', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Alım Adedi", "")}</font>', 
+                          ParagraphStyle('AV11', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("İşin Sorumlusu/Bölümü", "")}</font>', 
+                          ParagraphStyle('AV12', fontSize=8, fontName=FONT_NAME)),
+                '',
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Bildirim No", "")}</font>', 
+                          ParagraphStyle('AV13', fontSize=8, fontName=FONT_NAME))
+            ]
+        ]
         
-        # Background: Row 0 (labels) blue, Row 1 (values) white
-        ('BACKGROUND', (0, 0), (-1, 0), blue_bg),  # All labels blue
-        ('BACKGROUND', (0, 1), (-1, 1), colors.white),  # All values white
+        row3_alt_table = Table(row3_alt_data, colWidths=[col_width]*8)
+        row3_alt_table.setStyle(TableStyle([
+            # Row 0 (labels) - no spans needed, each cell separate
+            ('SPAN', (1, 0), (2, 0)),  # Malzeme Tanımı label
+            ('SPAN', (5, 0), (6, 0)),  # İşin Sorumlusu label
+            # Row 1 (values)
+            ('SPAN', (1, 1), (2, 1)),  # Malzeme Tanımı value
+            ('SPAN', (5, 1), (6, 1)),  # İşin Sorumlusu value
+            ('GRID', (0, 0), (-1, -1), 1, blue_border),
+            ('BACKGROUND', (0, 0), (-1, 0), blue_bg),
+            ('BACKGROUND', (0, 1), (-1, 1), colors.white),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(row3_alt_table)
         
-        # Alignment
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('LEFTPADDING', (0, 0), (-1, -1), 5),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-    ]))
-    elements.append(row2_table)
+    else:
+        # Default layout for Radar and Elektronik Harp
+        # Row 1: Split into 2 sub-rows - labels and values
+        row1_data = [
+            # Sub-row 1: Labels (blue background)
+            [
+                Paragraph('<b>1. Proje No</b>', 
+                          ParagraphStyle('L1', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',  # Column 1 (part of Proje No span)
+                Paragraph('<b>2. Proje Tanımı</b>', 
+                          ParagraphStyle('L2', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',  # Column 3 (part of Proje Tanımı span)
+                Paragraph('<b>3. Müşteri</b>', 
+                          ParagraphStyle('L3', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',  # Column 5 (part of Müşteri span)
+                Paragraph('<b>4. Proje Tipi</b>', 
+                          ParagraphStyle('L4', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',  # Column 7 (part of Proje Tipi span)
+            ],
+            # Sub-row 2: Values from database (white background)
+            [
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje No (Proje dörtlü kodu ve U-P" + chr(39) + "li kodu)", "")}</font>', 
+                          ParagraphStyle('V1', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
+                '',  # Column 1 (part of value span)
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tanımı ( Proje Adı )", "")}</font>', 
+                          ParagraphStyle('V2', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
+                '',  # Column 3 (part of value span)
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Müşteri (Proje Ana Sözleşmesi" + chr(39) + "nin imza makamı)", "")}</font>', 
+                          ParagraphStyle('V3', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
+                '',  # Column 5 (part of value span)
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tipi", "")}</font>', 
+                          ParagraphStyle('V4', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
+                '',  # Column 7 (part of value span)
+            ]
+        ]
+        
+        row1_table = Table(row1_data, colWidths=[col_width]*8)
+        row1_table.setStyle(TableStyle([
+            # Spans for both rows
+            # Row 0 (labels):
+            ('SPAN', (0, 0), (1, 0)),  # Proje No
+            ('SPAN', (2, 0), (3, 0)),  # Proje Tanımı
+            ('SPAN', (4, 0), (5, 0)),  # Müşteri
+            ('SPAN', (6, 0), (7, 0)),  # Proje Tipi
+            
+            # Row 1 (values):
+            ('SPAN', (0, 1), (1, 1)),  # Proje No value
+            ('SPAN', (2, 1), (3, 1)),  # Proje Tanımı value
+            ('SPAN', (4, 1), (5, 1)),  # Müşteri value
+            ('SPAN', (6, 1), (7, 1)),  # Proje Tipi value
+            
+            # Borders
+            ('GRID', (0, 0), (-1, -1), 1, blue_border),
+            
+            # Background: Row 0 (labels) blue, Row 1 (values) white
+            ('BACKGROUND', (0, 0), (-1, 0), blue_bg),  # All labels blue
+            ('BACKGROUND', (0, 1), (-1, 1), colors.white),  # All values white
+            
+            # Alignment
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(row1_table)
+        
+        # Row 2: 8 columns with different layout
+        # Columns 0-1: Proje Aşaması (2 cols)
+        # Columns 2-3: Proje Süresi (2 cols)
+        # Columns 4-5: İlgili Süreçler + Feragat Sorumlusu (under Müşteri, 2 cols total)
+        # Columns 6-7: Feragat Bildirim Numarası (under Proje Tipi, 2 cols)
+        
+        # Row 2: Split into 2 sub-rows to separate labels from values
+        # Sub-row 1: Labels with blue background
+        # Sub-row 2: Values with white background
+        row2_data = [
+            # Sub-row 1: Labels (blue background for attribute names)
+            [
+                Paragraph('<b>5. Proje Aşaması</b>', 
+                          ParagraphStyle('L5', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',  # Column 1 (part of Proje Aşaması span)
+                Paragraph('<b>6. Proje Süresi (ay)</b>', 
+                          ParagraphStyle('L6', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',  # Column 3 (part of Proje Süresi span)
+                Paragraph('<b>7. İlgili Süreçler</b>', 
+                          ParagraphStyle('L7', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                Paragraph('<b>8. Feragat Sorumlusu</b>', 
+                          ParagraphStyle('L8', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                Paragraph('<b>9. Feragat Bildirim Numarası</b>', 
+                          ParagraphStyle('L9', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                '',  # Column 7 (part of Feragat Bildirim span)
+            ],
+            # Sub-row 2: Values from database (white background)
+            [
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Aşaması", "")}</font>', 
+                          ParagraphStyle('V5', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
+                '',  # Column 1 (part of value span)
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Süresi (ay)", "")}</font>', 
+                          ParagraphStyle('V6', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
+                '',  # Column 3 (part of value span)
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("İlgili Süreçler ( Hangi Süreçler Etkileniyor? )", "")}</font>', 
+                          ParagraphStyle('V7', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Feragat Sorumlusu", "")}</font>', 
+                          ParagraphStyle('V8', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Feragat Bildirim Numarası (Feragatin koordinasyonu için başlatılan bildirim numarası)", "")}</font>', 
+                          ParagraphStyle('V9', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
+                '',  # Column 7 (part of value span)
+            ]
+        ]
+        
+        row2_table = Table(row2_data, colWidths=[col_width]*8)
+        row2_table.setStyle(TableStyle([
+            # Spans for both rows
+            # Row 0 (labels):
+            ('SPAN', (0, 0), (1, 0)),  # Proje Aşaması - columns 0-1
+            ('SPAN', (2, 0), (3, 0)),  # Proje Süresi - columns 2-3
+            # İlgili Süreçler - column 4 (1 col)
+            # Feragat Sorumlusu - column 5 (1 col)
+            ('SPAN', (6, 0), (7, 0)),  # Feragat Bildirim - columns 6-7
+            
+            # Row 1 (values):
+            ('SPAN', (0, 1), (1, 1)),  # Proje Aşaması value - columns 0-1
+            ('SPAN', (2, 1), (3, 1)),  # Proje Süresi value - columns 2-3
+            # İlgili Süreçler value - column 4 (1 col)
+            # Feragat Sorumlusu value - column 5 (1 col)
+            ('SPAN', (6, 1), (7, 1)),  # Feragat Bildirim value - columns 6-7
+            
+            # Borders
+            ('GRID', (0, 0), (-1, -1), 1, blue_border),
+            
+            # Background: Row 0 (labels) blue, Row 1 (values) white
+            ('BACKGROUND', (0, 0), (-1, 0), blue_bg),  # All labels blue
+            ('BACKGROUND', (0, 1), (-1, 1), colors.white),  # All values white
+            
+            # Alignment
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(row2_table)
     
     # Section B header - NO SPACER, directly attached
     section_b = Table([[Paragraph('<b>B. TALEP EDİLEN FERAGAT</b>', 
@@ -675,29 +983,33 @@ def create_feragat_pdf(job_instance_id: str) -> bytes:
     elements.append(e_header_table)
     
     # E Section: Data rows (Proje Yöneticisi, Feragat Sorumlusu, Sorumlu Bölge Müdürü)
-    e_data = [
-        [
-            Paragraph('<b>Proje Yöneticisi</b>', 
-                      ParagraphStyle('E1', fontSize=8, fontName=FONT_NAME_BOLD)),
-            '',
-            '',
-            ''
-        ],
-        [
-            Paragraph('<b>Feragat Sorumlusu</b>', 
-                      ParagraphStyle('E2', fontSize=8, fontName=FONT_NAME_BOLD)),
-            '',
-            '',
-            ''
-        ],
-        [
-            Paragraph('<b>Sorumlu Bölge Müdürü</b>', 
-                      ParagraphStyle('E3', fontSize=8, fontName=FONT_NAME_BOLD)),
-            '',
-            '',
-            ''
-        ]
-    ]
+    e_gorev_list = ["Proje Yöneticisi", "Feragat Sorumlusu", "Sorumlu Müdür"]
+    e_data = []
+    
+    for gorev in e_gorev_list:
+        if gorev in step_data and step_data[gorev]["assignee"] in user_cache:
+            assignee = step_data[gorev]["assignee"]
+            user_info = user_cache[assignee]
+            full_name = f"{user_info['name']} {user_info['surname']}".strip()
+            completed_at = step_data[gorev]["completed_at"]
+            tarih = completed_at.strftime("%d-%m-%Y") if completed_at else ""
+        else:
+            full_name = ""
+            tarih = ""
+        
+        # Get signature value from form_data
+        imza = get_signature(gorev)
+        
+        e_data.append([
+            Paragraph(f'<b>{gorev}</b>', 
+                      ParagraphStyle('EGorev', fontSize=8, fontName=FONT_NAME_BOLD)),
+            Paragraph(f'<font size=7>{full_name}</font>', 
+                      ParagraphStyle('EName', fontSize=7, fontName=FONT_NAME)),
+            Paragraph(f'<font size=7>{tarih}</font>', 
+                      ParagraphStyle('ETarih', fontSize=7, fontName=FONT_NAME)),
+            Paragraph(f'<font size=7>{imza}</font>', 
+                      ParagraphStyle('EImza', fontSize=7, fontName=FONT_NAME))
+        ])
     
     e_table = Table(e_data, colWidths=[col_width*2, col_width*2, col_width*2, col_width*2], rowHeights=[1.5*cm, 1.5*cm, 1.5*cm])
     e_table.setStyle(TableStyle([
@@ -724,15 +1036,48 @@ def create_feragat_pdf(job_instance_id: str) -> bytes:
     ]))
     elements.append(section_f)
     
-    # F Section: Header row with 4 columns (no data rows)
+    # Get Görev list based on Feragat Türü
+    proje_turu = form_data.get("Proje Türü", "")
+    gorev_list = []
+    
+    if proje_turu == "Radar":
+        gorev_list = [
+            "Radar Program Dir.",
+            "Radar Sistem Müh. Dir.",
+            "Radom Düşük Gör. ve İleri Malz. Tsr. Dir.",
+            "Yazılım Mühendisliği Dir.",
+            "Mekanik Sis. Ve Platform Ent. Tsr. Dir.",
+            "Süreç Tasarım ve Ürün Yön. Dir.",
+            "Test ve Doğrulama Dir.",
+            "Üretim Dir.",
+            "Entegre Lojistik Destek Dir.",
+            "Kalite Yönetim Dir."
+        ]
+    elif proje_turu == "Elektronik Harp":
+        gorev_list = [
+            "Elektronik Harp Prog. Dir",
+            "Hab. EH ve Kendini Kor. Sis. Müh. Dir.",
+            "Radar Elektronik Harp Sis. Müh. Dir.",
+            "Donanım Tasarım Dir.",
+            "Radom Düşük Gör. ve İleri Malz. Tsr. Dir.",
+            "Yazılım Mühendisliği Dir.",
+            "Mekanik Sis. Ve Platform Ent. Tsr. Dir.",
+            "Süreç Tasarım ve Ürün Yön. Dir.",
+            "Test ve Doğrulama Dir.",
+            "Üretim Dir.",
+            "Entegre Lojistik Destek Dir.",
+            "Kalite Yönetim Dir."
+        ]
+    
+    # F Section: Header row with 4 columns
     f_header_data = [[
         Paragraph('<b>Görev</b>', 
                   ParagraphStyle('FH1', fontSize=8, fontName=FONT_NAME_BOLD, textColor=colors.HexColor('#1e3a8a'), alignment=1)),
         Paragraph('<b>Ad/Soyad</b>', 
                   ParagraphStyle('FH2', fontSize=8, fontName=FONT_NAME_BOLD, textColor=colors.HexColor('#1e3a8a'), alignment=1)),
-        Paragraph('<b>Tarih</b>', 
-                  ParagraphStyle('FH3', fontSize=8, fontName=FONT_NAME_BOLD, textColor=colors.HexColor('#1e3a8a'), alignment=1)),
         Paragraph('<b>İmza</b>', 
+                  ParagraphStyle('FH3', fontSize=8, fontName=FONT_NAME_BOLD, textColor=colors.HexColor('#1e3a8a'), alignment=1)),
+        Paragraph('<b>Tarih</b>', 
                   ParagraphStyle('FH4', fontSize=8, fontName=FONT_NAME_BOLD, textColor=colors.HexColor('#1e3a8a'), alignment=1))
     ]]
     
@@ -747,6 +1092,48 @@ def create_feragat_pdf(job_instance_id: str) -> bytes:
         ('RIGHTPADDING', (0, 0), (-1, -1), 5),
     ]))
     elements.append(f_header_table)
+    
+    # F Section: Data rows based on Feragat Türü
+    if gorev_list:
+        f_data = []
+        for gorev in gorev_list:
+            # Check if we have data for this Görev
+            if gorev in step_data and step_data[gorev]["assignee"] in user_cache:
+                assignee = step_data[gorev]["assignee"]
+                user_info = user_cache[assignee]
+                full_name = f"{user_info['name']} {user_info['surname']}".strip()
+                completed_at = step_data[gorev]["completed_at"]
+                tarih = completed_at.strftime("%d-%m-%Y") if completed_at else ""
+            else:
+                full_name = ""
+                tarih = ""
+            
+            # Get signature value from form_data
+            imza = get_signature(gorev)
+            
+            f_data.append([
+                Paragraph(f'<font size=7>{gorev}</font>', 
+                          ParagraphStyle('FGorev', fontSize=7, fontName=FONT_NAME)),
+                Paragraph(f'<font size=7>{full_name}</font>', 
+                          ParagraphStyle('FName', fontSize=7, fontName=FONT_NAME)),
+                Paragraph(f'<font size=7>{imza}</font>', 
+                          ParagraphStyle('FImza', fontSize=7, fontName=FONT_NAME)),
+                Paragraph(f'<font size=7>{tarih}</font>', 
+                          ParagraphStyle('FTarih', fontSize=7, fontName=FONT_NAME))
+            ])
+        
+        f_table = Table(f_data, colWidths=[col_width*2, col_width*2, col_width*2, col_width*2], 
+                        rowHeights=[1*cm] * len(f_data))
+        f_table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(f_table)
     
     # Section G: ONAY
     section_g = Table([[Paragraph('<b>G. ONAY</b>', 
@@ -785,12 +1172,30 @@ def create_feragat_pdf(job_instance_id: str) -> bytes:
     elements.append(g_header_table)
     
     # G Section: Data row (REHİS Sektör Başkanı)
+    gorev_g = "REHİS Sektör Başkanı"
+    
+    if gorev_g in step_data and step_data[gorev_g]["assignee"] in user_cache:
+        assignee = step_data[gorev_g]["assignee"]
+        user_info = user_cache[assignee]
+        full_name = f"{user_info['name']} {user_info['surname']}".strip()
+        completed_at = step_data[gorev_g]["completed_at"]
+        tarih = completed_at.strftime("%d-%m-%Y") if completed_at else ""
+    else:
+        full_name = ""
+        tarih = ""
+    
+    # Get signature value from form_data
+    imza_g = get_signature(gorev_g)
+    
     g_data = [[
-        Paragraph('<b>REHİS Sektör Başkanı</b>', 
+        Paragraph(f'<b>{gorev_g}</b>', 
                   ParagraphStyle('G1', fontSize=8, fontName=FONT_NAME_BOLD)),
-        '',
-        '',
-        ''
+        Paragraph(f'<font size=7>{full_name}</font>', 
+                  ParagraphStyle('GName', fontSize=7, fontName=FONT_NAME)),
+        Paragraph(f'<font size=7>{tarih}</font>', 
+                  ParagraphStyle('GTarih', fontSize=7, fontName=FONT_NAME)),
+        Paragraph(f'<font size=7>{imza_g}</font>', 
+                  ParagraphStyle('GImza', fontSize=7, fontName=FONT_NAME))
     ]]
     
     g_table = Table(g_data, colWidths=[col_width*2, col_width*2, col_width*2, col_width*2], rowHeights=[1.5*cm])
@@ -829,7 +1234,7 @@ async def download_feragat_pdf(
     Example: GET /api/v1/feragat-formu/download-pdf?job_instance_id=test
     """
     try:
-        pdf_bytes = create_feragat_pdf(job_instance_id)
+        pdf_bytes = await create_feragat_pdf(job_instance_id)
         
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
