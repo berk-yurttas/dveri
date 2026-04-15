@@ -1,0 +1,42 @@
+/* Mavi temalı basit stil */
+.auth-container {
+    background-color: #e0f7fa;
+    border-radius: 8px;
+    padding: 20px;
+    width: 300px;
+    margin: 100px auto;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+  
+  .auth-container h2 {
+    text-align: center;
+    color: #0277bd;
+  }
+  
+  .auth-container input {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border: 1px solid #b0bec5;
+    border-radius: 4px;
+  }
+  
+  .auth-container button {
+    width: 100%;
+    padding: 10px;
+    background-color: #0277bd;
+    border: none;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  
+  .auth-container button:hover {
+    background-color: #01579b;
+  }
+  
+  .error {
+    color: red;
+    text-align: center;
+  }
+  
