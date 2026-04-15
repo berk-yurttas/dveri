@@ -105,7 +105,7 @@ const SQL = {
     `,
     getKapsamSecond: `
         SELECT SUM("TTPRICE_USD") as value FROM mes_production."tokadb_acik_sas"
-        WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')"
+        WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
     `,
     getKapsamByFirma: (firma: string) => `
         SELECT * FROM(SELECT
@@ -170,7 +170,7 @@ const SQL = {
                 SELECT *, 
                        ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
                 FROM mes_production.makine_doluluk_raw
-                WHERE "Date" <= CURRENT_DATE - INTERVAL '30 days' AND "Firma Adı" = '${firma}'
+                WHERE "Date"::timestamp <= CURRENT_DATE - INTERVAL '30 days' AND "Firma Adı" = '${firma}'
                 ) t
             WHERE rn = 1
             GROUP BY "Firma Adı"
@@ -205,7 +205,7 @@ const SQL = {
                 SELECT *, 
                        ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
                 FROM mes_production.makine_doluluk_raw
-                WHERE "Date" <= CURRENT_DATE - INTERVAL '30 days'
+                WHERE "Date"::timestamp <= CURRENT_DATE - INTERVAL '30 days'
                 ) t
             WHERE rn = 1
             GROUP BY "Firma Adı"
@@ -221,10 +221,10 @@ const SQL = {
     getTalasliCount: (firma: string) => `SELECT COUNT(DISTINCT kalem_adi) AS count FROM ${S}uretim_kalemleri WHERE firma = '${firma}' AND kategori = 'Talaşlı İmalat'`,
     getKablajCount: (firma: string) => `SELECT COUNT(DISTINCT kalem_adi) AS count FROM ${S}uretim_kalemleri WHERE firma = '${firma}' AND kategori = 'Kablaj/EMM'`,
     getTalasliDuruslarCurrentMonth: `
-        SELECT COUNT(DISTINCT "WorkOrderNo") as count from mes_producion.mekanik_aktif_duruslar
+        SELECT COUNT(DISTINCT "WorkOrderNo") as count from mes_production.mekanik_aktif_duruslar
     `,
     getTalasliDuruslarPreviousMonth: `
-        SELECT COUNT(DISTINCT "WorkOrderNo") as count from mes_producion.mekanik_tum_duruslar_v3 WHERE "StartTime"::timestamp < NOW() - interval '30 days' and "EndTime"::timestamp >= NOW() - interval '30 days'
+        SELECT COUNT(DISTINCT "WorkOrderNo") as count from mes_production.mekanik_tum_duruslar_v3 WHERE "StartTime"::timestamp < NOW() - interval '30 days' and "EndTime"::timestamp >= NOW() - interval '30 days'
     `,
     getKablajDuruslarCurrentMonth: `
         SELECT COUNT(DISTINCT "WORKORDERNO") as count
@@ -233,21 +233,21 @@ const SQL = {
     `,
     getKablajDuruslarPreviousMonth: `
         SELECT COUNT(DISTINCT "WORKORDERNO") as count 
-        from mes_producion.kablaj_tum_duruslar 
+        from mes_production.kablaj_tum_duruslar 
         WHERE "STOP_STATUS" = 'AÇIK' 
         AND "COMPANYID" in (61,63) 
         AND (("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp >= NOW() - interval '30 days') OR ("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp IS NULL))
     `,
     getTalasliDuruslarCurrentMonthByFirma: (firma: string) => `
         SELECT COUNT(DISTINCT "WorkOrderNo") as count 
-        FROM mes_producion.mekanik_aktif_duruslar
-        LEFT JOIN mes_production.company_mapping ON mes_producion.mekanik_aktif_duruslar."NAME" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_producion.mekanik_aktif_duruslar'
+        FROM mes_production.mekanik_aktif_duruslar
+        LEFT JOIN mes_production.company_mapping ON mes_production.mekanik_aktif_duruslar."NAME" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.mekanik_aktif_duruslar'
         WHERE mes_production.company_mapping."key" = '${firma}'
     `,
     getTalasliDuruslarPreviousMonthByFirma: (firma: string) => `
         SELECT COUNT(DISTINCT "WorkOrderNo") as count 
-        FROM mes_producion.mekanik_tum_duruslar_v3 
-        LEFT JOIN mes_production.company_mapping ON mes_producion.mekanik_tum_duruslar_v3."NAME" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_producion.mekanik_tum_duruslar_v3'
+        FROM mes_production.mekanik_tum_duruslar_v3 
+        LEFT JOIN mes_production.company_mapping ON mes_production.mekanik_tum_duruslar_v3."NAME" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.mekanik_tum_duruslar_v3'
         WHERE mes_production.company_mapping."key" = '${firma}'
           AND "StartTime"::timestamp < NOW() - interval '30 days' 
           AND "EndTime"::timestamp >= NOW() - interval '30 days'
@@ -262,8 +262,8 @@ const SQL = {
     `,
     getKablajDuruslarPreviousMonthByFirma: (firma: string) => `
         SELECT COUNT(DISTINCT "WORKORDERNO") as count 
-        FROM mes_producion.kablaj_tum_duruslar
-        LEFT JOIN mes_production.company_mapping ON mes_producion.kablaj_tum_duruslar."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_producion.kablaj_tum_duruslar'
+        FROM mes_production.kablaj_tum_duruslar
+        LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_tum_duruslar."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_tum_duruslar'
         WHERE mes_production.company_mapping."key" = '${firma}'
           AND "STOP_STATUS" = 'AÇIK' 
           AND "COMPANYID" in (61,63) 
@@ -281,6 +281,136 @@ const SQL = {
         WHERE mes_production.company_mapping."key" = '${firma}'
     `,
     getSupplierRiskAnalysis: `
+        WITH MesIntegration AS (
+            SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
+            FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
+            WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur'
+        ),
+        CompanyTrend AS (
+            SELECT 
+                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date") as "Trend", 
+                "Firma Adı" 
+            FROM (
+                SELECT DISTINCT ON ("Firma Adı", "Date")
+                    "Firma Adı",
+                    "Date",
+                    AVG("Aylık Planlanan Doluluk Oranı") as "Aylık Planlanan Doluluk Oranı"
+                FROM mes_production.makine_doluluk_raw
+                WHERE "Date"::timestamp >= CURRENT_DATE - INTERVAL '30 days'
+                GROUP BY "Firma Adı", "Date"
+                ORDER BY "Firma Adı", "Date"
+            ) daily_avg
+            GROUP BY "Firma Adı"
+        ),
+        LatestDoluluk AS (
+            SELECT
+                "Firma Adı",
+                AVG("Aylık Planlanan Doluluk Oranı") as "Aylık Planlanan Doluluk Oranı"
+            FROM
+                (
+                SELECT *, 
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                FROM mes_production.makine_doluluk_raw
+                ) t
+            WHERE rn = 1
+            GROUP BY "Firma Adı"
+        ),
+        CompanyStats AS (
+            SELECT
+                "NAME1" as "Tedarikçi",
+                SUM("TTPRICE_USD") as "Etki",
+                ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
+                (SUM("TTPRICE_USD") * 100.0 / 
+                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
+                cd."Trend" as "Trend",
+                CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
+            FROM mes_production."tokadb_acik_sas"
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
+            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
+        )
+        SELECT
+            "Tedarikçi",
+            "Etki",
+            "Kapasite",
+            "Trend",
+            "MesEntegrasyon",
+            NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
+            "Kapasite" / 10.0 as kapasite_points,
+            NTILE(10) OVER(ORDER BY "Oran" ASC) * ("Kapasite" / 10.0) as "Risk"
+        FROM CompanyStats
+        ORDER BY "Etki" DESC
+        LIMIT 15
+    `,
+    getSupplierRiskAnalysisByFirma: (firma: string) => `
+        WITH MesIntegration AS (
+            SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
+            FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
+            WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur'
+        ),
+        CompanyTrend AS (
+            SELECT 
+                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date") as "Trend", 
+                "Firma Adı" 
+            FROM (
+                SELECT DISTINCT ON ("Firma Adı", "Date")
+                    "Firma Adı",
+                    "Date",
+                    AVG("Aylık Planlanan Doluluk Oranı") as "Aylık Planlanan Doluluk Oranı"
+                FROM mes_production.makine_doluluk_raw
+                WHERE "Date"::timestamp >= CURRENT_DATE - INTERVAL '30 days'
+                GROUP BY "Firma Adı", "Date"
+                ORDER BY "Firma Adı", "Date"
+            ) daily_avg
+            GROUP BY "Firma Adı"
+        ),
+        LatestDoluluk AS (
+            SELECT
+                "Firma Adı",
+                AVG("Aylık Planlanan Doluluk Oranı") as "Aylık Planlanan Doluluk Oranı"
+            FROM
+                (
+                SELECT *, 
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                FROM mes_production.makine_doluluk_raw
+                ) t
+            WHERE rn = 1
+            GROUP BY "Firma Adı"
+        ),
+        CompanyStats AS (
+            SELECT
+                "NAME1" as "Tedarikçi",
+                SUM("TTPRICE_USD") as "Etki",
+                ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
+                (SUM("TTPRICE_USD") * 100.0 / 
+                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
+                cd."Trend" as "Trend",
+                CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
+            FROM mes_production."tokadb_acik_sas"
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
+            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') AND "NAME1" = '${firma}' 
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
+        )
+        SELECT
+            "Tedarikçi",
+            "Etki",
+            "Kapasite",
+            "Trend",
+            "MesEntegrasyon",
+            NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
+            "Kapasite" / 10.0 as kapasite_points,
+            NTILE(10) OVER(ORDER BY "Oran" ASC) * ("Kapasite" / 10.0) as "Risk"
+        FROM CompanyStats
+        ORDER BY "Etki" DESC
+        LIMIT 15
+    `,
+    getSupplierRiskAnalysisMesIntegrated: `
         WITH MesIntegration AS (
             SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
             FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
@@ -320,8 +450,8 @@ const SQL = {
                 "NAME1" as "Tedarikçi",
                 SUM("TTPRICE_USD") as "Etki",
                 ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
-                ROUND((SUM("TTPRICE_USD") * 100.0 / 
-                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)), 5) as "Oran",
+                (SUM("TTPRICE_USD") * 100.0 / 
+                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
@@ -337,16 +467,14 @@ const SQL = {
             "Etki",
             "Kapasite",
             "Trend",
-            "MesEntegrasyon",
             NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
             "Kapasite" / 10.0 as kapasite_points,
             NTILE(10) OVER(ORDER BY "Oran" ASC) * ("Kapasite" / 10.0) as "Risk"
         FROM CompanyStats
-        INNER JOIN mes_production.company_mapping ON CompanyStats."Tedarikçi" = mes_production.company_mapping."key"
         ORDER BY "Etki" DESC
         LIMIT 15
     `,
-    getSupplierRiskAnalysisByFirma: (firma: string) => `
+    getSupplierRiskAnalysisMesIntegratedByFirma: (firma: string) => `
         WITH MesIntegration AS (
             SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
             FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
@@ -383,32 +511,30 @@ const SQL = {
         ),
         CompanyStats AS (
             SELECT
-                mk."Satıcı Tanım" as "Tedarikçi",
-                SUM(REPLACE(REPLACE(mk."Açık MG de", '.', ''), ',', '.')::numeric) as "Etki",
+                "NAME1" as "Tedarikçi",
+                SUM("TTPRICE_USD") as "Etki",
                 ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
-                ROUND((SUM(REPLACE(REPLACE(mk."Açık MG de", '.', ''), ',', '.')::numeric) * 100.0 / 
-                    NULLIF(SUM(SUM(REPLACE(REPLACE(mk."Açık MG de", '.', ''), ',', '.')::numeric)) OVER(), 0)), 5) as "Oran",
+                (SUM("TTPRICE_USD") * 100.0 / 
+                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
-            FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari mk
-            LEFT JOIN mes_production.company_mapping cm ON cm.key = mk."Satıcı Tanım"
-            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = cm.value
-            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = cm.value
-            LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = mk."Satıcı Tanım"
-            WHERE mk."Satıcı Tanım" = '${firma}'
-            GROUP BY mk."Satıcı Tanım", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
+            FROM mes_production."tokadb_acik_sas"
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
+            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') AND "NAME1" = '${firma}' 
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
             "Etki",
             "Kapasite",
             "Trend",
-            "MesEntegrasyon",
             NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
             "Kapasite" / 10.0 as kapasite_points,
             NTILE(10) OVER(ORDER BY "Oran" ASC) * ("Kapasite" / 10.0) as "Risk"
         FROM CompanyStats
-        INNER JOIN mes_production.company_mapping ON CompanyStats."Tedarikçi" = mes_production.company_mapping."key"
         ORDER BY "Etki" DESC
         LIMIT 15
     `,
@@ -471,6 +597,7 @@ interface ReportData {
     tepirikciKapasiteAnalizi: MetricItem[]
     bizdenKaynakliDurma: MetricItem[]
     supplierTableRows: SupplierTableRow[]
+    mesIntegratedSupplierRows: SupplierTableRow[]
 }
 
 interface CSuiteReportWidgetProps {
@@ -675,6 +802,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     runQuery(isAll ? SQL.getKablajDuruslarCurrentMonth : SQL.getKablajDuruslarCurrentMonthByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getKablajDuruslarPreviousMonth : SQL.getKablajDuruslarPreviousMonthByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getSupplierRiskAnalysis : SQL.getSupplierRiskAnalysisByFirma(firmaForQueries)),
+                    runQuery(isAll ? SQL.getSupplierRiskAnalysisMesIntegrated : SQL.getSupplierRiskAnalysisMesIntegratedByFirma(firmaForQueries)),
                 ])
 
                 const dijitalRows = queryResults[0].status === 'fulfilled' ? queryResults[0].value : null
@@ -697,6 +825,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 const kablajDurusCurrentRows = queryResults[17].status === 'fulfilled' ? queryResults[17].value : null
                 const kablajDurusPreviousRows = queryResults[18].status === 'fulfilled' ? queryResults[18].value : null
                 const supplierRiskRows = queryResults[19].status === 'fulfilled' ? queryResults[19].value : null
+                const mesIntegratedSupplierRows = queryResults[20].status === 'fulfilled' ? queryResults[20].value : null
 
                 if (cancelled) return
 
@@ -962,6 +1091,47 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         })
                         : []
 
+                const mesIntegratedSupplierTableRows: SupplierTableRow[] =
+                    mesIntegratedSupplierRows && mesIntegratedSupplierRows.length > 0
+                        ? mesIntegratedSupplierRows.map((r) => {
+                            // Parse trend data - it might come as a PostgreSQL array string
+                            let trendValues: number[] = []
+                            if (r[3]) {
+                                if (Array.isArray(r[3])) {
+                                    // Already an array
+                                    trendValues = r[3].map((v: any) => parseFloat(v) || 0)
+                                } else if (typeof r[3] === 'string') {
+                                    // Parse PostgreSQL array string format: "{82.5,85.0,87.3}" or "[Decimal('82.5'), ...]"
+                                    let cleaned = r[3]
+                                    
+                                    // Remove array brackets and braces
+                                    cleaned = cleaned.replace(/^[\[{]|[\]}]$/g, '').trim()
+                                    
+                                    // Extract numbers from Decimal('X.X') format or plain numbers
+                                    const matches = cleaned.match(/(\d+\.?\d*)/g)
+                                    if (matches && matches.length > 0) {
+                                        trendValues = matches.map((m: string) => parseFloat(m)).filter(n => !isNaN(n) && n > 0)
+                                    } else {
+                                        // Fallback: split by comma and parse
+                                        trendValues = cleaned.split(',').map((v: string) => {
+                                            const numStr = v.replace(/[^0-9.]/g, '').trim()
+                                            return parseFloat(numStr) || 0
+                                        }).filter(n => n > 0)
+                                    }
+                                }
+                            }
+                            
+                            return {
+                                tedarikci: normalizeDisplayText(r[0]) || '',
+                                etki: parseFloat(r[1]) || 0,
+                                kapasite: parseFloat(r[2]) || 0,
+                                risk: parseFloat(r[6]) || 0,
+                                trend: trendValues,
+                                mesEntegrasyon: 'MES Entegrasyonu Var',
+                            }
+                        })
+                        : []
+
                 const reportData: ReportData = {
                     dijitalSkor: { value: dijitalValue ?? 0 },
                     kapsam: { first: kFirst ?? 0, second: kSecond ?? 0 },
@@ -976,6 +1146,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     tepirikciKapasiteAnalizi: tedarikciItems,
                     bizdenKaynakliDurma: aselsanItems,
                     supplierTableRows,
+                    mesIntegratedSupplierRows: mesIntegratedSupplierTableRows,
                 }
 
                 setData(reportData)
@@ -1040,6 +1211,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
         tepirikciKapasiteAnalizi,
         bizdenKaynakliDurma,
         supplierTableRows,
+        mesIntegratedSupplierRows,
     } = data
 
     // Computed values
@@ -1646,12 +1818,11 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         MES Entegrasyonu Olan Tedarikçiler
                     </h2>
                     <span className="text-xs text-gray-500 font-medium">
-                        ({supplierTableRows.filter(row => row.mesEntegrasyon === 'MES Entegrasyonu Var').length} kayıt)
+                        ({mesIntegratedSupplierRows.length} kayıt)
                     </span>
                 </div>
                 {(() => {
-                    const mesIntegratedSuppliers = supplierTableRows.filter(row => row.mesEntegrasyon === 'MES Entegrasyonu Var')
-                    return mesIntegratedSuppliers.length > 0 ? (
+                    return mesIntegratedSupplierRows.length > 0 ? (
                     <>
                         <div className="overflow-x-auto rounded-lg">
                             <table className="w-full text-sm">
@@ -1707,7 +1878,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                 <tbody>
                                     {(() => {
                                         // Sort based on selected column and direction
-                                        const sorted = [...mesIntegratedSuppliers].sort((a, b) => {
+                                        const sorted = [...mesIntegratedSupplierRows].sort((a, b) => {
                                             let aVal: any, bVal: any
                                             
                                             switch (sortColumn) {
