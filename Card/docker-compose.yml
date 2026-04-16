@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cardgame}
+      POSTGRES_USER: ${POSTGRES_USER:-card}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-card}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 5010
+      DATABASE_URL: postgresql://${POSTGRES_USER:-card}:${POSTGRES_PASSWORD:-card}@postgres:5432/${POSTGRES_DB:-cardgame}
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
+      PGSSL: ${PGSSL:-false}
+      MONGODB_URI: ${MONGODB_URI:-}
+    ports:
+      - "${BACKEND_HOST_PORT:-5010}:5010"
+    volumes:
+      - ./backend:/app
+      - ./card_images:/app/card_images:ro
+      - /app/node_modules
+    command: npm run dev
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:5010}
+      HOST: 0.0.0.0
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "${FRONTEND_HOST_PORT:-3001}:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    stdin_open: true
+    tty: true
+    command: npm start
+
+volumes:
+  postgres_data:

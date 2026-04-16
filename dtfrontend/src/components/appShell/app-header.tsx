@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { Menu, Home } from "lucide-react"
+import { Menu, Home, Gamepad2 } from "lucide-react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { type UserInfo } from "./types"
@@ -29,6 +29,16 @@ export function AppHeader({ title, subtitle, customActions = [], onMobileMenuCli
   const isMobile = useMediaQuery(`(max-width: ${mobileBreakpoint - 1}px)`)
   const { platform } = usePlatform()
   const router = useRouter()
+  const cardGameBaseUrl = process.env.NEXT_PUBLIC_CARD_GAME_URL || "http://localhost:3001"
+
+  const getCardGameHomeUrl = () => {
+    try {
+      const url = new URL("/home", cardGameBaseUrl)
+      return url.toString()
+    } catch {
+      return cardGameBaseUrl
+    }
+  }
 
   // Default header actions
   const defaultActions = [
@@ -107,6 +117,16 @@ export function AppHeader({ title, subtitle, customActions = [], onMobileMenuCli
         >
           <Home className="h-4 w-4 shrink-0" />
           {!isMobile && <span className="text-sm font-medium">Anasayfaya Git</span>}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => window.open(getCardGameHomeUrl(), "_blank", "noopener,noreferrer")}
+          className={`text-white hover:bg-white/20 flex items-center gap-1 ${isMobile ? 'px-2' : 'gap-2 px-3'}`}
+          title="Card oyununu aç"
+        >
+          <Gamepad2 className="h-4 w-4 shrink-0" />
+          {!isMobile && <span className="text-sm font-medium">Kart Oyunu</span>}
         </Button>
         {/* Vertical Divider */}
         <div className="h-6 w-px bg-white/10" aria-hidden="true" />
