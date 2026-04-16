@@ -30,11 +30,13 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
       PGSSL: ${PGSSL:-false}
       MONGODB_URI: ${MONGODB_URI:-}
+      MUSIC_DIR: /app/music
     ports:
       - "${BACKEND_HOST_PORT:-5010}:5010"
     volumes:
       - ./backend:/app
       - ./card_images:/app/card_images:ro
+      - ./music:/app/music:ro
       - /app/node_modules
     command: npm run dev
 
