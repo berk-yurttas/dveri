@@ -5,6 +5,7 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY dtbackend/requirements.txt .
 
+COPY dtbackend/public .
 # Install system dependencies and Microsoft ODBC Driver 17 for SQL Server
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \

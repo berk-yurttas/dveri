@@ -7,10 +7,10 @@ import { api } from "@/lib/api"
 // Widget configuration
 FeragatFormuWidget.config = {
     id: "feragat_formu-widget",
-    name: "Uyarlama Feragat Formu",
+    name: "Feragat Formu",
     type: "feragat_formu",
     color: "bg-blue-500",
-    description: "Uyarlama Feragat Formu - PDF olarak indir",
+    description: "Feragat Formu - PDF olarak indir",
     size: { width: 6, height: 4 }
 }
 
@@ -52,17 +52,13 @@ function extractValue(jsonbValue: any): string {
     if (!jsonbValue) return ''
     
     try {
-        // If it's already an object
         if (typeof jsonbValue === 'object' && jsonbValue !== null) {
-            // If it has a name field (for user objects)
             if ('name' in jsonbValue) {
                 return jsonbValue.name
             }
-            // Otherwise return as JSON string
             return JSON.stringify(jsonbValue)
         }
         
-        // If it's a string, try to parse it
         if (typeof jsonbValue === 'string') {
             try {
                 const parsed = JSON.parse(jsonbValue)
@@ -71,7 +67,6 @@ function extractValue(jsonbValue: any): string {
                 }
                 return parsed
             } catch {
-                // If parsing fails, return as is
                 return jsonbValue
             }
         }
@@ -92,7 +87,6 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     const [error, setError] = useState<string | null>(null)
     const [jobInstanceId, setJobInstanceId] = useState<string>('')
 
-    // Database configuration for "seyir" platform
     const seyirDbConfig = {
         db_type: 'postgresql',
         host: '10.60.139.11',
@@ -102,7 +96,6 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         password: 'postgres'
     }
 
-    // Extract job_instance_id from URL on mount
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search)
@@ -113,7 +106,6 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         }
     }, [])
 
-    // Fetch form data
     useEffect(() => {
         if (!jobInstanceId) {
             setLoading(false)
@@ -126,8 +118,6 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
 
         const fetchData = async () => {
             try {
-                console.log('[FeragatFormuWidget] Executing SQL with job_instance_id:', jobInstanceId)
-                
                 const sql = `
                     SELECT 
                         ad."name",
@@ -193,7 +183,9 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
             const url = window.URL.createObjectURL(blob)
             const a = document.createElement('a')
             a.href = url
-            a.download = `Uyarlama_Feragat_Formu_${jobInstanceId}.pdf`
+            const feragatTuru = getFieldValue('Feragat Türü')
+            const title = feragatTuru === 'Alt Yüklenici' ? 'Alt_Yüklenici_Feragat_Formu' : 'Uyarlama_Feragat_Formu'
+            a.download = `${title}_${jobInstanceId}.pdf`
             document.body.appendChild(a)
             a.click()
             window.URL.revokeObjectURL(url)
@@ -206,17 +198,20 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         }
     }
 
-    // Helper to get field value by name
     const getFieldValue = (fieldName: string): string => {
         const field = data.find(d => d.name.includes(fieldName))
         return field ? extractValue(field.value) : ''
     }
 
-    // Get Görev list based on Feragat Türü
-    const getGorevList = (): string[] => {
-        const feragatTuru = getFieldValue('Feragat Türü')
+    const feragatTuru = getFieldValue('Feragat Türü')
+    const projeTuru = getFieldValue('Proje Türü')
+    
+    const getTitle = (): string => {
+        return feragatTuru === 'Alt Yüklenici' ? 'Alt Yüklenici Feragat Formu' : 'Uyarlama Feragat Formu'
+    }
 
-        if (feragatTuru === 'Radar') {
+    const getGorevList = (): string[] => {
+        if (projeTuru === 'Radar') {
             return [
                 "Radar Program Dir.",
                 "Radar Sistem Müh. Dir.",
@@ -229,7 +224,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 "Entegre Lojistik Destek Dir.",
                 "Kalite Yönetim Dir."
             ]
-        } else if (feragatTuru === 'Elektronik Harp') {
+        } else if (projeTuru === 'Elektronik Harp') {
             return [
                 "Elektronik Harp Prog. Dir",
                 "Hab. EH ve Kendini Kor. Sis. Müh. Dir.",
@@ -248,8 +243,15 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         
         return []
     }
+    
+    const getSorumluLabel = (): string => {
+        return feragatTuru === 'Alt Yüklenici' ? 'AY Sorumlusu' : 'Feragat Sorumlusu'
+    }
+    
+    const getSorumluValue = (): string => {
+        return feragatTuru === 'Alt Yüklenici' ? getFieldValue('AY Sorumlusu') : getFieldValue('Feragat Sorumlusu')
+    }
 
-    // Loading state
     if (loading) {
         return (
             <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
@@ -259,7 +261,6 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         )
     }
 
-    // Error state
     if (error) {
         return (
             <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
@@ -274,7 +275,6 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         )
     }
 
-    // No job_instance_id provided
     if (!jobInstanceId) {
         return (
             <div className="w-full h-full p-6 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
@@ -288,192 +288,451 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     }
 
     return (
-        <div className="w-full h-full p-6 bg-gradient-to-br from-white to-blue-50 rounded-xl border border-blue-200 shadow-lg flex flex-col gap-4 overflow-auto">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-2 flex-shrink-0">
-                <div className="flex items-center space-x-3">
-                    <div className="w-2 h-8 bg-gradient-to-b from-blue-500 to-blue-700 rounded-full shadow-md"></div>
-                    <h3 className="text-xl font-bold text-gray-800 tracking-tight">Uyarlama Feragat Formu</h3>
-                </div>
-                
+        <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 shadow-sm flex flex-col gap-3 overflow-auto">
+            {/* Header with Download Button */}
+            <div className="flex items-center justify-between flex-shrink-0 pb-2 border-b border-gray-200">
+                <h3 className="text-lg font-bold text-gray-800">{getTitle()}</h3>
                 <button
                     onClick={handleDownloadPdf}
                     disabled={downloading || data.length === 0}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all duration-200 shadow-md hover:shadow-lg font-medium"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                 >
                     <Download className="w-4 h-4" />
-                    {downloading ? 'İndiriliyor...' : 'Feragat Formunu İndir'}
+                    {downloading ? 'İndiriliyor...' : 'PDF İndir'}
                 </button>
             </div>
 
             {/* Form Preview */}
             {data.length > 0 ? (
-                <div className="bg-white border-2 border-blue-100 rounded-xl p-6 shadow-lg flex-1 overflow-auto">
-                    {/* Aselsan Header */}
-                    <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-blue-600">
-                        <div className="flex items-center gap-4">
-                            <div className="text-2xl font-bold text-blue-900">aselsan</div>
-                            <div className="text-xs text-gray-600">
-                                <div>POWER AND ELECTRONIC</div>
-                                <div>RADAR AND ELECTRONIC WARFARE SYSTEMS</div>
+                <div className="flex-1 overflow-auto">
+                    <div className="border border-gray-300 bg-white p-4 space-y-3">
+                        {/* PDF Header */}
+                        <div className="grid grid-cols-8 gap-2 border-2 border-black">
+                            <div className="col-span-2 row-span-2 border-r-2 border-black p-2 flex flex-col justify-center items-center">
+                                <img src="/feragat_aselsan.jpg" alt="Aselsan Logo" className="max-w-50 max-h-full object-contain" />
+                            </div>
+                            <div className="col-span-5 row-span-2 border-r-2 border-black p-2 flex items-center justify-center">
+                                <div className="text-base font-bold text-blue-900 text-center">{getTitle()}</div>
+                            </div>
+                            <div className="row-span-1 bg-blue-100 border-b border-black p-1 flex items-center justify-center">
+                                <div className="text-[9px] font-bold text-blue-900">Feragat No:</div>
+                            </div>
+                            <div className="row-span-1 bg-white p-1 flex items-center justify-center">
+                                <div className="text-[9px] text-gray-700">{getFieldValue('Feragat No')}</div>
                             </div>
                         </div>
+
+                        {/* A. GENEL BİLGİLER */}
                         <div>
-                            <div className="text-2xl font-bold text-blue-900 text-center">Uyarlama Feragat Formu</div>
+                            <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
+                                A. GENEL BİLGİLER
+                            </div>
+                            {/* Row 1: Three columns */}
+                            <div className="border border-black">
+                                <table className="w-full text-[10px]">
+                                    <tbody>
+                                        <tr>
+                                            <td className="border-r border-black p-2 bg-blue-50 w-1/3">
+                                                <div className="font-bold text-blue-900">1. Firma Adı/Satiçi no</div>
+                                                <div className="mt-1">{getFieldValue('Firma Adı')}</div>
+                                            </td>
+                                            <td className="border-r border-black p-2 bg-blue-50 w-1/3">
+                                                <div className="font-bold text-blue-900">2. Firmaya Daha Önceden</div>
+                                                <div className="font-bold text-blue-900">Gerçekleştirilen Tetkik</div>
+                                                <div className="mt-1">{getFieldValue('Firmaya Daha Önceden Gerçekleştirilen Tetkik')}</div>
+                                            </td>
+                                            <td className="p-2 bg-blue-50 w-1/3">
+                                                <div className="font-bold text-blue-900">3. Firmaya Ait Önceden Alınan Feragatlar</div>
+                                                <div className="mt-1">{getFieldValue('Firmaya Ait Önceden Alınan Feragatlar')}</div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            {/* Row 2: Four columns */}
+                            <div className="border-l border-r border-b border-black">
+                                <table className="w-full text-[10px]">
+                                    <tbody>
+                                        <tr>
+                                            <td className="border-r border-t border-black p-2 bg-blue-50">
+                                                <div className="font-bold text-blue-900">4. Proje No</div>
+                                                <div className="mt-1">{getFieldValue('Proje No')}</div>
+                                            </td>
+                                            <td className="border-r border-t border-black p-2 bg-blue-50">
+                                                <div className="font-bold text-blue-900">5. Proje Tanımı</div>
+                                                <div className="mt-1">{getFieldValue('Proje Tanımı')}</div>
+                                            </td>
+                                            <td className="border-r border-t border-black p-2 bg-blue-50">
+                                                <div className="font-bold text-blue-900">6. Müşteri</div>
+                                                <div className="mt-1">{getFieldValue('Müşteri')}</div>
+                                            </td>
+                                            <td className="border-t border-black p-2 bg-blue-50">
+                                                <div className="font-bold text-blue-900">7. Proje Tipi</div>
+                                                <div className="mt-1">{getFieldValue('Proje Tipi')}</div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            {/* Row 3: Six columns */}
+                            <div className="border-l border-r border-b border-black">
+                                <table className="w-full text-[10px]">
+                                    <tbody>
+                                        <tr>
+                                            <td className="border-r border-t border-black p-2 bg-blue-50">
+                                                <div className="font-bold text-blue-900">8. Malzeme No</div>
+                                                <div className="mt-1">{getFieldValue('Malzeme No')}</div>
+                                            </td>
+                                            <td className="border-r border-t border-black p-2 bg-blue-50">
+                                                <div className="font-bold text-blue-900">9. Malzeme Tanımı</div>
+                                                <div className="mt-1">{getFieldValue('Malzeme Tanımı')}</div>
+                                            </td>
+                                            <td className="border-r border-t border-black p-2 bg-blue-50">
+                                                <div className="font-bold text-blue-900">10. Alım Türü</div>
+                                                <div className="mt-1">{getFieldValue('Alım Türü')}</div>
+                                            </td>
+                                            <td className="border-r border-t border-black p-2 bg-blue-50">
+                                                <div className="font-bold text-blue-900">11. Alım Adedi</div>
+                                                <div className="mt-1">{getFieldValue('Alım Adedi')}</div>
+                                            </td>
+                                            <td className="border-r border-t border-black p-2 bg-blue-50">
+                                                <div className="font-bold text-blue-900">12. İşin Sorumlusu/Bölümü</div>
+                                                <div className="mt-1">{getSorumluValue()}</div>
+                                            </td>
+                                            <td className="border-t border-black p-2 bg-blue-50">
+                                                <div className="font-bold text-blue-900">13. Bildirim No</div>
+                                                <div className="mt-1">{getFieldValue('Bildirim No')}</div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                        <div className="text-right">
-                            <div className="text-xs font-semibold text-gray-700">No:</div>
-                        </div>
-                    </div>
 
-                    {/* A. GENEL BİLGİLER Section */}
-                    <div className="mb-6">
-                        <div className="bg-blue-700 text-white font-bold text-center py-2 mb-4">
-                            A. GENEL BİLGİLER
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-4 mb-4">
-                            {/* Row 1 */}
-                            <div className="border-2 border-blue-300 bg-blue-50 p-3">
-                                <div className="text-xs font-bold text-blue-900 mb-1">1. Proje No</div>
-                                <div className="text-xs text-gray-600 mb-2">(Proje dörtlü kodu ve U-P'li kodu)</div>
-                                <div className="text-sm font-semibold">{getFieldValue('Proje No')}</div>
+                        {/* B. TALEP EDİLEN FERAGAT / DEĞERLENDİRMELER */}
+                        <div>
+                            <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
+                                {feragatTuru === 'Alt Yüklenici' ? 'B. FERAGATE AİT DEĞERLENDİRMELER' : 'B. TALEP EDİLEN FERAGAT'}
                             </div>
-                            
-                            <div className="border-2 border-blue-300 bg-blue-50 p-3">
-                                <div className="text-xs font-bold text-blue-900 mb-1">2. Proje Tanımı</div>
-                                <div className="text-xs text-gray-600 mb-2">(Proje uzun adı yazılır..)</div>
-                                <div className="text-sm font-semibold">{getFieldValue('Proje Tanımı')}</div>
-                            </div>
+                            {feragatTuru === 'Alt Yüklenici' ? (
+                                <div className="border border-black">
+                                    <table className="w-full text-[10px]">
+                                        <tbody>
+                                            {/* B1 */}
+                                            <tr className="border-b border-black">
+                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 w-16 align-top">B1</td>
+                                                <td className="border-r border-black p-2 align-top w-1/2">
+                                                    Firmanın onaylı olduğu bir faaliyet var mı, varsa nelerdir?
+                                                </td>
+                                                <td className="p-2 align-top bg-gray-50">{getFieldValue('Firmanın onaylı olduğu bir faaliyet var mı, varsa nelerdir?')}</td>
+                                            </tr>
+                                            
+                                            {/* B2 */}
+                                            <tr className="border-b border-black">
+                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">B2</td>
+                                                <td className="border-r border-black p-2 align-top">
+                                                    Firma hangi faaliyet alanlarında feragat alacaktır?
+                                                </td>
+                                                <td className="p-2 align-top bg-gray-50">{getFieldValue('Firma hangi faaliyet alanlarında feragat alacaktır?')}</td>
+                                            </tr>
+                                            
+                                            {/* B3 */}
+                                            <tr className="border-b border-black">
+                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">B3</td>
+                                                <td className="border-r border-black p-2 align-top">
+                                                    <div className="mb-2">Firmaya daha önce bir tetkik / ön ziyaret gerçekleştirildi mi ?</div>
+                                                    <div className="ml-2 space-y-1">
+                                                        <div>a) Tetkik Tarihi</div>
+                                                        <div>b) Tetkikte ortaya çıkan başlıca tespitler nelerdir ?</div>
+                                                    </div>
+                                                </td>
+                                                <td className="p-2 align-top bg-gray-50">
+                                                    <div className="mb-2">{getFieldValue('Firmaya daha önce bir tetkik / ön ziyaret gerçekleştirildi mi ?') === 'true' ? 'Evet' : 'Hayır'}</div>
+                                                    {getFieldValue('Firmaya daha önce bir tetkik / ön ziyaret gerçekleştirildi mi ?') === 'true' && (
+                                                        <div className="ml-2 space-y-1">
+                                                            <div>{getFieldValue('Tetkik Tarihi')}</div>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                            
+                                            {/* B4 */}
+                                            <tr className="border-b border-black">
+                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">B4</td>
+                                                <td className="border-r border-black p-2 align-top">
+                                                    <div className="mb-2">Firmaya Ait Önceden Alınan Feragat var mı ?</div>
+                                                    <div className="ml-2 space-y-1">
+                                                        <div>a) Feragat Tarihi</div>
+                                                        <div>b) Feragat Alınan Konu (X birimi tasarımı/üretimi vb.)</div>
+                                                        <div>c) Feragatlere konulan ödeme şerhhi var mı? Varsa son durumu nedir?</div>
+                                                    </div>
+                                                </td>
+                                                <td className="p-2 align-top bg-gray-50">
+                                                    <div className="mb-2">{getFieldValue('Firmaya Ait Önceden Alınan Feragat var mı ?') === 'true' ? 'Evet' : 'Hayır'}</div>
+                                                    {getFieldValue('Firmaya Ait Önceden Alınan Feragat var mı ?') === 'true' && (
+                                                        <div className="ml-2 space-y-1">
+                                                            <div>{getFieldValue('Feragat Tarihi')}</div>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                            
+                                            {/* B5 */}
+                                            <tr className="border-b border-black">
+                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">B5</td>
+                                                <td className="border-r border-black p-2 align-top">
+                                                    <div className="mb-2">Sipariş geçilmeden önce onaylı AY başvurusu sağlandı mı ?</div>
+                                                    <div className="ml-2">a) Başvuru Tarihi</div>
+                                                </td>
+                                                <td className="p-2 align-top bg-gray-50">
+                                                    <div className="mb-2">{getFieldValue('Sipariş geçilmeden önce onaylı AY başvurusu sağlandı mı ?') === 'true' ? 'Evet' : 'Hayır'}</div>
+                                                    {getFieldValue('Sipariş geçilmeden önce onaylı AY başvurusu sağlandı mı ?') === 'true' && (
+                                                        <div className="ml-2">{getFieldValue('Başvuru Tarihi')}</div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                            
+                                            {/* B6 */}
+                                            <tr className="border-b border-black">
+                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">B6</td>
+                                                <td className="border-r border-black p-2 align-top">
+                                                    <div className="mb-2">Teklif dönemi/öncesinde, teknik isterlerin yanı sıra idari/kalite isterleri firmaya iletildi mi?</div>
+                                                    <div className="ml-2">a) Firmaya KGK'ların nasıl aktarılacağı bilgisi</div>
+                                                </td>
+                                                <td className="p-2 align-top bg-gray-50">
+                                                    <div className="mb-2">{getFieldValue('Teklif dönemi/öncesinde, teknik isterlerin yanı sıra idari/kalite isterleri firmaya iletildi mi?') === 'true' ? 'Evet' : 'Hayır'}</div>
+                                                    <div className="ml-2">
+                                                        {getFieldValue('Teklif dönemi/öncesinde, teknik isterlerin yanı sıra idari/kalite isterleri firmaya iletildi mi?') === 'true' 
+                                                            ? getFieldValue('Firmaya iletilen KGK\'lar')
+                                                            : getFieldValue('Firmaya KGK\'ların nasıl aktarılacağı bilgisi')}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : (
+                                <div className="border border-gray-400 p-2 bg-gray-50 min-h-[60px]">
+                                    <div className="text-[10px] text-gray-700">{getFieldValue('Detaylı açıklayınız')}</div>
+                                </div>
+                            )}
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4 mb-4">
-                            <div className="border-2 border-blue-300 bg-blue-50 p-3">
-                                <div className="text-xs font-bold text-blue-900 mb-1">3. Müşteri</div>
-                                <div className="text-xs text-gray-600 mb-2">(Proje Ana Sözleşmesi'nin imza makamı yazılır..)</div>
-                                <div className="text-sm font-semibold">{getFieldValue('Müşteri')}</div>
+                        {/* C. FERAGATE AİT GEREKÇELER */}
+                        <div>
+                            <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
+                                C. FERAGATE AİT GEREKÇELER
                             </div>
-                            
-                            <div className="border-2 border-blue-300 bg-blue-50 p-3">
-                                <div className="text-xs font-bold text-blue-900 mb-1">4. Proje Tipi</div>
-                                <div className="text-xs text-gray-600 mb-2">(Geliştirme, Üretim, Öz Kaynaklı vb. tiplerden biri yazılır..)</div>
-                                <div className="text-sm font-semibold">{getFieldValue('Proje Tipi')}</div>
-                            </div>
+                            {feragatTuru === 'Alt Yüklenici' ? (
+                                <div className="border border-black">
+                                    <table className="w-full text-[10px]">
+                                        <tbody>
+                                            <tr className="border-b border-black">
+                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 w-16 align-top">C1</td>
+                                                <td className="p-2 align-top bg-gray-50">GEREKÇE-21</td>
+                                            </tr>
+                                            <tr className="border-b border-black">
+                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">C2</td>
+                                                <td className="p-2 align-top bg-gray-50">GEREKÇE-22</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : (
+                                <div className="border border-black p-3 bg-gray-50 min-h-[60px]">
+                                    <div className="text-[10px] text-gray-700">
+                                        {getFieldValue('Talep Edilen Feragat Hakkında Gerekçeler')}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
-                        <div className="grid grid-cols-4 gap-4">
-                            <div className="border-2 border-blue-300 bg-blue-50 p-3">
-                                <div className="text-xs font-bold text-blue-900 mb-1">5. Proje Aşaması</div>
-                                <div className="text-xs text-gray-600 mb-2">Proje hangi fazdaysa (Geliştirme, doğrulama, seri üretim vb.) seçilir..</div>
-                                <div className="text-sm font-semibold">{getFieldValue('Proje Aşaması')}</div>
+                        {/* D. FERAGATİN OLASI ETKİLERİ */}
+                        <div>
+                            <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
+                                D. FERAGATİN OLASI ETKİLERİ
                             </div>
-                            
-                            <div className="border-2 border-blue-300 bg-blue-50 p-3">
-                                <div className="text-xs font-bold text-blue-900 mb-1">6. Proje Süresi (ay)</div>
-                                <div className="text-xs text-gray-600 mb-2">(Proje süresi ay şeklinde yazılır..)</div>
-                                <div className="text-sm font-semibold">{getFieldValue('Proje Süresi')}</div>
-                            </div>
-
-                            <div className="border-2 border-blue-300 bg-blue-50 p-3">
-                                <div className="text-xs font-bold text-blue-900 mb-1">7. İlgili Süreçler</div>
-                                <div className="text-xs text-gray-600 mb-2">(Hangi süreçler etkileniyorsa yazılır..)</div>
-                                <div className="text-sm font-semibold">{getFieldValue('İlgili Süreçler')}</div>
-                            </div>
-
-                            <div className="border-2 border-blue-300 bg-blue-50 p-3">
-                                <div className="text-xs font-bold text-blue-900 mb-1">8. Feragat Sorumlusu</div>
-                                <div className="text-xs text-gray-600 mb-2">(Feragatin sorumlusu kişi/kisiler yazılır..)</div>
-                                <div className="text-sm font-semibold">{getFieldValue('Feragat Sorumlusu')}</div>
-                            </div>
+                            {feragatTuru === 'Alt Yüklenici' ? (
+                                <div className="space-y-0">
+                                    {/* İdari Riskler/Eylem Planı */}
+                                    <div className="border border-black border-b-0">
+                                        <div className="bg-blue-900 text-white text-center py-1 text-[10px] font-bold">
+                                            İdari Riskler/Eylem Planı
+                                        </div>
+                                        <table className="w-full text-[10px]">
+                                            <thead>
+                                                <tr className="bg-gray-200 border-t border-b border-black">
+                                                    <th className="border-r border-black p-1 font-bold text-center w-12"></th>
+                                                    <th className="border-r border-black p-1 font-bold text-center">Riskler</th>
+                                                    <th className="border-r border-black p-1 font-bold text-center">Risk Azaltıcı/Önleyici Faaliyetler/Eylem Planı</th>
+                                                    <th className="p-1 font-bold text-center">Sorumlu</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr className="border-b border-black">
+                                                    <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">İR.1</td>
+                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                    <td className="p-2 align-top bg-gray-50"></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    {/* Teknik Riskler/Eylem Planı */}
+                                    <div className="border border-black border-b-0">
+                                        <div className="bg-blue-900 text-white text-center py-1 text-[10px] font-bold">
+                                            Teknik Riskler/Eylem Planı
+                                        </div>
+                                        <table className="w-full text-[10px]">
+                                            <thead>
+                                                <tr className="bg-gray-200 border-t border-b border-black">
+                                                    <th className="border-r border-black p-1 font-bold text-center w-12"></th>
+                                                    <th className="border-r border-black p-1 font-bold text-center">Riskler</th>
+                                                    <th className="border-r border-black p-1 font-bold text-center">Risk Azaltıcı/Önleyici Faaliyetler/Eylem Planı</th>
+                                                    <th className="p-1 font-bold text-center">Sorumlu</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr className="border-b border-black">
+                                                    <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">TR.1</td>
+                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                    <td className="p-2 align-top bg-gray-50"></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    {/* Kalite Riskleri/Eylem Planı */}
+                                    <div className="border border-black">
+                                        <div className="bg-blue-900 text-white text-center py-1 text-[10px] font-bold">
+                                            Kalite Riskleri/Eylem Planı
+                                        </div>
+                                        <table className="w-full text-[10px]">
+                                            <thead>
+                                                <tr className="bg-gray-200 border-t border-b border-black">
+                                                    <th className="border-r border-black p-1 font-bold text-center w-12"></th>
+                                                    <th className="border-r border-black p-1 font-bold text-center">Riskler</th>
+                                                    <th className="border-r border-black p-1 font-bold text-center">Risk Azaltıcı/Önleyici Faaliyetler/Eylem Planı</th>
+                                                    <th className="p-1 font-bold text-center">Sorumlu</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr className="border-b border-black">
+                                                    <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">KR.1</td>
+                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                    <td className="p-2 align-top bg-gray-50"></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="border border-black p-3 bg-gray-50 min-h-[60px]">
+                                    <div className="text-[8px] text-gray-700">{getFieldValue('Feragatin Olası Etkileri')}</div>
+                                </div>
+                            )}
                         </div>
 
-                        <div className="mt-4 border-2 border-blue-300 bg-blue-50 p-3">
-                            <div className="text-xs font-bold text-blue-900 mb-1">9. Feragat Bildirim Numarası</div>
-                            <div className="text-xs text-gray-600 mb-2">(Feragatin koordinasyonu için başlatılan bildirim numarası yazılır..)</div>
-                            <div className="text-sm font-semibold">{getFieldValue('Feragat Bildirim Numarası')}</div>
-                        </div>
-                    </div>
-
-                    {/* B. TALEP EDİLEN FERAGAT Section */}
-                    <div className="mb-6">
-                        <div className="bg-blue-700 text-white font-bold text-center py-2 mb-4">
-                            B. TALEP EDİLEN FERAGAT
-                        </div>
-                        
-                        <div className="border-2 border-blue-300 p-4 bg-gray-50">
-                            <div className="text-xs text-gray-700 leading-relaxed">
-                                (Feragatin ne olduğu, hangi sürecin hangi adımından veya hangi sebepten dolayı feragat talındığı açık, net ve izlenebilir şekilde yazılır..)<br />
-                                (Ör: MM-XXXX-YYYY stoklu seri üretim çıktısı olan biriminin ....... sebebiyle, prototip birimim müşteriye teslim edilecek sistemde kullanılması için feragat talep edilmektedir..)
+                        {/* E. HAZIRLAYAN */}
+                        <div>
+                            <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
+                                E. HAZIRLAYAN
                             </div>
-                        </div>
-                    </div>
-
-                    {/* F. KONTROL Section */}
-                    {getGorevList().length > 0 && (
-                        <div className="mb-6">
-                            <div className="bg-blue-700 text-white font-bold text-center py-2 mb-4">
-                                F. KONTROL
-                            </div>
-                            
-                            <div className="border-2 border-blue-300 rounded-lg overflow-hidden">
-                                <table className="w-full text-xs">
+                            <div className="border border-gray-400">
+                                <table className="w-full text-[10px]">
                                     <thead>
-                                        <tr className="bg-blue-100 border-b-2 border-blue-300">
-                                            <th className="text-center py-2 px-3 font-bold text-blue-900 border-r border-blue-300">Görev</th>
-                                            <th className="text-center py-2 px-3 font-bold text-blue-900 border-r border-blue-300">Ad Soyad</th>
-                                            <th className="text-center py-2 px-3 font-bold text-blue-900 border-r border-blue-300">İmza</th>
-                                            <th className="text-center py-2 px-3 font-bold text-blue-900">Tarih</th>
+                                        <tr className="bg-gray-200 border-b border-gray-400">
+                                            <th className="border-r border-gray-400 p-1 font-bold text-center">Görev</th>
+                                            <th className="border-r border-gray-400 p-1 font-bold text-center">Ad/Soyad</th>
+                                            <th className="border-r border-gray-400 p-1 font-bold text-center">Tarih</th>
+                                            <th className="p-1 font-bold text-center">İmza</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {getGorevList().map((gorev, idx) => (
-                                            <tr key={idx} className="border-b border-blue-200 hover:bg-blue-50">
-                                                <td className="py-3 px-3 text-gray-800 font-medium border-r border-blue-200">{gorev}</td>
-                                                <td className="py-3 px-3 text-gray-700 border-r border-blue-200">&nbsp;</td>
-                                                <td className="py-3 px-3 text-gray-700 border-r border-blue-200">&nbsp;</td>
-                                                <td className="py-3 px-3 text-gray-700">&nbsp;</td>
+                                        {['Proje Yöneticisi', getSorumluLabel(), 'Sorumlu Müdür'].map((gorev, idx) => (
+                                            <tr key={idx} className="border-b border-gray-300">
+                                                <td className="border-r border-gray-400 p-1 font-bold bg-gray-100">{gorev}</td>
+                                                <td className="border-r border-gray-400 p-1">&nbsp;</td>
+                                                <td className="border-r border-gray-400 p-1">&nbsp;</td>
+                                                <td className="p-1">&nbsp;</td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
-                    )}
 
-                    {/* Data Table */}
-                    <div className="mt-6 border-2 border-gray-200 rounded-lg overflow-hidden">
-                        <table className="w-full text-xs">
-                            <thead>
-                                <tr className="bg-gray-100 border-b border-gray-300">
-                                    <th className="text-left py-2 px-3 font-bold text-gray-700">Alan Adı</th>
-                                    <th className="text-left py-2 px-3 font-bold text-gray-700">Değer</th>
-                                    <th className="text-left py-2 px-3 font-bold text-gray-700">Güncelleme Tarihi</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {data.map((item, idx) => (
-                                    <tr key={idx} className="border-b border-gray-200 hover:bg-blue-50">
-                                        <td className="py-2 px-3 text-gray-800 font-medium">{item.name}</td>
-                                        <td className="py-2 px-3 text-gray-700">
-                                            <div className="max-w-md truncate" title={extractValue(item.value)}>
-                                                {extractValue(item.value)}
-                                            </div>
-                                        </td>
-                                        <td className="py-2 px-3 text-gray-600">
-                                            {item.updated_at ? new Date(item.updated_at).toLocaleString('tr-TR') : ''}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                        {/* F. KONTROL */}
+                        <div>
+                            <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
+                                F. KONTROL
+                            </div>
+                            <div className="border border-black border-t-0">
+                                <table className="w-full text-[10px]">
+                                    <thead>
+                                        <tr className="bg-gray-200 border-b border-black">
+                                            <th className="border-r border-black p-1 font-bold text-center">Görev</th>
+                                            <th className="border-r border-black p-1 font-bold text-center">Ad/Soyad</th>
+                                            <th className="border-r border-black p-1 font-bold text-center">Tarih</th>
+                                            <th className="p-1 font-bold text-center">İmza</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {getGorevList().length > 0 ? (
+                                            getGorevList().map((gorev, idx) => (
+                                                <tr key={idx} className="border-b border-black last:border-b-0">
+                                                    <td className="border-r border-black p-2 align-top">{gorev}</td>
+                                                    <td className="border-r border-black p-2 align-top bg-gray-50">Soner Gökberk CABBAR</td>
+                                                    <td className="border-r border-black p-2 align-top bg-gray-50">08-04-2026</td>
+                                                    <td className="p-2 align-top bg-gray-50">Onaylanmıştır</td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr className="border-b border-black">
+                                                <td className="border-r border-black p-2 align-top" colSpan={4}>
+                                                    <div className="text-center text-gray-500">Görev listesi tanımlı değil</div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* G. ONAY */}
+                        <div>
+                            <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
+                                G. ONAY
+                            </div>
+                            <div className="border border-black border-t-0">
+                                <table className="w-full text-[10px]">
+                                    <thead>
+                                        <tr className="bg-gray-200 border-b border-black">
+                                            <th className="border-r border-black p-1 font-bold text-center">Görev</th>
+                                            <th className="border-r border-black p-1 font-bold text-center">Ad/Soyad</th>
+                                            <th className="border-r border-black p-1 font-bold text-center">Tarih</th>
+                                            <th className="p-1 font-bold text-center">İmza</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr className="border-b border-black">
+                                            <td className="border-r border-black p-2 align-top font-bold">REHİS Sektör Başkanı</td>
+                                            <td className="border-r border-black p-2 align-top bg-gray-50">Soner Gökberk CABBAR</td>
+                                            <td className="border-r border-black p-2 align-top bg-gray-50">08-04-2026</td>
+                                            <td className="p-2 align-top bg-gray-50">Onaylanmıştır</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
             ) : (
-                <div className="bg-white border-2 border-gray-200 rounded-xl p-12 flex flex-col items-center justify-center">
-                    <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <p className="text-gray-500 text-center">Bu Job Instance için form verisi bulunamadı</p>
+                <div className="flex-1 flex items-center justify-center">
+                    <p className="text-gray-500 text-sm">Form verisi bulunamadı</p>
                 </div>
             )}
         </div>
