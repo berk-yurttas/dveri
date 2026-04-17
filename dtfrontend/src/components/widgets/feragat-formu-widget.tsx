@@ -20,6 +20,16 @@ interface AttributeData {
     updated_at: string
 }
 
+interface StepInfo {
+    assignee: string
+    completed_at: string
+    fullName?: string
+}
+
+interface StepDataMap {
+    [gorev: string]: StepInfo
+}
+
 interface FeragatFormuWidgetProps {
     widgetId?: string
 }
@@ -82,6 +92,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     const instanceRef = useRef(widgetId || `feragat-formu-${Math.random().toString(36).substr(2, 9)}`)
     
     const [data, setData] = useState<AttributeData[]>([])
+    const [stepData, setStepData] = useState<StepDataMap>({})
     const [loading, setLoading] = useState(true)
     const [downloading, setDownloading] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -118,6 +129,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
 
         const fetchData = async () => {
             try {
+                // Fetch form attributes
                 const sql = `
                     SELECT 
                         ad."name",
@@ -141,6 +153,76 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 }))
 
                 setData(formattedData)
+                
+                // Fetch step definitions for E, F, G sections from job_step_instances
+                const stepSql = `
+                    SELECT 
+                        sd.name,
+                        si.assignee,
+                        si.completed_at
+                    FROM 
+                        job_step_instances si
+                    LEFT JOIN step_definitions sd ON si.step_definition_id = sd.id
+                    WHERE si.job_id = '${jobInstanceId}'
+                    AND sd.name LIKE '%Onayı'
+                    AND si.status = 'done'
+                    ORDER BY sd.id
+                `
+                
+                const stepRows = await runQuery(stepSql, seyirDbConfig)
+                
+                if (cancelled) return
+                
+                const stepDataMap: StepDataMap = {}
+                const userCache: { [username: string]: any } = {}
+                
+                // First, collect all unique assignees
+                const assignees = new Set<string>()
+                stepRows.forEach(row => {
+                    const assignee = row[1] || ''
+                    if (assignee) assignees.add(assignee)
+                })
+                
+                // Fetch user info from Pocketbase for all assignees
+                for (const username of Array.from(assignees)) {
+                    try {
+                        const userRes = await api.get(`/feragat-formu/get-user-info?username=${encodeURIComponent(username)}`)
+                        if ((userRes as any).name || (userRes as any).surname) {
+                            userCache[username] = {
+                                name: (userRes as any).name || '',
+                                surname: (userRes as any).surname || ''
+                            }
+                        } else {
+                            userCache[username] = { name: username, surname: '' }
+                        }
+                    } catch (err) {
+                        console.error(`Failed to fetch user ${username}:`, err)
+                        userCache[username] = { name: username, surname: '' }
+                    }
+                }
+                
+                // Build step data with full names
+                stepRows.forEach(row => {
+                    const name = row[0] || ''
+                    const assignee = row[1] || ''
+                    const completed_at = row[2] || ''
+                    
+                    // Remove " Onayı" suffix to get the Görev name
+                    const gorev = name.replace(' Onayı', '').trim()
+                    
+                    if (gorev && assignee) {
+                        const userInfo = userCache[assignee] || { name: assignee, surname: '' }
+                        const fullName = `${userInfo.name} ${userInfo.surname}`.trim()
+                        
+                        stepDataMap[gorev] = {
+                            assignee: assignee,
+                            completed_at: completed_at,
+                            fullName: fullName
+                        }
+                    }
+                })
+                
+                setStepData(stepDataMap)
             } catch (err: any) {
                 if (!cancelled) {
                     console.error('Error loading feragat formu:', err)
@@ -202,6 +284,59 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         const field = data.find(d => d.name.includes(fieldName))
         return field ? extractValue(field.value) : ''
     }
+    
+    const getSignature = (gorev: string): string => {
+        const signatureKey = `${gorev} Onayı`
+        return getFieldValue(signatureKey)
+    }
+    
+    const getRiskData = (attributeName: string) => {
+        const field = data.find(d => d.name === attributeName)
+        if (!field || !field.value) return []
+        
+        try {
+            let riskList = []
+            if (typeof field.value === 'string') {
+                riskList = JSON.parse(field.value)
+            } else if (Array.isArray(field.value)) {
+                riskList = field.value
+            }
+            
+            return riskList.map((item: any) => {
+                const sorumluRaw = item.sorumlu || ''
+                let sorumluName = ''
+                
+                // Extract name from sorumlu array: sorumlu[0]["name"]
+                if (Array.isArray(sorumluRaw) && sorumluRaw.length > 0) {
+                    const firstItem = sorumluRaw[0]
+                    if (typeof firstItem === 'object' && firstItem.name) {
+                        sorumluName = firstItem.name
+                    }
+                } else if (typeof sorumluRaw === 'string') {
+                    sorumluName = sorumluRaw
+                }
+                
+                return {
+                    riskler: item.riskler || '',
+                    eylem_plani: item.risk_azaltici_onleyici_faaliyetler_eylem_plani || '',
+                    sorumlu: sorumluName
+                }
+            })
+        } catch (err) {
+            console.error(`Failed to parse ${attributeName}:`, err)
+            return []
+        }
+    }
+
+    const formatDate = (dateStr: string): string => {
+        if (!dateStr) return ''
+        try {
+            const date = new Date(dateStr)
+            return date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        } catch {
+            return dateStr
+        }
+    }
 
     const feragatTuru = getFieldValue('Feragat Türü')
     const projeTuru = getFieldValue('Proje Türü')
@@ -249,7 +384,47 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     }
     
     const getSorumluValue = (): string => {
-        return feragatTuru === 'Alt Yüklenici' ? getFieldValue('AY Sorumlusu') : getFieldValue('Feragat Sorumlusu')
+        const field = data.find(d => d.name === 'İşin Sorumlusu/Bölümü')
+        if (!field || !field.value) return ''
+        
+        try {
+            let isinList = []
+            if (typeof field.value === 'string') {
+                isinList = JSON.parse(field.value)
+            } else if (Array.isArray(field.value)) {
+                isinList = field.value
+            }
+            
+            if (isinList.length > 0) {
+                const item = isinList[0]
+                if (typeof item === 'object') {
+                    const name = item.name || ''
+                    const department = item.department || ''
+                    
+                    // Split department by '_' and get last 3 items
+                    if (department) {
+                        const deptParts = department.split('_')
+                        const lastThree = deptParts.length >= 3 ? deptParts.slice(-3) : deptParts
+                        const deptFormatted = lastThree.join(' ')
+                        
+                        if (name && deptFormatted) {
+                            return `${name} - ${deptFormatted}`
+                        } else if (name) {
+                            return name
+                        } else if (deptFormatted) {
+                            return deptFormatted
+                        }
+                    } else if (name) {
+                        return name
+                    }
+                }
+            }
+            
+            return ''
+        } catch (err) {
+            console.error('Failed to parse İşin Sorumlusu/Bölümü:', err)
+            return ''
+        }
     }
 
     if (loading) {
@@ -342,8 +517,8 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                 <div className="mt-1">{getFieldValue('Firmaya Daha Önceden Gerçekleştirilen Tetkik')}</div>
                                             </td>
                                             <td className="p-2 bg-blue-50 w-1/3">
-                                                <div className="font-bold text-blue-900">3. Firmaya Ait Önceden Alınan Feragatlar</div>
-                                                <div className="mt-1">{getFieldValue('Firmaya Ait Önceden Alınan Feragatlar')}</div>
+                                                <div className="font-bold text-blue-900">3. Firmaya Ait Önceden Alınan Feragatler</div>
+                                                <div className="mt-1">{getFieldValue('Firmaya Ait Önceden Alınan Feragatler')}</div>
                                             </td>
                                         </tr>
                                     </tbody>
@@ -462,9 +637,9 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                 <td className="border-r border-black p-2 align-top">
                                                     <div className="mb-2">Firmaya Ait Önceden Alınan Feragat var mı ?</div>
                                                     <div className="ml-2 space-y-1">
-                                                        <div>a) Feragat Tarihi</div>
-                                                        <div>b) Feragat Alınan Konu (X birimi tasarımı/üretimi vb.)</div>
-                                                        <div>c) Feragatlere konulan ödeme şerhhi var mı? Varsa son durumu nedir?</div>
+                                                        <div>a. Feragat Tarihi</div>
+                                                        <div>b. Feragat Alınan Konu (X birimi tasarımı/üretimi vb.)</div>
+                                                        <div>c. Feragatlere konulan ödeme şerhi var mı? Varsa son durumu nedir?</div>
                                                     </div>
                                                 </td>
                                                 <td className="p-2 align-top bg-gray-50">
@@ -472,6 +647,8 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                     {getFieldValue('Firmaya Ait Önceden Alınan Feragat var mı ?') === 'true' && (
                                                         <div className="ml-2 space-y-1">
                                                             <div>{getFieldValue('Feragat Tarihi')}</div>
+                                                            <div>{getFieldValue('Feragat Alınan Konu (X birimi tasarımı/üretimi vb.)')}</div>
+                                                            <div>{getFieldValue('Feragatlere konulan ödeme şerhi var mı? Varsa son durumu nedir?')}</div>
                                                         </div>
                                                     )}
                                                 </td>
@@ -569,12 +746,27 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <tr className="border-b border-black">
-                                                    <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">İR.1</td>
-                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                    <td className="p-2 align-top bg-gray-50"></td>
-                                                </tr>
+                                                {(() => {
+                                                    const idariRisks = getRiskData('Feragatin Olası Etkileri (İdari Riskler/Eylem Planı)')
+                                                    if (idariRisks.length === 0) {
+                                                        return (
+                                                            <tr className="border-b border-black">
+                                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">İR.1</td>
+                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                                <td className="p-2 align-top bg-gray-50"></td>
+                                                            </tr>
+                                                        )
+                                                    }
+                                                    return idariRisks.map((risk: any, idx: number) => (
+                                                        <tr key={idx} className="border-b border-black">
+                                                            <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">İR.{idx + 1}</td>
+                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.riskler}</td>
+                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.eylem_plani}</td>
+                                                            <td className="p-2 align-top bg-gray-50">{risk.sorumlu}</td>
+                                                        </tr>
+                                                    ))
+                                                })()}
                                             </tbody>
                                         </table>
                                     </div>
@@ -594,12 +786,27 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <tr className="border-b border-black">
-                                                    <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">TR.1</td>
-                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                    <td className="p-2 align-top bg-gray-50"></td>
-                                                </tr>
+                                                {(() => {
+                                                    const teknikRisks = getRiskData('Feragatin Olası Etkileri (Teknik Riskler/Eylem Planı)')
+                                                    if (teknikRisks.length === 0) {
+                                                        return (
+                                                            <tr className="border-b border-black">
+                                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">TR.1</td>
+                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                                <td className="p-2 align-top bg-gray-50"></td>
+                                                            </tr>
+                                                        )
+                                                    }
+                                                    return teknikRisks.map((risk: any, idx: number) => (
+                                                        <tr key={idx} className="border-b border-black">
+                                                            <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">TR.{idx + 1}</td>
+                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.riskler}</td>
+                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.eylem_plani}</td>
+                                                            <td className="p-2 align-top bg-gray-50">{risk.sorumlu}</td>
+                                                        </tr>
+                                                    ))
+                                                })()}
                                             </tbody>
                                         </table>
                                     </div>
@@ -619,12 +826,27 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <tr className="border-b border-black">
-                                                    <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">KR.1</td>
-                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                    <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                    <td className="p-2 align-top bg-gray-50"></td>
-                                                </tr>
+                                                {(() => {
+                                                    const kaliteRisks = getRiskData('Feragatin Olası Etkileri (Kalite Riskleri/Eylem Planı)')
+                                                    if (kaliteRisks.length === 0) {
+                                                        return (
+                                                            <tr className="border-b border-black">
+                                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">KR.1</td>
+                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                                <td className="p-2 align-top bg-gray-50"></td>
+                                                            </tr>
+                                                        )
+                                                    }
+                                                    return kaliteRisks.map((risk: any, idx: number) => (
+                                                        <tr key={idx} className="border-b border-black">
+                                                            <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">KR.{idx + 1}</td>
+                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.riskler}</td>
+                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.eylem_plani}</td>
+                                                            <td className="p-2 align-top bg-gray-50">{risk.sorumlu}</td>
+                                                        </tr>
+                                                    ))
+                                                })()}
                                             </tbody>
                                         </table>
                                     </div>
@@ -652,14 +874,22 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {['Proje Yöneticisi', getSorumluLabel(), 'Sorumlu Müdür'].map((gorev, idx) => (
-                                            <tr key={idx} className="border-b border-gray-300">
-                                                <td className="border-r border-gray-400 p-1 font-bold bg-gray-100">{gorev}</td>
-                                                <td className="border-r border-gray-400 p-1">&nbsp;</td>
-                                                <td className="border-r border-gray-400 p-1">&nbsp;</td>
-                                                <td className="p-1">&nbsp;</td>
-                                            </tr>
-                                        ))}
+                                        {['Proje Yöneticisi', getSorumluLabel(), 'Sorumlu Müdür'].map((gorev, idx) => {
+                                            const stepInfo = stepData[gorev] || {}
+                                            const fullName = stepInfo.fullName || ''
+                                            const completedAt = stepInfo.completed_at || ''
+                                            const tarih = completedAt ? formatDate(completedAt) : ''
+                                            const imza = getSignature(gorev)
+                                            
+                                            return (
+                                                <tr key={idx} className="border-b border-gray-300">
+                                                    <td className="border-r border-gray-400 p-1 font-bold bg-gray-100">{gorev}</td>
+                                                    <td className="border-r border-gray-400 p-1">{fullName}</td>
+                                                    <td className="border-r border-gray-400 p-1">{tarih}</td>
+                                                    <td className="p-1">{imza}</td>
+                                                </tr>
+                                            )
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
@@ -682,14 +912,22 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                     </thead>
                                     <tbody>
                                         {getGorevList().length > 0 ? (
-                                            getGorevList().map((gorev, idx) => (
-                                                <tr key={idx} className="border-b border-black last:border-b-0">
-                                                    <td className="border-r border-black p-2 align-top">{gorev}</td>
-                                                    <td className="border-r border-black p-2 align-top bg-gray-50">Soner Gökberk CABBAR</td>
-                                                    <td className="border-r border-black p-2 align-top bg-gray-50">08-04-2026</td>
-                                                    <td className="p-2 align-top bg-gray-50">Onaylanmıştır</td>
-                                                </tr>
-                                            ))
+                                            getGorevList().map((gorev, idx) => {
+                                                const stepInfo = stepData[gorev] || {}
+                                                const fullName = stepInfo.fullName || ''
+                                                const completedAt = stepInfo.completed_at || ''
+                                                const tarih = completedAt ? formatDate(completedAt) : ''
+                                                const imza = getSignature(gorev)
+                                                
+                                                return (
+                                                    <tr key={idx} className="border-b border-black last:border-b-0">
+                                                        <td className="border-r border-black p-2 align-top">{gorev}</td>
+                                                        <td className="border-r border-black p-2 align-top bg-gray-50">{fullName}</td>
+                                                        <td className="border-r border-black p-2 align-top bg-gray-50">{tarih}</td>
+                                                        <td className="p-2 align-top bg-gray-50">{imza}</td>
+                                                    </tr>
+                                                )
+                                            })
                                         ) : (
                                             <tr className="border-b border-black">
                                                 <td className="border-r border-black p-2 align-top" colSpan={4}>
@@ -718,12 +956,23 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr className="border-b border-black">
-                                            <td className="border-r border-black p-2 align-top font-bold">REHİS Sektör Başkanı</td>
-                                            <td className="border-r border-black p-2 align-top bg-gray-50">Soner Gökberk CABBAR</td>
-                                            <td className="border-r border-black p-2 align-top bg-gray-50">08-04-2026</td>
-                                            <td className="p-2 align-top bg-gray-50">Onaylanmıştır</td>
-                                        </tr>
+                                        {(() => {
+                                            const gorev = 'REHİS Sektör Başkanı'
+                                            const stepInfo = stepData[gorev] || {}
+                                            const fullName = stepInfo.fullName || ''
+                                            const completedAt = stepInfo.completed_at || ''
+                                            const tarih = completedAt ? formatDate(completedAt) : ''
+                                            const imza = getSignature(gorev)
+                                            
+                                            return (
+                                                <tr className="border-b border-black">
+                                                    <td className="border-r border-black p-2 align-top font-bold">{gorev}</td>
+                                                    <td className="border-r border-black p-2 align-top bg-gray-50">{fullName}</td>
+                                                    <td className="border-r border-black p-2 align-top bg-gray-50">{tarih}</td>
+                                                    <td className="p-2 align-top bg-gray-50">{imza}</td>
+                                                </tr>
+                                            )
+                                        })()}
                                     </tbody>
                                 </table>
                             </div>

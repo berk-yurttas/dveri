@@ -34,6 +34,25 @@ from app.schemas.user import User
 
 router = APIRouter()
 
+
+@router.get("/get-user-info")
+async def get_user_info(
+    username: str = Query(..., description="Username to fetch"),
+    current_user: User = Depends(check_authenticated)
+):
+    """Get user name and surname from Pocketbase by username"""
+    try:
+        user_info = await get_pocketbase_user(username)
+        return {
+            "username": username,
+            "name": user_info.get("name", ""),
+            "surname": user_info.get("surname", ""),
+            "fullName": f"{user_info.get('name', '')} {user_info.get('surname', '')}".strip()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch user info: {str(e)}")
+
+
 # Register font with Turkish character support
 # DejaVu Sans has excellent Unicode/Turkish support and is commonly available in Docker containers
 import os
@@ -318,6 +337,50 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         signature_key = f"{gorev} Onayı"
         return form_data.get(signature_key, "")
     
+    # Helper to parse İşin Sorumlusu/Bölümü field
+    def get_isin_sorumlusu_bolumu() -> str:
+        """
+        Parse İşin Sorumlusu/Bölümü which is an array with one object.
+        Extract name from arr[0]['name']
+        Extract department from arr[0]['department'], split by '_' and use last 3 items
+        Return formatted as: "Name - Dept1 Dept2 Dept3"
+        """
+        isin_sorumlusu_raw = form_data.get("İşin Sorumlusu/Bölümü", None)
+        
+        if not isin_sorumlusu_raw:
+            return ""
+        
+        try:
+            isin_list = []
+            if isinstance(isin_sorumlusu_raw, list):
+                isin_list = isin_sorumlusu_raw
+            elif isinstance(isin_sorumlusu_raw, str):
+                isin_list = json.loads(isin_sorumlusu_raw)
+            
+            if isin_list and len(isin_list) > 0:
+                item = isin_list[0]
+                if isinstance(item, dict):
+                    name = item.get('name', '')
+                    department = item.get('department', '')
+                    
+                    # Split department by '_' and get last 3 items
+                    if department:
+                        dept_parts = department.split('_')
+                        last_three = dept_parts[-3:] if len(dept_parts) >= 3 else dept_parts
+                        dept_formatted = ' '.join(last_three)
+                        
+                        if name and dept_formatted:
+                            return f"{name} - {dept_formatted}"
+                        elif name:
+                            return name
+                        elif dept_formatted:
+                            return dept_formatted
+            
+            return ""
+        except Exception as e:
+            print(f"[ERROR] Failed to parse İşin Sorumlusu/Bölümü: {e}")
+            return ""
+    
     # Create PDF with portrait orientation (A4)
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -470,21 +533,21 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                 Paragraph('<b>2. Firmaya Daha Önceden Gerçekleştirilen Tetkik</b>', 
                           ParagraphStyle('AL2', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
                 '',
-                Paragraph('<b>3. Firmaya Ait Önceden Alınan Feragatlar</b>', 
+                Paragraph('<b>3. Firmaya Ait Önceden Alınan Feragatler</b>', 
                           ParagraphStyle('AL3', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
                 '',
                 ''
             ],
             # Sub-row 2: Values
             [
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Firma Adı/Satıcı no", "")}</font>', 
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Firma Adı/ Satıcı no", "")}</font>', 
                           ParagraphStyle('AV1', fontSize=8, fontName=FONT_NAME)),
                 '',
                 '',
                 Paragraph(f'<font size=8 color="#374151">{form_data.get("Firmaya Daha Önceden Gerçekleştirilen Tetkik", "")}</font>', 
                           ParagraphStyle('AV2', fontSize=8, fontName=FONT_NAME)),
                 '',
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Firmaya Ait Önceden Alınan Feragatlar", "")}</font>', 
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Firmaya Ait Önceden Alınan Feragatler", "")}</font>', 
                           ParagraphStyle('AV3', fontSize=8, fontName=FONT_NAME)),
                 '',
                 ''
@@ -527,10 +590,10 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                 ''
             ],
             [
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje No", "")}</font>', 
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje No (Proje kodu ve U-P" + chr(39) + "li kodu XXXX/PYYYYYYY)", "")}</font>', 
                           ParagraphStyle('AV4', fontSize=8, fontName=FONT_NAME)),
                 '',
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tanımı", "")}</font>', 
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tanımı ( Proje Adı)", "")}</font>', 
                           ParagraphStyle('AV5', fontSize=8, fontName=FONT_NAME)),
                 '',
                 Paragraph(f'<font size=8 color="#374151">{form_data.get("Müşteri ( Proje Ana Sözleşmesi" + chr(39) + "nin imza makamı )", "")}</font>', 
@@ -591,7 +654,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                           ParagraphStyle('AV10', fontSize=8, fontName=FONT_NAME)),
                 Paragraph(f'<font size=8 color="#374151">{form_data.get("Alım Adedi", "")}</font>', 
                           ParagraphStyle('AV11', fontSize=8, fontName=FONT_NAME)),
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("İşin Sorumlusu/Bölümü", "")}</font>', 
+                Paragraph(f'<font size=8 color="#374151">{get_isin_sorumlusu_bolumu()}</font>', 
                           ParagraphStyle('AV12', fontSize=8, fontName=FONT_NAME)),
                 '',
                 Paragraph(f'<font size=8 color="#374151">{form_data.get("Bildirim No", "")}</font>', 
@@ -871,7 +934,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             # Get additional values
             feragat_tarihi = form_data.get("Feragat Tarihi", "")
             feragat_konu = form_data.get("Feragat Alınan Konu (X birimi tasarımı/üretimi vb.)", "")
-            feragat_odeme = form_data.get("Feragatlere konulan ödeme şerhhi var mı? Varsa son durumu nedir?", "")
+            feragat_odeme = form_data.get("Feragatlere konulan ödeme şerhi var mı? Varsa son durumu nedir?", "")
             
             # Create a sub-table for proper alignment
             # Question column - create nested table
@@ -882,7 +945,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                           ParagraphStyle('DQ4b', fontSize=8, fontName=FONT_NAME))],
                 [Paragraph(f'<font size=8 color="#374151">b) Feragat Alınan Konu (X birimi tasarımı/üretimi vb.)</font>', 
                           ParagraphStyle('DQ4c', fontSize=8, fontName=FONT_NAME))],
-                [Paragraph(f'<font size=8 color="#374151">c) Feragatlere konulan ödeme şerhhi var mı? Varsa son durumu nedir?</font>', 
+                [Paragraph(f'<font size=8 color="#374151">c) Feragatlere konulan ödeme şerhi var mı? Varsa son durumu nedir?</font>', 
                           ParagraphStyle('DQ4d', fontSize=8, fontName=FONT_NAME))]
             ]
             question_sub_table_4 = Table(question_sub_data_4, colWidths=[col_width*3.7])
@@ -1540,9 +1603,9 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             # No spacer - tables are directly connected
         
         # Create 3 tables
-        create_risk_table("İdari Riskler/Eylem Planı", "İdari Riskler/Eylem Planı", "İR")
-        create_risk_table("Teknik Riskler/Eylem Planı", "Teknik Riskler/Eylem Planı", "TR")
-        create_risk_table("Kalite Riskleri/Eylem Planı", "Kalite Riskleri/Eylem Planı", "KR")
+        create_risk_table("İdari Riskler/Eylem Planı", "Feragatin Olası Etkileri (İdari Riskler/Eylem Planı)", "İR")
+        create_risk_table("Teknik Riskler/Eylem Planı", "Feragatin Olası Etkileri (Teknik Riskler/Eylem Planı)", "TR")
+        create_risk_table("Kalite Riskleri/Eylem Planı", "Feragatin Olası Etkileri (Kalite Riskleri/Eylem Planı)", "KR")
         
     else:
         # Original Section D for other Feragat Türü types
