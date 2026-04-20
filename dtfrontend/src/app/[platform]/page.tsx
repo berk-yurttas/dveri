@@ -145,6 +145,56 @@ export default function PlatformHome() {
   const isIvmePlatform = platformData?.code === 'ivme';
   const isRomiotPlatform = platformCode === 'romiot';
   const isSeyirPlatform = platformCode === 'seyir' || platformCode === 'amom';
+  const isSeyirSektorPlatform = platformCode === 'seyir';
+  const [selectedSektor, setSelectedSektor] = useState<string | null>(null);
+  const [isSektorAccessDenied, setIsSektorAccessDenied] = useState(false);
+
+  const sektorCards = useMemo(
+    () => [
+      {
+        id: 'rehis',
+        title: 'ASELSAN REHİS',
+        imageUrl: '/rehis.png',
+        departmentPrefix: 'Genel Müdürlük_Radar ve Elekt. Harp Sist. Sektör Bşk.',
+      },
+      {
+        id: 'sst',
+        title: 'ASELSAN SST',
+        imageUrl: '/sst.png',
+        departmentPrefix: 'Genel Müdürlük_Savunma Sistem Teknolojileri Sektör Bşk.',
+      },
+      {
+        id: 'ags',
+        title: 'ASELSAN AGS',
+        imageUrl: '/ags.png',
+        departmentPrefix: 'Genel Müdürlük_Aviyonik ve Güdüm Sistemleri Sektör Bşk.',
+      },
+      {
+        id: 'meos',
+        title: 'ASELSAN MEOS',
+        imageUrl: '/meos.png',
+        departmentPrefix: 'Genel Müdürlük_Mikroelk. ve Elek. Opt. Sis. Sektör Bşk.',
+      },
+      {
+        id: 'uges',
+        title: 'ASELSAN UGES',
+        imageUrl: '/uges.png',
+        departmentPrefix: 'Genel Müdürlük_Ulş.Güv.Enj.Otm. ve Sağ.Sis. Sektör Bşk.',
+      },
+      {
+        id: 'raporlar',
+        title: 'RAPORLAR',
+        imageUrl: '/raporlar.png',
+        departmentPrefix: null as string | null,
+      },
+    ],
+    []
+  );
+
+  const selectedSektorDepartmentPrefix = useMemo(() => {
+    if (!selectedSektor) return null;
+    return sektorCards.find((s) => s.id === selectedSektor)?.departmentPrefix ?? null;
+  }, [selectedSektor, sektorCards]);
   const [searchValue, setSearchValue] = useState('');
   const [iconPopup, setIconPopup] = useState<{ url: string; title: string } | null>(null);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
@@ -1375,9 +1425,96 @@ export default function PlatformHome() {
             <p className="text-sm text-gray-600 mb-6">Başlatmak istediğiniz süreci seçin</p>
           </div>
 
+          {/* Sektör Selection Cards - only for seyir platform before a sektör is picked */}
+          {isSeyirSektorPlatform && !selectedSektor && (() => {
+            const userDepartment = user?.department || '';
+
+            const isMirasAdmin =
+              Array.isArray(user?.role) && user.role.includes('miras:admin');
+
+            const handleSektorClick = (sektor: typeof sektorCards[number]) => {
+              if (sektor.id === 'raporlar') {
+                router.push(`/${platformCode}/reports`);
+                return;
+              }
+
+              if (sektor.departmentPrefix === null || isMirasAdmin) {
+                setSelectedSektor(sektor.id);
+                return;
+              }
+
+              if (userDepartment.startsWith(sektor.departmentPrefix)) {
+                setSelectedSektor(sektor.id);
+              } else {
+                setAccessDeniedMessage(
+                  `"${sektor.title}" alanına erişim yetkiniz bulunmamaktadır.`
+                );
+                setIsSektorAccessDenied(true);
+                setShowAccessDeniedModal(true);
+              }
+            };
+
+            return (
+              <div className="max-w-6xl mx-auto mb-14">
+                <div className="mb-6">
+                  <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
+                    Sektörler
+                  </h3>
+                  <div className="w-[100px] h-[5px] bg-red-600"></div>
+                </div>
+                <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+                  {sektorCards.map((sektor) => (
+                    <div
+                      key={sektor.id}
+                      className="relative flex flex-col items-center cursor-pointer group"
+                      onClick={() => handleSektorClick(sektor)}
+                    >
+                      <div className="relative group-hover:scale-110 transition-all duration-300 w-full">
+                        <div className="w-full h-56 rounded-xl flex flex-col bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                          <div className="flex-1 min-h-0 rounded-t-lg overflow-hidden bg-white flex items-center justify-center p-1">
+                            <img
+                              src={sektor.imageUrl}
+                              alt={sektor.title}
+                              className="max-w-full max-h-full w-auto h-auto object-contain scale-110"
+                            />
+                          </div>
+                          <div
+                            className="rounded-b-lg text-center text-sm font-bold py-1.5 bg-white"
+                            style={{ color: 'rgb(30, 58, 138)' }}
+                          >
+                            {sektor.title}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Features Section - Dynamic from Platform Config */}
-          {platformData?.theme_config?.features && platformData.theme_config.features.length > 0 && (
+          {(!isSeyirSektorPlatform || selectedSektor) && platformData?.theme_config?.features && platformData.theme_config.features.length > 0 && (
             <div className="max-w-6xl mx-auto mb-14">
+              {isSeyirSektorPlatform && selectedSektor && (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <button
+                      onClick={() => setSelectedSektor(null)}
+                      className="flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4 rotate-180" />
+                      Sektör seçimine dön
+                    </button>
+                  </div>
+                  <div className="mb-6">
+                    <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
+                      Akış Süreçleri
+                    </h3>
+                    <div className="w-[100px] h-[5px] bg-red-600"></div>
+                  </div>
+                </>
+              )}
               <div className={`grid gap-2 ${platformData.theme_config.features.length === 5 ? 'grid-cols-5' : platformData.theme_config.features.length === 4 ? 'grid-cols-4' : platformData.theme_config.features.length === 6 ? 'grid-cols-6' : 'grid-cols-5'}`}>
                 {platformData.theme_config.features.map((feature: any, index: number) => {
                   const canAccessFeature = checkAccess(feature, user);
@@ -1386,6 +1523,16 @@ export default function PlatformHome() {
                   let featureUrl = feature.url;
                   if (hasUrl && !featureUrl.startsWith('/') && !featureUrl.startsWith('http')) {
                     featureUrl = `/${platformCode}${featureUrl.startsWith('/') ? '' : '/'}${featureUrl}`;
+                  }
+
+                  if (
+                    hasUrl &&
+                    isSeyirSektorPlatform &&
+                    selectedSektor &&
+                    selectedSektorDepartmentPrefix
+                  ) {
+                    const separator = featureUrl.includes('?') ? '&' : '?';
+                    featureUrl = `${featureUrl}${separator}department=${encodeURIComponent(selectedSektorDepartmentPrefix)}`;
                   }
 
                   const amomExternalHttpUrl =
@@ -2343,13 +2490,18 @@ export default function PlatformHome() {
                   <p className="text-gray-700 text-lg mb-2">
                     {accessDeniedMessage}
                   </p>
-                  <p className="text-gray-600">
-                    Erişim izni almak için lütfen sistem yöneticisi ile iletişime geçiniz.
-                  </p>
+                  {!isSektorAccessDenied && (
+                    <p className="text-gray-600">
+                      Erişim izni almak için lütfen sistem yöneticisi ile iletişime geçiniz.
+                    </p>
+                  )}
                 </div>
                 <div className="bg-gray-50 px-6 py-4 flex justify-end">
                   <button
-                    onClick={() => setShowAccessDeniedModal(false)}
+                    onClick={() => {
+                      setShowAccessDeniedModal(false);
+                      setIsSektorAccessDenied(false);
+                    }}
                     className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
                   >
                     Kapat
