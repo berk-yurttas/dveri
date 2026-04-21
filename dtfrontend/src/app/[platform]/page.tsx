@@ -1379,46 +1379,40 @@ export default function PlatformHome() {
     return (
       <div className="min-h-screen bg-gray-50 pt-3 px-6 pb-6 relative">
         {/* Background images - fixed position, behind content */}
-        <div
-          className="fixed inset-0 pointer-events-none overflow-hidden"
-          style={{ zIndex: 1 }}
-          aria-hidden="true"
-        >
-          {/* ÜST - SOL | resmin SAĞ yarısı görünecek */}
-          <div className="fixed top-0 left-0 w-1/2 h-1/2 pointer-events-none overflow-hidden">
-            <img
-              src="/amom_icons/ahtapot.png"
-              alt=""
-              className="absolute"
-              style={{
-                top: '50%',
-                left: '50%',
-                width: '80%',
-                transform: 'translateX(-112%) translateY(-50%)',
-                opacity: 0.2,
-                WebkitMaskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
-                maskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
-              }}
-            />
-          </div>
+        {/* ÜST - SOL | resmin SAĞ yarısı görünecek */}
+        <div className="fixed top-0 left-0 w-1/2 h-1/2 pointer-events-none overflow-hidden" style={{ zIndex: 1 }} aria-hidden="true">
+          <img
+            src="/amom_icons/ahtapot.png"
+            alt=""
+            className="absolute"
+            style={{
+              top: '30vh',
+              left: '25vw',
+              width: '80%',
+              transform: 'translate(-100%, -50%)',
+              opacity: 0.2,
+              WebkitMaskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
+              maskImage: 'linear-gradient(to left, black 70%, transparent 100%)',
+            }}
+          />
+        </div>
 
-          {/* ALT - SAĞ | resmin SOL yarısı görünecek */}
-          <div className="absolute bottom-0 right-0 w-1/2 h-1/2 overflow-hidden">
-            <img
-              src="/amom_icons/ahtapot.png"
-              alt=""
-              className="absolute"
-              style={{
-                top: '50%',
-                left: '50%',
-                width: '80%',
-                transform: 'translateX(12%) translateY(-30%)',
-                opacity: 0.2,
-                WebkitMaskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
-                maskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
-              }}
-            />
-          </div>
+        {/* ALT - SAĞ | resmin SOL yarısı görünecek */}
+        <div className="fixed bottom-0 right-0 w-1/2 h-1/2 pointer-events-none overflow-hidden" style={{ zIndex: 1 }} aria-hidden="true">
+          <img
+            src="/amom_icons/ahtapot.png"
+            alt=""
+            className="absolute"
+            style={{
+              bottom: '25vh',
+              right: '25vw',
+              width: '80%',
+              transform: 'translate(100%, 50%)',
+              opacity: 0.2,
+              WebkitMaskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
+              maskImage: 'linear-gradient(to right, black 70%, transparent 100%)',
+            }}
+          />
         </div>
 
         {/* Content - above background */}
@@ -1501,10 +1495,10 @@ export default function PlatformHome() {
 
           {/* Features Section - Dynamic from Platform Config */}
           {(!isSeyirSektorPlatform || selectedSektor) && platformData?.theme_config?.features && platformData.theme_config.features.length > 0 && (
-            <div className="max-w-6xl mx-auto mb-14">
+            <div className="max-w-6xl mx-auto mb-14 relative">
               {isSeyirSektorPlatform && selectedSektor && (
                 <>
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="absolute -top-12 left-0">
                     <button
                       onClick={() => setSelectedSektor(null)}
                       className="flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
@@ -1521,7 +1515,9 @@ export default function PlatformHome() {
                   </div>
                 </>
               )}
-              <div className={`grid gap-2 ${platformData.theme_config.features.length === 5 ? 'grid-cols-5' : platformData.theme_config.features.length === 4 ? 'grid-cols-4' : platformData.theme_config.features.length === 6 ? 'grid-cols-6' : 'grid-cols-5'}`}>
+              <div className={`flex flex-wrap gap-2 ${
+                platformData.theme_config.features.length <= 3 ? 'justify-center' : 'justify-start'
+              }`}>
                 {platformData.theme_config.features.map((feature: any, index: number) => {
                   const canAccessFeature = checkAccess(feature, user);
 
@@ -1577,7 +1573,7 @@ export default function PlatformHome() {
                   return (
                     <div
                       key={index}
-                      className="relative flex flex-col items-center cursor-pointer group"
+                      className="relative flex flex-col items-center cursor-pointer group w-[calc(16.666%-0.5rem)]"
                       onClick={handleFeatureClick}
                     >
                       {amomExternalHttpUrl && (
@@ -1588,7 +1584,7 @@ export default function PlatformHome() {
                           />
                         </div>
                       )}
-                      <div className="relative group-hover:scale-110 transition-all duration-300">
+                      <div className="relative group-hover:scale-110 transition-all duration-300 w-full">
                         <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                           <div className="w-full h-full rounded-lg overflow-hidden bg-white">
                             {feature.imageUrl ? (
@@ -1605,6 +1601,13 @@ export default function PlatformHome() {
                           </div>
                         </div>
                       </div>
+                      {feature.title && (
+                        <div className="mt-2 text-center w-full">
+                          <span className="text-sm font-semibold" style={{ color: 'rgb(30, 58, 138)' }}>
+                            {feature.title}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
