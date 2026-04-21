@@ -21,7 +21,8 @@ export function normalizeServiceUrl(raw: string): string {
   try {
     const u = new URL(s);
     u.hash = "";
-    const path = (u.pathname.replace(/\/$/, "") || "/") + u.search;
+    u.search = "";
+    const path = u.pathname.replace(/\/$/, "") || "/";
     return `${u.protocol}//${u.host.toLowerCase()}${path}`;
   } catch {
     return s.toLowerCase();

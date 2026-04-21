@@ -182,6 +182,12 @@ export default function PlatformHome() {
         departmentPrefix: 'Genel Müdürlük_Ulş.Güv.Enj.Otm. ve Sağ.Sis. Sektör Bşk.',
       },
       {
+        id: 'tzygmy',
+        title: 'ASELSAN TZYGMY',
+        imageUrl: '/tzygmy.png',
+        departmentPrefix: 'Genel Müdürlük_Tedarik Zinciri Yönetimi Genel Md.Yrd.',
+      },
+      {
         id: 'raporlar',
         title: 'RAPORLAR',
         imageUrl: '/raporlar.png',
@@ -1462,7 +1468,7 @@ export default function PlatformHome() {
                   </h3>
                   <div className="w-[100px] h-[5px] bg-red-600"></div>
                 </div>
-                <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+                <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-7">
                   {sektorCards.map((sektor) => (
                     <div
                       key={sektor.id}
@@ -1606,17 +1612,20 @@ export default function PlatformHome() {
             </div>
           )}
 
-          {/* Professional Divider Line */}
-          <div className="w-full pt-0 pb-0 mt-24 mb-12">
-            <div className="max-w-6xl mx-auto">
-              <div className="mb-0">
-                <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
-                  İzini Sür
-                </h3>
-                <div className="w-[100px] h-[5px] bg-red-600"></div>
+          {/* İzini Sür Section - Only show for rehis sector */}
+          {selectedSektor === 'rehis' && (
+            <>
+              {/* Professional Divider Line */}
+              <div className="w-full pt-0 pb-0 mt-24 mb-12">
+                <div className="max-w-6xl mx-auto">
+                  <div className="mb-0">
+                    <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
+                      İzini Sür
+                    </h3>
+                    <div className="w-[100px] h-[5px] bg-red-600"></div>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
 
           {/* Search Bar */}
@@ -2147,6 +2156,8 @@ export default function PlatformHome() {
               </div>
             </div>
             , document.body)}
+            </>
+          )}
 
           {/* Full-width Duyurular Section */}
           <div className="w-full py-6 mt-24 mb-4">
