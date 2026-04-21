@@ -187,12 +187,6 @@ export default function PlatformHome() {
         imageUrl: '/tzygmy.png',
         departmentPrefix: 'Genel Müdürlük_Tedarik Zinciri Yönetimi Genel Md.Yrd.',
       },
-      {
-        id: 'raporlar',
-        title: 'RAPORLAR',
-        imageUrl: '/raporlar.png',
-        departmentPrefix: null as string | null,
-      },
     ],
     []
   );
@@ -1433,11 +1427,6 @@ export default function PlatformHome() {
               Array.isArray(user?.role) && user.role.includes('miras:admin');
 
             const handleSektorClick = (sektor: typeof sektorCards[number]) => {
-              if (sektor.id === 'raporlar') {
-                router.push(`/${platformCode}/reports`);
-                return;
-              }
-
               if (sektor.departmentPrefix === null || isMirasAdmin) {
                 setSelectedSektor(sektor.id);
                 return;
@@ -1462,29 +1451,25 @@ export default function PlatformHome() {
                   </h3>
                   <div className="w-[100px] h-[5px] bg-red-600"></div>
                 </div>
-                <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-7">
+                <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
                   {sektorCards.map((sektor) => (
                     <div
                       key={sektor.id}
                       className="relative flex flex-col items-center cursor-pointer group"
                       onClick={() => handleSektorClick(sektor)}
                     >
-                      <div className="relative group-hover:scale-110 transition-all duration-300 w-full">
-                        <div className="w-full h-56 rounded-xl flex flex-col bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
-                          <div className="flex-1 min-h-0 rounded-t-lg overflow-hidden bg-white flex items-center justify-center p-1">
-                            <img
-                              src={sektor.imageUrl}
-                              alt={sektor.title}
-                              className="max-w-full max-h-full w-auto h-auto object-contain scale-110"
-                            />
-                          </div>
-                          <div
-                            className="rounded-b-lg text-center text-sm font-bold py-1.5 bg-white"
-                            style={{ color: 'rgb(30, 58, 138)' }}
-                          >
-                            {sektor.title}
-                          </div>
-                        </div>
+                      <div className="relative group-hover:scale-110 transition-all duration-300 w-full h-24 flex items-center justify-center mt-2">
+                        <img
+                          src={sektor.imageUrl}
+                          alt={sektor.title}
+                          className="max-w-full max-h-full object-contain"
+                        />
+                      </div>
+                      <div
+                        className="mt-2 text-center text-sm font-bold group-hover:scale-110 transition-all duration-300"
+                        style={{ color: 'rgb(69, 81, 89)' }}
+                      >
+                        {sektor.title}
                       </div>
                     </div>
                   ))}
@@ -1507,7 +1492,7 @@ export default function PlatformHome() {
                       Sektör seçimine dön
                     </button>
                   </div>
-                  <div className="mb-6">
+                  <div className="mb-16">
                     <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
                       Akış Süreçleri
                     </h3>
@@ -1515,8 +1500,10 @@ export default function PlatformHome() {
                   </div>
                 </>
               )}
-              <div className={`flex flex-wrap gap-2 ${
-                platformData.theme_config.features.length <= 3 ? 'justify-center' : 'justify-start'
+              <div className={`${
+                isSeyirPlatform 
+                  ? 'flex flex-wrap gap-8 justify-start ml-[-10px]'
+                  : `flex flex-wrap gap-2 ${platformData.theme_config.features.length <= 3 ? 'justify-center' : 'justify-start'}`
               }`}>
                 {platformData.theme_config.features.map((feature: any, index: number) => {
                   const canAccessFeature = checkAccess(feature, user);
@@ -1573,7 +1560,9 @@ export default function PlatformHome() {
                   return (
                     <div
                       key={index}
-                      className="relative flex flex-col items-center cursor-pointer group w-[calc(16.666%-0.5rem)]"
+                      className={`relative flex flex-col items-center cursor-pointer group ${
+                        isSeyirPlatform ? 'w-[140px]' : 'w-[calc(16.666%-0.5rem)]'
+                      }`}
                       onClick={handleFeatureClick}
                     >
                       {amomExternalHttpUrl && (
@@ -1584,26 +1573,36 @@ export default function PlatformHome() {
                           />
                         </div>
                       )}
-                      <div className="relative group-hover:scale-110 transition-all duration-300 w-full">
-                        <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
-                          <div className="w-full h-full rounded-lg overflow-hidden bg-white">
-                            {feature.imageUrl ? (
-                              <img
-                                src={feature.imageUrl}
-                                alt={feature.title || 'Feature'}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center">
-                                <span className="text-gray-400 text-sm">{feature.title}</span>
-                              </div>
-                            )}
+                      <div className={`relative group-hover:scale-110 transition-all duration-300 ${
+                        isSeyirPlatform ? 'w-full h-32 flex items-center justify-center mt-2' : 'w-full'
+                      }`}>
+                        {isSeyirPlatform ? (
+                          <img
+                            src={feature.imageUrl}
+                            alt={feature.title || 'Feature'}
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                            <div className="w-full h-full rounded-lg overflow-hidden bg-white">
+                              {feature.imageUrl ? (
+                                <img
+                                  src={feature.imageUrl}
+                                  alt={feature.title || 'Feature'}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <span className="text-gray-400 text-sm">{feature.title}</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                       {feature.title && (
-                        <div className="mt-2 text-center w-full">
-                          <span className="text-sm font-semibold" style={{ color: 'rgb(30, 58, 138)' }}>
+                        <div className={`mt-2 text-center ${isSeyirPlatform ? '' : 'w-full'} group-hover:scale-110 transition-all duration-300`}>
+                          <span className="text-sm font-bold" style={{ color: isSeyirPlatform ? 'rgb(69, 81, 89)' : 'rgb(30, 58, 138)' }}>
                             {feature.title}
                           </span>
                         </div>

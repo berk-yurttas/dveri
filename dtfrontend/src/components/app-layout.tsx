@@ -58,7 +58,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   // Dynamic title based on platform and easter egg
   const getTitle = () => {
     if (easterEggActive) return "Biz de DERİNİZ ;)";
-    if (platform?.code === 'seyir' || platform?.code === 'amom') return "Seyir Defteri";
+    if (platform?.code === 'seyir' || platform?.code === 'amom') return "Seyir Rotası";
     if (platform) return `${platform.display_name}`;
     return "ODAK";
   };

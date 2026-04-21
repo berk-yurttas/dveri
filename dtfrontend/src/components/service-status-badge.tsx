@@ -38,11 +38,14 @@ export function ServiceStatusBadge({
         aria-label="Servis çevrimiçi"
       >
         <span
-          className={`relative inline-block rounded-full ${dim} bg-gradient-to-br from-emerald-300 via-emerald-500 to-emerald-700 ${
+          className={`relative inline-block rounded-full ${dim} ${
             onDark
-              ? "shadow-[0_0_12px_rgba(52,211,153,0.95),inset_0_1px_0_rgba(255,255,255,0.45)] ring-2 ring-white/35"
-              : "shadow-[0_0_10px_rgba(16,185,129,0.55),inset_0_1px_0_rgba(255,255,255,0.4)] ring-2 ring-emerald-400/50"
+              ? "shadow-[0_0_12px_rgba(0,128,128,0.95),inset_0_1px_0_rgba(255,255,255,0.45)] ring-2 ring-white/35"
+              : "shadow-[0_0_10px_rgba(0,128,128,0.55),inset_0_1px_0_rgba(255,255,255,0.4)] ring-2 ring-[#008080]/50"
           }`}
+          style={{
+            background: 'linear-gradient(135deg, #00a0a0 0%, #008080 50%, #006060 100%)'
+          }}
         >
           <span
             className="absolute inset-[15%] rounded-full bg-white/35 blur-[0.5px]"
