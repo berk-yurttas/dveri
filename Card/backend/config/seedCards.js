@@ -25,36 +25,58 @@ function toCardName(fileName) {
 
 function parseStatsFromFileName(fileName, defaults) {
   const base = path.basename(fileName, path.extname(fileName)).trim();
-  const match = base.match(/^(.*)_([0-9]+)_([0-9]+)_([0-9]+)$/);
+  // Optional joker suffix "Y" at end, e.g. Name_90_80_70Y
+  const match = base.match(/^(.*)_([0-9]+)_([0-9]+)_([0-9]+)(Y)?$/i);
   if (!match) {
     return {
       name: toCardName(fileName),
       attack: defaults.attack,
       defense: defaults.defense,
       health: defaults.health,
+      joker: false,
       parsed: false,
     };
   }
 
-  const [, rawName, rawAttack, rawDefense, rawHealth] = match;
+  const [, rawName, rawAttack, rawDefense, rawHealth, jokerFlag] = match;
   return {
     name: rawName.trim(),
     attack: Number(rawAttack),
     defense: Number(rawDefense),
     health: Number(rawHealth),
+    joker: !!jokerFlag,
     parsed: true,
   };
+}
+
+function extractFileNameFromImageUrl(imageUrl) {
+  try {
+    const url = new URL(imageUrl);
+    const last = url.pathname.split('/').filter(Boolean).pop();
+    return last ? decodeURIComponent(last) : null;
+  } catch {
+    // Fallback for non-URL values
+    const last = String(imageUrl || '')
+      .split(/[\\/]/)
+      .filter(Boolean)
+      .pop();
+    return last ? decodeURIComponent(last) : null;
+  }
+}
+
+function toggleJokerSuffix(fileName) {
+  const ext = path.extname(fileName);
+  const base = path.basename(fileName, ext);
+  if (/Y$/i.test(base)) {
+    return `${base.slice(0, -1)}${ext}`;
+  }
+  return `${base}Y${ext}`;
 }
 
 const seedCards = async () => {
   try {
     const pool = getPool();
     const { rows } = await pool.query('SELECT COUNT(*)::int AS c FROM cards');
-    if (rows[0].c > 0) {
-      console.log('Kart verileri zaten mevcut.');
-      return;
-    }
-
     const imagesDir = resolveImagesDir();
     if (!imagesDir) {
       throw new Error('card_images klasoru bulunamadi. CARD_IMAGES_DIR ayarlayin.');
@@ -67,6 +89,45 @@ const seedCards = async () => {
 
     if (files.length === 0) {
       throw new Error(`Kart resmi bulunamadi: ${imagesDir}`);
+    }
+
+    // If cards already exist, try to repair broken image_url entries (e.g. renamed ...png -> ...Y.png).
+    if (rows[0].c > 0) {
+      const fileSet = new Set(files);
+      const { rows: cards } = await pool.query('SELECT id, image_url FROM cards');
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        let repaired = 0;
+
+        for (const card of cards) {
+          const currentFile = extractFileNameFromImageUrl(card.image_url);
+          if (!currentFile) continue;
+          if (fileSet.has(currentFile)) continue;
+
+          const toggled = toggleJokerSuffix(currentFile);
+          if (!fileSet.has(toggled)) continue;
+
+          const newUrl = String(card.image_url).replace(encodeURIComponent(currentFile), encodeURIComponent(toggled));
+          await client.query('UPDATE cards SET image_url = $1, updated_at = NOW() WHERE id = $2', [newUrl, card.id]);
+          repaired += 1;
+        }
+
+        await client.query('COMMIT');
+        if (repaired > 0) {
+          console.log(`Eksik kart resimleri onarildi: ${repaired} adet.`);
+        } else {
+          console.log('Kart verileri zaten mevcut.');
+        }
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+
+      return;
     }
 
     const defaults = {
@@ -91,7 +152,7 @@ const seedCards = async () => {
         await client.query(
           `INSERT INTO cards (name, attack, defense, health, joker, image_url)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [parsed.name, parsed.attack, parsed.defense, parsed.health, false, imageUrl]
+          [parsed.name, parsed.attack, parsed.defense, parsed.health, parsed.joker, imageUrl]
         );
       }
 

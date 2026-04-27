@@ -95,6 +95,8 @@ const Game = () => {
       <div key={index} onClick={selectFn}
         style={{ ...S.card, ...(isSelected ? S.cardSelected : {}), ...(isDamaged ? S.cardDamage : {}) }}>
         <img src={card.imageUrl} alt={card.name} style={S.cardImg} />
+        <div style={{ ...S.cardStat, ...S.cardAttack }}>{card.attack ?? ''}</div>
+        <div style={{ ...S.cardStat, ...S.cardDefense }}>{card.defense ?? ''}</div>
         <div style={S.cardHp}>{card.health}</div>
         <div style={S.cardName}>{card.name}</div>
       </div>
@@ -194,6 +196,9 @@ const S = {
   cardSelected: { border: '2px solid #00c8ff', boxShadow: '0 0 14px 2px rgba(0,200,255,0.5)', transform: 'translateY(-4px)' },
   cardDamage: { animation: 'damageAnim 0.5s ease-in-out' },
   cardImg: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' },
+  cardStat: { position: 'absolute', left: '4%', background: '#0d1b2e', padding: '0px 5px', borderRadius: 3, fontSize: 11, fontWeight: 800, lineHeight: '14px', zIndex: 2, textShadow: '0 1px 2px rgba(0,0,0,0.6)' },
+  cardAttack: { top: '27%', color: '#ff4d4f', boxShadow: '0 0 10px rgba(255,77,79,0.25)' },
+  cardDefense: { top: '42%', color: '#4fdbff', boxShadow: '0 0 10px rgba(79,219,255,0.22)' },
   cardHp: { position: 'absolute', bottom: '40%', left: '18%', background: '#0d1b2e', color: '#4f4', padding: '1px 7px', borderRadius: 3, fontSize: 13, fontWeight: 700, lineHeight: '18px', zIndex: 2 },
   cardName: { position: 'absolute', top: 4, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.65)', color: '#fff', padding: '1px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600, maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', zIndex: 2 },
 
