@@ -297,7 +297,13 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         try {
             let riskList = []
             if (typeof field.value === 'string') {
-                riskList = JSON.parse(field.value)
+                let riskValue = field.value
+                try {
+                    riskList = JSON.parse(riskValue)
+                } catch (err) {
+                    riskValue = riskValue.replace(/'/g, '"')
+                    riskList = JSON.parse(riskValue)
+                }
             } else if (Array.isArray(field.value)) {
                 riskList = field.value
             }
@@ -324,6 +330,149 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
             })
         } catch (err) {
             console.error(`Failed to parse ${attributeName}:`, err)
+            return []
+        }
+    }
+    
+    const getGerekceData = () => {
+        const field = data.find(d => d.name === 'Feragate Ait Gerekçeler')
+        if (!field || !field.value) return []
+        
+        try {
+            let gerekceList: string[] = []
+            let parsedValue: any[] = []
+            
+            if (typeof field.value === 'string') {
+                let gerekceValue = field.value
+                try {
+                    parsedValue = JSON.parse(gerekceValue)
+                } catch (err) {
+                    gerekceValue = gerekceValue.replace(/'/g, '"')
+                    parsedValue = JSON.parse(gerekceValue)
+                }
+            } else if (Array.isArray(field.value)) {
+                parsedValue = field.value
+            }
+            
+            // Each item is a dict with one key:value, extract the value
+            for (const item of parsedValue) {
+                if (typeof item === 'object' && item !== null) {
+                    // Get the first value from the object
+                    for (const key in item) {
+                        if (item.hasOwnProperty(key)) {
+                            gerekceList.push(String(item[key]))
+                            break // Only take the first value
+                        }
+                    }
+                } else if (typeof item === 'string') {
+                    gerekceList.push(item)
+                }
+            }
+            
+            return gerekceList
+        } catch (err) {
+            console.error('Failed to parse Feragate Ait Gerekçeler:', err)
+            return []
+        }
+    }
+    
+    const getTalepItems = () => {
+        const items: string[] = []
+        for (const attr of data) {
+            if (attr.name.includes('Detaylı açıklayınız')) {
+                items.push(extractValue(attr.value))
+            }
+        }
+        return items.length > 0 ? items : ['', '']
+    }
+    
+    const getHakkindaGerekceData = () => {
+        const gerekceItems: { [key: string]: string[] } = {}
+        
+        for (const attr of data) {
+            if (attr.name.includes('Hakkında Gerekçeler')) {
+                const feragatName = attr.name.replace(' Hakkında Gerekçeler', '')
+                
+                try {
+                    let parsedValue: any[] = []
+                    
+                    if (typeof attr.value === 'string') {
+                        let gerekceValue = attr.value
+                        try {
+                            parsedValue = JSON.parse(gerekceValue)
+                        } catch (err) {
+                            gerekceValue = gerekceValue.replace(/'/g, '"')
+                            parsedValue = JSON.parse(gerekceValue)
+                        }
+                    } else if (Array.isArray(attr.value)) {
+                        parsedValue = attr.value
+                    }
+                    
+                    const gerekceList: string[] = []
+                    for (const item of parsedValue) {
+                        if (typeof item === 'object' && item !== null) {
+                            for (const key in item) {
+                                if (item.hasOwnProperty(key)) {
+                                    gerekceList.push(String(item[key]))
+                                    break
+                                }
+                            }
+                        } else if (typeof item === 'string') {
+                            gerekceList.push(item)
+                        }
+                    }
+                    
+                    gerekceItems[feragatName] = gerekceList.length > 0 ? gerekceList : ['']
+                } catch (err) {
+                    console.error(`Failed to parse ${attr.name}:`, err)
+                    gerekceItems[feragatName] = ['']
+                }
+            }
+        }
+        
+        return gerekceItems
+    }
+    
+    const getUyarlamaRiskData = () => {
+        const field = data.find(d => d.name === 'Feragatin Olası Etkileri (Riskler/Eylem Planı)')
+        if (!field || !field.value) return []
+        
+        try {
+            let riskList: any[] = []
+            
+            if (typeof field.value === 'string') {
+                let riskValue = field.value
+                try {
+                    riskList = JSON.parse(riskValue)
+                } catch (err) {
+                    riskValue = riskValue.replace(/'/g, '"')
+                    riskList = JSON.parse(riskValue)
+                }
+            } else if (Array.isArray(field.value)) {
+                riskList = field.value
+            }
+            
+            return riskList.map((item: any) => {
+                const sorumluRaw = item.sorumlu || ''
+                let sorumluName = ''
+                
+                if (Array.isArray(sorumluRaw) && sorumluRaw.length > 0) {
+                    const firstItem = sorumluRaw[0]
+                    if (typeof firstItem === 'object' && firstItem.name) {
+                        sorumluName = firstItem.name
+                    }
+                } else if (typeof sorumluRaw === 'string') {
+                    sorumluName = sorumluRaw
+                }
+                
+                return {
+                    riskler: item.riskler_riziko_no || '',
+                    eylem_plani: item.risk_azaltici_onleyici_faaliyetler_eylem_plani || '',
+                    sorumlu: sorumluName
+                }
+            })
+        } catch (err) {
+            console.error('Failed to parse Uyarlama risk data:', err)
             return []
         }
     }
@@ -384,13 +533,19 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     }
     
     const getSorumluValue = (): string => {
-        const field = data.find(d => d.name === 'İşin Sorumlusu/Bölümü')
+        const field = data.find(d => d.name === 'İşin Sorumlusu')
         if (!field || !field.value) return ''
         
         try {
             let isinList = []
             if (typeof field.value === 'string') {
-                isinList = JSON.parse(field.value)
+                let isinValue = field.value
+                try {
+                    isinList = JSON.parse(isinValue)
+                } catch (err) {
+                    isinValue = isinValue.replace(/'/g, '"')
+                    isinList = JSON.parse(isinValue)
+                }
             } else if (Array.isArray(field.value)) {
                 isinList = field.value
             }
@@ -399,24 +554,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 const item = isinList[0]
                 if (typeof item === 'object') {
                     const name = item.name || ''
-                    const department = item.department || ''
-                    
-                    // Split department by '_' and get last 3 items
-                    if (department) {
-                        const deptParts = department.split('_')
-                        const lastThree = deptParts.length >= 3 ? deptParts.slice(-3) : deptParts
-                        const deptFormatted = lastThree.join(' ')
-                        
-                        if (name && deptFormatted) {
-                            return `${name} - ${deptFormatted}`
-                        } else if (name) {
-                            return name
-                        } else if (deptFormatted) {
-                            return deptFormatted
-                        }
-                    } else if (name) {
-                        return name
-                    }
+                    return name
                 }
             }
             
@@ -425,6 +563,48 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
             console.error('Failed to parse İşin Sorumlusu/Bölümü:', err)
             return ''
         }
+    }
+    
+    const getFeragatSorumlusuValue = (): string => {
+        const sorumluLabel = getSorumluLabel()
+        const field = data.find(d => d.name === sorumluLabel)
+        if (!field || !field.value) return ''
+        
+        let value = field.value
+        
+        // If it's a JSON string, parse it first
+        if (typeof value === 'string') {
+            try {
+                value = value.replace(/'/g, '"')
+                value = JSON.parse(value)
+            } catch {
+                // Not JSON, return as is
+                return value
+            }
+        }
+        
+        // If it's an array, get the first item and extract name
+        if (Array.isArray(value) && value.length > 0) {
+            const firstItem = value[0]
+            if (typeof firstItem === 'object' && firstItem !== null && 'name' in firstItem) {
+                return String(firstItem.name)
+            }
+            // If first item is a string, return it
+            if (typeof firstItem === 'string') {
+                return firstItem
+            }
+        }
+        
+        // If it's an object with a 'name' property, return the name
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            if ('name' in value) {
+                return String(value.name)
+            }
+        }
+        
+        // Last resort: stringify the object
+        console.warn(`${sorumluLabel} has unexpected structure:`, value)
+        return JSON.stringify(value)
     }
 
     if (loading) {
@@ -502,86 +682,152 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                             <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
                                 A. GENEL BİLGİLER
                             </div>
-                            {/* Row 1: Three columns */}
-                            <div className="border border-black">
-                                <table className="w-full text-[10px]">
-                                    <tbody>
-                                        <tr>
-                                            <td className="border-r border-black p-2 bg-blue-50 w-1/3">
-                                                <div className="font-bold text-blue-900">1. Firma Adı/Satiçi no</div>
-                                                <div className="mt-1">{getFieldValue('Firma Adı')}</div>
-                                            </td>
-                                            <td className="border-r border-black p-2 bg-blue-50 w-1/3">
-                                                <div className="font-bold text-blue-900">2. Firmaya Daha Önceden</div>
-                                                <div className="font-bold text-blue-900">Gerçekleştirilen Tetkik</div>
-                                                <div className="mt-1">{getFieldValue('Firmaya Daha Önceden Gerçekleştirilen Tetkik')}</div>
-                                            </td>
-                                            <td className="p-2 bg-blue-50 w-1/3">
-                                                <div className="font-bold text-blue-900">3. Firmaya Ait Önceden Alınan Feragatler</div>
-                                                <div className="mt-1">{getFieldValue('Firmaya Ait Önceden Alınan Feragatler')}</div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                            {/* Row 2: Four columns */}
-                            <div className="border-l border-r border-b border-black">
-                                <table className="w-full text-[10px]">
-                                    <tbody>
-                                        <tr>
-                                            <td className="border-r border-t border-black p-2 bg-blue-50">
-                                                <div className="font-bold text-blue-900">4. Proje No</div>
-                                                <div className="mt-1">{getFieldValue('Proje No')}</div>
-                                            </td>
-                                            <td className="border-r border-t border-black p-2 bg-blue-50">
-                                                <div className="font-bold text-blue-900">5. Proje Tanımı</div>
-                                                <div className="mt-1">{getFieldValue('Proje Tanımı')}</div>
-                                            </td>
-                                            <td className="border-r border-t border-black p-2 bg-blue-50">
-                                                <div className="font-bold text-blue-900">6. Müşteri</div>
-                                                <div className="mt-1">{getFieldValue('Müşteri')}</div>
-                                            </td>
-                                            <td className="border-t border-black p-2 bg-blue-50">
-                                                <div className="font-bold text-blue-900">7. Proje Tipi</div>
-                                                <div className="mt-1">{getFieldValue('Proje Tipi')}</div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                            {/* Row 3: Six columns */}
-                            <div className="border-l border-r border-b border-black">
-                                <table className="w-full text-[10px]">
-                                    <tbody>
-                                        <tr>
-                                            <td className="border-r border-t border-black p-2 bg-blue-50">
-                                                <div className="font-bold text-blue-900">8. Malzeme No</div>
-                                                <div className="mt-1">{getFieldValue('Malzeme No')}</div>
-                                            </td>
-                                            <td className="border-r border-t border-black p-2 bg-blue-50">
-                                                <div className="font-bold text-blue-900">9. Malzeme Tanımı</div>
-                                                <div className="mt-1">{getFieldValue('Malzeme Tanımı')}</div>
-                                            </td>
-                                            <td className="border-r border-t border-black p-2 bg-blue-50">
-                                                <div className="font-bold text-blue-900">10. Alım Türü</div>
-                                                <div className="mt-1">{getFieldValue('Alım Türü')}</div>
-                                            </td>
-                                            <td className="border-r border-t border-black p-2 bg-blue-50">
-                                                <div className="font-bold text-blue-900">11. Alım Adedi</div>
-                                                <div className="mt-1">{getFieldValue('Alım Adedi')}</div>
-                                            </td>
-                                            <td className="border-r border-t border-black p-2 bg-blue-50">
-                                                <div className="font-bold text-blue-900">12. İşin Sorumlusu/Bölümü</div>
-                                                <div className="mt-1">{getSorumluValue()}</div>
-                                            </td>
-                                            <td className="border-t border-black p-2 bg-blue-50">
-                                                <div className="font-bold text-blue-900">13. Bildirim No</div>
-                                                <div className="mt-1">{getFieldValue('Bildirim No')}</div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
+                            
+                            {feragatTuru === 'Alt Yüklenici' ? (
+                                <>
+                                    {/* Alt Yüklenici Layout */}
+                                    {/* Row 1: Three columns */}
+                                    <div className="border border-black">
+                                        <table className="w-full text-[10px]">
+                                            <tbody>
+                                                <tr>
+                                                    <td className="border-r border-black p-2 bg-blue-50" style={{ width: '37.5%' }}>
+                                                        <div className="font-bold text-blue-900">1. Firma Adı/Satıcı No</div>
+                                                        <div className="mt-1">{getFieldValue('Firma Adı/ Satıcı no')}</div>
+                                                    </td>
+                                                    <td className="border-r border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">2. Firmaya Daha Önceden Gerçekleştirilen Tetkik</div>
+                                                        <div className="mt-1">{getFieldValue('Firmaya Daha Önceden Gerçekleştirilen Tetkik')}</div>
+                                                    </td>
+                                                    <td className="p-2 bg-blue-50" style={{ width: '37.5%' }}>
+                                                        <div className="font-bold text-blue-900">3. Firmaya Ait Önceden Alınan Feragatler</div>
+                                                        <div className="mt-1">{getFieldValue('Firmaya Ait Önceden Alınan Feragatler')}</div>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    {/* Row 2: Four columns */}
+                                    <div className="border-l border-r border-b border-black">
+                                        <table className="w-full text-[10px]">
+                                            <tbody>
+                                                <tr>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">4. Proje No</div>
+                                                        <div className="mt-1">{getFieldValue('Proje No (Proje kodu ve U-P\'li kodu XXXX/PYYYYYYY)')}</div>
+                                                    </td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">5. Proje Tanımı</div>
+                                                        <div className="mt-1">{getFieldValue('Proje Tanımı ( Proje Adı)')}</div>
+                                                    </td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">6. Müşteri</div>
+                                                        <div className="mt-1">{getFieldValue('Müşteri ( Proje Ana Sözleşmesi\'nin imza makamı )')}</div>
+                                                    </td>
+                                                    <td className="border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">7. Proje Tipi</div>
+                                                        <div className="mt-1">{getFieldValue('Proje Tipi')}</div>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    {/* Row 3: Six columns */}
+                                    <div className="border-l border-r border-b border-black">
+                                        <table className="w-full text-[10px]">
+                                            <tbody>
+                                                <tr>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
+                                                        <div className="font-bold text-blue-900">8. Malzeme No</div>
+                                                        <div className="mt-1">{getFieldValue('Malzeme No')}</div>
+                                                    </td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">9. Malzeme Tanımı</div>
+                                                        <div className="mt-1">{getFieldValue('Malzeme Tanımı')}</div>
+                                                    </td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
+                                                        <div className="font-bold text-blue-900">10. Alım Türü</div>
+                                                        <div className="mt-1">{getFieldValue('Alım Türü')}</div>
+                                                    </td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
+                                                        <div className="font-bold text-blue-900">11. Alım Adedi</div>
+                                                        <div className="mt-1">{getFieldValue('Alım Adedi')}</div>
+                                                    </td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">12. İşin Sorumlusu/Bölümü</div>
+                                                        <div className="mt-1">{getSorumluValue()}</div>
+                                                    </td>
+                                                    <td className="border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
+                                                        <div className="font-bold text-blue-900">13. Bildirim No</div>
+                                                        <div className="mt-1">{getFieldValue('Feragat Bildirim No')}</div>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    {/* Uyarlama Layout (Radar/EH) */}
+                                    {/* Row 1: Four columns */}
+                                    <div className="border border-black">
+                                        <table className="w-full text-[10px]">
+                                            <tbody>
+                                                <tr>
+                                                    <td className="border-r border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">1. Proje No</div>
+                                                        <div className="mt-1">{getFieldValue('Proje No (Proje kodu ve U-P\'li kodu XXXX/PYYYYYYY)')}</div>
+                                                    </td>
+                                                    <td className="border-r border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">2. Proje Tanımı</div>
+                                                        <div className="mt-1">{getFieldValue('Proje Tanımı ( Proje Adı)')}</div>
+                                                    </td>
+                                                    <td className="border-r border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">3. Müşteri</div>
+                                                        <div className="mt-1">{getFieldValue('Müşteri ( Proje Ana Sözleşmesi\'nin imza makamı )')}</div>
+                                                    </td>
+                                                    <td className="p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">4. Proje Tipi</div>
+                                                        <div className="mt-1">{getFieldValue('Proje Tipi')}</div>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    {/* Row 2: Four columns */}
+                                    <div className="border-l border-r border-b border-black">
+                                        <table className="w-full text-[10px]">
+                                            <tbody>
+                                                <tr>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">5. Proje Aşaması</div>
+                                                        <div className="mt-1">{getFieldValue('Proje Aşaması')}</div>
+                                                    </td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">6. Proje Süresi (ay)</div>
+                                                        <div className="mt-1">{getFieldValue('Proje Süresi (ay)')}</div>
+                                                    </td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
+                                                        <div className="font-bold text-blue-900">7. İlgili Süreçler</div>
+                                                        <div className="mt-1">{getFieldValue('İlgili Süreçler')}</div>
+                                                    </td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
+                                                        <div className="font-bold text-blue-900">8. {getSorumluLabel()}</div>
+                                                        <div className="mt-1">{getFeragatSorumlusuValue()}</div>
+                                                    </td>
+                                                    <td className="border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">9. Feragat Bildirim Numarası</div>
+                                                        <div className="mt-1">{getFieldValue('Feragat Bildirim No')}</div>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         {/* B. TALEP EDİLEN FERAGAT / DEĞERLENDİRMELER */}
@@ -689,8 +935,20 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                     </table>
                                 </div>
                             ) : (
-                                <div className="border border-gray-400 p-2 bg-gray-50 min-h-[60px]">
-                                    <div className="text-[10px] text-gray-700">{getFieldValue('Detaylı açıklayınız')}</div>
+                                <div className="border border-black">
+                                    <table className="w-full text-[10px]">
+                                        <tbody>
+                                            {(() => {
+                                                const talepItems = getTalepItems()
+                                                return talepItems.map((item: string, idx: number) => (
+                                                    <tr key={idx} className="border-b border-black last:border-b-0">
+                                                        <td className="border-r border-black p-2 font-bold text-center bg-gray-100 w-12 align-top">{idx + 1}</td>
+                                                        <td className="p-2 align-top bg-gray-50">{item}</td>
+                                                    </tr>
+                                                ))
+                                            })()}
+                                        </tbody>
+                                    </table>
                                 </div>
                             )}
                         </div>
@@ -704,22 +962,69 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                 <div className="border border-black">
                                     <table className="w-full text-[10px]">
                                         <tbody>
-                                            <tr className="border-b border-black">
-                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 w-16 align-top">C1</td>
-                                                <td className="p-2 align-top bg-gray-50">GEREKÇE-21</td>
-                                            </tr>
-                                            <tr className="border-b border-black">
-                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">C2</td>
-                                                <td className="p-2 align-top bg-gray-50">GEREKÇE-22</td>
-                                            </tr>
+                                            {(() => {
+                                                const gerekceList = getGerekceData()
+                                                if (gerekceList.length === 0) {
+                                                    return (
+                                                        <tr className="border-b border-black">
+                                                            <td className="border-r border-black p-2 font-bold text-center bg-gray-200 w-16 align-top">C1</td>
+                                                            <td className="p-2 align-top bg-gray-50"></td>
+                                                        </tr>
+                                                    )
+                                                }
+                                                return gerekceList.map((gerekce: string, idx: number) => (
+                                                    <tr key={idx} className="border-b border-black">
+                                                        <td className="border-r border-black p-2 font-bold text-center bg-gray-200 w-16 align-top">C{idx + 1}</td>
+                                                        <td className="p-2 align-top bg-gray-50">{gerekce}</td>
+                                                    </tr>
+                                                ))
+                                            })()}
                                         </tbody>
                                     </table>
                                 </div>
                             ) : (
-                                <div className="border border-black p-3 bg-gray-50 min-h-[60px]">
-                                    <div className="text-[10px] text-gray-700">
-                                        {getFieldValue('Talep Edilen Feragat Hakkında Gerekçeler')}
-                                    </div>
+                                <div className="border border-black">
+                                    <table className="w-full text-[10px]">
+                                        <tbody>
+                                            {(() => {
+                                                const hakkindaData = getHakkindaGerekceData()
+                                                const rows: React.ReactElement[] = []
+                                                
+                                                Object.entries(hakkindaData).forEach(([feragatName, gerekceList]) => {
+                                                    gerekceList.forEach((gerekce: string, idx: number) => {
+                                                        rows.push(
+                                                            <tr key={`${feragatName}-${idx}`} className="border-b border-black last:border-b-0">
+                                                                {idx === 0 ? (
+                                                                    <td 
+                                                                        className="border-r border-black p-2 align-top bg-blue-50 font-bold text-blue-900"
+                                                                        rowSpan={gerekceList.length}
+                                                                        style={{ width: '25%' }}
+                                                                    >
+                                                                        <div>{feragatName}</div>
+                                                                        <div>Hakkında Gerekçeler</div>
+                                                                    </td>
+                                                                ) : null}
+                                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-100 align-top" style={{ width: '10%' }}>
+                                                                    {idx + 1}
+                                                                </td>
+                                                                <td className="p-2 align-top bg-gray-50">{gerekce}</td>
+                                                            </tr>
+                                                        )
+                                                    })
+                                                })
+                                                
+                                                return rows.length > 0 ? rows : (
+                                                    <tr className="border-b border-black">
+                                                        <td className="border-r border-black p-2 align-top bg-blue-50 font-bold text-blue-900" style={{ width: '25%' }}>
+                                                            Gerekçe
+                                                        </td>
+                                                        <td className="border-r border-black p-2 font-bold text-center bg-gray-100 align-top" style={{ width: '10%' }}>1</td>
+                                                        <td className="p-2 align-top bg-gray-50"></td>
+                                                    </tr>
+                                                )
+                                            })()}
+                                        </tbody>
+                                    </table>
                                 </div>
                             )}
                         </div>
@@ -740,7 +1045,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                             <thead>
                                                 <tr className="bg-gray-200 border-t border-b border-black">
                                                     <th className="border-r border-black p-1 font-bold text-center w-12"></th>
-                                                    <th className="border-r border-black p-1 font-bold text-center">Riskler</th>
+                                                    <th className="border-r border-black p-1 font-bold text-center w-80">Riskler</th>
                                                     <th className="border-r border-black p-1 font-bold text-center">Risk Azaltıcı/Önleyici Faaliyetler/Eylem Planı</th>
                                                     <th className="p-1 font-bold text-center">Sorumlu</th>
                                                 </tr>
@@ -751,19 +1056,19 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                     if (idariRisks.length === 0) {
                                                         return (
                                                             <tr className="border-b border-black">
-                                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">İR.1</td>
-                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                                <td className="p-2 align-top bg-gray-50"></td>
+                                                                <td className="border-r border-black p-3 font-bold text-center bg-gray-200 align-top">İR.1</td>
+                                                                <td className="border-r border-black p-3 align-top bg-gray-50"></td>
+                                                                <td className="border-r border-black p-3 align-top bg-gray-50"></td>
+                                                                <td className="p-3 align-top bg-gray-50"></td>
                                                             </tr>
                                                         )
                                                     }
                                                     return idariRisks.map((risk: any, idx: number) => (
                                                         <tr key={idx} className="border-b border-black">
-                                                            <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">İR.{idx + 1}</td>
-                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.riskler}</td>
-                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.eylem_plani}</td>
-                                                            <td className="p-2 align-top bg-gray-50">{risk.sorumlu}</td>
+                                                            <td className="border-r border-black p-3 font-bold text-center bg-gray-200 align-top">İR.{idx + 1}</td>
+                                                            <td className="border-r border-black p-3 align-top bg-gray-50">{risk.riskler}</td>
+                                                            <td className="border-r border-black p-3 align-top bg-gray-50">{risk.eylem_plani}</td>
+                                                            <td className="p-3 align-top bg-gray-50">{risk.sorumlu}</td>
                                                         </tr>
                                                     ))
                                                 })()}
@@ -780,7 +1085,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                             <thead>
                                                 <tr className="bg-gray-200 border-t border-b border-black">
                                                     <th className="border-r border-black p-1 font-bold text-center w-12"></th>
-                                                    <th className="border-r border-black p-1 font-bold text-center">Riskler</th>
+                                                    <th className="border-r border-black p-1 font-bold text-center w-80">Riskler</th>
                                                     <th className="border-r border-black p-1 font-bold text-center">Risk Azaltıcı/Önleyici Faaliyetler/Eylem Planı</th>
                                                     <th className="p-1 font-bold text-center">Sorumlu</th>
                                                 </tr>
@@ -791,19 +1096,19 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                     if (teknikRisks.length === 0) {
                                                         return (
                                                             <tr className="border-b border-black">
-                                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">TR.1</td>
-                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                                <td className="p-2 align-top bg-gray-50"></td>
+                                                                <td className="border-r border-black p-3 font-bold text-center bg-gray-200 align-top">TR.1</td>
+                                                                <td className="border-r border-black p-3 align-top bg-gray-50"></td>
+                                                                <td className="border-r border-black p-3 align-top bg-gray-50"></td>
+                                                                <td className="p-3 align-top bg-gray-50"></td>
                                                             </tr>
                                                         )
                                                     }
                                                     return teknikRisks.map((risk: any, idx: number) => (
                                                         <tr key={idx} className="border-b border-black">
-                                                            <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">TR.{idx + 1}</td>
-                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.riskler}</td>
-                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.eylem_plani}</td>
-                                                            <td className="p-2 align-top bg-gray-50">{risk.sorumlu}</td>
+                                                            <td className="border-r border-black p-3 font-bold text-center bg-gray-200 align-top">TR.{idx + 1}</td>
+                                                            <td className="border-r border-black p-3 align-top bg-gray-50">{risk.riskler}</td>
+                                                            <td className="border-r border-black p-3 align-top bg-gray-50">{risk.eylem_plani}</td>
+                                                            <td className="p-3 align-top bg-gray-50">{risk.sorumlu}</td>
                                                         </tr>
                                                     ))
                                                 })()}
@@ -820,7 +1125,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                             <thead>
                                                 <tr className="bg-gray-200 border-t border-b border-black">
                                                     <th className="border-r border-black p-1 font-bold text-center w-12"></th>
-                                                    <th className="border-r border-black p-1 font-bold text-center">Riskler</th>
+                                                    <th className="border-r border-black p-1 font-bold text-center w-80">Riskler</th>
                                                     <th className="border-r border-black p-1 font-bold text-center">Risk Azaltıcı/Önleyici Faaliyetler/Eylem Planı</th>
                                                     <th className="p-1 font-bold text-center">Sorumlu</th>
                                                 </tr>
@@ -831,19 +1136,19 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                     if (kaliteRisks.length === 0) {
                                                         return (
                                                             <tr className="border-b border-black">
-                                                                <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">KR.1</td>
-                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                                <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                                <td className="p-2 align-top bg-gray-50"></td>
+                                                                <td className="border-r border-black p-3 font-bold text-center bg-gray-200 align-top">KR.1</td>
+                                                                <td className="border-r border-black p-3 align-top bg-gray-50"></td>
+                                                                <td className="border-r border-black p-3 align-top bg-gray-50"></td>
+                                                                <td className="p-3 align-top bg-gray-50"></td>
                                                             </tr>
                                                         )
                                                     }
                                                     return kaliteRisks.map((risk: any, idx: number) => (
                                                         <tr key={idx} className="border-b border-black">
-                                                            <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top">KR.{idx + 1}</td>
-                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.riskler}</td>
-                                                            <td className="border-r border-black p-2 align-top bg-gray-50">{risk.eylem_plani}</td>
-                                                            <td className="p-2 align-top bg-gray-50">{risk.sorumlu}</td>
+                                                            <td className="border-r border-black p-3 font-bold text-center bg-gray-200 align-top">KR.{idx + 1}</td>
+                                                            <td className="border-r border-black p-3 align-top bg-gray-50">{risk.riskler}</td>
+                                                            <td className="border-r border-black p-3 align-top bg-gray-50">{risk.eylem_plani}</td>
+                                                            <td className="p-3 align-top bg-gray-50">{risk.sorumlu}</td>
                                                         </tr>
                                                     ))
                                                 })()}
@@ -852,8 +1157,39 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                     </div>
                                 </div>
                             ) : (
-                                <div className="border border-black p-3 bg-gray-50 min-h-[60px]">
-                                    <div className="text-[8px] text-gray-700">{getFieldValue('Feragatin Olası Etkileri')}</div>
+                                <div className="border border-black">
+                                    <table className="w-full text-[10px]">
+                                        <thead>
+                                            <tr className="bg-gray-200 border-b border-black">
+                                                <th className="border-r border-black p-1 font-bold text-center" colSpan={2}>Riskler/Riziko No</th>
+                                                <th className="border-r border-black p-1 font-bold text-center">Risk Azaltıcı/Önleyici Faaliyetler/Eylem Planı</th>
+                                                <th className="p-1 font-bold text-center">Sorumlu</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {(() => {
+                                                const uyarlamaRisks = getUyarlamaRiskData()
+                                                if (uyarlamaRisks.length === 0) {
+                                                    return ['R.1', 'R.2', 'R.3'].map((label) => (
+                                                        <tr key={label} className="border-b border-black last:border-b-0">
+                                                            <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top" style={{ width: '8%' }}>{label}</td>
+                                                            <td className="border-r border-black p-2 align-top bg-gray-50" style={{ width: '25%' }}></td>
+                                                            <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                            <td className="p-2 align-top bg-gray-50" style={{ width: '20%' }}></td>
+                                                        </tr>
+                                                    ))
+                                                }
+                                                return uyarlamaRisks.map((risk: any, idx: number) => (
+                                                    <tr key={idx} className="border-b border-black last:border-b-0">
+                                                        <td className="border-r border-black p-2 font-bold text-center bg-gray-200 align-top" style={{ width: '8%' }}>R.{idx + 1}</td>
+                                                        <td className="border-r border-black p-2 align-top bg-gray-50" style={{ width: '25%' }}>{risk.riskler}</td>
+                                                        <td className="border-r border-black p-2 align-top bg-gray-50">{risk.eylem_plani}</td>
+                                                        <td className="p-2 align-top bg-gray-50" style={{ width: '20%' }}>{risk.sorumlu}</td>
+                                                    </tr>
+                                                ))
+                                            })()}
+                                        </tbody>
+                                    </table>
                                 </div>
                             )}
                         </div>

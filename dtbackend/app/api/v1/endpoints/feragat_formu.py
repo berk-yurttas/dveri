@@ -345,41 +345,9 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         Extract department from arr[0]['department'], split by '_' and use last 3 items
         Return formatted as: "Name - Dept1 Dept2 Dept3"
         """
-        isin_sorumlusu_raw = form_data.get("İşin Sorumlusu/Bölümü", None)
+        isin_sorumlusu_raw = form_data.get("İşin Sorumlusu", None)
         
-        if not isin_sorumlusu_raw:
-            return ""
-        
-        try:
-            isin_list = []
-            if isinstance(isin_sorumlusu_raw, list):
-                isin_list = isin_sorumlusu_raw
-            elif isinstance(isin_sorumlusu_raw, str):
-                isin_list = json.loads(isin_sorumlusu_raw)
-            
-            if isin_list and len(isin_list) > 0:
-                item = isin_list[0]
-                if isinstance(item, dict):
-                    name = item.get('name', '')
-                    department = item.get('department', '')
-                    
-                    # Split department by '_' and get last 3 items
-                    if department:
-                        dept_parts = department.split('_')
-                        last_three = dept_parts[-3:] if len(dept_parts) >= 3 else dept_parts
-                        dept_formatted = ' '.join(last_three)
-                        
-                        if name and dept_formatted:
-                            return f"{name} - {dept_formatted}"
-                        elif name:
-                            return name
-                        elif dept_formatted:
-                            return dept_formatted
-            
-            return ""
-        except Exception as e:
-            print(f"[ERROR] Failed to parse İşin Sorumlusu/Bölümü: {e}")
-            return ""
+        return isin_sorumlusu_raw
     
     # Create PDF with portrait orientation (A4)
     buffer = io.BytesIO()
@@ -1185,20 +1153,10 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             ]
         ]
         
-        # Calculate row heights (B3, B4, B5, B6 need more height if their conditions are true)
-        degerlendirme_row_heights = [
-            1.5*cm,  # B1
-            1.5*cm,  # B2
-            3*cm if is_tetkik_true else 1.5*cm,  # B3
-            3.5*cm if is_feragat_true else 1.5*cm,   # B4 (needs more height - 4 sub-items)
-            2.5*cm if is_basvuru_true else 1.5*cm,   # B5 (2 sub-items)
-            2.5*cm  # B6 (always has 2 sub-items - different for true/false)
-        ]
-        
         # Create table: Column widths - BX (narrow), Question (wider), Answer (narrower)
+        # No fixed rowHeights - let table auto-calculate based on content
         degerlendirme_table = Table(degerlendirme_data, 
-                                     colWidths=[col_width*0.8, col_width*3.7, col_width*3.5], 
-                                     rowHeights=degerlendirme_row_heights)
+                                     colWidths=[col_width*0.8, col_width*3.7, col_width*3.5])
         degerlendirme_table.setStyle(TableStyle([
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#D3D3D3')),  # Gray background for BX column
@@ -1249,10 +1207,8 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                 '', '', '', '', '', ''  # Fill remaining columns
             ])
         
-        # Calculate row heights dynamically (minimum 2.5cm per row)
-        row_heights = [2.5*cm] * len(talep_data)
-        
-        talep_table = Table(talep_data, colWidths=[col_width] + [col_width]*7, rowHeights=row_heights)
+        # No fixed rowHeights - let table auto-calculate based on content
+        talep_table = Table(talep_data, colWidths=[col_width] + [col_width]*7)
         talep_table.setStyle(TableStyle([
             # Span content across columns 1-7 for all rows (leaving column 0 for number)
             *[('SPAN', (1, i), (7, i)) for i in range(len(talep_data))],
@@ -1335,11 +1291,9 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         
         print(f"[DEBUG] Alt Yüklenici total gerekce rows: {len(gerekce_data)}")
         
-        # Calculate row heights
-        gerekce_row_heights = [1.5*cm] * len(gerekce_data)
-        
         # 2 columns: CX (narrow), Content (wide)
-        gerekce_table = Table(gerekce_data, colWidths=[col_width*0.8, col_width*7.2], rowHeights=gerekce_row_heights)
+        # No fixed rowHeights - let table auto-calculate based on content
+        gerekce_table = Table(gerekce_data, colWidths=[col_width*0.8, col_width*7.2])
         gerekce_table.setStyle(TableStyle([
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#D3D3D3')),  # Gray background for CX column
@@ -1431,12 +1385,9 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             
             print(f"[DEBUG] Total gerekce_data rows: {len(gerekce_data)}")
             
-            # Calculate row heights and spans
-            num_rows = len(gerekce_data)
-            gerekce_row_heights = [1.5*cm] * num_rows
-            
             # 3 columns: Left (feragat name), Middle (number), Right (content)
-            gerekce_table = Table(gerekce_data, colWidths=[col_width*2, col_width, col_width*5], rowHeights=gerekce_row_heights)
+            # No fixed rowHeights - let table auto-calculate based on content
+            gerekce_table = Table(gerekce_data, colWidths=[col_width*2, col_width, col_width*5])
             
             # Build style commands dynamically - span left column for each feragat group
             style_commands = []
@@ -1583,8 +1534,8 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                 risk_data = [[f'{row_prefix}.1', '', '', '']]
             
             # Create table with 4 columns
-            risk_row_heights = [1.5*cm] * len(risk_data)
-            risk_table = Table(risk_data, colWidths=[col_width*0.8, col_width*2.7, col_width*2.8, col_width*1.7], rowHeights=risk_row_heights)
+            # No fixed rowHeights - let table auto-calculate based on content
+            risk_table = Table(risk_data, colWidths=[col_width*0.8, col_width*2.7, col_width*2.8, col_width*1.7])
             risk_table.setStyle(TableStyle([
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
                 ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#D3D3D3')),  # Gray background for prefix column
@@ -1707,10 +1658,8 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         
         print(f"[DEBUG] Total risk rows: {len(d_risk_data)}")
         
-        # Calculate row heights dynamically
-        d_risk_row_heights = [1.5*cm] * len(d_risk_data)
-        
-        d_risk_table = Table(d_risk_data, colWidths=[col_width*0.8, col_width*1.87, col_width*2.67, col_width*2.66], rowHeights=d_risk_row_heights)
+        # No fixed rowHeights - let table auto-calculate based on content
+        d_risk_table = Table(d_risk_data, colWidths=[col_width*0.8, col_width*1.87, col_width*2.67, col_width*2.66])
         d_risk_table.setStyle(TableStyle([
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#D3D3D3')),  # Gray background for R.1, R.2, R.3 cells
@@ -1792,7 +1741,8 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                       ParagraphStyle('EImza', fontSize=7, fontName=FONT_NAME))
         ])
     
-    e_table = Table(e_data, colWidths=[col_width*2, col_width*2, col_width*2, col_width*2], rowHeights=[1.5*cm, 1.5*cm, 1.5*cm])
+    # No fixed rowHeights - let table auto-calculate based on content
+    e_table = Table(e_data, colWidths=[col_width*2, col_width*2, col_width*2, col_width*2])
     e_table.setStyle(TableStyle([
         ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#D3D3D3')),  # Gray background for Görev column
@@ -1903,8 +1853,8 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                           ParagraphStyle('FImza', fontSize=7, fontName=FONT_NAME))
             ])
         
-        f_table = Table(f_data, colWidths=[col_width*2, col_width*2, col_width*2, col_width*2], 
-                        rowHeights=[1*cm] * len(f_data))
+        # No fixed rowHeights - let table auto-calculate based on content
+        f_table = Table(f_data, colWidths=[col_width*2, col_width*2, col_width*2, col_width*2])
         f_table.setStyle(TableStyle([
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('BACKGROUND', (0, 0), (-1, -1), colors.white),
@@ -1979,7 +1929,8 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                   ParagraphStyle('GImza', fontSize=7, fontName=FONT_NAME))
     ]]
     
-    g_table = Table(g_data, colWidths=[col_width*2, col_width*2, col_width*2, col_width*2], rowHeights=[1.5*cm])
+    # No fixed rowHeights - let table auto-calculate based on content
+    g_table = Table(g_data, colWidths=[col_width*2, col_width*2, col_width*2, col_width*2])
     g_table.setStyle(TableStyle([
         ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#D3D3D3')),  # Gray background for Görev column
