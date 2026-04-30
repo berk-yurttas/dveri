@@ -40,14 +40,13 @@ async def get_user_info(
     username: str = Query(..., description="Username to fetch"),
     current_user: User = Depends(check_authenticated)
 ):
-    """Get user name and surname from Pocketbase by username"""
+    """Get user name from Pocketbase by username"""
     try:
         user_info = await get_pocketbase_user(username)
         return {
             "username": username,
             "name": user_info.get("name", ""),
-            "surname": user_info.get("surname", ""),
-            "fullName": f"{user_info.get('name', '')} {user_info.get('surname', '')}".strip()
+            "fullName": f"{user_info.get('name', '')}".strip()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch user info: {str(e)}")
@@ -121,10 +120,10 @@ async def get_pocketbase_user(username: str) -> dict:
                     }
                 )
                 if auth_response.status_code != 200:
-                    return {"name": username, "surname": ""}
+                    return {"name": username}
                 
                 auth_token = auth_response.json().get("token", "")
-                
+
                 # Get user by username
                 user_response = await client.get(
                     f"{settings.POCKETBASE_URL}/api/collections/users/records",
@@ -138,13 +137,12 @@ async def get_pocketbase_user(username: str) -> dict:
                         user = users[0]
                         return {
                             "name": user.get("name", ""),
-                            "surname": user.get("surname", "")
                         }
         
-        return {"name": username, "surname": ""}
+        return {"name": username}
     except Exception as e:
         print(f"Error fetching PocketBase user {username}: {e}")
-        return {"name": username, "surname": ""}
+        return {"name": username}
 
 
 def get_step_definitions_data(job_instance_id: str) -> dict:
@@ -508,7 +506,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             ],
             # Sub-row 2: Values
             [
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Firma Adı/ Satıcı no", "")}</font>', 
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Firma Adı/ Satıcı No", "")}</font>', 
                           ParagraphStyle('AV1', fontSize=8, fontName=FONT_NAME)),
                 '',
                 '',
@@ -625,7 +623,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                 Paragraph(f'<font size=8 color="#374151">{get_isin_sorumlusu_bolumu()}</font>', 
                           ParagraphStyle('AV12', fontSize=8, fontName=FONT_NAME)),
                 '',
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Bildirim No", "")}</font>', 
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("Bildirim Numarası", "")}</font>', 
                           ParagraphStyle('AV13', fontSize=8, fontName=FONT_NAME))
             ]
         ]
@@ -1318,7 +1316,13 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             if "Hakkında Gerekçeler" in key:
                 gerekce_items[key] = value
         
-        print(f"[DEBUG] gerekce_items keys: {list(gerekce_items.keys())}")
+        # Sort gerekce_items by the number in the key (e.g., Feragat-1, Feragat-2)
+        sorted_gerekce_items = {}
+        for key in sorted(gerekce_items.keys(), key=lambda k: int(k.split('-')[-1].split()[0]) if '-' in k and k.split('-')[-1].split()[0].isdigit() else 0):
+            sorted_gerekce_items[key] = gerekce_items[key]
+        gerekce_items = sorted_gerekce_items
+        
+        print(f"[DEBUG] gerekce_items keys (sorted): {list(gerekce_items.keys())}")
         
         # Build gerekce data dynamically - value is now an array of objects
         if gerekce_items:
@@ -1343,9 +1347,13 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                             # Each object has one key:value, get the value
                             for k, v in item.items():
                                 print(f"[DEBUG] Extracting key={k}, value={v}")
-                                gerekce_list.append(str(v))
+                                # Only add non-empty values
+                                if v and str(v).strip():
+                                    gerekce_list.append(str(v))
                         elif isinstance(item, str):
-                            gerekce_list.append(item)
+                            # Only add non-empty strings
+                            if item.strip():
+                                gerekce_list.append(item)
                 elif isinstance(gerekce_value, str):
                     # If it's a string, try to parse as JSON
                     try:
@@ -1355,9 +1363,13 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                             for item in parsed_value:
                                 if isinstance(item, dict):
                                     for k, v in item.items():
-                                        gerekce_list.append(str(v))
+                                        # Only add non-empty values
+                                        if v and str(v).strip():
+                                            gerekce_list.append(str(v))
                                 elif isinstance(item, str):
-                                    gerekce_list.append(item)
+                                    # Only add non-empty strings
+                                    if item.strip():
+                                        gerekce_list.append(item)
                         else:
                             gerekce_list.append(str(parsed_value))
                     except (json.JSONDecodeError, TypeError) as e:
@@ -1369,12 +1381,17 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                 
                 print(f"[DEBUG] gerekce_list for {feragat_name}: {gerekce_list}")
                 
+                # Skip this feragat section if there are no values
+                if not gerekce_list:
+                    print(f"[DEBUG] Skipping {feragat_name} - no gerekce values")
+                    continue
+                
                 # Add dynamic rows based on the array length
-                num_rows = len(gerekce_list) if gerekce_list else 1
+                num_rows = len(gerekce_list)
                 print(f"[DEBUG] Creating {num_rows} rows for {feragat_name}")
                 
                 for i in range(num_rows):
-                    row_value = gerekce_list[i] if i < len(gerekce_list) else ""
+                    row_value = gerekce_list[i]
                     gerekce_data.append([
                         Paragraph(f'<b>{feragat_name}<br/>Hakkında Gerekçeler</b>', 
                                   ParagraphStyle('GH', fontSize=8, fontName=FONT_NAME_BOLD, textColor=colors.HexColor('#1e3a8a'))) if i == 0 else '',
@@ -1713,14 +1730,14 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
     elements.append(e_header_table)
     
     # E Section: Data rows (Proje Yöneticisi, Feragat Sorumlusu, Sorumlu Bölge Müdürü)
-    e_gorev_list = ["Proje Yöneticisi", "AY Sorumlusu", "Sorumlu Müdür"] if feragat_turu == "Alt Yüklenici" else ["Proje Yöneticisi", "Feragat Sorumlusu", "Sorumlu Müdür"]
+    e_gorev_list = ["Proje Yönetici", "AY Sorumlusu", "Sorumlu Müdür"] if feragat_turu == "Alt Yüklenici" else ["Proje Yönetici", "Feragat Sorumlusu", "Sorumlu Müdür"]
     e_data = []
     
     for gorev in e_gorev_list:
         if gorev in step_data and step_data[gorev]["assignee"] in user_cache:
             assignee = step_data[gorev]["assignee"]
             user_info = user_cache[assignee]
-            full_name = f"{user_info['name']} {user_info['surname']}".strip()
+            full_name = f"{user_info['name']}".strip()
             completed_at = step_data[gorev]["completed_at"]
             tarih = completed_at.strftime("%d-%m-%Y") if completed_at else ""
         else:
@@ -1832,7 +1849,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             if gorev in step_data and step_data[gorev]["assignee"] in user_cache:
                 assignee = step_data[gorev]["assignee"]
                 user_info = user_cache[assignee]
-                full_name = f"{user_info['name']} {user_info['surname']}".strip()
+                full_name = f"{user_info['name']}".strip()
                 completed_at = step_data[gorev]["completed_at"]
                 tarih = completed_at.strftime("%d-%m-%Y") if completed_at else ""
             else:
@@ -1908,7 +1925,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
     if gorev_g in step_data and step_data[gorev_g]["assignee"] in user_cache:
         assignee = step_data[gorev_g]["assignee"]
         user_info = user_cache[assignee]
-        full_name = f"{user_info['name']} {user_info['surname']}".strip()
+        full_name = f"{user_info['name']}".strip()
         completed_at = step_data[gorev_g]["completed_at"]
         tarih = completed_at.strftime("%d-%m-%Y") if completed_at else ""
     else:

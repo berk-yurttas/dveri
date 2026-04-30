@@ -88,6 +88,32 @@ function extractValue(jsonbValue: any): string {
     }
 }
 
+// Helper function to parse Python-style JSON strings
+function parsePythonStyleJSON(str: string): any {
+    // Try normal JSON parse first
+    try {
+        return JSON.parse(str)
+    } catch (err) {
+        // If that fails, handle Python-style strings by using eval
+        // This converts Python dict/list syntax to JavaScript
+        try {
+            // Replace Python boolean/null values
+            let cleaned = str
+                .replace(/\bTrue\b/g, 'true')
+                .replace(/\bFalse\b/g, 'false')
+                .replace(/\bNone\b/g, 'null')
+            
+            // Use Function constructor to safely evaluate the expression
+            // This handles single quotes properly without breaking values
+            const result = new Function('return ' + cleaned)()
+            return result
+        } catch (evalErr) {
+            console.error('Failed to parse Python-style JSON:', evalErr)
+            throw err
+        }
+    }
+}
+
 export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     const instanceRef = useRef(widgetId || `feragat-formu-${Math.random().toString(36).substr(2, 9)}`)
     
@@ -187,17 +213,16 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 for (const username of Array.from(assignees)) {
                     try {
                         const userRes = await api.get(`/feragat-formu/get-user-info?username=${encodeURIComponent(username)}`)
-                        if ((userRes as any).name || (userRes as any).surname) {
+                        if ((userRes as any).name) {
                             userCache[username] = {
                                 name: (userRes as any).name || '',
-                                surname: (userRes as any).surname || ''
                             }
                         } else {
-                            userCache[username] = { name: username, surname: '' }
+                            userCache[username] = { name: username }
                         }
                     } catch (err) {
                         console.error(`Failed to fetch user ${username}:`, err)
-                        userCache[username] = { name: username, surname: '' }
+                        userCache[username] = { name: username }
                     }
                 }
                 
@@ -211,8 +236,8 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                     const gorev = name.replace(' Onayı', '').trim()
                     
                     if (gorev && assignee) {
-                        const userInfo = userCache[assignee] || { name: assignee, surname: '' }
-                        const fullName = `${userInfo.name} ${userInfo.surname}`.trim()
+                        const userInfo = userCache[assignee] || { name: assignee }
+                        const fullName = `${userInfo.name}`.trim()
                         
                         stepDataMap[gorev] = {
                             assignee: assignee,
@@ -297,13 +322,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         try {
             let riskList = []
             if (typeof field.value === 'string') {
-                let riskValue = field.value
-                try {
-                    riskList = JSON.parse(riskValue)
-                } catch (err) {
-                    riskValue = riskValue.replace(/'/g, '"')
-                    riskList = JSON.parse(riskValue)
-                }
+                riskList = parsePythonStyleJSON(field.value)
             } else if (Array.isArray(field.value)) {
                 riskList = field.value
             }
@@ -343,26 +362,18 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
             let parsedValue: any[] = []
             
             if (typeof field.value === 'string') {
-                let gerekceValue = field.value
-                try {
-                    parsedValue = JSON.parse(gerekceValue)
-                } catch (err) {
-                    gerekceValue = gerekceValue.replace(/'/g, '"')
-                    parsedValue = JSON.parse(gerekceValue)
-                }
+                parsedValue = parsePythonStyleJSON(field.value)
             } else if (Array.isArray(field.value)) {
                 parsedValue = field.value
             }
             
             // Each item is a dict with one key:value, extract the value
             for (const item of parsedValue) {
-                if (typeof item === 'object' && item !== null) {
+                if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
                     // Get the first value from the object
-                    for (const key in item) {
-                        if (item.hasOwnProperty(key)) {
-                            gerekceList.push(String(item[key]))
-                            break // Only take the first value
-                        }
+                    const values = Object.values(item)
+                    if (values.length > 0) {
+                        gerekceList.push(String(values[0]))
                     }
                 } else if (typeof item === 'string') {
                     gerekceList.push(item)
@@ -397,35 +408,38 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                     let parsedValue: any[] = []
                     
                     if (typeof attr.value === 'string') {
-                        let gerekceValue = attr.value
-                        try {
-                            parsedValue = JSON.parse(gerekceValue)
-                        } catch (err) {
-                            gerekceValue = gerekceValue.replace(/'/g, '"')
-                            parsedValue = JSON.parse(gerekceValue)
-                        }
+                        parsedValue = parsePythonStyleJSON(attr.value)
                     } else if (Array.isArray(attr.value)) {
                         parsedValue = attr.value
                     }
                     
                     const gerekceList: string[] = []
                     for (const item of parsedValue) {
-                        if (typeof item === 'object' && item !== null) {
-                            for (const key in item) {
-                                if (item.hasOwnProperty(key)) {
-                                    gerekceList.push(String(item[key]))
-                                    break
+                        if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+                            // Get the first value from the object using Object.values
+                            const values = Object.values(item)
+                            if (values.length > 0) {
+                                const value = String(values[0]).trim()
+                                // Only add non-empty values
+                                if (value) {
+                                    gerekceList.push(value)
                                 }
                             }
                         } else if (typeof item === 'string') {
-                            gerekceList.push(item)
+                            const value = item.trim()
+                            if (value) {
+                                gerekceList.push(value)
+                            }
                         }
                     }
                     
-                    gerekceItems[feragatName] = gerekceList.length > 0 ? gerekceList : ['']
+                    // Only add to gerekceItems if there are actual values
+                    if (gerekceList.length > 0) {
+                        gerekceItems[feragatName] = gerekceList
+                    }
                 } catch (err) {
                     console.error(`Failed to parse ${attr.name}:`, err)
-                    gerekceItems[feragatName] = ['']
+                    // Don't add empty entries on error
                 }
             }
         }
@@ -441,13 +455,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
             let riskList: any[] = []
             
             if (typeof field.value === 'string') {
-                let riskValue = field.value
-                try {
-                    riskList = JSON.parse(riskValue)
-                } catch (err) {
-                    riskValue = riskValue.replace(/'/g, '"')
-                    riskList = JSON.parse(riskValue)
-                }
+                riskList = parsePythonStyleJSON(field.value)
             } else if (Array.isArray(field.value)) {
                 riskList = field.value
             }
@@ -539,13 +547,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         try {
             let isinList = []
             if (typeof field.value === 'string') {
-                let isinValue = field.value
-                try {
-                    isinList = JSON.parse(isinValue)
-                } catch (err) {
-                    isinValue = isinValue.replace(/'/g, '"')
-                    isinList = JSON.parse(isinValue)
-                }
+                isinList = parsePythonStyleJSON(field.value)
             } else if (Array.isArray(field.value)) {
                 isinList = field.value
             }
@@ -575,8 +577,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         // If it's a JSON string, parse it first
         if (typeof value === 'string') {
             try {
-                value = value.replace(/'/g, '"')
-                value = JSON.parse(value)
+                value = parsePythonStyleJSON(value)
             } catch {
                 // Not JSON, return as is
                 return value
@@ -693,7 +694,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                 <tr>
                                                     <td className="border-r border-black p-2 bg-blue-50" style={{ width: '37.5%' }}>
                                                         <div className="font-bold text-blue-900">1. Firma Adı/Satıcı No</div>
-                                                        <div className="mt-1">{getFieldValue('Firma Adı/ Satıcı no')}</div>
+                                                        <div className="mt-1">{getFieldValue('Firma Adı/ Satıcı No')}</div>
                                                     </td>
                                                     <td className="border-r border-black p-2 bg-blue-50" style={{ width: '25%' }}>
                                                         <div className="font-bold text-blue-900">2. Firmaya Daha Önceden Gerçekleştirilen Tetkik</div>
@@ -761,7 +762,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                     </td>
                                                     <td className="border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
                                                         <div className="font-bold text-blue-900">13. Bildirim No</div>
-                                                        <div className="mt-1">{getFieldValue('Feragat Bildirim No')}</div>
+                                                        <div className="mt-1">{getFieldValue('Feragat Bildirim Numarası')}</div>
                                                     </td>
                                                 </tr>
                                             </tbody>
@@ -990,7 +991,15 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                 const hakkindaData = getHakkindaGerekceData()
                                                 const rows: React.ReactElement[] = []
                                                 
-                                                Object.entries(hakkindaData).forEach(([feragatName, gerekceList]) => {
+                                                // Sort the entries by feragat name (Feragat-1, Feragat-2, etc.)
+                                                const sortedEntries = Object.entries(hakkindaData).sort((a, b) => {
+                                                    // Extract numbers from names like "Talep Edilen Feragat-1"
+                                                    const numA = parseInt(a[0].match(/\d+$/)?.[0] || '0')
+                                                    const numB = parseInt(b[0].match(/\d+$/)?.[0] || '0')
+                                                    return numA - numB
+                                                })
+                                                
+                                                sortedEntries.forEach(([feragatName, gerekceList]) => {
                                                     gerekceList.forEach((gerekce: string, idx: number) => {
                                                         rows.push(
                                                             <tr key={`${feragatName}-${idx}`} className="border-b border-black last:border-b-0">
@@ -1210,7 +1219,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {['Proje Yöneticisi', getSorumluLabel(), 'Sorumlu Müdür'].map((gorev, idx) => {
+                                        {['Proje Yönetici', getSorumluLabel(), 'Sorumlu Müdür'].map((gorev, idx) => {
                                             const stepInfo = stepData[gorev] || {}
                                             const fullName = stepInfo.fullName || ''
                                             const completedAt = stepInfo.completed_at || ''
