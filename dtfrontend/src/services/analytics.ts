@@ -5,6 +5,8 @@ export interface AnalyticsEvent {
     path: string
     session_id: string
     user_id?: string
+    user_name?: string
+    department?: string
     duration?: number
     meta?: Record<string, any>
 }

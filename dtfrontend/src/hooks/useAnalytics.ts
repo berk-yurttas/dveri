@@ -37,6 +37,8 @@ export const useAnalytics = () => {
 
         const sessionId = getSessionId()
         const userId = user?.username || getStoredUsername()
+        const userName = user?.name
+        const department = user?.department
 
         // 1. Send Page View for the NEW page
         analyticsService.trackEvent({
@@ -44,6 +46,8 @@ export const useAnalytics = () => {
             path: pathname,
             session_id: sessionId,
             user_id: userId,
+            user_name: userName,
+            department: department,
             meta: { referrer: document.referrer }
         }).catch(err => console.error('Failed to track pageview:', err))
 
@@ -61,6 +65,8 @@ export const useAnalytics = () => {
                     path: currentPathRef.current,
                     session_id: sessionId,
                     user_id: userId,
+                    user_name: userName,
+                    department: department,
                     duration: durationSeconds
                 }).catch(err => console.error('Failed to track page leave:', err))
             }
@@ -116,12 +122,16 @@ export const useAnalytics = () => {
                 }
                 const sessionId = getSessionId()
                 const userId = user?.username || getStoredUsername()
+                const userName = user?.name
+                const department = user?.department
 
                 const payload = {
                     event_type: 'page_leave',
                     path: currentPathRef.current,
                     session_id: sessionId,
                     user_id: userId,
+                    user_name: userName,
+                    department: department,
                     duration: durationSeconds
                 }
 

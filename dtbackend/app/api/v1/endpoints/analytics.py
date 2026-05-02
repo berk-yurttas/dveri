@@ -26,6 +26,30 @@ def parse_period(period: str) -> Tuple[int, str]:
         return (int(normalized[:-1]), "DAY")
     return (24, "HOUR")
 
+def extract_department_hierarchy(department: str | None) -> Tuple[str | None, str | None, str | None]:
+    """
+    Extract sector, directorate and management from department string.
+    Department format: A_B_C_D where:
+    - index -4 is sector
+    - index -3 is directorate
+    - index -2 is management
+    
+    Returns:
+        Tuple of (sector, directorate, management)
+    """
+    if not department:
+        return (None, None, None)
+    
+    parts = department.split('_')
+    if len(parts) < 2:
+        return (None, None, None)
+    
+    sector = parts[-4] if len(parts) >= 4 else None
+    directorate = parts[-3] if len(parts) >= 3 else None
+    management = parts[-2] if len(parts) >= 2 else None
+    
+    return (sector, directorate, management)
+
 @router.post("/track", status_code=202)
 async def track_event(
     event: AnalyticsEvent,
@@ -46,6 +70,23 @@ async def track_event(
         if request_user:
             user_id = request_user.username
             print(f"[Analytics] Resolved user_id from auth: {user_id}")
+    
+    # Get user name: prefer client-provided, fallback to authenticated user
+    user_name = event.user_name
+    if not user_name:
+        request_user = getattr(request.state, "user", None)
+        if request_user and hasattr(request_user, "name"):
+            user_name = request_user.name
+    
+    # Get department: prefer client-provided, fallback to authenticated user
+    department = event.department
+    if not department:
+        request_user = getattr(request.state, "user", None)
+        if request_user and hasattr(request_user, "department"):
+            department = request_user.department
+    
+    # Extract sector, directorate and management from department
+    sector, directorate, management = extract_department_hierarchy(department)
 
     if event.event_type == "pageview":
         recent_cutoff = datetime.now() - timedelta(seconds=5)
@@ -69,6 +110,14 @@ async def track_event(
                 existing_pageview.user_agent = user_agent
                 if user_id and not existing_pageview.user_id:
                     existing_pageview.user_id = user_id
+                if user_name and not existing_pageview.user_name:
+                    existing_pageview.user_name = user_name
+                if sector and not existing_pageview.sector:
+                    existing_pageview.sector = sector
+                if directorate and not existing_pageview.directorate:
+                    existing_pageview.directorate = directorate
+                if management and not existing_pageview.management:
+                    existing_pageview.management = management
                 if event.meta:
                     existing_pageview.meta = event.meta
                 await db.commit()
@@ -100,6 +149,10 @@ async def track_event(
                     path=event.path,
                     session_id=event.session_id,
                     user_id=user_id,
+                    user_name=user_name,
+                    sector=sector,
+                    directorate=directorate,
+                    management=management,
                     ip=client_ip,
                     user_agent=user_agent,
                     duration=event.duration or 0,
@@ -119,6 +172,10 @@ async def track_event(
         path=event.path,
         session_id=event.session_id,
         user_id=user_id,
+        user_name=user_name,
+        sector=sector,
+        directorate=directorate,
+        management=management,
         ip=client_ip,
         user_agent=user_agent,
         duration=event.duration or 0,

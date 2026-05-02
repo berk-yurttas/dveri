@@ -6,5 +6,7 @@ class AnalyticsEvent(BaseModel):
     path: str
     session_id: str
     user_id: Optional[str] = None
+    user_name: Optional[str] = None
+    department: Optional[str] = None
     duration: int = 0
     meta: Dict[str, Any] = {}

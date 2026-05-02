@@ -1720,10 +1720,14 @@ export default function ReportDetailPage() {
           // Auto-size columns
           columns.forEach((col, index) => {
             const column = worksheet.getColumn(index + 1)
-            const maxLength = Math.max(
-              col.length,
-              ...data.map(row => String(row[index] || '').length)
-            )
+            let maxLength = col.length
+            // Use loop instead of spread operator to avoid stack overflow with large datasets
+            for (let i = 0; i < data.length; i++) {
+              const cellLength = String(data[i][index] || '').length
+              if (cellLength > maxLength) {
+                maxLength = cellLength
+              }
+            }
             column.width = Math.min(maxLength + 2, 50)
           })
 
@@ -1753,10 +1757,14 @@ export default function ReportDetailPage() {
           // Auto-size columns
           columns.forEach((col, index) => {
             const column = worksheet.getColumn(index + 1)
-            const maxLength = Math.max(
-              col.length,
-              ...data.map(row => String(row[index] || '').length)
-            )
+            let maxLength = col.length
+            // Use loop instead of spread operator to avoid stack overflow with large datasets
+            for (let i = 0; i < data.length; i++) {
+              const cellLength = String(data[i][index] || '').length
+              if (cellLength > maxLength) {
+                maxLength = cellLength
+              }
+            }
             column.width = Math.min(maxLength + 2, 30)
           })
 
@@ -2004,10 +2012,14 @@ export default function ReportDetailPage() {
         // Auto-size columns
         columns.forEach((col, index) => {
           const column = worksheet.getColumn(index + 1)
-          const maxLength = Math.max(
-            col.length,
-            ...data.map(row => String(row[index] || '').length)
-          )
+          let maxLength = col.length
+          // Use loop instead of spread operator to avoid stack overflow with large datasets
+          for (let i = 0; i < data.length; i++) {
+            const cellLength = String(data[i][index] || '').length
+            if (cellLength > maxLength) {
+              maxLength = cellLength
+            }
+          }
           column.width = Math.min(maxLength + 2, 50)
         })
 
@@ -2037,10 +2049,14 @@ export default function ReportDetailPage() {
         // Auto-size columns
         columns.forEach((col, index) => {
           const column = worksheet.getColumn(index + 1)
-          const maxLength = Math.max(
-            col.length,
-            ...data.map(row => String(row[index] || '').length)
-          )
+          let maxLength = col.length
+          // Use loop instead of spread operator to avoid stack overflow with large datasets
+          for (let i = 0; i < data.length; i++) {
+            const cellLength = String(data[i][index] || '').length
+            if (cellLength > maxLength) {
+              maxLength = cellLength
+            }
+          }
           column.width = Math.min(maxLength + 2, 30)
         })
 
