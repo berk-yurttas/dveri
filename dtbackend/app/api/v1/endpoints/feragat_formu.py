@@ -752,7 +752,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                 Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Süresi (ay)", "")}</font>', 
                           ParagraphStyle('V6', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
                 '',  # Column 3 (part of value span)
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("İlgili Süreçler ( Hangi Süreçler Etkileniyor? )", "")}</font>', 
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("İlgili Süreçler", "")}</font>', 
                           ParagraphStyle('V7', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
                 Paragraph(f'<font size=8 color="#374151">{form_data.get(sorumlu_attr, "")}</font>', 
                           ParagraphStyle('V8', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
