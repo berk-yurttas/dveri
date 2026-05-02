@@ -821,7 +821,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                     </td>
                                                     <td className="border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
                                                         <div className="font-bold text-blue-900">9. Feragat Bildirim Numarası</div>
-                                                        <div className="mt-1">{getFieldValue('Feragat Bildirim No')}</div>
+                                                        <div className="mt-1">{getFieldValue('Feragat Bildirim Numarası')}</div>
                                                     </td>
                                                 </tr>
                                             </tbody>
