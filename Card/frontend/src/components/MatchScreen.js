@@ -32,6 +32,7 @@ const MatchScreen = () => {
   const [playerNumber, setPlayerNumber] = useState(null);
   const [selectedMoveId, setSelectedMoveId] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittedRound, setSubmittedRound] = useState(null);
   const [allOver, setAllOver] = useState(false);
   const [isOver, setIsOver] = useState(false);
   const [resultMsg, setResultMsg] = useState('');
@@ -123,12 +124,15 @@ const MatchScreen = () => {
 
   const handleCardClick = async (cardId) => {
     if (isSubmitting || isOver) return;
+    if (!gameState || !playerNumber) return;
+    if (submittedRound === gameState.currentRound) return;
     try {
       setIsSubmitting(true);
       setSelectedMoveId(cardId);
       const isOddRound = gameState.currentRound % 2 === 1;
       const action = isOddRound ? (playerNumber === 1 ? "attack" : "defense") : (playerNumber === 1 ? "defense" : "attack");
       const res = await axios.post(`${API_BASE}/api/onevone/attack`, { gameId: gameState.gameId, moveId: cardId, role: action });
+      setSubmittedRound(gameState.currentRound);
       if (res.data.message) {
         setResultMsg(res.data.message);
       } else {
@@ -136,6 +140,8 @@ const MatchScreen = () => {
           ...prev, gameId: res.data.gameId, currentRound: res.data.currentRound,
           decks: { player1: res.data.playerCards, player2: res.data.secondPlayerCards },
         }));
+        setSubmittedRound(null);
+        setSelectedMoveId(null);
         if (res.data.result?.attackerCard && res.data.result?.defenderCard) {
           setCenterDisplay({ attacker: res.data.result.attackerCard, defender: res.data.result.defenderCard });
           const { decision, xpReduction, attackerName, defenderName } = res.data.result;
@@ -145,11 +151,23 @@ const MatchScreen = () => {
       }
       setError('');
     } catch (err) {
-      setError('Hamle gönderilirken hata: ' + err.message);
+      const serverMessage = err?.response?.data?.error;
+      setError(serverMessage ? `Hamle gönderilemedi: ${serverMessage}` : `Hamle gönderilirken hata: ${err.message}`);
+      if (err?.response?.status === 409) {
+        setSubmittedRound(null);
+        setSelectedMoveId(null);
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    if (submittedRound !== null && gameState?.currentRound !== submittedRound) {
+      setSubmittedRound(null);
+      setSelectedMoveId(null);
+    }
+  }, [submittedRound, gameState?.currentRound]);
 
   useEffect(() => {
     if (!startTime || allOver) return;
@@ -232,9 +250,15 @@ const MatchScreen = () => {
     return (
       <div key={card._id} onClick={isMine ? () => handleCardClick(card._id) : undefined}
         className={shakingCards[card._id] ? 'shake' : ''}
-        style={{ ...S.sideCard, cursor: isMine ? 'pointer' : 'default', boxShadow: isSelected ? '0 0 12px 3px rgba(0,200,255,0.8)' : '0 2px 8px rgba(0,0,0,0.3)', border: isSelected ? '2px solid #00c8ff' : '2px solid transparent' }}>
+        style={{ ...S.sideCard, cursor: isMine && submittedRound !== gameState.currentRound ? 'pointer' : 'default', boxShadow: isSelected ? '0 0 12px 3px rgba(0,200,255,0.8)' : '0 2px 8px rgba(0,0,0,0.3)', border: isSelected ? '2px solid #00c8ff' : '2px solid transparent', opacity: isMine && submittedRound === gameState.currentRound ? 0.82 : 1 }}>
         <img src={isMine ? card.imageUrl : CLOSED_CARD_IMG} alt={card.name}
           style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 6 }} />
+        {isMine && (
+          <>
+            <div style={{ ...S.statBadge, ...S.attackBadge }}>{card.attack ?? ''}</div>
+            <div style={{ ...S.statBadge, ...S.defenseBadge }}>{card.defense ?? ''}</div>
+          </>
+        )}
         <div style={hpStyle}>{card.health}</div>
       </div>
     );
@@ -247,6 +271,8 @@ const MatchScreen = () => {
         <div style={S.centerLabel}>{label}</div>
         <img src={card.imageUrl} alt={card.name}
           style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 8 }} />
+        <div style={{ ...S.centerStatBadge, ...S.centerAttackBadge }}>{card.attack ?? ''}</div>
+        <div style={{ ...S.centerStatBadge, ...S.centerDefenseBadge }}>{card.defense ?? ''}</div>
         <div style={S.centerHpBadge}>{card.health}</div>
         {shaking && <>
           <div className="hit-flash" />
@@ -415,6 +441,9 @@ const S = {
   sidebarRight: { position: 'absolute', top: TOPBAR_H, right: 0, width: SIDEBAR_W, bottom: 0, zIndex: 10, overflowY: 'auto', overflowX: 'hidden', padding: '8px 6px', background: 'rgba(0,10,25,0.75)', backdropFilter: 'blur(6px)', borderLeft: '1px solid rgba(255,255,255,0.08)' },
   sideTitle: { position: 'sticky', top: 0, zIndex: 3, fontSize: 13, fontWeight: 700, color: '#8af', textAlign: 'center', padding: '6px 0', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1, background: 'rgba(0,10,25,0.95)', backdropFilter: 'blur(4px)' },
   sideCard: { position: 'relative', width: '100%', aspectRatio: '3/4.7', borderRadius: 8, overflow: 'hidden', marginBottom: 8, transition: 'box-shadow 0.2s, border 0.2s', background: '#0a1628' },
+  statBadge: { position: 'absolute', left: '4%', background: '#0d1b2e', padding: '1px 6px', borderRadius: 3, fontSize: 12, fontWeight: 800, lineHeight: '16px', zIndex: 2, textShadow: '0 1px 2px rgba(0,0,0,0.6)' },
+  attackBadge: { top: '27%', color: '#ff4d4f', boxShadow: '0 0 10px rgba(255,77,79,0.25)' },
+  defenseBadge: { top: '42%', color: '#4fdbff', boxShadow: '0 0 10px rgba(79,219,255,0.22)' },
   hpBadge: { position: 'absolute', bottom: '41%', left: '18%', background: '#0d1b2e', color: '#4f4', padding: '1px 7px', borderRadius: 3, fontSize: 13, fontWeight: 700, lineHeight: '18px', zIndex: 2 },
   hpBadgeOpponent: { position: 'absolute', bottom: 4, left: 4, background: 'rgba(0,0,0,0.8)', color: '#4f4', padding: '2px 8px', borderRadius: 4, fontSize: 14, fontWeight: 700, zIndex: 2 },
 
@@ -426,6 +455,9 @@ const S = {
   centerCard: { position: 'relative', width: 200, height: 310, borderRadius: 10, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.5)', border: '2px solid rgba(255,255,255,0.15)', background: '#0a1628' },
   centerCardEmpty: { width: 200, height: 310, borderRadius: 10, border: '2px dashed rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   centerLabel: { position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', fontSize: 11, fontWeight: 700, color: '#fff', background: 'rgba(0,80,180,0.8)', padding: '2px 12px', borderRadius: 10, zIndex: 2, textTransform: 'uppercase', letterSpacing: 1 },
+  centerStatBadge: { position: 'absolute', left: '4%', background: '#0d1b2e', padding: '2px 8px', borderRadius: 3, fontSize: 14, fontWeight: 900, lineHeight: '18px', zIndex: 2, textShadow: '0 1px 2px rgba(0,0,0,0.6)' },
+  centerAttackBadge: { top: '27%', color: '#ff4d4f', boxShadow: '0 0 12px rgba(255,77,79,0.25)' },
+  centerDefenseBadge: { top: '42%', color: '#4fdbff', boxShadow: '0 0 12px rgba(79,219,255,0.22)' },
   centerHpBadge: { position: 'absolute', bottom: '40%', left: '18%', background: '#0d1b2e', color: '#4f4', padding: '2px 9px', borderRadius: 3, fontSize: 15, fontWeight: 700, lineHeight: '20px', zIndex: 2 },
 
   exitBtn: { padding: '4px 14px', fontSize: 12, fontWeight: 700, background: 'rgba(140,0,0,0.8)', color: '#fff', border: '1px solid rgba(255,80,80,0.3)', borderRadius: 14, cursor: 'pointer', letterSpacing: 0.5 },
