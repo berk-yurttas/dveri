@@ -11,16 +11,7 @@ export function AselsanLogo() {
   return (
     <div className="flex items-center">
       {companyLogo ? (
-        <Image
-          src={companyLogo}
-          alt="Aselsan 50 Yıl"
-          width={140}
-          height={50}
-          className="h-6 w-auto"
-          onClick={() => router.push("/")}
-          style={{ cursor: "pointer" }}
-          priority
-        />
+        <img src={companyLogo} alt="Aselsan" className="h-8 w-auto brightness-0 invert" style={{ cursor: "pointer" }} onClick={() => router.push("/")} />
       ) : (
         <div className="h-12 w-35 flex items-center justify-center text-white font-bold text-lg">
           ASELSAN
