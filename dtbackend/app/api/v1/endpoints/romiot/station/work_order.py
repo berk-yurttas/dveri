@@ -29,16 +29,25 @@ from app.schemas.work_order import (
 router = APIRouter()
 
 
-def _extract_musteri_company_from_roles(role_values: list[str] | None) -> str | None:
+def _extract_musteri_companies_from_roles(role_values: list[str] | None) -> list[str]:
+    """
+    Extracts the list of müşteri companies from supplemental roles:
+    - atolye:musteri_company:<company>
+
+    Order-preserving and deduplicated.
+    """
     if not role_values:
-        return None
+        return []
     prefix = "atolye:musteri_company:"
+    companies: list[str] = []
+    seen: set[str] = set()
     for role in role_values:
         if isinstance(role, str) and role.startswith(prefix):
             value = role[len(prefix):].strip()
-            if value:
-                return value
-    return None
+            if value and value not in seen:
+                seen.add(value)
+                companies.append(value)
+    return companies
 
 
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -419,17 +428,19 @@ async def get_all_work_orders(
 
     department_value = (current_user.department or "").strip()
     company = department_value
-    musteri_department = None
+    musteri_companies: list[str] = []
     is_musteri = "atolye:musteri" in role_values
     is_yonetici = "atolye:yonetici" in role_values
     if is_musteri:
-        musteri_department = _extract_musteri_company_from_roles(role_values)
-        if not musteri_department and ":" in department_value:
+        musteri_companies = _extract_musteri_companies_from_roles(role_values)
+        if not musteri_companies and ":" in department_value:
             # Backward compatibility for old department format XXX:YYY
-            company, musteri_department = department_value.split(":", 1)
+            company, fallback = department_value.split(":", 1)
             company = company.strip()
-            musteri_department = musteri_department.strip()
-        if not musteri_department:
+            fallback = fallback.strip()
+            if fallback:
+                musteri_companies = [fallback]
+        if not musteri_companies:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Müşteri şirket bilgisi rol üzerinde bulunamadı"
@@ -475,8 +486,8 @@ async def get_all_work_orders(
         WorkOrder.station_id.in_(station_ids),
         WorkOrder.delivered == False,
     ]
-    if is_musteri and musteri_department:
-        base_conditions.append(WorkOrder.company_from == musteri_department)
+    if is_musteri and musteri_companies:
+        base_conditions.append(WorkOrder.company_from.in_(musteri_companies))
 
     # Apply search filters (OR when both provided, AND individually)
     from sqlalchemy import or_
@@ -525,8 +536,8 @@ async def get_all_work_orders(
             WorkOrder.station_id.in_(filtered_station_ids),
             WorkOrder.delivered == False,
         ]
-        if is_musteri and musteri_department:
-            base_conditions.append(WorkOrder.company_from == musteri_department)
+        if is_musteri and musteri_companies:
+            base_conditions.append(WorkOrder.company_from.in_(musteri_companies))
         if search_part_number and search_order_number:
             base_conditions.append(or_(
                 WorkOrder.part_number.ilike(f"%{search_part_number}%"),
@@ -605,7 +616,7 @@ async def get_all_work_orders(
                     continue
 
                 company_from = str(payload.get("company_from") or "").strip()
-                if is_musteri and musteri_department and company_from != musteri_department:
+                if is_musteri and musteri_companies and company_from not in musteri_companies:
                     continue
 
                 part_number = str(payload.get("part_number") or "")

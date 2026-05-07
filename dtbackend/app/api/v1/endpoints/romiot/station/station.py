@@ -142,20 +142,25 @@ def _extract_atolye_role(role_values: list[str] | None) -> ManagedUserRoleType |
     return None
 
 
-def _extract_musteri_company_from_roles(role_values: list[str] | None) -> str | None:
+def _extract_musteri_companies_from_roles(role_values: list[str] | None) -> list[str]:
     """
-    Extracts musteri company from supplemental role:
+    Extracts the list of müşteri companies from supplemental roles:
     - atolye:musteri_company:<company>
+
+    Order-preserving and deduplicated.
     """
     if not role_values:
-        return None
+        return []
     prefix = "atolye:musteri_company:"
+    companies: list[str] = []
+    seen: set[str] = set()
     for role in role_values:
         if isinstance(role, str) and role.startswith(prefix):
             value = role[len(prefix):].strip()
-            if value:
-                return value
-    return None
+            if value and value not in seen:
+                seen.add(value)
+                companies.append(value)
+    return companies
 
 
 def _get_main_company_from_department(department: str | None) -> str:
@@ -468,14 +473,17 @@ async def update_company_user(
             existing_role_values = target_pb_user.get("role") if isinstance(target_pb_user.get("role"), list) else []
             pb_roles = [f"atolye:{new_role.value}"]
             if new_role == ManagedUserRoleType.MUSTERI:
-                musteri_company = _extract_musteri_company_from_roles(existing_role_values)
-                if not musteri_company and target_department.startswith(f"{user_company}:"):
+                musteri_companies = _extract_musteri_companies_from_roles(existing_role_values)
+                if not musteri_companies and target_department.startswith(f"{user_company}:"):
                     # Backward compatibility for previously saved department format XXX:YYY
-                    musteri_company = target_department.split(":", 1)[1].strip()
-                if not musteri_company:
+                    fallback = target_department.split(":", 1)[1].strip()
+                    if fallback:
+                        musteri_companies = [fallback]
+                if not musteri_companies:
                     # Fallback when converting role without explicit musteri company input
-                    musteri_company = user_company
-                pb_roles.append(f"atolye:musteri_company:{musteri_company}")
+                    musteri_companies = [user_company]
+                for company in musteri_companies:
+                    pb_roles.append(f"atolye:musteri_company:{company}")
 
             pb_payload: dict = {
                 "username": new_username,

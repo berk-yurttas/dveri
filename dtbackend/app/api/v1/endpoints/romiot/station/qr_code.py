@@ -24,16 +24,25 @@ from app.schemas.user import User
 router = APIRouter()
 
 
-def _extract_musteri_company_from_roles(role_values: list[str] | None) -> str | None:
+def _extract_musteri_companies_from_roles(role_values: list[str] | None) -> list[str]:
+    """
+    Extracts the list of müşteri companies from supplemental roles:
+    - atolye:musteri_company:<company>
+
+    Order-preserving and deduplicated.
+    """
     if not role_values:
-        return None
+        return []
     prefix = "atolye:musteri_company:"
+    companies: list[str] = []
+    seen: set[str] = set()
     for role in role_values:
         if isinstance(role, str) and role.startswith(prefix):
             value = role[len(prefix):].strip()
-            if value:
-                return value
-    return None
+            if value and value not in seen:
+                seen.add(value)
+                companies.append(value)
+    return companies
 
 
 def generate_short_code(length: int = 12) -> str:
@@ -312,15 +321,17 @@ async def get_qr_codes_by_work_order_group(
 
     is_musteri = "atolye:musteri" in role_values
     main_company = department_value
-    musteri_department = None
+    musteri_companies: list[str] = []
     if is_musteri:
-        musteri_department = _extract_musteri_company_from_roles(role_values)
-        if not musteri_department and ":" in department_value:
+        musteri_companies = _extract_musteri_companies_from_roles(role_values)
+        if not musteri_companies and ":" in department_value:
             # Backward compatibility for old department format XXX:YYY
-            main_company, musteri_department = department_value.split(":", 1)
+            main_company, fallback = department_value.split(":", 1)
             main_company = main_company.strip()
-            musteri_department = musteri_department.strip()
-        if not musteri_department:
+            fallback = fallback.strip()
+            if fallback:
+                musteri_companies = [fallback]
+        if not musteri_companies:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Müşteri şirket bilgisi rol üzerinde bulunamadı."
@@ -351,8 +362,8 @@ async def get_qr_codes_by_work_order_group(
         except (json.JSONDecodeError, ValueError):
             continue
 
-        if is_musteri and musteri_department:
-            if (payload.get("company_from") or "").strip() != musteri_department:
+        if is_musteri and musteri_companies:
+            if (payload.get("company_from") or "").strip() not in musteri_companies:
                 continue
 
         response_items.append(
