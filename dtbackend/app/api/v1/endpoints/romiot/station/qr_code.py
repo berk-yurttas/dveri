@@ -144,39 +144,44 @@ async def generate_qr_code_batch(
     (4 packages of 25 and 1 package of 15).
     Requires 'atolye:musteri' or 'atolye:yonetici' role.
     """
-    # Company is now read from department; role is company-independent
-    user_company = (current_user.department or "").strip()
+    # Sender ("Gönderen Firma") is always the caller's own company.
+    sender_company = (current_user.department or "").strip()
     role_values = current_user.role if isinstance(current_user.role, list) else []
     is_musteri = "atolye:musteri" in role_values
     is_yonetici = "atolye:yonetici" in role_values
     has_create_role = is_musteri or is_yonetici
 
-    if not has_create_role or not user_company:
+    if not has_create_role or not sender_company:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir."
         )
 
-    # Validate company_from against caller's allowed set.
+    # Validate target_company against the caller's allowed targets.
     # Müşteri rule takes precedence when user has both roles.
-    submitted_company = (batch_data.company_from or "").strip()
+    submitted_target = batch_data.target_company.strip()
+    if not submitted_target:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Hedef firma boş olamaz.",
+        )
     if is_musteri:
-        allowed_companies = _extract_musteri_companies_from_roles(role_values)
-        if not allowed_companies and ":" in user_company:
-            # Backward compatibility for old department format XXX:YYY
-            fallback = user_company.split(":", 1)[1].strip()
-            if fallback:
-                allowed_companies = [fallback]
-        if submitted_company not in allowed_companies:
+        allowed_targets = _extract_musteri_companies_from_roles(role_values)
+        if not allowed_targets:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Bu şirket adına QR kod oluşturma yetkiniz yok.",
+                detail="Hedef firma rolü atanmamış. Yöneticinizle iletişime geçin.",
+            )
+        if submitted_target not in allowed_targets:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bu hedef firma için QR kod oluşturma yetkiniz yok.",
             )
     elif is_yonetici:
-        if submitted_company != user_company:
+        if submitted_target != sender_company:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Bu şirket adına QR kod oluşturma yetkiniz yok.",
+                detail="Bu hedef firma için QR kod oluşturma yetkiniz yok.",
             )
 
     # Calculate packages
@@ -206,12 +211,14 @@ async def generate_qr_code_batch(
         # First 'remainder' packages get base_qty + 1, the rest get base_qty
         pkg_qty = base_qty + (1 if i <= remainder else 0)
         
-        # Build the QR data for this package
+        # Build the QR data for this package.
+        # `company_from` is the SENDER (printed "Gönderen Firma") and is always
+        # the caller's own department, never the client's input.
         qr_data = {
             "work_order_group_id": work_order_group_id,
             "main_customer": batch_data.main_customer,
             "sector": batch_data.sector,
-            "company_from": batch_data.company_from,
+            "company_from": sender_company,
             "teklif_number": batch_data.teklif_number,
             "aselsan_order_number": batch_data.aselsan_order_number,
             "order_item_number": batch_data.order_item_number,
@@ -244,11 +251,11 @@ async def generate_qr_code_batch(
                 detail=f"QR kod oluşturulamadı (paket {i}). Lütfen tekrar deneyin."
             )
         
-        # Create QR code data record
+        # Create QR code data record. `company` is the TARGET (storage tenant).
         qr_code_record = QRCodeData(
             code=code,
             data=data_json,
-            company=user_company,
+            company=submitted_target,
             expires_at=expires_at
         )
         romiot_db.add(qr_code_record)
