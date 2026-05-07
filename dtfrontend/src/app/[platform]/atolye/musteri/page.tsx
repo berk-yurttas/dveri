@@ -38,36 +38,50 @@ export default function MusteriPage() {
   const { user } = useUser();
   const [isMusteri, setIsMusteri] = useState(false);
   const [isYonetici, setIsYonetici] = useState(false);
-  const [userCompany, setUserCompany] = useState<string | null>(null);
+  const [userCompanies, setUserCompanies] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Check user roles and extract company
+  // Check user roles and extract the list of companies the user can act for
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
-      const musteriRole = user.role.find((role) =>
-        typeof role === "string" && role === "atolye:musteri"
+      const musteriRole = user.role.find(
+        (role) => typeof role === "string" && role === "atolye:musteri"
       );
-      const yoneticiRole = user.role.find((role) =>
-        typeof role === "string" && role === "atolye:yonetici"
+      const yoneticiRole = user.role.find(
+        (role) => typeof role === "string" && role === "atolye:yonetici"
       );
       if (musteriRole || yoneticiRole) {
         setIsMusteri(!!musteriRole);
         setIsYonetici(!!yoneticiRole);
-        const musteriCompanyRole = user.role.find(
-          (role) => typeof role === "string" && role.startsWith("atolye:musteri_company:")
-        );
-        if (musteriRole && typeof musteriCompanyRole === "string") {
-          const musteriCompany = musteriCompanyRole.replace("atolye:musteri_company:", "").trim();
-          setUserCompany(musteriCompany || null);
+
+        // Collect every atolye:musteri_company:<X> role, deduped, in array order.
+        const prefix = "atolye:musteri_company:";
+        const seen = new Set<string>();
+        const collected: string[] = [];
+        for (const role of user.role) {
+          if (typeof role === "string" && role.startsWith(prefix)) {
+            const value = role.slice(prefix.length).trim();
+            if (value && !seen.has(value)) {
+              seen.add(value);
+              collected.push(value);
+            }
+          }
+        }
+
+        if (musteriRole && collected.length > 0) {
+          setUserCompanies(collected);
         } else {
+          // Fallback for legacy users / yönetici-only.
           const departmentValue = (user.department || "").trim();
           if (musteriRole && departmentValue.includes(":")) {
             // Backward compatibility for old department format XXX:YYY
             const [, musteriDepartment] = departmentValue.split(":", 2);
-            setUserCompany(musteriDepartment?.trim() || null);
+            const fallback = musteriDepartment?.trim() || "";
+            setUserCompanies(fallback ? [fallback] : []);
           } else {
-            setUserCompany(departmentValue || user.company || null);
+            const fallback = departmentValue || user.company || "";
+            setUserCompanies(fallback ? [fallback] : []);
           }
         }
       }
@@ -92,12 +106,15 @@ export default function MusteriPage() {
   const [selectedPackageIndex, setSelectedPackageIndex] = useState<number>(0);
   const qrCodeRef = useRef<HTMLDivElement | null>(null);
 
-  // Prefill company_from with user's company
+  // Default company_from to the first allowed company; preserve user's choice if already set.
   useEffect(() => {
-    if (userCompany && (isMusteri || isYonetici)) {
-      setBarcodeFormData((prev) => ({ ...prev, company_from: userCompany }));
+    if (userCompanies.length > 0 && (isMusteri || isYonetici)) {
+      setBarcodeFormData((prev) => ({
+        ...prev,
+        company_from: prev.company_from || userCompanies[0],
+      }));
     }
-  }, [userCompany, isMusteri, isYonetici]);
+  }, [userCompanies, isMusteri, isYonetici]);
 
   const handleGenerateBarcode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -396,13 +413,26 @@ export default function MusteriPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Gönderen Firma *</label>
-                <input
-                  type="text"
+                <select
                   value={barcodeFormData.company_from}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-900"
-                  readOnly
-                  disabled
-                />
+                  onChange={(e) =>
+                    setBarcodeFormData({ ...barcodeFormData, company_from: e.target.value })
+                  }
+                  className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 ${
+                    userCompanies.length <= 1 ? "bg-gray-100 cursor-not-allowed" : "bg-white"
+                  }`}
+                  disabled={userCompanies.length <= 1}
+                  required
+                >
+                  {userCompanies.length === 0 && (
+                    <option value="">Şirket bulunamadı</option>
+                  )}
+                  {userCompanies.map((company) => (
+                    <option key={company} value={company}>
+                      {company}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Teklif Numarası *</label>
