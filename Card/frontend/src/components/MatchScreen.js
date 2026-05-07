@@ -5,6 +5,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
 import ThemeToggle from './ThemeToggle';
+import DiceOverlay from './DiceOverlay';
 
 const socket = io(API_BASE);
 
@@ -13,15 +14,17 @@ const newThemeBg = `${process.env.PUBLIC_URL}/images/newThemeBg.png`;
 const CLOSED_CARD_IMG = `${process.env.PUBLIC_URL}/images/closedCard.png`;
 
 /** decision > 0: saldıran üstün; < 0: savunan üstün (backend ile uyumlu) */
-function formatCombatBanner({ decision, xpReduction, attackerName, defenderName }) {
+function formatCombatBanner({ decision, xpReduction, attackerName, defenderName, attackerDice, defenderDice }) {
   const dmg = Number(xpReduction) || 0;
+  const aStr = attackerDice ? `${attackerName} (Zar: x${attackerDice})` : attackerName;
+  const dStr = defenderDice ? `${defenderName} (Zar: x${defenderDice})` : defenderName;
   if (decision > 0) {
-    return `${attackerName} kazandı! ${dmg} can kadar vurdu!`;
+    return `${aStr} kazandı! ${dmg} HP hasar vurdu!`;
   }
   if (decision < 0) {
-    return `${defenderName} kazandı! ${dmg} can kadar vurdu!`;
+    return `${dStr} kazandı! ${dmg} HP hasar vurdu!`;
   }
-  return `${attackerName} — ${defenderName}: Güçler eşit!`;
+  return `${aStr} ⚔️ ${dStr}: Güçler eşit!`;
 }
 
 const MatchScreen = () => {
@@ -50,6 +53,7 @@ const MatchScreen = () => {
   const [lastDecision, setLastDecision] = useState(null);
   const [shakeAttacker, setShakeAttacker] = useState(false);
   const [shakeDefender, setShakeDefender] = useState(false);
+  const [diceData, setDiceData] = useState(null);
 
   const navigate = useNavigate();
   const handleToggleTheme = () => setIsOldTheme(!isOldTheme);
@@ -77,15 +81,32 @@ const MatchScreen = () => {
       setStartTime(Date.now());
     });
     socket.on('gameUpdate', (data) => {
-      setCenterDisplay({ attacker: data.attackerCard, defender: data.defenderCard });
-      setGameState(prev => ({
-        ...prev, gameId: data.gameId, currentRound: data.currentRound,
-        decks: { player1: data.playerCards, player2: data.secondPlayerCards },
-      }));
-      if (data.result) {
-        const { decision, xpReduction, attackerName, defenderName } = data.result;
-        setResultMsg(formatCombatBanner({ decision, xpReduction, attackerName, defenderName }));
-        setLastDecision(decision);
+      const applyUpdate = () => {
+        setCenterDisplay({ attacker: data.attackerCard, defender: data.defenderCard });
+        setGameState(prev => ({
+          ...prev, gameId: data.gameId, currentRound: data.currentRound,
+          decks: { player1: data.playerCards, player2: data.secondPlayerCards },
+        }));
+        if (data.result) {
+          const { decision, xpReduction, attackerName, defenderName, attackerDice, defenderDice } = data.result;
+          setResultMsg(formatCombatBanner({ decision, xpReduction, attackerName, defenderName, attackerDice, defenderDice }));
+          setLastDecision(decision);
+        }
+      };
+
+      if (data.result && data.result.attackerName) {
+        setDiceData({
+          attackerRoll: data.result.attackerDice,
+          defenderRoll: data.result.defenderDice,
+          attackerName: data.result.attackerName,
+          defenderName: data.result.defenderName,
+          onComplete: () => {
+            setDiceData(null);
+            applyUpdate();
+          }
+        });
+      } else {
+        applyUpdate();
       }
     });
     socket.on('opponentLeft', (data) => {
@@ -135,20 +156,10 @@ const MatchScreen = () => {
       setSubmittedRound(gameState.currentRound);
       if (res.data.message) {
         setResultMsg(res.data.message);
-      } else {
-        setGameState(prev => ({
-          ...prev, gameId: res.data.gameId, currentRound: res.data.currentRound,
-          decks: { player1: res.data.playerCards, player2: res.data.secondPlayerCards },
-        }));
-        setSubmittedRound(null);
-        setSelectedMoveId(null);
-        if (res.data.result?.attackerCard && res.data.result?.defenderCard) {
-          setCenterDisplay({ attacker: res.data.result.attackerCard, defender: res.data.result.defenderCard });
-          const { decision, xpReduction, attackerName, defenderName } = res.data.result;
-          setResultMsg(formatCombatBanner({ decision, xpReduction, attackerName, defenderName }));
-          setLastDecision(decision);
-        }
       }
+      // If there is no message, it means the turn completed.
+      // We do NOT update the UI here. We rely entirely on the 'gameUpdate' socket event
+      // which is broadcast to both players by the server. This prevents race conditions.
       setError('');
     } catch (err) {
       const serverMessage = err?.response?.data?.error;
@@ -377,6 +388,9 @@ const MatchScreen = () => {
           <span style={S.playerName}>{p2Name}</span>
         </div>
       </div>
+
+      {/* Dice Overlay */}
+      {diceData && <DiceOverlay {...diceData} />}
 
       {/* ── LEFT SIDEBAR ── */}
       <div style={S.sidebarLeft} className="side-scroll" ref={leftDeckRef}>

@@ -37,6 +37,7 @@ services:
       - ./backend:/app
       - ./card_images:/app/card_images:ro
       - ./music:/app/music:ro
+      - ./new_cards:/app/new_cards:ro
       - /app/node_modules
     command: npm run dev
 

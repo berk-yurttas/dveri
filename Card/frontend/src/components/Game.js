@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
+import DiceOverlay from './DiceOverlay';
 
 const Game = () => {
   const navigate = useNavigate();
@@ -13,6 +14,8 @@ const Game = () => {
   const [error, setError] = useState('');
   const [damagedPlayerIndex, setDamagedPlayerIndex] = useState(null);
   const [damagedComputerIndex, setDamagedComputerIndex] = useState(null);
+  const [isRollingDice, setIsRollingDice] = useState(false);
+  const [diceData, setDiceData] = useState(null);
 
   useEffect(() => {
     const startGame = async () => {
@@ -32,6 +35,7 @@ const Game = () => {
       return;
     }
     try {
+      setIsRollingDice(true);
       const res = await axios.post(`${API_BASE}/api/game/attack`, {
         gameId: gameState.gameId,
         playerAttackIndex: selectedPlayerAttack,
@@ -39,11 +43,35 @@ const Game = () => {
       });
       const { playerResult, computerResult } = res.data.result;
 
+      const showDice = (rollData) => {
+        return new Promise(resolve => {
+          setDiceData({
+            ...rollData,
+            onComplete: () => {
+              setDiceData(null);
+              resolve();
+            }
+          });
+        });
+      };
+
       if (playerResult?.attackerName) {
+        await showDice({
+          attackerRoll: playerResult.attackerDice,
+          defenderRoll: playerResult.defenderDice,
+          attackerName: playerResult.attackerName,
+          defenderName: playerResult.defenderName
+        });
         setDamagedComputerIndex(selectedComputerTarget);
         setTimeout(() => setDamagedComputerIndex(null), 500);
       }
       if (computerResult?.attackerName) {
+        await showDice({
+          attackerRoll: computerResult.attackerDice,
+          defenderRoll: computerResult.defenderDice,
+          attackerName: computerResult.attackerName,
+          defenderName: computerResult.defenderName
+        });
         setDamagedPlayerIndex(selectedPlayerAttack);
         setTimeout(() => setDamagedPlayerIndex(null), 500);
       }
@@ -57,10 +85,10 @@ const Game = () => {
 
       const messages = [];
       if (playerResult?.attackerName) {
-        messages.push(`Saldıran: ${playerResult.attackerName} → Savunan: ${playerResult.defenderName} | HP: -${playerResult.xpReduction}`);
+        messages.push(`Sen: ${playerResult.attackerName} (Zar: x${playerResult.attackerDice}) ⚔️ PC: ${playerResult.defenderName} (Zar: x${playerResult.defenderDice}) | Hasar: -${playerResult.xpReduction} HP`);
       }
       if (computerResult?.attackerName) {
-        messages.push(`PC Saldırısı: ${computerResult.attackerName} → ${computerResult.defenderName} | HP: -${computerResult.xpReduction}`);
+        messages.push(`PC: ${computerResult.attackerName} (Zar: x${computerResult.attackerDice}) ⚔️ Sen: ${computerResult.defenderName} (Zar: x${computerResult.defenderDice}) | Hasar: -${computerResult.xpReduction} HP`);
       }
       setMessage(messages.join('\n'));
       setSelectedPlayerAttack(null);
@@ -68,6 +96,8 @@ const Game = () => {
       setError('');
     } catch (err) {
       setError('Saldırı işlemi sırasında hata: ' + err.message);
+    } finally {
+      setIsRollingDice(false);
     }
   };
 
@@ -140,6 +170,9 @@ const Game = () => {
       {error && <div style={S.errorBanner}>{error}</div>}
       {message && <div style={S.msgBanner}><pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{message}</pre></div>}
 
+      {/* Dice Overlay */}
+      {diceData && <DiceOverlay {...diceData} />}
+
       {/* Main game area */}
       <div style={S.body}>
         {/* Player cards */}
@@ -152,8 +185,8 @@ const Game = () => {
 
         {/* Attack button */}
         <div style={{ display: 'flex', justifyContent: 'center', margin: '12px 0' }}>
-          <button disabled={gameOver} onClick={handleAttack}
-            style={{ ...S.attackBtn, ...(gameOver ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }}>
+          <button disabled={gameOver || isRollingDice} onClick={handleAttack}
+            style={{ ...S.attackBtn, ...((gameOver || isRollingDice) ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }}>
             Saldır
           </button>
         </div>
@@ -192,15 +225,15 @@ const S = {
   sectionLabel: { fontSize: 13, fontWeight: 700, color: '#8af', textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center', marginBottom: 6 },
   cardRow: { display: 'flex', gap: 12, justifyContent: 'center', overflowX: 'auto', padding: '4px 0' },
 
-  card: { position: 'relative', width: 140, minWidth: 140, height: 220, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', border: '2px solid transparent', boxShadow: '0 2px 10px rgba(0,0,0,0.4)', transition: 'border 0.15s, box-shadow 0.15s, transform 0.15s', flexShrink: 0, background: '#0a1628' },
+  card: { position: 'relative', width: 170, minWidth: 170, height: 265, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', border: '2px solid transparent', boxShadow: '0 2px 10px rgba(0,0,0,0.4)', transition: 'border 0.15s, box-shadow 0.15s, transform 0.15s', flexShrink: 0, background: '#0a1628' },
   cardSelected: { border: '2px solid #00c8ff', boxShadow: '0 0 14px 2px rgba(0,200,255,0.5)', transform: 'translateY(-4px)' },
   cardDamage: { animation: 'damageAnim 0.5s ease-in-out' },
   cardImg: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' },
-  cardStat: { position: 'absolute', left: '4%', background: '#0d1b2e', padding: '0px 5px', borderRadius: 3, fontSize: 11, fontWeight: 800, lineHeight: '14px', zIndex: 2, textShadow: '0 1px 2px rgba(0,0,0,0.6)' },
-  cardAttack: { top: '27%', color: '#ff4d4f', boxShadow: '0 0 10px rgba(255,77,79,0.25)' },
-  cardDefense: { top: '42%', color: '#4fdbff', boxShadow: '0 0 10px rgba(79,219,255,0.22)' },
-  cardHp: { position: 'absolute', bottom: '40%', left: '18%', background: '#0d1b2e', color: '#4f4', padding: '1px 7px', borderRadius: 3, fontSize: 13, fontWeight: 700, lineHeight: '18px', zIndex: 2 },
-  cardName: { position: 'absolute', top: 4, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.65)', color: '#fff', padding: '1px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600, maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', zIndex: 2 },
+  cardStat: { position: 'absolute', left: '4%', background: 'rgba(10,22,40,0.75)', padding: '0px 4px', borderRadius: 2, fontSize: 9, fontWeight: 700, lineHeight: '12px', zIndex: 2, letterSpacing: 0.3 },
+  cardAttack: { top: '27%', color: '#ff6b6b' },
+  cardDefense: { top: '42%', color: '#5ad8ff' },
+  cardHp: { position: 'absolute', bottom: '40%', left: '18%', background: 'rgba(10,22,40,0.75)', color: '#5fdf5f', padding: '0px 4px', borderRadius: 2, fontSize: 9, fontWeight: 700, lineHeight: '12px', zIndex: 2 },
+  cardName: { position: 'absolute', top: 4, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '1px 6px', borderRadius: 3, fontSize: 8, fontWeight: 600, maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', zIndex: 2 },
 
   attackBtn: { background: 'linear-gradient(135deg,#dc3545,#c82333)', color: '#fff', border: 'none', padding: '12px 40px', borderRadius: 8, fontSize: 16, fontWeight: 700, cursor: 'pointer', letterSpacing: 1, boxShadow: '0 2px 12px rgba(220,20,60,0.4)', transition: 'opacity 0.2s' },
   exitBtn: { position: 'fixed', bottom: 70, right: 20, zIndex: 20, padding: '8px 20px', fontSize: 13, fontWeight: 700, background: 'rgba(140,0,0,0.8)', color: '#fff', border: '1px solid rgba(255,80,80,0.3)', borderRadius: 20, cursor: 'pointer', letterSpacing: 0.5, boxShadow: '0 2px 10px rgba(0,0,0,0.5)' },
