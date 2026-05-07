@@ -348,36 +348,45 @@ async def get_qr_codes_by_work_order_group(
         )
 
     is_musteri = "atolye:musteri" in role_values
-    main_company = department_value
-    musteri_companies: list[str] = []
+    musteri_targets: list[str] = []
     if is_musteri:
-        musteri_companies = _extract_musteri_companies_from_roles(role_values)
-        if not musteri_companies and ":" in department_value:
-            # Backward compatibility for old department format XXX:YYY
-            main_company, fallback = department_value.split(":", 1)
-            main_company = main_company.strip()
-            fallback = fallback.strip()
-            if fallback:
-                musteri_companies = [fallback]
-        if not musteri_companies:
+        musteri_targets = _extract_musteri_companies_from_roles(role_values)
+        if not musteri_targets:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Müşteri şirket bilgisi rol üzerinde bulunamadı."
+                detail="Hedef firma rolü atanmamış. Yöneticinizle iletişime geçin.",
             )
 
-    query = text(
-        """
-        SELECT code, data
-        FROM qr_code_data
-        WHERE company = :company
-          AND data::jsonb ->> 'work_order_group_id' = :group_id
-        ORDER BY (data::jsonb ->> 'package_index')::int
-        """
-    )
-    result = await romiot_db.execute(
-        query,
-        {"company": main_company, "group_id": work_order_group_id},
-    )
+    if is_musteri:
+        # Müşteri sees QR groups stored under any of their target companies.
+        query = text(
+            """
+            SELECT code, data
+            FROM qr_code_data
+            WHERE company = ANY(:companies)
+              AND data::jsonb ->> 'work_order_group_id' = :group_id
+            ORDER BY (data::jsonb ->> 'package_index')::int
+            """
+        )
+        result = await romiot_db.execute(
+            query,
+            {"companies": musteri_targets, "group_id": work_order_group_id},
+        )
+    else:
+        # Yönetici / operator / satinalma: scoped to their own department.
+        query = text(
+            """
+            SELECT code, data
+            FROM qr_code_data
+            WHERE company = :company
+              AND data::jsonb ->> 'work_order_group_id' = :group_id
+            ORDER BY (data::jsonb ->> 'package_index')::int
+            """
+        )
+        result = await romiot_db.execute(
+            query,
+            {"company": department_value, "group_id": work_order_group_id},
+        )
     rows = result.fetchall()
 
     if not rows:
@@ -390,8 +399,10 @@ async def get_qr_codes_by_work_order_group(
         except (json.JSONDecodeError, ValueError):
             continue
 
-        if is_musteri and musteri_companies:
-            if (payload.get("company_from") or "").strip() not in musteri_companies:
+        if is_musteri:
+            # Defense-in-depth: müşteri's own QRs always carry their department
+            # as the JSON's company_from (server-set at creation).
+            if (payload.get("company_from") or "").strip() != department_value:
                 continue
 
         response_items.append(
