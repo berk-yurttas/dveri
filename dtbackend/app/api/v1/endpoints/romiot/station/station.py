@@ -289,8 +289,8 @@ async def list_company_users(
                 payload = response.json()
                 items = payload.get("items", [])
                 for item in items:
-                    department = (item.get("department") or "").strip()
-                    if department == user_company or department.startswith(f"{user_company}:"):
+                    item_company = (item.get("company") or "").strip()
+                    if item_company == user_company:
                         all_pb_users.append(item)
                 total_pages = payload.get("totalPages", 1) or 1
                 page += 1
@@ -382,8 +382,8 @@ async def update_company_user(
                 )
 
             target_pb_user = target_response.json()
-            target_department = (target_pb_user.get("department") or "").strip()
-            if not (target_department == user_company or target_department.startswith(f"{user_company}:")):
+            target_company = (target_pb_user.get("company") or "").strip()
+            if target_company != user_company:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Bu kullanıcı sizin şirketinize ait değil",
