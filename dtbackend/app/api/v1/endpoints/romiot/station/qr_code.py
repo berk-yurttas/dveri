@@ -146,18 +146,39 @@ async def generate_qr_code_batch(
     """
     # Company is now read from department; role is company-independent
     user_company = (current_user.department or "").strip()
-    has_create_role = (
-        current_user.role
-        and isinstance(current_user.role, list)
-        and ("atolye:musteri" in current_user.role or "atolye:yonetici" in current_user.role)
-    )
-    
+    role_values = current_user.role if isinstance(current_user.role, list) else []
+    is_musteri = "atolye:musteri" in role_values
+    is_yonetici = "atolye:yonetici" in role_values
+    has_create_role = is_musteri or is_yonetici
+
     if not has_create_role or not user_company:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir."
         )
-    
+
+    # Validate company_from against caller's allowed set.
+    # Müşteri rule takes precedence when user has both roles.
+    submitted_company = (batch_data.company_from or "").strip()
+    if is_musteri:
+        allowed_companies = _extract_musteri_companies_from_roles(role_values)
+        if not allowed_companies and ":" in user_company:
+            # Backward compatibility for old department format XXX:YYY
+            fallback = user_company.split(":", 1)[1].strip()
+            if fallback:
+                allowed_companies = [fallback]
+        if submitted_company not in allowed_companies:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bu şirket adına QR kod oluşturma yetkiniz yok.",
+            )
+    elif is_yonetici:
+        if submitted_company != user_company:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bu şirket adına QR kod oluşturma yetkiniz yok.",
+            )
+
     # Calculate packages
     total_quantity = batch_data.quantity
     total_packages = batch_data.package_quantity
