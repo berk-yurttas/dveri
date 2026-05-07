@@ -566,11 +566,24 @@ export default function OperatorPage() {
   useEffect(() => {
     if (mode === null) return;
 
+    // Drop focus from any element (e.g. the mode button just clicked) so that
+    // stray Enter/Space keystrokes from the scanner can't re-activate it and
+    // navigate the page.
+    if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
     const handleKeyPress = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
         return;
       }
+
+      // Swallow every key while a scan mode is active so that scanner output
+      // (digits, Enter, and any control chars) cannot bubble to focused
+      // buttons/links or trigger browser shortcuts.
+      e.preventDefault();
+      e.stopPropagation();
 
       if (qrCodeTimeoutRef.current) {
         clearTimeout(qrCodeTimeoutRef.current);
@@ -584,7 +597,6 @@ export default function OperatorPage() {
       }
 
       if (e.key === "Enter" && qrCodeBufferRef.current.length > 0) {
-        e.preventDefault();
         setLoading(false);
         handleQRCodeScan(qrCodeBufferRef.current);
         qrCodeBufferRef.current = "";
@@ -602,9 +614,9 @@ export default function OperatorPage() {
       }, 200);
     };
 
-    window.addEventListener("keydown", handleKeyPress);
+    window.addEventListener("keydown", handleKeyPress, { capture: true });
     return () => {
-      window.removeEventListener("keydown", handleKeyPress);
+      window.removeEventListener("keydown", handleKeyPress, { capture: true });
       if (qrCodeTimeoutRef.current) {
         clearTimeout(qrCodeTimeoutRef.current);
       }
