@@ -18,6 +18,7 @@ interface AttributeData {
     name: string
     value: any
     updated_at: string
+    job_step_instance_id: string | null
 }
 
 interface StepInfo {
@@ -159,6 +160,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 const sql = `
                     SELECT 
                         ad."name",
+                        ia.job_step_instance_id,
                         ia.value,
                         ia.updated_at
                     FROM 
@@ -174,8 +176,9 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
 
                 const formattedData: AttributeData[] = rows.map(row => ({
                     name: row[0] || '',
-                    value: row[1],
-                    updated_at: row[2] || ''
+                    job_step_instance_id: row[1],
+                    value: row[2],
+                    updated_at: row[3] || ''
                 }))
 
                 setData(formattedData)
@@ -183,6 +186,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 // Fetch step definitions for E, F, G sections from job_step_instances
                 const stepSql = `
                     SELECT 
+                        si.id,
                         sd.name,
                         si.assignee,
                         si.completed_at
@@ -202,14 +206,60 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 const stepDataMap: StepDataMap = {}
                 const userCache: { [username: string]: any } = {}
                 
-                // First, collect all unique assignees
+                // First, collect all unique assignees and check for representation users
                 const assignees = new Set<string>()
-                stepRows.forEach(row => {
-                    const assignee = row[1] || ''
-                    if (assignee) assignees.add(assignee)
-                })
+                const representationUsers = new Map<string, string>() // step_instance_id -> representation_user
                 
-                // Fetch user info from Pocketbase for all assignees
+                for (const row of stepRows) {
+                    const stepInstanceId = row[0] || ''
+                    const assignee = row[2] || ''
+                    
+                    if (assignee) assignees.add(assignee)
+                    
+                    // Check outbox_events for representation user
+                    if (stepInstanceId) {
+                        const outboxSql = `
+                            SELECT payload
+                            FROM outbox_events
+                            WHERE aggregate_type = 'job_step_instance'
+                            AND aggregate_id = '${stepInstanceId}'
+                            AND event_type = 'STEP_STATUS_CHANGED'
+                            ORDER BY created_at DESC
+                            LIMIT 1
+                        `
+                        
+                        try {
+                            const outboxRows = await runQuery(outboxSql, seyirDbConfig)
+                            if (outboxRows.length > 0 && outboxRows[0][0]) {
+                                const payload = outboxRows[0][0]
+                                
+                                // Parse payload if it's a string
+                                let payloadObj = payload
+                                if (typeof payload === 'string') {
+                                    try {
+                                        payloadObj = JSON.parse(payload)
+                                    } catch (e) {
+                                        console.error('Failed to parse payload:', e)
+                                    }
+                                }
+                                
+                                if (payloadObj && typeof payloadObj === 'object') {
+                                    const newStatus = payloadObj.newStatus
+                                    const changedBy = payloadObj.changedBy
+                                    
+                                    if (newStatus === 'done' && changedBy && changedBy !== assignee) {
+                                        representationUsers.set(stepInstanceId, changedBy)
+                                        assignees.add(changedBy) // Also fetch representation user's info
+                                    }
+                                }
+                            }
+                        } catch (err) {
+                            console.error(`Failed to fetch outbox events for ${stepInstanceId}:`, err)
+                        }
+                    }
+                }
+                
+                // Fetch user info from Pocketbase for all assignees and representation users
                 for (const username of Array.from(assignees)) {
                     try {
                         const userRes = await api.get(`/feragat-formu/get-user-info?username=${encodeURIComponent(username)}`)
@@ -228,16 +278,28 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 
                 // Build step data with full names
                 stepRows.forEach(row => {
-                    const name = row[0] || ''
-                    const assignee = row[1] || ''
-                    const completed_at = row[2] || ''
+                    const stepInstanceId = row[0] || ''
+                    const name = row[1] || ''
+                    const assignee = row[2] || ''
+                    const completed_at = row[3] || ''
                     
                     // Remove " Onayı" suffix to get the Görev name
                     const gorev = name.replace(' Onayı', '').trim()
                     
                     if (gorev && assignee) {
-                        const userInfo = userCache[assignee] || { name: assignee }
-                        const fullName = `${userInfo.name}`.trim()
+                        const representationUser = representationUsers.get(stepInstanceId)
+                        
+                        let fullName = ''
+                        if (representationUser && representationUser in userCache) {
+                            // Use representation user's name with "(assignee adına vekaleten)"
+                            const reprUserInfo = userCache[representationUser]
+                            const assigneeUserInfo = userCache[assignee] || { name: assignee }
+                            fullName = `${reprUserInfo.name} (${assigneeUserInfo.name} adına vekaleten)`.trim()
+                        } else {
+                            // Use regular assignee name
+                            const userInfo = userCache[assignee] || { name: assignee }
+                            fullName = `${userInfo.name}`.trim()
+                        }
                         
                         stepDataMap[gorev] = {
                             assignee: assignee,
@@ -291,7 +353,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
             const a = document.createElement('a')
             a.href = url
             const feragatTuru = getFieldValue('Feragat Türü')
-            const title = feragatTuru === 'Alt Yüklenici' ? 'Alt_Yüklenici_Feragat_Formu' : 'Uyarlama_Feragat_Formu'
+            const title = feragatTuru === 'Onaysız AY Feragati' ? 'Alt_Yüklenici_Feragat_Formu' : 'Uyarlama_Feragat_Formu'
             a.download = `${title}_${jobInstanceId}.pdf`
             document.body.appendChild(a)
             a.click()
@@ -312,7 +374,39 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     
     const getSignature = (gorev: string): string => {
         const signatureKey = `${gorev} Onayı`
-        return getFieldValue(signatureKey)
+        const signatureAttr = data.find(d => d.name === signatureKey)
+        
+        if (!signatureAttr) {
+            return ''
+        }
+        
+        const signatureValue = extractValue(signatureAttr.value)
+        const jobStepId = signatureAttr.job_step_instance_id
+        
+        if (!jobStepId) {
+            return signatureValue
+        }
+        
+        // Find explanation attribute with same job_step_instance_id
+        let explanation = ''
+        for (const attr of data) {
+            if (attr.job_step_instance_id === jobStepId && 
+                (attr.name === 'Şerh Açıklaması' || attr.name === 'Açıklama')) {
+                explanation = extractValue(attr.value)
+                break
+            }
+        }
+        
+        // Format signature with explanation if exists
+        if (explanation) {
+            if (signatureValue === 'Onaylanmıştır') {
+                return `${signatureValue}\nAçıklama: ${explanation}`
+            } else {
+                return `${signatureValue}\nŞerh Açıklaması: ${explanation}`
+            }
+        }
+        
+        return signatureValue
     }
     
     const getRiskData = (attributeName: string) => {
@@ -499,7 +593,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     const projeTuru = getFieldValue('Proje Türü')
     
     const getTitle = (): string => {
-        return feragatTuru === 'Alt Yüklenici' ? 'Alt Yüklenici Feragat Formu' : 'Uyarlama Feragat Formu'
+        return feragatTuru === 'Onaysız AY Feragati' ? 'Onaysız AY Feragat Formu' : 'Uyarlama Feragat Formu'
     }
 
     const getGorevList = (): string[] => {
@@ -537,7 +631,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     }
     
     const getSorumluLabel = (): string => {
-        return feragatTuru === 'Alt Yüklenici' ? 'AY Sorumlusu' : 'Feragat Sorumlusu'
+        return feragatTuru === 'Onaysız AY Feragati' ? 'AY Sorumlusu' : 'Feragat Sorumlusu'
     }
     
     const getSorumluValue = (): string => {
@@ -684,7 +778,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                 A. GENEL BİLGİLER
                             </div>
                             
-                            {feragatTuru === 'Alt Yüklenici' ? (
+                            {feragatTuru === 'Onaysız AY Feragati' ? (
                                 <>
                                     {/* Alt Yüklenici Layout */}
                                     {/* Row 1: Three columns */}
@@ -834,9 +928,9 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                         {/* B. TALEP EDİLEN FERAGAT / DEĞERLENDİRMELER */}
                         <div>
                             <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
-                                {feragatTuru === 'Alt Yüklenici' ? 'B. FERAGATE AİT DEĞERLENDİRMELER' : 'B. TALEP EDİLEN FERAGAT'}
+                                {feragatTuru === 'Onaysız AY Feragati' ? 'B. FERAGATE AİT DEĞERLENDİRMELER' : 'B. TALEP EDİLEN FERAGAT'}
                             </div>
-                            {feragatTuru === 'Alt Yüklenici' ? (
+                            {feragatTuru === 'Onaysız AY Feragati' ? (
                                 <div className="border border-black">
                                     <table className="w-full text-[10px]">
                                         <tbody>
@@ -959,7 +1053,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                             <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
                                 C. FERAGATE AİT GEREKÇELER
                             </div>
-                            {feragatTuru === 'Alt Yüklenici' ? (
+                            {feragatTuru === 'Onaysız AY Feragati' ? (
                                 <div className="border border-black">
                                     <table className="w-full text-[10px]">
                                         <tbody>
@@ -1043,7 +1137,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                             <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
                                 D. FERAGATİN OLASI ETKİLERİ
                             </div>
-                            {feragatTuru === 'Alt Yüklenici' ? (
+                            {feragatTuru === 'Onaysız AY Feragati' ? (
                                 <div className="space-y-0">
                                     {/* İdari Riskler/Eylem Planı */}
                                     <div className="border border-black border-b-0">
@@ -1219,7 +1313,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {['Proje Yönetici', getSorumluLabel(), 'Sorumlu Müdür'].map((gorev, idx) => {
+                                        {['Proje Yönetici', getSorumluLabel(), 'Sorumlu Yönetici'].map((gorev, idx) => {
                                             const stepInfo = stepData[gorev] || {}
                                             const fullName = stepInfo.fullName || ''
                                             const completedAt = stepInfo.completed_at || ''
@@ -1231,7 +1325,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                     <td className="border-r border-gray-400 p-1 font-bold bg-gray-100">{gorev}</td>
                                                     <td className="border-r border-gray-400 p-1">{fullName}</td>
                                                     <td className="border-r border-gray-400 p-1">{tarih}</td>
-                                                    <td className="p-1">{imza}</td>
+                                                    <td className="p-1 whitespace-pre-line">{imza}</td>
                                                 </tr>
                                             )
                                         })}
@@ -1269,7 +1363,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                         <td className="border-r border-black p-2 align-top">{gorev}</td>
                                                         <td className="border-r border-black p-2 align-top bg-gray-50">{fullName}</td>
                                                         <td className="border-r border-black p-2 align-top bg-gray-50">{tarih}</td>
-                                                        <td className="p-2 align-top bg-gray-50">{imza}</td>
+                                                        <td className="p-2 align-top bg-gray-50 whitespace-pre-line">{imza}</td>
                                                     </tr>
                                                 )
                                             })
@@ -1314,7 +1408,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                     <td className="border-r border-black p-2 align-top font-bold">{gorev}</td>
                                                     <td className="border-r border-black p-2 align-top bg-gray-50">{fullName}</td>
                                                     <td className="border-r border-black p-2 align-top bg-gray-50">{tarih}</td>
-                                                    <td className="p-2 align-top bg-gray-50">{imza}</td>
+                                                    <td className="p-2 align-top bg-gray-50 whitespace-pre-line">{imza}</td>
                                                 </tr>
                                             )
                                         })()}

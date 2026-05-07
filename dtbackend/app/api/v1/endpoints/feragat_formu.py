@@ -113,7 +113,7 @@ async def get_pocketbase_user(username: str) -> dict:
             # Authenticate as admin
             if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:
                 auth_response = await client.post(
-                    f"{settings.POCKETBASE_URL}/api/collections/_superusers/auth-with-password",
+                    f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
                     json={
                         "identity": settings.POCKETBASE_ADMIN_EMAIL,
                         "password": settings.POCKETBASE_ADMIN_PASSWORD
@@ -156,9 +156,9 @@ def get_step_definitions_data(job_instance_id: str) -> dict:
         
         try:
             # Query using job_step_instances table
-            # Note: Using named parameters to avoid tuple index issues
             query = """
-                SELECT 
+                SELECT
+                    si.id,
                     sd.name,
                     si.assignee,
                     si.completed_at
@@ -188,23 +188,51 @@ def get_step_definitions_data(job_instance_id: str) -> dict:
                     print(f"[get_step_definitions_data] Processing row {idx}: {row}")
                     
                     # Check if row has enough columns
-                    if len(row) < 3:
+                    if len(row) < 4:
                         print(f"[get_step_definitions_data] Row {idx} has insufficient columns: {len(row)}")
                         continue
                     
-                    name = row[0] if row[0] else ""
-                    assignee = row[1] if row[1] else ""
-                    completed_at = row[2] if len(row) > 2 else None
+                    step_instance_id = row[0] if row[0] else ""
+                    name = row[1] if row[1] else ""
+                    assignee = row[2] if row[2] else ""
+                    completed_at = row[3] if len(row) > 3 else None
                     
                     # Remove " Onayı" from the name to get the Görev
                     gorev = name.replace(" Onayı", "").strip()
                     
                     if gorev:  # Only add if we have a valid gorev name
+                        # Check for representation user in outbox_events
+                        representation_user = None
+                        if step_instance_id:
+                            outbox_query = """
+                                SELECT payload
+                                FROM outbox_events
+                                WHERE aggregate_type = 'job_step_instance'
+                                AND aggregate_id = %(aggregate_id)s
+                                AND event_type = 'STEP_STATUS_CHANGED'
+                                ORDER BY created_at DESC
+                                LIMIT 1
+                            """
+                            cursor.execute(outbox_query, {'aggregate_id': step_instance_id})
+                            outbox_row = cursor.fetchone()
+                            
+                            if outbox_row and outbox_row[0]:
+                                payload = outbox_row[0]
+                                # payload is JSONB, check if it has newStatus="done" and changedBy != assignee
+                                if isinstance(payload, dict):
+                                    new_status = payload.get('newStatus')
+                                    changed_by = payload.get('changedBy')
+                                    
+                                    if new_status == 'done' and changed_by and changed_by != assignee:
+                                        representation_user = changed_by
+                                        print(f"[get_step_definitions_data] Found representation: {changed_by} for {assignee}")
+                        
                         step_data[gorev] = {
                             "assignee": assignee,
-                            "completed_at": completed_at
+                            "completed_at": completed_at,
+                            "representation_user": representation_user
                         }
-                        print(f"[get_step_definitions_data] Added: {gorev} -> {assignee}")
+                        print(f"[get_step_definitions_data] Added: {gorev} -> {assignee} (representation: {representation_user})")
                 except Exception as row_error:
                     import traceback
                     traceback.print_exc()
@@ -281,6 +309,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         query = """
             SELECT 
                 ad."name",
+                ia.job_step_instance_id,
                 ia.value,
                 ia.updated_at
             FROM 
@@ -297,15 +326,23 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             raise ValueError(f"No data found for job_instance_id: {job_instance_id}")
         
         # Parse data into dictionary
+        # Store both value and job_step_instance_id for each attribute
         form_data = {}
+        form_data_meta = {}  # Store job_step_instance_id
         for row in rows:
             field_name = row[0]
+            job_step_instance_id = row[1]
+            field_value = row[2]
+            
+            # Store job_step_instance_id for later use
+            form_data_meta[field_name] = job_step_instance_id
+            
             # Keep array structure for "Hakkında Gerekçeler", "Feragatin Olası Etkileri", and "Feragate Ait Gerekçeler" fields
             if "Hakkında Gerekçeler" in field_name or "Feragatin Olası Etkileri" in field_name or "Feragate Ait Gerekçeler" in field_name:
-                form_data[field_name] = row[1]  # Keep raw JSONB value (array)
+                form_data[field_name] = field_value  # Keep raw JSONB value (array)
             else:
-                field_value = extract_value(row[1])
-                form_data[field_name] = field_value
+                field_value_extracted = extract_value(field_value)
+                form_data[field_name] = field_value_extracted
         
     finally:
         cursor.close()
@@ -314,13 +351,21 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
     # Get step definitions data for E, F, G sections
     step_data = get_step_definitions_data(job_instance_id)
     
-    # Fetch user names from PocketBase for each assignee
+    # Fetch user names from PocketBase for each assignee and representation user
     user_cache = {}
     for gorev, info in step_data.items():
         assignee = info["assignee"]
+        representation_user = info.get("representation_user")
+        
+        # Fetch assignee info
         if assignee and assignee not in user_cache:
             user_info = await get_pocketbase_user(assignee)
             user_cache[assignee] = user_info
+        
+        # Fetch representation user info
+        if representation_user and representation_user not in user_cache:
+            user_info = await get_pocketbase_user(representation_user)
+            user_cache[representation_user] = user_info
     
     # Helper to get field value by name
     def get_field(key_part: str) -> str:
@@ -333,7 +378,29 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
     def get_signature(gorev: str) -> str:
         # Look for attribute with name like "Görev Onayı"
         signature_key = f"{gorev} Onayı"
-        return form_data.get(signature_key, "")
+        signature_value = form_data.get(signature_key, "")
+        
+        # Get job_step_instance_id for this signature
+        job_step_id = form_data_meta.get(signature_key)
+        
+        if not job_step_id:
+            return signature_value
+        
+        # Find explanation attribute with same job_step_instance_id
+        explanation = ""
+        for attr_name, attr_job_step_id in form_data_meta.items():
+            if attr_job_step_id == job_step_id and (attr_name == "Şerh Açıklaması" or attr_name == "Açıklama"):
+                explanation = form_data.get(attr_name, "")
+                break
+        
+        # Format signature with explanation if exists
+        if explanation:
+            if signature_value == "Onaylanmıştır":
+                return f"{signature_value}<br/>Açıklama: {explanation}"
+            else:
+                return f"{signature_value}<br/>Şerh Açıklaması: {explanation}"
+        
+        return signature_value
     
     # Helper to parse İşin Sorumlusu/Bölümü field
     def get_isin_sorumlusu_bolumu() -> str:
@@ -376,7 +443,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
     feragat_no = form_data.get("Feragat No", "")
     
     # Determine header title based on feragat_turu
-    header_title = "Alt Yüklenici Feragat Formu" if feragat_turu == "Alt Yüklenici" else "Uyarlama Feragat Formu"
+    header_title = "Onaysız AY Feragat Formu" if feragat_turu == "Onaysız AY Feragati" else "Uyarlama Feragat Formu"
     
     # Logo path - works both locally and in Docker container
     # Get the backend root directory (where main.py is located)
@@ -486,7 +553,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
     elements.append(section_a)
     
     # Section A content differs based on Feragat Türü
-    if feragat_turu == "Alt Yüklenici":
+    if feragat_turu == "Onaysız AY Feragati":
         # Alt Yüklenici layout
         # Row 1: 3 fields spanning full width
         row1_alt_data = [
@@ -721,8 +788,8 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         # Columns 6-7: Feragat Bildirim Numarası (under Proje Tipi, 2 cols)
         
         # Determine which sorumlu attribute to use based on feragat_turu
-        sorumlu_label = "AY Sorumlusu" if feragat_turu == "Alt Yüklenici" else "Feragat Sorumlusu"
-        sorumlu_attr = "AY Sorumlusu" if feragat_turu == "Alt Yüklenici" else "Feragat Sorumlusu"
+        sorumlu_label = "AY Sorumlusu" if feragat_turu == "Onaysız AY Feragati" else "Feragat Sorumlusu"
+        sorumlu_attr = "AY Sorumlusu" if feragat_turu == "Onaysız AY Feragati" else "Feragat Sorumlusu"
         
         # Row 2: Split into 2 sub-rows to separate labels from values
         # Sub-row 1: Labels with blue background
@@ -796,7 +863,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         elements.append(row2_table)
     
     # Section B header - Different content based on Feragat Türü
-    if feragat_turu == "Alt Yüklenici":
+    if feragat_turu == "Onaysız AY Feragati":
         # Alt Yüklenici specific Section B
         section_b = Table([[Paragraph('<b>B. FERAGATE AİT DEĞERLENDİRMELER</b>', 
                                       ParagraphStyle('SecB', fontSize=10, alignment=1, textColor=colors.white, fontName=FONT_NAME_BOLD))]], 
@@ -1237,7 +1304,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
     elements.append(section_c)
     
     # Different Section C design for Alt Yüklenici
-    if feragat_turu == "Alt Yüklenici":
+    if feragat_turu == "Onaysız AY Feragati":
         # Alt Yüklenici: 2 column table (CX, content)
         gerekce_attr_value = form_data.get("Feragate Ait Gerekçeler", None)
         
@@ -1458,7 +1525,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
     elements.append(section_d)
     
     # Different Section D design for Alt Yüklenici
-    if feragat_turu == "Alt Yüklenici":
+    if feragat_turu == "Onaysız AY Feragati":
         # Alt Yüklenici: 3 separate tables for İdari, Teknik, Kalite risks
         # Helper function to create risk table
         def create_risk_table(title, attribute_name, row_prefix):
@@ -1730,14 +1797,25 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
     elements.append(e_header_table)
     
     # E Section: Data rows (Proje Yöneticisi, Feragat Sorumlusu, Sorumlu Bölge Müdürü)
-    e_gorev_list = ["Proje Yönetici", "AY Sorumlusu", "Sorumlu Müdür"] if feragat_turu == "Alt Yüklenici" else ["Proje Yönetici", "Feragat Sorumlusu", "Sorumlu Müdür"]
+    e_gorev_list = ["Proje Yönetici", "AY Sorumlusu", "Sorumlu Yönetici"] if feragat_turu == "Onaysız AY Feragati" else ["Proje Yönetici", "Feragat Sorumlusu", "Sorumlu Yönetici"]
     e_data = []
     
     for gorev in e_gorev_list:
         if gorev in step_data and step_data[gorev]["assignee"] in user_cache:
             assignee = step_data[gorev]["assignee"]
-            user_info = user_cache[assignee]
-            full_name = f"{user_info['name']}".strip()
+            representation_user = step_data[gorev].get("representation_user")
+            
+            # Check if there's a representation user
+            if representation_user and representation_user in user_cache:
+                # Use representation user's name with "(assignee adına vekaleten)"
+                repr_user_info = user_cache[representation_user]
+                assignee_user_info = user_cache[assignee]
+                full_name = f"{repr_user_info['name']} ({assignee_user_info['name']} adına vekaleten)".strip()
+            else:
+                # Use regular assignee name
+                user_info = user_cache[assignee]
+                full_name = f"{user_info['name']}".strip()
+            
             completed_at = step_data[gorev]["completed_at"]
             tarih = completed_at.strftime("%d-%m-%Y") if completed_at else ""
         else:
@@ -1848,8 +1926,19 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             # Check if we have data for this Görev
             if gorev in step_data and step_data[gorev]["assignee"] in user_cache:
                 assignee = step_data[gorev]["assignee"]
-                user_info = user_cache[assignee]
-                full_name = f"{user_info['name']}".strip()
+                representation_user = step_data[gorev].get("representation_user")
+                
+                # Check if there's a representation user
+                if representation_user and representation_user in user_cache:
+                    # Use representation user's name with "(assignee adına vekaleten)"
+                    repr_user_info = user_cache[representation_user]
+                    assignee_user_info = user_cache[assignee]
+                    full_name = f"{repr_user_info['name']} ({assignee_user_info['name']} adına vekaleten)".strip()
+                else:
+                    # Use regular assignee name
+                    user_info = user_cache[assignee]
+                    full_name = f"{user_info['name']}".strip()
+                
                 completed_at = step_data[gorev]["completed_at"]
                 tarih = completed_at.strftime("%d-%m-%Y") if completed_at else ""
             else:
@@ -1924,8 +2013,19 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
     
     if gorev_g in step_data and step_data[gorev_g]["assignee"] in user_cache:
         assignee = step_data[gorev_g]["assignee"]
-        user_info = user_cache[assignee]
-        full_name = f"{user_info['name']}".strip()
+        representation_user = step_data[gorev_g].get("representation_user")
+        
+        # Check if there's a representation user
+        if representation_user and representation_user in user_cache:
+            # Use representation user's name with "(assignee adına vekaleten)"
+            repr_user_info = user_cache[representation_user]
+            assignee_user_info = user_cache[assignee]
+            full_name = f"{repr_user_info['name']} ({assignee_user_info['name']} adına vekaleten)".strip()
+        else:
+            # Use regular assignee name
+            user_info = user_cache[assignee]
+            full_name = f"{user_info['name']}".strip()
+        
         completed_at = step_data[gorev_g]["completed_at"]
         tarih = completed_at.strftime("%d-%m-%Y") if completed_at else ""
     else:
