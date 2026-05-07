@@ -469,21 +469,22 @@ async def update_company_user(
                         detail=f"'{new_username}' kullanıcı adı zaten kullanılıyor",
                     )
 
-            department_for_payload = user_company
             existing_role_values = target_pb_user.get("role") if isinstance(target_pb_user.get("role"), list) else []
+            existing_department = (target_pb_user.get("department") or "").strip()
             pb_roles = [f"atolye:{new_role.value}"]
             if new_role == ManagedUserRoleType.MUSTERI:
-                musteri_companies = _extract_musteri_companies_from_roles(existing_role_values)
-                if not musteri_companies and target_department.startswith(f"{user_company}:"):
-                    # Backward compatibility for previously saved department format XXX:YYY
-                    fallback = target_department.split(":", 1)[1].strip()
-                    if fallback:
-                        musteri_companies = [fallback]
-                if not musteri_companies:
-                    # Fallback when converting role without explicit musteri company input
-                    musteri_companies = [user_company]
-                for company in musteri_companies:
-                    pb_roles.append(f"atolye:musteri_company:{company}")
+                # Preserve every atolye:musteri_company:* role verbatim; admin owns
+                # the linked-targets list. No synthesis, no fallback.
+                for role in existing_role_values:
+                    if isinstance(role, str) and role.startswith("atolye:musteri_company:"):
+                        pb_roles.append(role)
+                # Müşteri's department is the customer's own company; do not
+                # overwrite it with the yönetici's company on a name/password edit.
+                department_for_payload = existing_department or user_company
+            else:
+                # Operator / yönetici (non-müşteri target): department is the
+                # yönetici's company (workshop), as today.
+                department_for_payload = user_company
 
             pb_payload: dict = {
                 "username": new_username,
@@ -796,9 +797,10 @@ async def create_user_for_station(
     full_role = f"atolye:{user_data.role.value}"
 
     # Department mapping:
-    # - all roles keep main company in department
-    # - musteri-specific company is stored in an extra role
-    target_department = user_company
+    # - operator / yönetici: department = yönetici's own company (workshop)
+    # - müşteri: department = the customer's own company (the sender identity).
+    #   Linked targets (atolye:musteri_company:<X>) are added by an admin
+    #   out-of-band after creation, not here.
     role_values = [full_role]
     if user_data.role == UserRoleType.MUSTERI:
         musteri_department = (user_data.musteri_department or "").strip()
@@ -807,7 +809,9 @@ async def create_user_for_station(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Müşteri şirket/departman bilgisinde ':' karakteri kullanılamaz"
             )
-        role_values.append(f"atolye:musteri_company:{musteri_department}")
+        target_department = musteri_department
+    else:
+        target_department = user_company
 
     # Create user in PocketBase
     pb_user_id = None
