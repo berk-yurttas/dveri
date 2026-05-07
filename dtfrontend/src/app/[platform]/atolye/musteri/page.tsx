@@ -106,12 +106,14 @@ export default function MusteriPage() {
   const [selectedPackageIndex, setSelectedPackageIndex] = useState<number>(0);
   const qrCodeRef = useRef<HTMLDivElement | null>(null);
 
-  // Default company_from to the first allowed company; preserve user's choice if already set.
+  // Default company_from to the first allowed company; preserve user's choice if it is still valid.
   useEffect(() => {
     if (userCompanies.length > 0 && (isMusteri || isYonetici)) {
       setBarcodeFormData((prev) => ({
         ...prev,
-        company_from: prev.company_from || userCompanies[0],
+        company_from: userCompanies.includes(prev.company_from)
+          ? prev.company_from
+          : userCompanies[0],
       }));
     }
   }, [userCompanies, isMusteri, isYonetici]);
