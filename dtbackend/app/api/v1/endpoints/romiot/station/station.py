@@ -172,6 +172,105 @@ def _get_main_company_from_department(department: str | None) -> str:
     return department_value
 
 
+async def _pb_create_user_record(
+    *,
+    username: str,
+    email: str,
+    password: str,
+    password_confirm: str,
+    name: str,
+    role: list[str],
+    department: str,
+    company: str,
+) -> str:
+    """
+    Authenticate as PB admin, ensure username/email are unique, create the user
+    record, and return the new PB id. Raises HTTPException with PB-derived
+    detail on validation/uniqueness errors.
+    """
+    async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+        auth_token = await _authenticate_pocketbase_admin(client)
+        headers = {"Authorization": auth_token}
+
+        check_username = await client.get(
+            f"{settings.POCKETBASE_URL}/api/collections/users/records",
+            params={"filter": f'username="{username}"'},
+            headers=headers,
+        )
+        if check_username.status_code == 200 and check_username.json().get("items"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"'{username}' kullanıcı adı zaten kullanılıyor",
+            )
+
+        check_email = await client.get(
+            f"{settings.POCKETBASE_URL}/api/collections/users/records",
+            params={"filter": f'email="{email}"'},
+            headers=headers,
+        )
+        if check_email.status_code == 200 and check_email.json().get("items"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"'{email}' e-posta adresi zaten kullanılıyor",
+            )
+
+        payload = {
+            "username": username,
+            "email": email,
+            "emailVisibility": True,
+            "verified": True,
+            "password": password,
+            "passwordConfirm": password_confirm,
+            "name": name,
+            "role": role,
+            "department": department,
+            "company": company,
+        }
+        create_response = await client.post(
+            f"{settings.POCKETBASE_URL}/api/collections/users/records",
+            json=payload,
+            headers=headers,
+        )
+        if create_response.status_code in (200, 201):
+            return create_response.json().get("id", "")
+
+        # Best-effort error parsing (mirrors today's logic)
+        error_detail = create_response.text
+        try:
+            error_json = create_response.json()
+            error_data = error_json.get("data", {}) or {}
+            email_errors = error_data.get("email")
+            if isinstance(email_errors, dict) and "message" in email_errors:
+                msg = str(email_errors["message"]).lower()
+                if "already exists" in msg or "already in use" in msg:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"'{email}' e-posta adresi zaten kullanılıyor",
+                    )
+                if "invalid" in msg or "format" in msg:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Geçersiz e-posta adresi formatı",
+                    )
+            username_errors = error_data.get("username")
+            if isinstance(username_errors, dict) and "message" in username_errors:
+                msg = str(username_errors["message"]).lower()
+                if "already exists" in msg:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"'{username}' kullanıcı adı zaten kullanılıyor",
+                    )
+            error_message = error_json.get("message", error_detail)
+        except HTTPException:
+            raise
+        except Exception:
+            error_message = error_detail
+        raise HTTPException(
+            status_code=create_response.status_code,
+            detail=f"Kullanıcı oluşturulurken hata oluştu: {error_message}",
+        )
+
+
 @router.get("/management/work-order-link-directory", response_model=WorkOrderLinkDirectoryResponse)
 async def get_work_order_link_directory(
     current_user: User = Depends(check_authenticated),
@@ -813,171 +912,25 @@ async def create_user_for_station(
     else:
         target_department = user_company
 
-    # Create user in PocketBase
+    # Create user in PocketBase via shared helper
     pb_user_id = None
     try:
-        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
-            # 1. Admin authentication
-            auth_token = None
-            if settings.POCKETBASE_ADMIN_EMAIL and settings.POCKETBASE_ADMIN_PASSWORD:
-                try:
-                    # Try newer _superusers endpoint first, fall back to legacy /api/admins
-                    auth_response = await client.post(
-                        f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
-                        json={
-                            "identity": settings.POCKETBASE_ADMIN_EMAIL,
-                            "password": settings.POCKETBASE_ADMIN_PASSWORD
-                        }
-                    )
-                    if auth_response.status_code == 404:
-                        auth_response = await client.post(
-                            f"{settings.POCKETBASE_URL}/api/admins/auth-with-password",
-                            json={
-                                "identity": settings.POCKETBASE_ADMIN_EMAIL,
-                                "password": settings.POCKETBASE_ADMIN_PASSWORD
-                            }
-                        )
-                    if auth_response.status_code == 200:
-                        auth_token = auth_response.json().get("token")
-                    else:
-                        raise HTTPException(
-                            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail="PocketBase yönetici kimlik doğrulaması başarısız oldu"
-                        )
-                except HTTPException:
-                    raise
-                except Exception as auth_error:
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail=f"PocketBase kimlik doğrulama hatası: {str(auth_error)}"
-                    )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="PocketBase yönetici bilgileri yapılandırılmamış"
-                )
-
-            # 2. Check if user already exists in PocketBase (by username and email)
-            headers = {"Authorization": auth_token}
-            
-            # Check username
-            check_username_response = await client.get(
-                f"{settings.POCKETBASE_URL}/api/collections/users/records",
-                params={"filter": f'username="{user_data.username}"'},
-                headers=headers
-            )
-
-            if check_username_response.status_code == 200:
-                existing_pb_users = check_username_response.json().get("items", [])
-                if existing_pb_users:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"'{user_data.username}' kullanıcı adı zaten kullanılıyor"
-                    )
-            
-            # Check email
-            check_email_response = await client.get(
-                f"{settings.POCKETBASE_URL}/api/collections/users/records",
-                params={"filter": f'email="{user_data.email}"'},
-                headers=headers
-            )
-
-            if check_email_response.status_code == 200:
-                existing_pb_users = check_email_response.json().get("items", [])
-                if existing_pb_users:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"'{user_data.email}' e-posta adresi zaten kullanılıyor"
-                    )
-
-            # 3. Create user in PocketBase
-            user_data_pb = {
-                "username": user_data.username,
-                "email": user_data.email,
-                "emailVisibility": True,
-                "verified": True,
-                "password": user_data.password,
-                "passwordConfirm": user_data.password_confirm,
-                "name": user_data.name,
-                "role": role_values,
-                "department": target_department,
-                "company": user_company,
-            }
-
-            create_user_response = await client.post(
-                f"{settings.POCKETBASE_URL}/api/collections/users/records",
-                json=user_data_pb,
-                headers=headers
-            )
-
-            if create_user_response.status_code in [200, 201]:
-                pb_user_data = create_user_response.json()
-                pb_user_id = pb_user_data.get("id")
-            else:
-                error_detail = create_user_response.text
-                # Parse PocketBase error response
-                try:
-                    error_json = create_user_response.json()
-                    error_data = error_json.get("data", {})
-                    
-                    # Check for email validation errors
-                    if "email" in error_data:
-                        email_errors = error_data["email"]
-                        if isinstance(email_errors, dict) and "message" in email_errors:
-                            error_msg = email_errors["message"]
-                            if "already exists" in error_msg.lower() or "already in use" in error_msg.lower():
-                                raise HTTPException(
-                                    status_code=status.HTTP_400_BAD_REQUEST,
-                                    detail=f"'{user_data.email}' e-posta adresi zaten kullanılıyor"
-                                )
-                            elif "invalid" in error_msg.lower() or "format" in error_msg.lower():
-                                raise HTTPException(
-                                    status_code=status.HTTP_400_BAD_REQUEST,
-                                    detail="Geçersiz e-posta adresi formatı"
-                                )
-                        elif isinstance(email_errors, dict):
-                            # Get the first error message
-                            for field, errors in email_errors.items():
-                                if isinstance(errors, dict) and "message" in errors:
-                                    if "already exists" in str(errors["message"]).lower():
-                                        raise HTTPException(
-                                            status_code=status.HTTP_400_BAD_REQUEST,
-                                            detail=f"'{user_data.email}' e-posta adresi zaten kullanılıyor"
-                                        )
-                    
-                    # Check for username errors
-                    if "username" in error_data:
-                        username_errors = error_data["username"]
-                        if isinstance(username_errors, dict) and "message" in username_errors:
-                            error_msg = username_errors["message"]
-                            if "already exists" in error_msg.lower():
-                                raise HTTPException(
-                                    status_code=status.HTTP_400_BAD_REQUEST,
-                                    detail=f"'{user_data.username}' kullanıcı adı zaten kullanılıyor"
-                                )
-                    
-                    # Generic error message
-                    print(error_json)
-                    error_message = error_json.get("message", error_detail)
-                    raise HTTPException(
-                        status_code=create_user_response.status_code,
-                        detail=f"Kullanıcı oluşturulurken hata oluştu: {error_message}"
-                    )
-                except HTTPException:
-                    raise
-                except Exception:
-                    # If parsing fails, use generic error
-                    raise HTTPException(
-                        status_code=create_user_response.status_code,
-                        detail=f"Kullanıcı oluşturulurken hata oluştu: {error_detail}"
-                    )
-
+        pb_user_id = await _pb_create_user_record(
+            username=user_data.username,
+            email=user_data.email,
+            password=user_data.password,
+            password_confirm=user_data.password_confirm,
+            name=user_data.name,
+            role=role_values,
+            department=target_department,
+            company=user_company,
+        )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"PocketBase'de kullanıcı oluşturulurken hata oluştu: {str(e)}"
+            detail=f"PocketBase'de kullanıcı oluşturulurken hata oluştu: {str(e)}",
         )
 
     # Create new user in primary database
