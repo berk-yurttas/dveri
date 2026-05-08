@@ -356,10 +356,16 @@ async def list_company_users(
     romiot_db: AsyncSession = Depends(get_romiot_db),
 ):
     """
-    List users in the current yonetici's company (department).
-    Includes the yonetici user as well.
+    List atolye users.
+    - fullAdmin: every user with at least one atolye:* role, across all companies.
+    - Yönetici (non-fullAdmin): users whose PB company == yönetici's company,
+      excluding any user carrying atolye:musteri.
     """
-    user_company = await check_station_yonetici_role(current_user)
+    full_admin = is_full_admin(current_user)
+    if full_admin:
+        user_company = None  # not used for filtering
+    else:
+        user_company = await check_station_yonetici_role(current_user)
 
     try:
         async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
@@ -369,14 +375,16 @@ async def list_company_users(
             all_pb_users: list[dict] = []
             page = 1
             total_pages = 1
+            atolye_role_set = {
+                "atolye:yonetici",
+                "atolye:operator",
+                "atolye:musteri",
+                "atolye:satinalma",
+            }
             while page <= total_pages:
                 response = await client.get(
                     f"{settings.POCKETBASE_URL}/api/collections/users/records",
-                    params={
-                        "perPage": 200,
-                        "page": page,
-                        "sort": "name",
-                    },
+                    params={"perPage": 200, "page": page, "sort": "name"},
                     headers=headers,
                 )
                 if response.status_code != 200:
@@ -388,8 +396,24 @@ async def list_company_users(
                 payload = response.json()
                 items = payload.get("items", [])
                 for item in items:
+                    item_role_values = item.get("role") if isinstance(item.get("role"), list) else []
+                    has_atolye_role = any(
+                        isinstance(r, str) and r in atolye_role_set for r in item_role_values
+                    )
+                    if not has_atolye_role:
+                        continue
                     item_company = (item.get("company") or "").strip()
-                    if item_company == user_company:
+                    if full_admin:
+                        all_pb_users.append(item)
+                    else:
+                        if item_company != user_company:
+                            continue
+                        is_musteri = any(
+                            isinstance(r, str) and r == "atolye:musteri"
+                            for r in item_role_values
+                        )
+                        if is_musteri:
+                            continue
                         all_pb_users.append(item)
                 total_pages = payload.get("totalPages", 1) or 1
                 page += 1
@@ -402,8 +426,7 @@ async def list_company_users(
         )
 
     usernames = [
-        u.get("username")
-        for u in all_pb_users
+        u.get("username") for u in all_pb_users
         if isinstance(u.get("username"), str) and u.get("username")
     ]
 
@@ -412,14 +435,18 @@ async def list_company_users(
         pg_users_result = await postgres_db.execute(
             select(PostgresUser).where(PostgresUser.username.in_(usernames))
         )
-        pg_users = pg_users_result.scalars().all()
-        pg_users_by_username = {u.username: u for u in pg_users}
+        for u in pg_users_result.scalars().all():
+            pg_users_by_username[u.username] = u
 
-    stations_result = await romiot_db.execute(
-        select(Station).where(Station.company == user_company)
-    )
-    stations = stations_result.scalars().all()
-    station_name_by_id = {s.id: s.name for s in stations}
+    workshop_ids = {
+        u.workshop_id for u in pg_users_by_username.values() if u.workshop_id is not None
+    }
+    station_name_by_id: dict[int, str] = {}
+    if workshop_ids:
+        stations_result = await romiot_db.execute(
+            select(Station).where(Station.id.in_(workshop_ids))
+        )
+        station_name_by_id = {s.id: s.name for s in stations_result.scalars().all()}
 
     response_items: list[ManagedUserResponse] = []
     for pb_user in all_pb_users:
@@ -428,6 +455,7 @@ async def list_company_users(
         station_id = pg_user.workshop_id if pg_user else None
         station_name = station_name_by_id.get(station_id) if station_id else None
         extracted_role = _extract_atolye_role(pb_user.get("role"))
+        item_company = (pb_user.get("company") or "").strip()
 
         response_items.append(
             ManagedUserResponse(
@@ -438,7 +466,7 @@ async def list_company_users(
                 role=extracted_role,
                 station_id=station_id,
                 station_name=station_name,
-                company=user_company,
+                company=item_company,
                 is_self=username == current_user.username,
             )
         )
