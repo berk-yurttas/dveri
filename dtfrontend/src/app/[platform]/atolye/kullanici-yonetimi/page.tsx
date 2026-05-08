@@ -193,6 +193,91 @@ export default function KullaniciYonetimiPage() {
     });
   };
 
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    username: "",
+    name: "",
+    email: "",
+    password: "",
+    password_confirm: "",
+    role: "operator" as RoleType,
+    company: "",
+    department: "",
+    station_id: "",
+    musteri_companies: [] as string[],
+  });
+
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setCreateForm({
+      username: "",
+      name: "",
+      email: "",
+      password: "",
+      password_confirm: "",
+      role: "operator",
+      company: "",
+      department: "",
+      station_id: "",
+      musteri_companies: [],
+    });
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      if (!createForm.username.trim()) throw new Error("Kullanıcı adı boş olamaz");
+      if (!createForm.name.trim()) throw new Error("İsim boş olamaz");
+      if (!createForm.email.trim()) throw new Error("E-posta boş olamaz");
+      const pwError = validatePassword(createForm.password);
+      if (pwError) throw new Error(pwError);
+      if (createForm.password !== createForm.password_confirm) throw new Error("Şifreler eşleşmiyor");
+      if (!createForm.company.trim()) throw new Error("Şirket seçiniz");
+
+      const payload: any = {
+        username: createForm.username.trim(),
+        name: createForm.name.trim(),
+        email: createForm.email.trim(),
+        password: createForm.password,
+        password_confirm: createForm.password_confirm,
+        role: createForm.role,
+        company: createForm.company.trim(),
+      };
+      if (createForm.role === "operator") {
+        const sid = parseInt(createForm.station_id, 10);
+        if (isNaN(sid)) throw new Error("Operatör için atölye seçiniz");
+        payload.station_id = sid;
+      }
+      if (createForm.role === "musteri") {
+        if (!createForm.department.trim()) throw new Error("Müşteri adı boş olamaz");
+        if (createForm.department.includes(":")) throw new Error("Müşteri adında ':' karakteri kullanılamaz");
+        payload.department = createForm.department.trim();
+        payload.musteri_companies = createForm.musteri_companies;
+      }
+
+      await api.post("/romiot/station/stations/management/users", payload);
+      setSuccess("Kullanıcı başarıyla oluşturuldu");
+      closeCreateModal();
+      await fetchData();
+    } catch (err: any) {
+      let message = "Kullanıcı oluşturulamadı";
+      if (err?.message) {
+        try {
+          const parsed = JSON.parse(err.message);
+          message = parsed.detail || message;
+        } catch {
+          message = err.message;
+        }
+      }
+      setError(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser) return;
@@ -281,14 +366,26 @@ export default function KullaniciYonetimiPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Kullanıcı Yönetimi</h1>
-            <p className="text-gray-600 mt-1">Şirketinizdeki kullanıcıları yönetin</p>
+            <p className="text-gray-600 mt-1">
+              {isFullAdmin ? "Tüm şirketlerdeki kullanıcıları yönetin" : "Şirketinizdeki kullanıcıları yönetin"}
+            </p>
           </div>
-          <button
-            onClick={() => router.push(`/${platform}/atolye`)}
-            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg transition-colors"
-          >
-            Geri Dön
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {isFullAdmin && (
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg transition-colors"
+              >
+                Yeni Kullanıcı Oluştur
+              </button>
+            )}
+            <button
+              onClick={() => router.push(`/${platform}/atolye`)}
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg transition-colors"
+            >
+              Geri Dön
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -590,6 +687,203 @@ export default function KullaniciYonetimiPage() {
                   disabled={saving}
                 >
                   {saving ? "Kaydediliyor..." : "Kaydet"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {showCreateModal && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30 overflow-y-auto p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[calc(100vh-2rem)] overflow-y-auto">
+            <div className="bg-gradient-to-r from-[#0f4c3a] to-[#1a6a52] px-6 py-4">
+              <h3 className="text-xl font-bold text-white">Yeni Kullanıcı Oluştur</h3>
+            </div>
+            <form onSubmit={handleCreateUser} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Kullanıcı Adı *</label>
+                  <input
+                    type="text"
+                    value={createForm.username}
+                    onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">İsim *</label>
+                  <input
+                    type="text"
+                    value={createForm.name}
+                    onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">E-posta *</label>
+                  <input
+                    type="email"
+                    value={createForm.email}
+                    onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Şifre *</label>
+                  <input
+                    type="password"
+                    value={createForm.password}
+                    onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                    minLength={8}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Şifre Tekrar *</label>
+                  <input
+                    type="password"
+                    value={createForm.password_confirm}
+                    onChange={(e) => setCreateForm({ ...createForm, password_confirm: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                    minLength={8}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Rol *</label>
+                  <select
+                    value={createForm.role}
+                    onChange={(e) => {
+                      const newRole = e.target.value as RoleType;
+                      setCreateForm({
+                        ...createForm,
+                        role: newRole,
+                        station_id: newRole === "operator" ? createForm.station_id : "",
+                        department: newRole === "musteri" ? createForm.department : "",
+                        musteri_companies: newRole === "musteri" ? createForm.musteri_companies : [],
+                      });
+                    }}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                  >
+                    <option value="yonetici">Yönetici</option>
+                    <option value="musteri">Müşteri</option>
+                    <option value="operator">Operatör</option>
+                    <option value="satinalma">Satınalma</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Şirket (Sahip Atölye) *</label>
+                  <select
+                    value={createForm.company}
+                    onChange={(e) => setCreateForm({ ...createForm, company: e.target.value, station_id: "" })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                  >
+                    <option value="">Şirket Seçiniz</option>
+                    {companies.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                {createForm.role === "operator" && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Atölye *</label>
+                    <select
+                      value={createForm.station_id}
+                      onChange={(e) => setCreateForm({ ...createForm, station_id: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                      required
+                      disabled={saving || !createForm.company}
+                    >
+                      <option value="">Atölye Seçiniz</option>
+                      {stations
+                        .filter((s) => !createForm.company || s.company === createForm.company)
+                        .map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}{s.is_exit_station ? " (Çıkış)" : ""}
+                          </option>
+                        ))}
+                    </select>
+                    {!createForm.company && (
+                      <p className="mt-1 text-xs text-gray-500">Önce şirket seçiniz.</p>
+                    )}
+                  </div>
+                )}
+                {createForm.role === "musteri" && (
+                  <>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Müşteri Adı *</label>
+                      <input
+                        type="text"
+                        value={createForm.department}
+                        onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                        required
+                        disabled={saving}
+                      />
+                      <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Atölyeler</label>
+                      <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
+                        {companies.length === 0 ? (
+                          <p className="text-sm text-gray-500">Sistemde kayıtlı atölye yok.</p>
+                        ) : (
+                          companies.map((c) => {
+                            const checked = createForm.musteri_companies.includes(c);
+                            return (
+                              <label key={c} className="flex items-center gap-2 py-1 text-sm text-gray-800">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const next = e.target.checked
+                                      ? Array.from(new Set([...createForm.musteri_companies, c]))
+                                      : createForm.musteri_companies.filter((x) => x !== c);
+                                    setCreateForm({ ...createForm, musteri_companies: next });
+                                  }}
+                                  disabled={saving}
+                                />
+                                <span>{c}</span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">Müşterinin barkod oluşturabileceği hedef atölyeler. Boş bırakılabilir.</p>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeCreateModal}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  disabled={saving}
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg"
+                  disabled={saving}
+                >
+                  {saving ? "Oluşturuluyor..." : "Oluştur"}
                 </button>
               </div>
             </form>
