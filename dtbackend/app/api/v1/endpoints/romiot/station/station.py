@@ -70,6 +70,12 @@ class ManagedUserUpdateRequest(BaseModel):
     password_confirm: str | None = Field(None, min_length=8, description="New password confirmation")
     role: ManagedUserRoleType | None = Field(None, description="Atolye role")
     station_id: int | None = Field(None, description="Station ID for operator role")
+    company: str | None = Field(None, min_length=1, description="Owning workshop (fullAdmin only)")
+    department: str | None = Field(None, min_length=1, description="Müşteri's customer name (fullAdmin only)")
+    musteri_companies: list[str] | None = Field(
+        None,
+        description="Replacement target workshops for müşteri (fullAdmin only). When supplied, replaces every atolye:musteri_company:* entry.",
+    )
 
     @model_validator(mode="after")
     def validate_passwords(self):
@@ -79,6 +85,12 @@ class ManagedUserUpdateRequest(BaseModel):
             _validate_password_strength(self.password)
             if self.password != self.password_confirm:
                 raise ValueError("Şifreler eşleşmiyor")
+        if self.department is not None and ":" in self.department:
+            raise ValueError("Müşteri adında ':' karakteri kullanılamaz")
+        if self.musteri_companies is not None:
+            for value in self.musteri_companies:
+                if not isinstance(value, str) or not value.strip() or ":" in value:
+                    raise ValueError("Geçersiz hedef atölye değeri")
         return self
 
 
@@ -485,23 +497,23 @@ async def update_company_user(
     """
     Update a company user's username, password, name, role and station assignment.
     """
-    user_company = await check_station_yonetici_role(current_user)
+    full_admin = is_full_admin(current_user)
+    if full_admin:
+        user_company: str | None = None
+    else:
+        user_company = await check_station_yonetici_role(current_user)
 
     try:
         async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             auth_token = await _authenticate_pocketbase_admin(client)
             headers = {"Authorization": auth_token}
 
-            # Fetch target user to verify ownership (department scope)
             target_response = await client.get(
                 f"{settings.POCKETBASE_URL}/api/collections/users/records/{pocketbase_user_id}",
                 headers=headers,
             )
             if target_response.status_code == 404:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Kullanıcı bulunamadı",
-                )
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı")
             if target_response.status_code != 200:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -509,15 +521,29 @@ async def update_company_user(
                 )
 
             target_pb_user = target_response.json()
-            target_company = (target_pb_user.get("company") or "").strip()
-            if target_company != user_company:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Bu kullanıcı sizin şirketinize ait değil",
-                )
+            existing_role_values = (
+                target_pb_user.get("role") if isinstance(target_pb_user.get("role"), list) else []
+            )
+            existing_company = (target_pb_user.get("company") or "").strip()
+            existing_department = (target_pb_user.get("department") or "").strip()
+            target_is_musteri = any(
+                isinstance(r, str) and r == "atolye:musteri" for r in existing_role_values
+            )
+
+            if not full_admin:
+                if existing_company != user_company:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Bu kullanıcı sizin şirketinize ait değil",
+                    )
+                if target_is_musteri:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Bu kullanıcı türünü düzenleme yetkiniz yok",
+                    )
 
             old_username = target_pb_user.get("username", "")
-            current_role = _extract_atolye_role(target_pb_user.get("role"))
+            current_role = _extract_atolye_role(existing_role_values)
             new_role = user_data.role or current_role
             if not new_role:
                 raise HTTPException(
@@ -525,17 +551,29 @@ async def update_company_user(
                     detail="Kullanıcının mevcut atölye rolü bulunamadı",
                 )
 
-            # Determine postgres user to update
+            # Determine effective owning workshop
+            effective_company: str
+            if full_admin:
+                effective_company = (user_data.company or existing_company).strip()
+                if not effective_company:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Şirket boş olamaz",
+                    )
+            else:
+                effective_company = user_company  # type: ignore[assignment]
+
+            # Resolve postgres mirror & station assignment
             pg_user = None
             if old_username:
                 pg_user = await UserService.get_user_by_username(postgres_db, old_username)
 
-            # Determine final station assignment
             requested_station_id = user_data.station_id
-            station_id_for_db = None
+            station_id_for_db: int | None = None
             if new_role == ManagedUserRoleType.OPERATOR:
-                station_id_for_db = requested_station_id
-                if station_id_for_db is None and pg_user:
+                if requested_station_id is not None:
+                    station_id_for_db = requested_station_id
+                elif pg_user and pg_user.workshop_id is not None:
                     station_id_for_db = pg_user.workshop_id
                 if station_id_for_db is None:
                     raise HTTPException(
@@ -558,7 +596,12 @@ async def update_company_user(
                         status_code=status.HTTP_404_NOT_FOUND,
                         detail=f"ID {station_id_for_db} ile atölye bulunamadı",
                     )
-                if station.company != user_company:
+                if station.company != effective_company:
+                    if full_admin and user_data.station_id is None:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Yeni şirkete ait atölye seçilmelidir",
+                        )
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="Bu atölye sizin şirketinize ait değil",
@@ -572,7 +615,6 @@ async def update_company_user(
                 )
 
             if new_username != old_username:
-                # Check if another PB user already has this username
                 check_username_response = await client.get(
                     f"{settings.POCKETBASE_URL}/api/collections/users/records",
                     params={"filter": f'username="{new_username}"', "perPage": 1},
@@ -596,29 +638,32 @@ async def update_company_user(
                         detail=f"'{new_username}' kullanıcı adı zaten kullanılıyor",
                     )
 
-            existing_role_values = target_pb_user.get("role") if isinstance(target_pb_user.get("role"), list) else []
-            existing_department = (target_pb_user.get("department") or "").strip()
+            # Build pb_roles
             pb_roles = [f"atolye:{new_role.value}"]
             if new_role == ManagedUserRoleType.MUSTERI:
-                # Preserve every atolye:musteri_company:* role verbatim; admin owns
-                # the linked-targets list. No synthesis, no fallback.
-                for role in existing_role_values:
-                    if isinstance(role, str) and role.startswith("atolye:musteri_company:"):
-                        pb_roles.append(role)
-                # Müşteri's department is the customer's own company; do not
-                # overwrite it with the yönetici's company on a name/password edit.
-                department_for_payload = existing_department or user_company
+                if full_admin and user_data.musteri_companies is not None:
+                    for value in user_data.musteri_companies:
+                        pb_roles.append(f"atolye:musteri_company:{value.strip()}")
+                else:
+                    for role in existing_role_values:
+                        if isinstance(role, str) and role.startswith("atolye:musteri_company:"):
+                            pb_roles.append(role)
+
+            # Resolve department for payload
+            if new_role == ManagedUserRoleType.MUSTERI:
+                if full_admin and user_data.department is not None:
+                    department_for_payload = user_data.department.strip()
+                else:
+                    department_for_payload = existing_department or effective_company
             else:
-                # Operator / yönetici (non-müşteri target): department is the
-                # yönetici's company (workshop), as today.
-                department_for_payload = user_company
+                department_for_payload = effective_company
 
             pb_payload: dict = {
                 "username": new_username,
                 "name": user_data.name if user_data.name is not None else target_pb_user.get("name", ""),
                 "role": pb_roles,
                 "department": department_for_payload,
-                "company": user_company,
+                "company": effective_company,
             }
             if user_data.password:
                 pb_payload["password"] = user_data.password
@@ -641,7 +686,6 @@ async def update_company_user(
                     detail=f"Kullanıcı PocketBase üzerinde güncellenemedi: {error_message}",
                 )
 
-            # Update / create postgres user mirror
             if not pg_user:
                 pg_user = PostgresUser(
                     username=new_username,
@@ -674,7 +718,7 @@ async def update_company_user(
                 role=new_role,
                 station_id=pg_user.workshop_id,
                 station_name=station_name,
-                company=user_company,
+                company=effective_company,
                 is_self=new_username == current_user.username,
             )
     except HTTPException:
