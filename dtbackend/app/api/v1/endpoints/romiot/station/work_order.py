@@ -455,9 +455,15 @@ async def get_all_work_orders(
     if is_aselsan_satinalma and filter_company:
         target_company = filter_company
     
-    # Get all stations for target company
+    # Get all stations for target company.
+    # Müşteri sees work orders scanned at any of their picked target workshops,
+    # so scope station lookup by musteri_targets instead of their own department.
+    if is_musteri:
+        station_filter = Station.company.in_(musteri_targets)
+    else:
+        station_filter = Station.company == target_company
     stations_result = await romiot_db.execute(
-        select(Station).where(Station.company == target_company)
+        select(Station).where(station_filter)
     )
     stations = stations_result.scalars().all()
     station_ids = [station.id for station in stations]
