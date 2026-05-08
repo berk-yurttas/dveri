@@ -22,7 +22,7 @@ router = APIRouter()
 
 
 class UserRoleType(str, Enum):
-    MUSTERI = "musteri"
+    """Roles the legacy /user endpoint accepts. Müşteri lives on /management/users now."""
     OPERATOR = "operator"
 
 
@@ -810,30 +810,17 @@ class UserCreateRequest(BaseModel):
     password_confirm: str = Field(..., description="Password confirmation")
     musteri_department: str | None = Field(None, min_length=1, description="Müşteri alt departman/şirket")
     station_id: int | None = Field(None, description="Station ID (required for operator, not for musteri)")
-    role: UserRoleType = Field(..., description="Role: musteri or operator")
+    role: UserRoleType = Field(default=UserRoleType.OPERATOR, description="Role: operator")
 
     @model_validator(mode='after')
     def validate_data(self):
-        # Check password strength
         _validate_password_strength(self.password)
-        # Check password match
         if self.password != self.password_confirm:
             raise ValueError('Şifreler eşleşmiyor')
-        
-        # Station ID is required for operator role
-        if self.role == UserRoleType.OPERATOR and not self.station_id:
+        if not self.station_id:
             raise ValueError('Operatör rolü için atölye seçilmesi zorunludur')
-        
-        # Station ID should not be provided for musteri role
-        if self.role == UserRoleType.MUSTERI and self.station_id is not None:
-            raise ValueError('Müşteri rolü için atölye seçilmemelidir')
-
-        # Musteri department is required for musteri role
-        if self.role == UserRoleType.MUSTERI and not self.musteri_department:
-            raise ValueError('Müşteri rolü için şirket/departman bilgisi zorunludur')
-        if self.role == UserRoleType.OPERATOR and self.musteri_department is not None:
+        if self.musteri_department is not None:
             raise ValueError('Operatör rolü için müşteri şirket/departman bilgisi gönderilmemelidir')
-        
         return self
 
 
@@ -852,33 +839,29 @@ async def create_user_for_station(
     # Check if user has yonetici role and get company
     user_company = await check_station_yonetici_role(current_user)
 
-    # Verify station exists and belongs to the same company (only for operator role)
-    station_id_for_db = None
-    if user_data.role == UserRoleType.OPERATOR:
-        if not user_data.station_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Operatör rolü için atölye seçilmesi zorunludur"
-            )
-        
-        station_result = await romiot_db.execute(
-            select(Station).where(Station.id == user_data.station_id)
+    # Verify station exists and belongs to user_company (always required since role is operator-only)
+    if not user_data.station_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Operatör rolü için atölye seçilmesi zorunludur"
         )
-        station = station_result.scalar_one_or_none()
 
-        if not station:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"ID {user_data.station_id} ile atölye bulunamadı"
-            )
+    station_result = await romiot_db.execute(
+        select(Station).where(Station.id == user_data.station_id)
+    )
+    station = station_result.scalar_one_or_none()
+    if not station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"ID {user_data.station_id} ile atölye bulunamadı"
+        )
+    if station.company != user_company:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu atölye sizin şirketinize ait değil"
+        )
 
-        if station.company != user_company:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Bu atölye sizin şirketinize ait değil"
-            )
-        
-        station_id_for_db = user_data.station_id
+    station_id_for_db = user_data.station_id
 
     # Check if user already exists (by username) in PostgreSQL
     existing_user_result = await postgres_db.execute(
@@ -892,25 +875,9 @@ async def create_user_for_station(
             detail=f"'{user_data.username}' kullanıcı adı zaten kullanılıyor"
         )
 
-    # Construct the role with the new format: "atolye:<role>"
     full_role = f"atolye:{user_data.role.value}"
-
-    # Department mapping:
-    # - operator / yönetici: department = yönetici's own company (workshop)
-    # - müşteri: department = the customer's own company (the sender identity).
-    #   Linked targets (atolye:musteri_company:<X>) are added by an admin
-    #   out-of-band after creation, not here.
     role_values = [full_role]
-    if user_data.role == UserRoleType.MUSTERI:
-        musteri_department = (user_data.musteri_department or "").strip()
-        if ":" in musteri_department:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Müşteri şirket/departman bilgisinde ':' karakteri kullanılamaz"
-            )
-        target_department = musteri_department
-    else:
-        target_department = user_company
+    target_department = user_company
 
     # Create user in PocketBase via shared helper
     pb_user_id = None
