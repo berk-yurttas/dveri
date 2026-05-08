@@ -42,6 +42,8 @@ class ManagedUserResponse(BaseModel):
     station_id: int | None = None
     station_name: str | None = None
     company: str
+    department: str | None = None
+    musteri_companies: list[str] = []
     is_self: bool = False
 
 
@@ -479,6 +481,8 @@ async def list_company_users(
                 station_id=station_id,
                 station_name=station_name,
                 company=item_company,
+                department=(pb_user.get("department") or "").strip() or None,
+                musteri_companies=_extract_musteri_companies_from_roles(pb_user.get("role")),
                 is_self=username == current_user.username,
             )
         )
@@ -723,6 +727,12 @@ async def update_company_user(
                 station_id=pg_user.workshop_id,
                 station_name=station_name,
                 company=effective_company,
+                department=department_for_payload,
+                musteri_companies=[
+                    role.split(":", 2)[2]
+                    for role in pb_roles
+                    if role.startswith("atolye:musteri_company:")
+                ],
                 is_self=new_username == current_user.username,
             )
     except HTTPException:
