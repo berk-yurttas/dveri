@@ -802,24 +802,28 @@ async def get_my_station(
 
 @router.get("/", response_model=list[StationList])
 async def list_stations(
+    company: str | None = None,
     current_user: User = Depends(check_authenticated),
-    romiot_db: AsyncSession = Depends(get_romiot_db)
+    romiot_db: AsyncSession = Depends(get_romiot_db),
 ):
     """
-    List all stations for the user's company.
-    Requires role 'atolye:yonetici', 'atolye:operator', or 'atolye:musteri'.
+    List stations.
+    - fullAdmin: returns all stations, or stations for ?company=<name> when supplied.
+    - Other atolye roles: scoped to caller's company; ?company is ignored.
     """
-    # Check if user has any station role and get company
+    if is_full_admin(current_user):
+        stmt = select(Station)
+        if company:
+            stmt = stmt.where(Station.company == company)
+        stations_result = await romiot_db.execute(stmt)
+        return list(stations_result.scalars().all())
+
     from app.api.v1.endpoints.romiot.station.auth import get_station_company
     user_company = await get_station_company(current_user)
-
-    # Get all stations for this company
     stations_result = await romiot_db.execute(
         select(Station).where(Station.company == user_company)
     )
-    stations = stations_result.scalars().all()
-
-    return list(stations)
+    return list(stations_result.scalars().all())
 
 
 class UserCreateRequest(BaseModel):
