@@ -78,7 +78,7 @@ class ManagedUserUpdateRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_passwords(self):
+    def validate_request(self):
         if self.password is not None or self.password_confirm is not None:
             if not self.password or not self.password_confirm:
                 raise ValueError("Şifre güncelleme için şifre ve şifre tekrar birlikte girilmelidir")
@@ -642,8 +642,12 @@ async def update_company_user(
             pb_roles = [f"atolye:{new_role.value}"]
             if new_role == ManagedUserRoleType.MUSTERI:
                 if full_admin and user_data.musteri_companies is not None:
+                    seen: set[str] = set()
                     for value in user_data.musteri_companies:
-                        pb_roles.append(f"atolye:musteri_company:{value.strip()}")
+                        norm = value.strip()
+                        if norm and norm not in seen:
+                            seen.add(norm)
+                            pb_roles.append(f"atolye:musteri_company:{norm}")
                 else:
                     for role in existing_role_values:
                         if isinstance(role, str) and role.startswith("atolye:musteri_company:"):
