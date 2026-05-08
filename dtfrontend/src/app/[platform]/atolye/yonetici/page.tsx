@@ -42,9 +42,7 @@ export default function YoneticiPage() {
     email: "",
     password: "",
     password_confirm: "",
-    musteri_department: "",
     station_id: "",
-    role: "operator" as "musteri" | "operator",
   });
   const [yoneticiLoading, setYoneticiLoading] = useState(false);
   const [yoneticiError, setYoneticiError] = useState<string | null>(null);
@@ -134,34 +132,22 @@ export default function YoneticiPage() {
         setYoneticiLoading(false);
         return;
       }
+      const stationIdNum = parseInt(userFormData.station_id, 10);
+      if (isNaN(stationIdNum)) {
+        setYoneticiError("Geçerli bir atölye seçiniz");
+        setYoneticiLoading(false);
+        return;
+      }
 
-      const payload: any = {
+      await api.post("/romiot/station/stations/user", {
         username: userFormData.username,
         name: userFormData.name,
         email: userFormData.email,
         password: userFormData.password,
         password_confirm: userFormData.password_confirm,
-        role: userFormData.role,
-      };
-
-      if (userFormData.role === "operator") {
-        const stationIdNum = parseInt(userFormData.station_id, 10);
-        if (isNaN(stationIdNum)) {
-          setYoneticiError("Geçerli bir atölye seçiniz");
-          setYoneticiLoading(false);
-          return;
-        }
-        payload.station_id = stationIdNum;
-      } else {
-        if (!userFormData.musteri_department.trim()) {
-          setYoneticiError("Müşteri rolü için şirket/departman bilgisi zorunludur");
-          setYoneticiLoading(false);
-          return;
-        }
-        payload.musteri_department = userFormData.musteri_department.trim();
-      }
-
-      await api.post("/romiot/station/stations/user", payload);
+        role: "operator",
+        station_id: stationIdNum,
+      });
 
       setYoneticiSuccess("Kullanıcı başarıyla oluşturuldu");
       setUserFormData({
@@ -170,9 +156,7 @@ export default function YoneticiPage() {
         email: "",
         password: "",
         password_confirm: "",
-        musteri_department: "",
         station_id: "",
-        role: "operator" as "musteri" | "operator",
       });
     } catch (err: any) {
       let errorMessage = "Kullanıcı oluşturulurken hata oluştu";
@@ -289,7 +273,7 @@ export default function YoneticiPage() {
 
           {/* Create User Form */}
           <div className="bg-white rounded-lg shadow-lg p-6">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-6">Yeni Kullanıcı Oluştur</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-6">Yeni Operatör Oluştur</h2>
             <form onSubmit={handleCreateUser}>
               <div className="space-y-4">
                 <div>
@@ -350,72 +334,40 @@ export default function YoneticiPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Rol *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Atölye *</label>
                   <select
-                    value={userFormData.role}
-                    onChange={(e) => {
-                      const newRole = e.target.value as "musteri" | "operator";
-                      setUserFormData(prev => ({
-                        ...prev,
-                        role: newRole,
-                        musteri_department: newRole === "musteri" ? prev.musteri_department : "",
-                        station_id: newRole === "operator" ? prev.station_id : "",
-                      }));
-                    }}
+                    value={userFormData.station_id}
+                    onChange={(e) => setUserFormData({ ...userFormData, station_id: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                     required
-                    disabled={yoneticiLoading}
+                    disabled={yoneticiLoading || stations.length === 0}
                   >
-                    <option value="operator">Operatör</option>
-                    <option value="musteri">Müşteri</option>
+                    <option value="">Atölye Seçiniz</option>
+                    {stations.map((station) => (
+                      <option key={station.id} value={station.id}>{station.name}{station.is_exit_station ? " (Çıkış)" : ""}</option>
+                    ))}
                   </select>
+                  {stations.length === 0 && (
+                    <p className="mt-1 text-xs text-gray-500">Henüz atölye bulunmamaktadır</p>
+                  )}
                 </div>
-                {userFormData.role === "operator" && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Atölye *</label>
-                    <select
-                      value={userFormData.station_id}
-                      onChange={(e) => setUserFormData({ ...userFormData, station_id: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                      required
-                      disabled={yoneticiLoading || stations.length === 0}
-                    >
-                      <option value="">Atölye Seçiniz</option>
-                      {stations.map((station) => (
-                        <option key={station.id} value={station.id}>{station.name}{station.is_exit_station ? " (Çıkış)" : ""}</option>
-                      ))}
-                    </select>
-                    {stations.length === 0 && (
-                      <p className="mt-1 text-xs text-gray-500">Henüz atölye bulunmamaktadır</p>
-                    )}
-                  </div>
-                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Şirket</label>
                   <input
                     type="text"
-                    value={userFormData.role === "musteri" ? userFormData.musteri_department : (userCompany || "")}
-                    onChange={(e) => {
-                      if (userFormData.role === "musteri") {
-                        setUserFormData({ ...userFormData, musteri_department: e.target.value });
-                      }
-                    }}
-                    className={`w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 ${userFormData.role === "musteri" ? "bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500" : "bg-gray-100 cursor-not-allowed"}`}
-                    readOnly={userFormData.role !== "musteri"}
-                    disabled={yoneticiLoading}
+                    value={userCompany || ""}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-900"
+                    readOnly
+                    disabled
                   />
-                  <p className="mt-1 text-xs text-gray-500">
-                    {userFormData.role === "musteri"
-                      ? `Müşteri şirketi giriniz.`
-                      : "Kullanıcı otomatik olarak şirketinize atanacaktır"}
-                  </p>
+                  <p className="mt-1 text-xs text-gray-500">Operatör otomatik olarak şirketinize atanacaktır</p>
                 </div>
                 <button
                   type="submit"
-                  disabled={yoneticiLoading || (userFormData.role === "operator" && stations.length === 0)}
+                  disabled={yoneticiLoading || stations.length === 0}
                   className="w-full px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {yoneticiLoading ? "Oluşturuluyor..." : "Kullanıcı Oluştur"}
+                  {yoneticiLoading ? "Oluşturuluyor..." : "Operatör Oluştur"}
                 </button>
               </div>
             </form>
