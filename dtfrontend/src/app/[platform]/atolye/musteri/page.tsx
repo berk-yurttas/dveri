@@ -23,7 +23,7 @@ interface BatchQRResponse {
 interface BarcodeFormData {
   main_customer: string;
   sector: string;
-  company_from: string;
+  target_company: string;
   teklif_number: string;
   aselsan_order_number: string;
   order_item_number: string;
@@ -38,37 +38,48 @@ export default function MusteriPage() {
   const { user } = useUser();
   const [isMusteri, setIsMusteri] = useState(false);
   const [isYonetici, setIsYonetici] = useState(false);
-  const [userCompany, setUserCompany] = useState<string | null>(null);
+  const [userCompanies, setUserCompanies] = useState<string[]>([]);
+  const [userOwnCompany, setUserOwnCompany] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Check user roles and extract company
+  // Check user roles and extract sender + allowed targets.
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
-      const musteriRole = user.role.find((role) =>
-        typeof role === "string" && role === "atolye:musteri"
+      const musteriRole = user.role.find(
+        (role) => typeof role === "string" && role === "atolye:musteri"
       );
-      const yoneticiRole = user.role.find((role) =>
-        typeof role === "string" && role === "atolye:yonetici"
+      const yoneticiRole = user.role.find(
+        (role) => typeof role === "string" && role === "atolye:yonetici"
       );
       if (musteriRole || yoneticiRole) {
         setIsMusteri(!!musteriRole);
         setIsYonetici(!!yoneticiRole);
-        const musteriCompanyRole = user.role.find(
-          (role) => typeof role === "string" && role.startsWith("atolye:musteri_company:")
-        );
-        if (musteriRole && typeof musteriCompanyRole === "string") {
-          const musteriCompany = musteriCompanyRole.replace("atolye:musteri_company:", "").trim();
-          setUserCompany(musteriCompany || null);
-        } else {
-          const departmentValue = (user.department || "").trim();
-          if (musteriRole && departmentValue.includes(":")) {
-            // Backward compatibility for old department format XXX:YYY
-            const [, musteriDepartment] = departmentValue.split(":", 2);
-            setUserCompany(musteriDepartment?.trim() || null);
-          } else {
-            setUserCompany(departmentValue || user.company || null);
+
+        // Sender ("Gönderen Firma") is always the user's own company.
+        const ownCompany = (user.department || user.company || "").trim();
+        setUserOwnCompany(ownCompany);
+
+        // Targets ("Hedef Firma" dropdown options) — for müşteri, the
+        // atolye:musteri_company:<X> role values; for yönetici-only, their own
+        // company (a single allowed self-target preserves the existing flow).
+        const prefix = "atolye:musteri_company:";
+        const seen = new Set<string>();
+        const targets: string[] = [];
+        if (musteriRole) {
+          for (const role of user.role) {
+            if (typeof role === "string" && role.startsWith(prefix)) {
+              const value = role.slice(prefix.length).trim();
+              if (value && !seen.has(value)) {
+                seen.add(value);
+                targets.push(value);
+              }
+            }
           }
+          setUserCompanies(targets);
+        } else {
+          // Yönetici-only: target == own company.
+          setUserCompanies(ownCompany ? [ownCompany] : []);
         }
       }
     }
@@ -78,7 +89,7 @@ export default function MusteriPage() {
   const [barcodeFormData, setBarcodeFormData] = useState<BarcodeFormData>({
     main_customer: "ASELSAN",
     sector: "",
-    company_from: "",
+    target_company: "",
     teklif_number: "",
     aselsan_order_number: "",
     order_item_number: "",
@@ -92,12 +103,17 @@ export default function MusteriPage() {
   const [selectedPackageIndex, setSelectedPackageIndex] = useState<number>(0);
   const qrCodeRef = useRef<HTMLDivElement | null>(null);
 
-  // Prefill company_from with user's company
+  // Default target_company to the first allowed target; preserve user's choice if it is still valid.
   useEffect(() => {
-    if (userCompany && (isMusteri || isYonetici)) {
-      setBarcodeFormData((prev) => ({ ...prev, company_from: userCompany }));
+    if (userCompanies.length > 0 && (isMusteri || isYonetici)) {
+      setBarcodeFormData((prev) => ({
+        ...prev,
+        target_company: userCompanies.includes(prev.target_company)
+          ? prev.target_company
+          : userCompanies[0],
+      }));
     }
-  }, [userCompany, isMusteri, isYonetici]);
+  }, [userCompanies, isMusteri, isYonetici]);
 
   const handleGenerateBarcode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,7 +155,7 @@ export default function MusteriPage() {
       const payload: any = {
         main_customer: barcodeFormData.main_customer,
         sector: barcodeFormData.sector,
-        company_from: barcodeFormData.company_from,
+        target_company: barcodeFormData.target_company,
         teklif_number: barcodeFormData.teklif_number.trim(),
         aselsan_order_number: barcodeFormData.aselsan_order_number,
         order_item_number: barcodeFormData.order_item_number,
@@ -211,7 +227,7 @@ export default function MusteriPage() {
         <tbody>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600; width: 45%;">Ana Müşteri</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.main_customer}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.sector}</td></tr>
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.company_from}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${userOwnCompany}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.teklif_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${totalPackages > 1 ? barcodeFormData.aselsan_order_number + "_" + pkg.package_index : barcodeFormData.aselsan_order_number}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Kalem Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.order_item_number}</td></tr>
@@ -398,11 +414,41 @@ export default function MusteriPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">Gönderen Firma *</label>
                 <input
                   type="text"
-                  value={barcodeFormData.company_from}
+                  value={userOwnCompany}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-900"
                   readOnly
                   disabled
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Firma *</label>
+                <select
+                  value={barcodeFormData.target_company}
+                  onChange={(e) =>
+                    setBarcodeFormData({ ...barcodeFormData, target_company: e.target.value })
+                  }
+                  className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 ${
+                    userCompanies.length <= 1 ? "bg-gray-100 cursor-not-allowed" : "bg-white"
+                  }`}
+                  disabled={userCompanies.length === 0 || userCompanies.length === 1}
+                  required
+                >
+                  {userCompanies.length === 0 && (
+                    <option value="" disabled>
+                      Yetkili hedef firma yok
+                    </option>
+                  )}
+                  {userCompanies.map((company) => (
+                    <option key={company} value={company}>
+                      {company}
+                    </option>
+                  ))}
+                </select>
+                {isMusteri && userCompanies.length === 0 && (
+                  <p className="mt-1 text-xs text-red-600">
+                    Hedef firma rolü atanmamış. Yöneticinizle iletişime geçin.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Teklif Numarası *</label>
@@ -498,7 +544,7 @@ export default function MusteriPage() {
             </div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || userCompanies.length === 0}
               className="w-full mt-6 px-4 py-2 bg-[#fe9526] hover:bg-[#e5861f] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "Oluşturuluyor..." : "Barkod Oluştur"}
@@ -577,7 +623,7 @@ export default function MusteriPage() {
                           </tr>
                           <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">Gönderen Firma</td>
-                            <td className="py-2 px-3 text-gray-900">{barcodeFormData.company_from}</td>
+                            <td className="py-2 px-3 text-gray-900">{userOwnCompany}</td>
                           </tr>
                           <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">Teklif Numarası</td>

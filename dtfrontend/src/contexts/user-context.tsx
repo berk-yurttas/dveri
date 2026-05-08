@@ -114,6 +114,27 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval)
   }, [user])
 
+  // Refresh user data when the tab regains focus / becomes visible.
+  // Picks up out-of-band role changes (admin edits) without forcing logout.
+  useEffect(() => {
+    const handleFocus = () => {
+      if (user) {
+        refreshUser(true)
+      }
+    }
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && user) {
+        refreshUser(true)
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [user])
+
   const value: UserContextType = {
     user,
     loading,

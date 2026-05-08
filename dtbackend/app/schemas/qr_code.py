@@ -24,10 +24,17 @@ class QRCodeDataRetrieve(BaseModel):
 
 
 class QRCodeBatchCreate(BaseModel):
-    """Schema for batch QR code generation from the work order form"""
+    """Schema for batch QR code generation from the work order form.
+
+    `target_company` is the customer the QR is created FOR (storage tenant).
+    The QR's printed "Gönderen Firma" (sender) is filled in server-side from
+    the caller's department; clients must NOT send a `company_from` field.
+    """
+    model_config = {"extra": "forbid"}
+
     main_customer: str = Field(..., description="Ana Müşteri")
     sector: str = Field(..., description="Sektör")
-    company_from: str = Field(..., description="Gönderen Firma")
+    target_company: str = Field(..., description="Hedef Firma — QR'ın oluşturulduğu hedef şirket")
     teklif_number: str = Field(..., description="Teklif Numarası")
     aselsan_order_number: str = Field(..., description="ASELSAN Sipariş Numarası")
     order_item_number: str = Field(..., description="Sipariş Kalem Numarası")

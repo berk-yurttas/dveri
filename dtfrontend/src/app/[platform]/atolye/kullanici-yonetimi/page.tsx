@@ -3,6 +3,7 @@
 import { useUser } from "@/contexts/user-context";
 import { api } from "@/lib/api";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useParams, useRouter } from "next/navigation";
 
 function validatePassword(password: string): string | null {
@@ -33,6 +34,8 @@ interface ManagedUser {
   station_id: number | null;
   station_name: string | null;
   company: string;
+  department: string | null;
+  musteri_companies: string[];
   is_self: boolean;
 }
 
@@ -50,6 +53,9 @@ interface EditFormData {
   station_id: string;
   password: string;
   password_confirm: string;
+  company: string;
+  department: string;
+  musteri_companies: string[];
 }
 
 const ROLE_LABELS: Record<RoleType, string> = {
@@ -75,6 +81,17 @@ export default function KullaniciYonetimiPage() {
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("");
   const [filterAtolye, setFilterAtolye] = useState("");
+  const [isFullAdmin, setIsFullAdmin] = useState(false);
+  const [companies, setCompanies] = useState<string[]>([]);
+  const [filterCompany, setFilterCompany] = useState("");
+
+  useEffect(() => {
+    const roles = (user?.role && Array.isArray(user.role)) ? user.role : [];
+    setIsYonetici(roles.includes("atolye:yonetici"));
+    setIsFullAdmin(roles.includes("fullAdmin:true"));
+  }, [user]);
+
+  const canAccess = isYonetici || isFullAdmin;
 
   const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null);
   const [formData, setFormData] = useState<EditFormData>({
@@ -84,25 +101,31 @@ export default function KullaniciYonetimiPage() {
     station_id: "",
     password: "",
     password_confirm: "",
+    company: "",
+    department: "",
+    musteri_companies: [],
   });
 
-  useEffect(() => {
-    const hasYoneticiRole =
-      user?.role && Array.isArray(user.role) && user.role.includes("atolye:yonetici");
-    setIsYonetici(!!hasYoneticiRole);
-  }, [user]);
-
   const fetchData = async () => {
-    if (!isYonetici) return;
+    if (!canAccess) return;
     try {
       setLoading(true);
       setError(null);
-      const [usersData, stationsData] = await Promise.all([
+      const requests: Promise<unknown>[] = [
         api.get<ManagedUser[]>("/romiot/station/stations/management/users", undefined, { useCache: false }),
         api.get<Station[]>("/romiot/station/stations/", undefined, { useCache: false }),
-      ]);
+      ];
+      if (isFullAdmin) {
+        requests.push(api.get<string[]>("/romiot/station/stations/management/companies", undefined, { useCache: false }));
+      }
+      const [usersData, stationsData, companiesData] = await Promise.all(requests) as [
+        ManagedUser[] | undefined,
+        Station[] | undefined,
+        string[] | undefined,
+      ];
       setUsers(usersData || []);
       setStations(stationsData || []);
+      setCompanies(companiesData || []);
     } catch (err: any) {
       let message = "Kullanıcı verileri alınamadı";
       if (err?.message) {
@@ -121,19 +144,21 @@ export default function KullaniciYonetimiPage() {
 
   useEffect(() => {
     fetchData();
-  }, [isYonetici]);
+  }, [canAccess]);
 
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
     return users.filter((u) => {
-      const matchesSearch = !q || [u.username, u.name || "", u.email || "", u.station_name || ""].some((v) =>
+      if (!isFullAdmin && u.role === "musteri") return false;
+      const matchesSearch = !q || [u.username, u.name || "", u.email || "", u.station_name || "", u.company || ""].some((v) =>
         v.toLowerCase().includes(q)
       );
       const matchesRole = !filterRole || u.role === filterRole;
       const matchesAtolye = !filterAtolye || (u.station_name || "").toLowerCase().includes(filterAtolye.toLowerCase());
-      return matchesSearch && matchesRole && matchesAtolye;
+      const matchesCompany = !filterCompany || (u.company || "").toLowerCase().includes(filterCompany.toLowerCase());
+      return matchesSearch && matchesRole && matchesAtolye && matchesCompany;
     });
-  }, [users, search, filterRole, filterAtolye]);
+  }, [users, search, filterRole, filterAtolye, filterCompany, isFullAdmin]);
 
   const openEditModal = (target: ManagedUser) => {
     const role: RoleType = target.role || "musteri";
@@ -145,6 +170,9 @@ export default function KullaniciYonetimiPage() {
       station_id: target.station_id ? String(target.station_id) : "",
       password: "",
       password_confirm: "",
+      company: target.company || "",
+      department: target.department || "",
+      musteri_companies: target.musteri_companies || [],
     });
     setError(null);
     setSuccess(null);
@@ -159,7 +187,95 @@ export default function KullaniciYonetimiPage() {
       station_id: "",
       password: "",
       password_confirm: "",
+      company: "",
+      department: "",
+      musteri_companies: [],
     });
+  };
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    username: "",
+    name: "",
+    email: "",
+    password: "",
+    password_confirm: "",
+    role: "operator" as RoleType,
+    company: "",
+    department: "",
+    station_id: "",
+    musteri_companies: [] as string[],
+  });
+
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setCreateForm({
+      username: "",
+      name: "",
+      email: "",
+      password: "",
+      password_confirm: "",
+      role: "operator",
+      company: "",
+      department: "",
+      station_id: "",
+      musteri_companies: [],
+    });
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      if (!createForm.username.trim()) throw new Error("Kullanıcı adı boş olamaz");
+      if (!createForm.name.trim()) throw new Error("İsim boş olamaz");
+      if (!createForm.email.trim()) throw new Error("E-posta boş olamaz");
+      const pwError = validatePassword(createForm.password);
+      if (pwError) throw new Error(pwError);
+      if (createForm.password !== createForm.password_confirm) throw new Error("Şifreler eşleşmiyor");
+      if (!createForm.company.trim()) throw new Error("Şirket seçiniz");
+
+      const payload: any = {
+        username: createForm.username.trim(),
+        name: createForm.name.trim(),
+        email: createForm.email.trim(),
+        password: createForm.password,
+        password_confirm: createForm.password_confirm,
+        role: createForm.role,
+        company: createForm.company.trim(),
+      };
+      if (createForm.role === "operator") {
+        const sid = parseInt(createForm.station_id, 10);
+        if (isNaN(sid)) throw new Error("Operatör için atölye seçiniz");
+        payload.station_id = sid;
+      }
+      if (createForm.role === "musteri") {
+        if (!createForm.department.trim()) throw new Error("Müşteri adı boş olamaz");
+        if (createForm.department.includes(":")) throw new Error("Müşteri adında ':' karakteri kullanılamaz");
+        payload.department = createForm.department.trim();
+        payload.musteri_companies = createForm.musteri_companies;
+      }
+
+      await api.post("/romiot/station/stations/management/users", payload);
+      setSuccess("Kullanıcı başarıyla oluşturuldu");
+      closeCreateModal();
+      await fetchData();
+    } catch (err: any) {
+      let message = "Kullanıcı oluşturulamadı";
+      if (err?.message) {
+        try {
+          const parsed = JSON.parse(err.message);
+          message = parsed.detail || message;
+        } catch {
+          message = err.message;
+        }
+      }
+      setError(message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleUpdateUser = async (e: React.FormEvent) => {
@@ -176,7 +292,6 @@ export default function KullaniciYonetimiPage() {
         name: formData.name.trim(),
         role: formData.role,
       };
-
       if (!payload.username) throw new Error("Kullanıcı adı boş olamaz");
       if (!payload.name) throw new Error("İsim boş olamaz");
 
@@ -197,6 +312,17 @@ export default function KullaniciYonetimiPage() {
         }
         payload.password = formData.password;
         payload.password_confirm = formData.password_confirm;
+      }
+
+      if (isFullAdmin) {
+        if (!formData.company.trim()) throw new Error("Şirket seçiniz");
+        payload.company = formData.company.trim();
+        if (formData.role === "musteri") {
+          if (!formData.department.trim()) throw new Error("Müşteri adı boş olamaz");
+          if (formData.department.includes(":")) throw new Error("Müşteri adında ':' karakteri kullanılamaz");
+          payload.department = formData.department.trim();
+          payload.musteri_companies = formData.musteri_companies;
+        }
       }
 
       await api.put<ManagedUser>(
@@ -223,7 +349,7 @@ export default function KullaniciYonetimiPage() {
     }
   };
 
-  if (!isYonetici) {
+  if (!canAccess) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -240,14 +366,26 @@ export default function KullaniciYonetimiPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Kullanıcı Yönetimi</h1>
-            <p className="text-gray-600 mt-1">Şirketinizdeki kullanıcıları yönetin</p>
+            <p className="text-gray-600 mt-1">
+              {isFullAdmin ? "Tüm şirketlerdeki kullanıcıları yönetin" : "Şirketinizdeki kullanıcıları yönetin"}
+            </p>
           </div>
-          <button
-            onClick={() => router.push(`/${platform}/atolye`)}
-            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg transition-colors"
-          >
-            Geri Dön
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {isFullAdmin && (
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg transition-colors"
+              >
+                Yeni Kullanıcı Oluştur
+              </button>
+            )}
+            <button
+              onClick={() => router.push(`/${platform}/atolye`)}
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg transition-colors"
+            >
+              Geri Dön
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -275,22 +413,22 @@ export default function KullaniciYonetimiPage() {
           {loading ? (
             <div className="p-8 text-center text-gray-500">Yükleniyor...</div>
           ) : (
-            <table className="min-w-[600px] w-full divide-y divide-gray-200">
+            <table className="min-w-[700px] w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Kullanıcı Adı</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">İsim</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Rol</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Atölye</th>
+                  {isFullAdmin && (
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Şirket</th>
+                  )}
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">E-posta</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">İşlem</th>
                 </tr>
                 <tr className="bg-gray-100 border-b border-gray-200">
-                  {/* Kullanıcı Adı — covered by global search */}
                   <td className="px-4 py-2" />
-                  {/* İsim — covered by global search */}
                   <td className="px-4 py-2" />
-                  {/* Rol */}
                   <td className="px-4 py-2">
                     <select
                       value={filterRole}
@@ -299,12 +437,11 @@ export default function KullaniciYonetimiPage() {
                     >
                       <option value="">Hepsi</option>
                       <option value="yonetici">Yönetici</option>
-                      <option value="musteri">Müşteri</option>
+                      {isFullAdmin && <option value="musteri">Müşteri</option>}
                       <option value="operator">Operatör</option>
                       <option value="satinalma">Satınalma</option>
                     </select>
                   </td>
-                  {/* Atölye */}
                   <td className="px-4 py-2">
                     <input
                       type="text"
@@ -314,16 +451,25 @@ export default function KullaniciYonetimiPage() {
                       className="w-full text-xs border border-gray-300 rounded px-2 py-1"
                     />
                   </td>
-                  {/* E-posta — covered by global search */}
+                  {isFullAdmin && (
+                    <td className="px-4 py-2">
+                      <input
+                        type="text"
+                        placeholder="Filtrele..."
+                        value={filterCompany}
+                        onChange={(e) => setFilterCompany(e.target.value)}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-2" />
-                  {/* İşlem */}
                   <td className="px-4 py-2" />
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={isFullAdmin ? 7 : 6} className="px-4 py-8 text-center text-gray-500">
                       Kullanıcı bulunamadı.
                     </td>
                   </tr>
@@ -333,16 +479,15 @@ export default function KullaniciYonetimiPage() {
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
                         {u.username}
                         {u.is_self && (
-                          <span className="ml-2 px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-xs">
-                            Siz
-                          </span>
+                          <span className="ml-2 px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-xs">Siz</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-800">{u.name || "-"}</td>
-                      <td className="px-4 py-3 text-sm text-gray-800">
-                        {u.role ? ROLE_LABELS[u.role] : "-"}
-                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-800">{u.role ? ROLE_LABELS[u.role] : "-"}</td>
                       <td className="px-4 py-3 text-sm text-gray-800">{u.station_name || "-"}</td>
+                      {isFullAdmin && (
+                        <td className="px-4 py-3 text-sm text-gray-800">{u.company || "-"}</td>
+                      )}
                       <td className="px-4 py-3 text-sm text-gray-800">{u.email || "-"}</td>
                       <td className="px-4 py-3">
                         <button
@@ -361,9 +506,9 @@ export default function KullaniciYonetimiPage() {
         </div>
       </div>
 
-      {selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
-          <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full mx-4 overflow-hidden">
+      {selectedUser && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30 overflow-y-auto p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="bg-gradient-to-r from-[#0f4c3a] to-[#1a6a52] px-6 py-4">
               <h3 className="text-xl font-bold text-white">Kullanıcı Düzenle</h3>
             </div>
@@ -398,16 +543,42 @@ export default function KullaniciYonetimiPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Rol *</label>
                   <select
                     value={formData.role}
-                    onChange={(e) => setFormData({ ...formData, role: e.target.value as RoleType, station_id: e.target.value === "operator" ? formData.station_id : "" })}
+                    onChange={(e) => {
+                      const newRole = e.target.value as RoleType;
+                      setFormData({
+                        ...formData,
+                        role: newRole,
+                        station_id: newRole === "operator" ? formData.station_id : "",
+                      });
+                    }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
                     required
                     disabled={saving}
                   >
                     <option value="yonetici">Yönetici</option>
-                    <option value="musteri">Müşteri</option>
+                    {isFullAdmin && <option value="musteri">Müşteri</option>}
                     <option value="operator">Operatör</option>
+                    <option value="satinalma">Satınalma</option>
                   </select>
                 </div>
+
+                {isFullAdmin && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Şirket (Sahip Atölye) *</label>
+                    <select
+                      value={formData.company}
+                      onChange={(e) => setFormData({ ...formData, company: e.target.value, station_id: "" })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                      required
+                      disabled={saving}
+                    >
+                      <option value="">Şirket Seçiniz</option>
+                      {companies.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Atölye {formData.role === "operator" ? "*" : ""}</label>
@@ -419,14 +590,62 @@ export default function KullaniciYonetimiPage() {
                     required={formData.role === "operator"}
                   >
                     <option value="">Atölye Seçiniz</option>
-                    {stations.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                        {s.is_exit_station ? " (Çıkış)" : ""}
-                      </option>
-                    ))}
+                    {stations
+                      .filter((s) => !isFullAdmin || !formData.company || s.company === formData.company)
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                          {s.is_exit_station ? " (Çıkış)" : ""}
+                        </option>
+                      ))}
                   </select>
                 </div>
+
+                {isFullAdmin && formData.role === "musteri" && (
+                  <>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Müşteri Adı *</label>
+                      <input
+                        type="text"
+                        value={formData.department}
+                        onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                        required
+                        disabled={saving}
+                      />
+                      <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Atölyeler</label>
+                      <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
+                        {companies.length === 0 ? (
+                          <p className="text-sm text-gray-500">Sistemde kayıtlı atölye yok.</p>
+                        ) : (
+                          companies.map((c) => {
+                            const checked = formData.musteri_companies.includes(c);
+                            return (
+                              <label key={c} className="flex items-center gap-2 py-1 text-sm text-gray-800">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const next = e.target.checked
+                                      ? Array.from(new Set([...formData.musteri_companies, c]))
+                                      : formData.musteri_companies.filter((x) => x !== c);
+                                    setFormData({ ...formData, musteri_companies: next });
+                                  }}
+                                  disabled={saving}
+                                />
+                                <span>{c}</span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">Müşterinin barkod oluşturabileceği hedef atölyeler. Boş bırakılabilir; müşteri eklenmeden barkod oluşturamaz.</p>
+                    </div>
+                  </>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Yeni Şifre</label>
@@ -472,7 +691,205 @@ export default function KullaniciYonetimiPage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {showCreateModal && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30 overflow-y-auto p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[calc(100vh-2rem)] overflow-y-auto">
+            <div className="bg-gradient-to-r from-[#0f4c3a] to-[#1a6a52] px-6 py-4">
+              <h3 className="text-xl font-bold text-white">Yeni Kullanıcı Oluştur</h3>
+            </div>
+            <form onSubmit={handleCreateUser} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Kullanıcı Adı *</label>
+                  <input
+                    type="text"
+                    value={createForm.username}
+                    onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">İsim *</label>
+                  <input
+                    type="text"
+                    value={createForm.name}
+                    onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">E-posta *</label>
+                  <input
+                    type="email"
+                    value={createForm.email}
+                    onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Şifre *</label>
+                  <input
+                    type="password"
+                    value={createForm.password}
+                    onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                    minLength={8}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Şifre Tekrar *</label>
+                  <input
+                    type="password"
+                    value={createForm.password_confirm}
+                    onChange={(e) => setCreateForm({ ...createForm, password_confirm: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                    minLength={8}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Rol *</label>
+                  <select
+                    value={createForm.role}
+                    onChange={(e) => {
+                      const newRole = e.target.value as RoleType;
+                      setCreateForm({
+                        ...createForm,
+                        role: newRole,
+                        station_id: newRole === "operator" ? createForm.station_id : "",
+                        department: newRole === "musteri" ? createForm.department : "",
+                        musteri_companies: newRole === "musteri" ? createForm.musteri_companies : [],
+                      });
+                    }}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                  >
+                    <option value="yonetici">Yönetici</option>
+                    <option value="musteri">Müşteri</option>
+                    <option value="operator">Operatör</option>
+                    <option value="satinalma">Satınalma</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Şirket (Sahip Atölye) *</label>
+                  <select
+                    value={createForm.company}
+                    onChange={(e) => setCreateForm({ ...createForm, company: e.target.value, station_id: "" })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    required
+                    disabled={saving}
+                  >
+                    <option value="">Şirket Seçiniz</option>
+                    {companies.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                {createForm.role === "operator" && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Atölye *</label>
+                    <select
+                      value={createForm.station_id}
+                      onChange={(e) => setCreateForm({ ...createForm, station_id: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                      required
+                      disabled={saving || !createForm.company}
+                    >
+                      <option value="">Atölye Seçiniz</option>
+                      {stations
+                        .filter((s) => !createForm.company || s.company === createForm.company)
+                        .map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}{s.is_exit_station ? " (Çıkış)" : ""}
+                          </option>
+                        ))}
+                    </select>
+                    {!createForm.company && (
+                      <p className="mt-1 text-xs text-gray-500">Önce şirket seçiniz.</p>
+                    )}
+                  </div>
+                )}
+                {createForm.role === "musteri" && (
+                  <>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Müşteri Adı *</label>
+                      <input
+                        type="text"
+                        value={createForm.department}
+                        onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                        required
+                        disabled={saving}
+                      />
+                      <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Atölyeler</label>
+                      <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
+                        {companies.length === 0 ? (
+                          <p className="text-sm text-gray-500">Sistemde kayıtlı atölye yok.</p>
+                        ) : (
+                          companies.map((c) => {
+                            const checked = createForm.musteri_companies.includes(c);
+                            return (
+                              <label key={c} className="flex items-center gap-2 py-1 text-sm text-gray-800">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const next = e.target.checked
+                                      ? Array.from(new Set([...createForm.musteri_companies, c]))
+                                      : createForm.musteri_companies.filter((x) => x !== c);
+                                    setCreateForm({ ...createForm, musteri_companies: next });
+                                  }}
+                                  disabled={saving}
+                                />
+                                <span>{c}</span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">Müşterinin barkod oluşturabileceği hedef atölyeler. Boş bırakılabilir.</p>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeCreateModal}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  disabled={saving}
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg"
+                  disabled={saving}
+                >
+                  {saving ? "Oluşturuluyor..." : "Oluştur"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -29,16 +29,25 @@ from app.schemas.work_order import (
 router = APIRouter()
 
 
-def _extract_musteri_company_from_roles(role_values: list[str] | None) -> str | None:
+def _extract_musteri_companies_from_roles(role_values: list[str] | None) -> list[str]:
+    """
+    Extracts the list of müşteri companies from supplemental roles:
+    - atolye:musteri_company:<company>
+
+    Order-preserving and deduplicated.
+    """
     if not role_values:
-        return None
+        return []
     prefix = "atolye:musteri_company:"
+    companies: list[str] = []
+    seen: set[str] = set()
     for role in role_values:
         if isinstance(role, str) and role.startswith(prefix):
             value = role[len(prefix):].strip()
-            if value:
-                return value
-    return None
+            if value and value not in seen:
+                seen.add(value)
+                companies.append(value)
+    return companies
 
 
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -419,20 +428,15 @@ async def get_all_work_orders(
 
     department_value = (current_user.department or "").strip()
     company = department_value
-    musteri_department = None
+    musteri_targets: list[str] = []
     is_musteri = "atolye:musteri" in role_values
     is_yonetici = "atolye:yonetici" in role_values
     if is_musteri:
-        musteri_department = _extract_musteri_company_from_roles(role_values)
-        if not musteri_department and ":" in department_value:
-            # Backward compatibility for old department format XXX:YYY
-            company, musteri_department = department_value.split(":", 1)
-            company = company.strip()
-            musteri_department = musteri_department.strip()
-        if not musteri_department:
+        musteri_targets = _extract_musteri_companies_from_roles(role_values)
+        if not musteri_targets:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Müşteri şirket bilgisi rol üzerinde bulunamadı"
+                detail="Hedef firma rolü atanmamış. Yöneticinizle iletişime geçin.",
             )
 
     is_aselsan_satinalma = (
@@ -475,8 +479,10 @@ async def get_all_work_orders(
         WorkOrder.station_id.in_(station_ids),
         WorkOrder.delivered == False,
     ]
-    if is_musteri and musteri_department:
-        base_conditions.append(WorkOrder.company_from == musteri_department)
+    if is_musteri:
+        # Müşteri's sender identity is their own department; their work orders
+        # all carry that as company_from.
+        base_conditions.append(WorkOrder.company_from == department_value)
 
     # Apply search filters (OR when both provided, AND individually)
     from sqlalchemy import or_
@@ -525,8 +531,8 @@ async def get_all_work_orders(
             WorkOrder.station_id.in_(filtered_station_ids),
             WorkOrder.delivered == False,
         ]
-        if is_musteri and musteri_department:
-            base_conditions.append(WorkOrder.company_from == musteri_department)
+        if is_musteri:
+            base_conditions.append(WorkOrder.company_from == department_value)
         if search_part_number and search_order_number:
             base_conditions.append(or_(
                 WorkOrder.part_number.ilike(f"%{search_part_number}%"),
@@ -588,8 +594,14 @@ async def get_all_work_orders(
             )
 
         if not search_station:
+            if is_musteri:
+                # Müşteri: their unscanned QRs are stored under each picked target.
+                unscanned_qr_filter = QRCodeData.company.in_(musteri_targets)
+            else:
+                # Yönetici / operator / satinalma: own workshop.
+                unscanned_qr_filter = QRCodeData.company == target_company
             qr_rows_result = await romiot_db.execute(
-                select(QRCodeData).where(QRCodeData.company == target_company)
+                select(QRCodeData).where(unscanned_qr_filter)
             )
             qr_rows = qr_rows_result.scalars().all()
             synthetic_id = -1
@@ -605,7 +617,7 @@ async def get_all_work_orders(
                     continue
 
                 company_from = str(payload.get("company_from") or "").strip()
-                if is_musteri and musteri_department and company_from != musteri_department:
+                if is_musteri and company_from != department_value:
                     continue
 
                 part_number = str(payload.get("part_number") or "")

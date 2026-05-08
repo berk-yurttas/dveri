@@ -114,4 +114,14 @@ async def get_station_company(current_user: User):
 
     return company
 
+
+def is_full_admin(current_user: User) -> bool:
+    """
+    Returns True if the user has the literal "fullAdmin:true" string in their
+    role list. The role is set in PocketBase out-of-band; no other side effect.
+    """
+    if not current_user.role or not isinstance(current_user.role, list):
+        return False
+    return "fullAdmin:true" in current_user.role
+
     

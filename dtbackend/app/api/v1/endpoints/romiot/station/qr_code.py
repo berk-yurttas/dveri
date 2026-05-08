@@ -24,16 +24,25 @@ from app.schemas.user import User
 router = APIRouter()
 
 
-def _extract_musteri_company_from_roles(role_values: list[str] | None) -> str | None:
+def _extract_musteri_companies_from_roles(role_values: list[str] | None) -> list[str]:
+    """
+    Extracts the list of müşteri companies from supplemental roles:
+    - atolye:musteri_company:<company>
+
+    Order-preserving and deduplicated.
+    """
     if not role_values:
-        return None
+        return []
     prefix = "atolye:musteri_company:"
+    companies: list[str] = []
+    seen: set[str] = set()
     for role in role_values:
         if isinstance(role, str) and role.startswith(prefix):
             value = role[len(prefix):].strip()
-            if value:
-                return value
-    return None
+            if value and value not in seen:
+                seen.add(value)
+                companies.append(value)
+    return companies
 
 
 def generate_short_code(length: int = 12) -> str:
@@ -135,20 +144,46 @@ async def generate_qr_code_batch(
     (4 packages of 25 and 1 package of 15).
     Requires 'atolye:musteri' or 'atolye:yonetici' role.
     """
-    # Company is now read from department; role is company-independent
-    user_company = (current_user.department or "").strip()
-    has_create_role = (
-        current_user.role
-        and isinstance(current_user.role, list)
-        and ("atolye:musteri" in current_user.role or "atolye:yonetici" in current_user.role)
-    )
-    
-    if not has_create_role or not user_company:
+    # Sender ("Gönderen Firma") is always the caller's own company.
+    sender_company = (current_user.department or "").strip()
+    role_values = current_user.role if isinstance(current_user.role, list) else []
+    is_musteri = "atolye:musteri" in role_values
+    is_yonetici = "atolye:yonetici" in role_values
+    has_create_role = is_musteri or is_yonetici
+
+    if not has_create_role or not sender_company:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir."
         )
-    
+
+    # Validate target_company against the caller's allowed targets.
+    # Müşteri rule takes precedence when user has both roles.
+    submitted_target = batch_data.target_company.strip()
+    if not submitted_target:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Hedef firma boş olamaz.",
+        )
+    if is_musteri:
+        allowed_targets = _extract_musteri_companies_from_roles(role_values)
+        if not allowed_targets:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Hedef firma rolü atanmamış. Yöneticinizle iletişime geçin.",
+            )
+        if submitted_target not in allowed_targets:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bu hedef firma için QR kod oluşturma yetkiniz yok.",
+            )
+    elif is_yonetici:
+        if submitted_target != sender_company:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bu hedef firma için QR kod oluşturma yetkiniz yok.",
+            )
+
     # Calculate packages
     total_quantity = batch_data.quantity
     total_packages = batch_data.package_quantity
@@ -176,12 +211,14 @@ async def generate_qr_code_batch(
         # First 'remainder' packages get base_qty + 1, the rest get base_qty
         pkg_qty = base_qty + (1 if i <= remainder else 0)
         
-        # Build the QR data for this package
+        # Build the QR data for this package.
+        # `company_from` is the SENDER (printed "Gönderen Firma") and is always
+        # the caller's own department, never the client's input.
         qr_data = {
             "work_order_group_id": work_order_group_id,
             "main_customer": batch_data.main_customer,
             "sector": batch_data.sector,
-            "company_from": batch_data.company_from,
+            "company_from": sender_company,
             "teklif_number": batch_data.teklif_number,
             "aselsan_order_number": batch_data.aselsan_order_number,
             "order_item_number": batch_data.order_item_number,
@@ -214,11 +251,11 @@ async def generate_qr_code_batch(
                 detail=f"QR kod oluşturulamadı (paket {i}). Lütfen tekrar deneyin."
             )
         
-        # Create QR code data record
+        # Create QR code data record. `company` is the TARGET (storage tenant).
         qr_code_record = QRCodeData(
             code=code,
             data=data_json,
-            company=user_company,
+            company=submitted_target,
             expires_at=expires_at
         )
         romiot_db.add(qr_code_record)
@@ -311,34 +348,45 @@ async def get_qr_codes_by_work_order_group(
         )
 
     is_musteri = "atolye:musteri" in role_values
-    main_company = department_value
-    musteri_department = None
+    musteri_targets: list[str] = []
     if is_musteri:
-        musteri_department = _extract_musteri_company_from_roles(role_values)
-        if not musteri_department and ":" in department_value:
-            # Backward compatibility for old department format XXX:YYY
-            main_company, musteri_department = department_value.split(":", 1)
-            main_company = main_company.strip()
-            musteri_department = musteri_department.strip()
-        if not musteri_department:
+        musteri_targets = _extract_musteri_companies_from_roles(role_values)
+        if not musteri_targets:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Müşteri şirket bilgisi rol üzerinde bulunamadı."
+                detail="Hedef firma rolü atanmamış. Yöneticinizle iletişime geçin.",
             )
 
-    query = text(
-        """
-        SELECT code, data
-        FROM qr_code_data
-        WHERE company = :company
-          AND data::jsonb ->> 'work_order_group_id' = :group_id
-        ORDER BY (data::jsonb ->> 'package_index')::int
-        """
-    )
-    result = await romiot_db.execute(
-        query,
-        {"company": main_company, "group_id": work_order_group_id},
-    )
+    if is_musteri:
+        # Müşteri sees QR groups stored under any of their target companies.
+        query = text(
+            """
+            SELECT code, data
+            FROM qr_code_data
+            WHERE company = ANY(:companies)
+              AND data::jsonb ->> 'work_order_group_id' = :group_id
+            ORDER BY (data::jsonb ->> 'package_index')::int
+            """
+        )
+        result = await romiot_db.execute(
+            query,
+            {"companies": musteri_targets, "group_id": work_order_group_id},
+        )
+    else:
+        # Yönetici / operator / satinalma: scoped to their own department.
+        query = text(
+            """
+            SELECT code, data
+            FROM qr_code_data
+            WHERE company = :company
+              AND data::jsonb ->> 'work_order_group_id' = :group_id
+            ORDER BY (data::jsonb ->> 'package_index')::int
+            """
+        )
+        result = await romiot_db.execute(
+            query,
+            {"company": department_value, "group_id": work_order_group_id},
+        )
     rows = result.fetchall()
 
     if not rows:
@@ -351,8 +399,10 @@ async def get_qr_codes_by_work_order_group(
         except (json.JSONDecodeError, ValueError):
             continue
 
-        if is_musteri and musteri_department:
-            if (payload.get("company_from") or "").strip() != musteri_department:
+        if is_musteri:
+            # Defense-in-depth: müşteri's own QRs always carry their department
+            # as the JSON's company_from (server-set at creation).
+            if (payload.get("company_from") or "").strip() != department_value:
                 continue
 
         response_items.append(
