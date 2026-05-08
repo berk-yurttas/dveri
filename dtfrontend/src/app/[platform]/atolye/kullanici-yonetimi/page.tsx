@@ -3,6 +3,7 @@
 import { useUser } from "@/contexts/user-context";
 import { api } from "@/lib/api";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useParams, useRouter } from "next/navigation";
 
 function validatePassword(password: string): string | null {
@@ -75,6 +76,17 @@ export default function KullaniciYonetimiPage() {
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("");
   const [filterAtolye, setFilterAtolye] = useState("");
+  const [isFullAdmin, setIsFullAdmin] = useState(false);
+  const [companies, setCompanies] = useState<string[]>([]);
+  const [filterCompany, setFilterCompany] = useState("");
+
+  useEffect(() => {
+    const roles = (user?.role && Array.isArray(user.role)) ? user.role : [];
+    setIsYonetici(roles.includes("atolye:yonetici"));
+    setIsFullAdmin(roles.includes("fullAdmin:true"));
+  }, [user]);
+
+  const canAccess = isYonetici || isFullAdmin;
 
   const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null);
   const [formData, setFormData] = useState<EditFormData>({
@@ -86,23 +98,26 @@ export default function KullaniciYonetimiPage() {
     password_confirm: "",
   });
 
-  useEffect(() => {
-    const hasYoneticiRole =
-      user?.role && Array.isArray(user.role) && user.role.includes("atolye:yonetici");
-    setIsYonetici(!!hasYoneticiRole);
-  }, [user]);
-
   const fetchData = async () => {
-    if (!isYonetici) return;
+    if (!canAccess) return;
     try {
       setLoading(true);
       setError(null);
-      const [usersData, stationsData] = await Promise.all([
+      const requests: Promise<unknown>[] = [
         api.get<ManagedUser[]>("/romiot/station/stations/management/users", undefined, { useCache: false }),
         api.get<Station[]>("/romiot/station/stations/", undefined, { useCache: false }),
-      ]);
+      ];
+      if (isFullAdmin) {
+        requests.push(api.get<string[]>("/romiot/station/stations/management/companies", undefined, { useCache: false }));
+      }
+      const [usersData, stationsData, companiesData] = await Promise.all(requests) as [
+        ManagedUser[] | undefined,
+        Station[] | undefined,
+        string[] | undefined,
+      ];
       setUsers(usersData || []);
       setStations(stationsData || []);
+      setCompanies(companiesData || []);
     } catch (err: any) {
       let message = "Kullanıcı verileri alınamadı";
       if (err?.message) {
@@ -121,19 +136,21 @@ export default function KullaniciYonetimiPage() {
 
   useEffect(() => {
     fetchData();
-  }, [isYonetici]);
+  }, [canAccess]);
 
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
     return users.filter((u) => {
-      const matchesSearch = !q || [u.username, u.name || "", u.email || "", u.station_name || ""].some((v) =>
+      if (!isFullAdmin && u.role === "musteri") return false;
+      const matchesSearch = !q || [u.username, u.name || "", u.email || "", u.station_name || "", u.company || ""].some((v) =>
         v.toLowerCase().includes(q)
       );
       const matchesRole = !filterRole || u.role === filterRole;
       const matchesAtolye = !filterAtolye || (u.station_name || "").toLowerCase().includes(filterAtolye.toLowerCase());
-      return matchesSearch && matchesRole && matchesAtolye;
+      const matchesCompany = !filterCompany || (u.company || "").toLowerCase().includes(filterCompany.toLowerCase());
+      return matchesSearch && matchesRole && matchesAtolye && matchesCompany;
     });
-  }, [users, search, filterRole, filterAtolye]);
+  }, [users, search, filterRole, filterAtolye, filterCompany, isFullAdmin]);
 
   const openEditModal = (target: ManagedUser) => {
     const role: RoleType = target.role || "musteri";
@@ -223,7 +240,7 @@ export default function KullaniciYonetimiPage() {
     }
   };
 
-  if (!isYonetici) {
+  if (!canAccess) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -275,22 +292,22 @@ export default function KullaniciYonetimiPage() {
           {loading ? (
             <div className="p-8 text-center text-gray-500">Yükleniyor...</div>
           ) : (
-            <table className="min-w-[600px] w-full divide-y divide-gray-200">
+            <table className="min-w-[700px] w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Kullanıcı Adı</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">İsim</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Rol</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Atölye</th>
+                  {isFullAdmin && (
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Şirket</th>
+                  )}
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">E-posta</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">İşlem</th>
                 </tr>
                 <tr className="bg-gray-100 border-b border-gray-200">
-                  {/* Kullanıcı Adı — covered by global search */}
                   <td className="px-4 py-2" />
-                  {/* İsim — covered by global search */}
                   <td className="px-4 py-2" />
-                  {/* Rol */}
                   <td className="px-4 py-2">
                     <select
                       value={filterRole}
@@ -299,12 +316,11 @@ export default function KullaniciYonetimiPage() {
                     >
                       <option value="">Hepsi</option>
                       <option value="yonetici">Yönetici</option>
-                      <option value="musteri">Müşteri</option>
+                      {isFullAdmin && <option value="musteri">Müşteri</option>}
                       <option value="operator">Operatör</option>
                       <option value="satinalma">Satınalma</option>
                     </select>
                   </td>
-                  {/* Atölye */}
                   <td className="px-4 py-2">
                     <input
                       type="text"
@@ -314,16 +330,25 @@ export default function KullaniciYonetimiPage() {
                       className="w-full text-xs border border-gray-300 rounded px-2 py-1"
                     />
                   </td>
-                  {/* E-posta — covered by global search */}
+                  {isFullAdmin && (
+                    <td className="px-4 py-2">
+                      <input
+                        type="text"
+                        placeholder="Filtrele..."
+                        value={filterCompany}
+                        onChange={(e) => setFilterCompany(e.target.value)}
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-2" />
-                  {/* İşlem */}
                   <td className="px-4 py-2" />
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={isFullAdmin ? 7 : 6} className="px-4 py-8 text-center text-gray-500">
                       Kullanıcı bulunamadı.
                     </td>
                   </tr>
@@ -333,16 +358,15 @@ export default function KullaniciYonetimiPage() {
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
                         {u.username}
                         {u.is_self && (
-                          <span className="ml-2 px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-xs">
-                            Siz
-                          </span>
+                          <span className="ml-2 px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-xs">Siz</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-800">{u.name || "-"}</td>
-                      <td className="px-4 py-3 text-sm text-gray-800">
-                        {u.role ? ROLE_LABELS[u.role] : "-"}
-                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-800">{u.role ? ROLE_LABELS[u.role] : "-"}</td>
                       <td className="px-4 py-3 text-sm text-gray-800">{u.station_name || "-"}</td>
+                      {isFullAdmin && (
+                        <td className="px-4 py-3 text-sm text-gray-800">{u.company || "-"}</td>
+                      )}
                       <td className="px-4 py-3 text-sm text-gray-800">{u.email || "-"}</td>
                       <td className="px-4 py-3">
                         <button
@@ -361,9 +385,9 @@ export default function KullaniciYonetimiPage() {
         </div>
       </div>
 
-      {selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
-          <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full mx-4 overflow-hidden">
+      {selectedUser && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30 overflow-y-auto p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="bg-gradient-to-r from-[#0f4c3a] to-[#1a6a52] px-6 py-4">
               <h3 className="text-xl font-bold text-white">Kullanıcı Düzenle</h3>
             </div>
@@ -472,7 +496,8 @@ export default function KullaniciYonetimiPage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
