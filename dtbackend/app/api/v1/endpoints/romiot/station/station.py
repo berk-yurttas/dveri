@@ -555,6 +555,12 @@ async def update_company_user(
                     detail="Kullanıcının mevcut atölye rolü bulunamadı",
                 )
 
+            if not full_admin and new_role == ManagedUserRoleType.MUSTERI:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Müşteri rolüne dönüştürme yetkiniz yok",
+                )
+
             # Determine effective owning workshop
             effective_company: str
             if full_admin:
@@ -608,7 +614,11 @@ async def update_company_user(
                         )
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
-                        detail="Bu atölye sizin şirketinize ait değil",
+                        detail=(
+                            "Seçilen şirkete ait atölye değil"
+                            if full_admin
+                            else "Bu atölye sizin şirketinize ait değil"
+                        ),
                     )
 
             new_username = user_data.username or old_username
