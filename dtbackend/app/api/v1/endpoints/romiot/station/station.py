@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr, Field, model_validator
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.endpoints.romiot.station.auth import check_station_yonetici_role
+from app.api.v1.endpoints.romiot.station.auth import check_station_yonetici_role, is_full_admin
 from app.core.auth import check_authenticated
 from app.core.config import settings
 from app.core.database import get_postgres_db, get_romiot_db
@@ -656,6 +656,26 @@ async def update_company_user(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Kullanıcı güncellenirken hata oluştu: {str(e)}",
         )
+
+
+@router.get("/management/companies", response_model=list[str])
+async def list_known_companies(
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """
+    Distinct list of companies that have at least one Station record.
+    Feeds the fullAdmin user-management dropdowns. fullAdmin-only.
+    """
+    if not is_full_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="fullAdmin yetkisi gereklidir",
+        )
+    result = await romiot_db.execute(
+        select(Station.company).distinct().order_by(Station.company)
+    )
+    return [row[0] for row in result.all() if row[0]]
 
 
 @router.post("/", response_model=StationSchema, status_code=status.HTTP_201_CREATED)
