@@ -734,6 +734,149 @@ async def update_company_user(
         )
 
 
+class FullAdminUserCreateRequest(BaseModel):
+    username: str = Field(..., min_length=1, description="Username")
+    name: str = Field(..., min_length=1, description="Full name")
+    email: EmailStr = Field(..., description="Email address")
+    password: str = Field(..., min_length=8, description="Password")
+    password_confirm: str = Field(..., min_length=8, description="Password confirmation")
+    role: ManagedUserRoleType = Field(..., description="yonetici / musteri / operator / satinalma")
+    company: str = Field(..., min_length=1, description="Owning workshop")
+    department: str | None = Field(None, description="Müşteri's customer name (required for musteri)")
+    station_id: int | None = Field(None, description="Required for operator")
+    musteri_companies: list[str] | None = Field(
+        None, description="Optional target workshops (musteri only)"
+    )
+
+    @model_validator(mode="after")
+    def validate(self):
+        _validate_password_strength(self.password)
+        if self.password != self.password_confirm:
+            raise ValueError("Şifreler eşleşmiyor")
+        if self.role == ManagedUserRoleType.OPERATOR and not self.station_id:
+            raise ValueError("Operatör rolü için atölye seçilmesi zorunludur")
+        if self.role != ManagedUserRoleType.OPERATOR and self.station_id is not None:
+            raise ValueError("Sadece operatör rolü için atölye seçilebilir")
+        if self.role == ManagedUserRoleType.MUSTERI:
+            if not self.department or not self.department.strip():
+                raise ValueError("Müşteri rolü için müşteri adı zorunludur")
+            if ":" in self.department:
+                raise ValueError("Müşteri adında ':' karakteri kullanılamaz")
+        if self.musteri_companies is not None:
+            if self.role != ManagedUserRoleType.MUSTERI:
+                raise ValueError("Hedef atölyeler sadece müşteri rolü için seçilebilir")
+            for value in self.musteri_companies:
+                if not isinstance(value, str) or not value.strip() or ":" in value:
+                    raise ValueError("Geçersiz hedef atölye değeri")
+        return self
+
+
+@router.post("/management/users", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def full_admin_create_user(
+    user_data: FullAdminUserCreateRequest,
+    current_user: User = Depends(check_authenticated),
+    postgres_db: AsyncSession = Depends(get_postgres_db),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """
+    Create any atolye user. fullAdmin-only.
+    """
+    if not is_full_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="fullAdmin yetkisi gereklidir",
+        )
+
+    company = user_data.company.strip()
+    if not company:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Şirket boş olamaz",
+        )
+
+    station_id_for_db: int | None = None
+    if user_data.role == ManagedUserRoleType.OPERATOR:
+        station_result = await romiot_db.execute(
+            select(Station).where(Station.id == user_data.station_id)
+        )
+        station = station_result.scalar_one_or_none()
+        if not station:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"ID {user_data.station_id} ile atölye bulunamadı",
+            )
+        if station.company != company:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bu atölye seçilen şirkete ait değil",
+            )
+        station_id_for_db = user_data.station_id
+
+    existing_pg_result = await postgres_db.execute(
+        select(PostgresUser).where(PostgresUser.username == user_data.username)
+    )
+    if existing_pg_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"'{user_data.username}' kullanıcı adı zaten kullanılıyor",
+        )
+
+    role_values = [f"atolye:{user_data.role.value}"]
+    if user_data.role == ManagedUserRoleType.MUSTERI and user_data.musteri_companies:
+        seen: set[str] = set()
+        for value in user_data.musteri_companies:
+            norm = value.strip()
+            if norm and norm not in seen:
+                seen.add(norm)
+                role_values.append(f"atolye:musteri_company:{norm}")
+
+    if user_data.role == ManagedUserRoleType.MUSTERI:
+        target_department = user_data.department.strip()  # type: ignore[union-attr]
+    else:
+        target_department = company
+
+    try:
+        pb_user_id = await _pb_create_user_record(
+            username=user_data.username,
+            email=user_data.email,
+            password=user_data.password,
+            password_confirm=user_data.password_confirm,
+            name=user_data.name,
+            role=role_values,
+            department=target_department,
+            company=company,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"PocketBase'de kullanıcı oluşturulurken hata oluştu: {str(e)}",
+        )
+
+    new_user = PostgresUser(
+        username=user_data.username,
+        name=user_data.name,
+        workshop_id=station_id_for_db,
+    )
+    postgres_db.add(new_user)
+    await postgres_db.commit()
+    await postgres_db.refresh(new_user)
+
+    return {
+        "id": new_user.id,
+        "pocketbase_id": pb_user_id,
+        "username": new_user.username,
+        "name": new_user.name,
+        "email": user_data.email,
+        "role": role_values[0],
+        "company": company,
+        "department": target_department,
+        "station_id": new_user.workshop_id,
+        "musteri_companies": user_data.musteri_companies or [],
+    }
+
+
 @router.get("/management/companies", response_model=list[str])
 async def list_known_companies(
     current_user: User = Depends(check_authenticated),
