@@ -809,30 +809,13 @@ async def full_admin_create_user(
             detail="fullAdmin yetkisi gereklidir",
         )
 
-    company = user_data.company.strip()
-    if not company:
+    # Firma = department (mirrored to company on the PB record)
+    firma = user_data.department.strip()
+    if not firma:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Şirket boş olamaz",
+            detail="Firma boş olamaz",
         )
-
-    station_id_for_db: int | None = None
-    if user_data.role == ManagedUserRoleType.OPERATOR:
-        station_result = await romiot_db.execute(
-            select(Station).where(Station.id == user_data.station_id)
-        )
-        station = station_result.scalar_one_or_none()
-        if not station:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"ID {user_data.station_id} ile atölye bulunamadı",
-            )
-        if station.company != company:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Bu atölye seçilen şirkete ait değil",
-            )
-        station_id_for_db = user_data.station_id
 
     existing_pg_result = await postgres_db.execute(
         select(PostgresUser).where(PostgresUser.username == user_data.username)
@@ -852,11 +835,6 @@ async def full_admin_create_user(
                 seen.add(norm)
                 role_values.append(f"atolye:musteri_company:{norm}")
 
-    if user_data.role == ManagedUserRoleType.MUSTERI:
-        target_department = user_data.department.strip()  # type: ignore[union-attr]
-    else:
-        target_department = company
-
     try:
         pb_user_id = await _pb_create_user_record(
             username=user_data.username,
@@ -865,8 +843,8 @@ async def full_admin_create_user(
             password_confirm=user_data.password_confirm,
             name=user_data.name,
             role=role_values,
-            department=target_department,
-            company=company,
+            department=firma,
+            company=firma,
         )
     except HTTPException:
         raise
@@ -879,7 +857,7 @@ async def full_admin_create_user(
     new_user = PostgresUser(
         username=user_data.username,
         name=user_data.name,
-        workshop_id=station_id_for_db,
+        workshop_id=None,
     )
     postgres_db.add(new_user)
     await postgres_db.commit()
@@ -892,9 +870,9 @@ async def full_admin_create_user(
         "name": new_user.name,
         "email": user_data.email,
         "role": role_values[0],
-        "company": company,
-        "department": target_department,
-        "station_id": new_user.workshop_id,
+        "company": firma,
+        "department": firma,
+        "station_id": None,
         "musteri_companies": user_data.musteri_companies or [],
     }
 
