@@ -72,7 +72,10 @@ class ManagedUserUpdateRequest(BaseModel):
     password_confirm: str | None = Field(None, min_length=8, description="New password confirmation")
     role: ManagedUserRoleType | None = Field(None, description="Atolye role")
     station_id: int | None = Field(None, description="Station ID for operator role")
-    company: str | None = Field(None, min_length=1, description="Owning workshop (fullAdmin only)")
+    company: str | None = Field(
+        None,
+        description="Deprecated: ignored on input. Backend writes company = department.",
+    )
     department: str | None = Field(None, min_length=1, description="Müşteri's customer name (fullAdmin only)")
     musteri_companies: list[str] | None = Field(
         None,
@@ -561,14 +564,36 @@ async def update_company_user(
                     detail="Müşteri rolüne dönüştürme yetkiniz yok",
                 )
 
-            # Determine effective owning workshop
-            effective_company: str
-            if full_admin:
-                effective_company = (user_data.company or existing_company).strip()
+            # Firma (department) = effective company; mirrored to PB company on write.
+            # Operators: locked to existing department. Non-operators: editable via user_data.department.
+            target_is_operator = any(
+                isinstance(r, str) and r == "atolye:operator" for r in existing_role_values
+            )
+            if full_admin and target_is_operator:
+                if user_data.department is not None and user_data.department.strip() != existing_department:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Operatör için Firma bilgisi düzenlenemez",
+                    )
+                if user_data.role is not None and user_data.role != ManagedUserRoleType.OPERATOR:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Operatör rolü değiştirilemez.",
+                    )
+                effective_company = existing_department or existing_company
+            elif full_admin:
+                effective_company = (
+                    (user_data.department or existing_department or existing_company).strip()
+                )
                 if not effective_company:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Şirket boş olamaz",
+                        detail="Firma boş olamaz",
+                    )
+                if ":" in effective_company:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Firma adında ':' karakteri kullanılamaz",
                     )
             else:
                 effective_company = user_company  # type: ignore[assignment]
@@ -667,12 +692,12 @@ async def update_company_user(
                         if isinstance(role, str) and role.startswith("atolye:musteri_company:"):
                             pb_roles.append(role)
 
-            # Resolve department for payload
-            if new_role == ManagedUserRoleType.MUSTERI:
-                if full_admin and user_data.department is not None:
-                    department_for_payload = user_data.department.strip()
-                else:
-                    department_for_payload = existing_department or effective_company
+            # Department mirrors Firma. For operators, locked to existing value.
+            # For non-operators under fullAdmin, takes user_data.department if supplied; otherwise effective_company.
+            if target_is_operator:
+                department_for_payload = existing_department or effective_company
+            elif full_admin and user_data.department is not None:
+                department_for_payload = user_data.department.strip()
             else:
                 department_for_payload = effective_company
 
@@ -681,7 +706,7 @@ async def update_company_user(
                 "name": user_data.name if user_data.name is not None else target_pb_user.get("name", ""),
                 "role": pb_roles,
                 "department": department_for_payload,
-                "company": effective_company,
+                "company": department_for_payload,
             }
             if user_data.password:
                 pb_payload["password"] = user_data.password
@@ -736,7 +761,7 @@ async def update_company_user(
                 role=new_role,
                 station_id=pg_user.workshop_id,
                 station_name=station_name,
-                company=effective_company,
+                company=department_for_payload,
                 department=department_for_payload,
                 musteri_companies=[
                     role.split(":", 2)[2]
