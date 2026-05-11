@@ -818,6 +818,24 @@ class FullAdminUserCreateRequest(BaseModel):
         return self
 
 
+class BulkMusteriCompaniesMode(str, Enum):
+    ADD = "add"
+    REPLACE = "replace"
+
+
+class BulkMusteriCompaniesRequest(BaseModel):
+    user_ids: list[str] = Field(..., min_length=1, description="PocketBase user ids to update")
+    companies: list[str] = Field(..., description="Target firmalar to apply")
+    mode: BulkMusteriCompaniesMode = Field(..., description="add (merge) or replace (overwrite)")
+
+    @model_validator(mode="after")
+    def validate_companies(self):
+        for c in self.companies:
+            if not isinstance(c, str) or ":" in c:
+                raise ValueError("Geçersiz hedef firma değeri")
+        return self
+
+
 @router.post("/management/users", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def full_admin_create_user(
     user_data: FullAdminUserCreateRequest,
@@ -900,6 +918,92 @@ async def full_admin_create_user(
         "station_id": None,
         "musteri_companies": user_data.musteri_companies or [],
     }
+
+
+@router.patch("/management/users/bulk-musteri-companies", response_model=dict)
+async def bulk_musteri_companies(
+    payload: BulkMusteriCompaniesRequest,
+    current_user: User = Depends(check_authenticated),
+):
+    """
+    Bulk update target firmalar (atolye:musteri_company:*) for multiple müşteri users.
+    fullAdmin-only. Returns per-user succeeded/failed lists.
+    """
+    if not is_full_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="fullAdmin yetkisi gereklidir",
+        )
+
+    # Dedupe + normalize the requested companies
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for c in payload.companies:
+        n = c.strip()
+        if n and n not in seen:
+            seen.add(n)
+            normalized.append(n)
+
+    succeeded: list[str] = []
+    failed: list[dict] = []
+
+    async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+        auth_token = await _authenticate_pocketbase_admin(client)
+        headers = {"Authorization": auth_token}
+
+        for user_id in payload.user_ids:
+            try:
+                get_resp = await client.get(
+                    f"{settings.POCKETBASE_URL}/api/collections/users/records/{user_id}",
+                    headers=headers,
+                )
+                if get_resp.status_code != 200:
+                    failed.append({"id": user_id, "detail": "Kullanıcı bulunamadı"})
+                    continue
+
+                pb_user = get_resp.json()
+                role_values = pb_user.get("role") if isinstance(pb_user.get("role"), list) else []
+                if "atolye:musteri" not in role_values:
+                    failed.append({"id": user_id, "detail": "Müşteri olmayan kullanıcı atlandı"})
+                    continue
+
+                non_company_roles = [
+                    r for r in role_values
+                    if not (isinstance(r, str) and r.startswith("atolye:musteri_company:"))
+                ]
+
+                if payload.mode == BulkMusteriCompaniesMode.REPLACE:
+                    targets = list(normalized)
+                else:  # ADD
+                    existing_targets = [
+                        r.split(":", 2)[2]
+                        for r in role_values
+                        if isinstance(r, str) and r.startswith("atolye:musteri_company:")
+                    ]
+                    seen_local: set[str] = set()
+                    targets = []
+                    for t in (*existing_targets, *normalized):
+                        if t and t not in seen_local:
+                            seen_local.add(t)
+                            targets.append(t)
+
+                new_role_list = [*non_company_roles] + [
+                    f"atolye:musteri_company:{t}" for t in targets
+                ]
+
+                patch_resp = await client.patch(
+                    f"{settings.POCKETBASE_URL}/api/collections/users/records/{user_id}",
+                    json={"role": new_role_list},
+                    headers=headers,
+                )
+                if patch_resp.status_code in (200, 201):
+                    succeeded.append(user_id)
+                else:
+                    failed.append({"id": user_id, "detail": f"PocketBase güncelleme hatası ({patch_resp.status_code})"})
+            except Exception as e:
+                failed.append({"id": user_id, "detail": str(e)})
+
+    return {"succeeded": succeeded, "failed": failed}
 
 
 @router.get("/management/companies", response_model=list[str])
