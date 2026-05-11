@@ -450,7 +450,7 @@ export default function KullaniciYonetimiPage() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Kullanıcı Yönetimi</h1>
             <p className="text-gray-600 mt-1">
-              {isFullAdmin ? "Tüm şirketlerdeki kullanıcıları yönetin" : "Şirketinizdeki kullanıcıları yönetin"}
+              {isFullAdmin ? "Tüm firmalardaki kullanıcıları yönetin" : "Firmanızdaki kullanıcıları yönetin"}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -698,28 +698,36 @@ export default function KullaniciYonetimiPage() {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Firma {selectedUser?.role === "operator" ? "" : "*"}
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.department}
-                    onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                    className={`w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 ${
-                      selectedUser?.role === "operator" ? "bg-gray-100 cursor-not-allowed" : "bg-white"
-                    }`}
-                    required={selectedUser?.role !== "operator"}
-                    disabled={saving}
-                    readOnly={selectedUser?.role === "operator"}
-                  />
-                  {formData.role === "musteri" && (
-                    <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>
-                  )}
-                  {selectedUser?.role === "operator" && (
-                    <p className="mt-1 text-xs text-gray-500">Operatör için Firma düzenlenemez.</p>
-                  )}
-                </div>
+                {(() => {
+                  const firmaLocked = selectedUser?.role === "operator" || !isFullAdmin;
+                  return (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Firma {firmaLocked ? "" : "*"}
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.department}
+                        onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                        className={`w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 ${
+                          firmaLocked ? "bg-gray-100 cursor-not-allowed" : "bg-white"
+                        }`}
+                        required={!firmaLocked}
+                        disabled={saving}
+                        readOnly={firmaLocked}
+                      />
+                      {formData.role === "musteri" && !firmaLocked && (
+                        <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>
+                      )}
+                      {selectedUser?.role === "operator" && (
+                        <p className="mt-1 text-xs text-gray-500">Operatör için Firma düzenlenemez.</p>
+                      )}
+                      {!isFullAdmin && selectedUser?.role !== "operator" && (
+                        <p className="mt-1 text-xs text-gray-500">Firma sadece fullAdmin tarafından düzenlenebilir.</p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {selectedUser?.role === "operator" && (
                   <div className="md:col-span-2">
