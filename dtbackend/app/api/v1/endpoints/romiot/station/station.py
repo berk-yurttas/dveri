@@ -760,12 +760,15 @@ class FullAdminUserCreateRequest(BaseModel):
     email: EmailStr = Field(..., description="Email address")
     password: str = Field(..., min_length=8, description="Password")
     password_confirm: str = Field(..., min_length=8, description="Password confirmation")
-    role: ManagedUserRoleType = Field(..., description="yonetici / musteri / operator / satinalma")
-    company: str = Field(..., min_length=1, description="Owning workshop")
-    department: str | None = Field(None, description="Müşteri's customer name (required for musteri)")
-    station_id: int | None = Field(None, description="Required for operator")
+    role: ManagedUserRoleType = Field(..., description="yonetici / musteri / satinalma (operator rejected by handler)")
+    company: str | None = Field(
+        None,
+        description="Deprecated: ignored on input. Backend writes company = department.",
+    )
+    department: str = Field(..., min_length=1, description="Firma (saves to PB department; mirrored to PB company)")
+    station_id: int | None = Field(None, description="Required for operator role — but operator is rejected by handler")
     musteri_companies: list[str] | None = Field(
-        None, description="Optional target workshops (musteri only)"
+        None, description="Optional target firmalar (musteri only)"
     )
 
     @model_validator(mode="after")
@@ -773,21 +776,20 @@ class FullAdminUserCreateRequest(BaseModel):
         _validate_password_strength(self.password)
         if self.password != self.password_confirm:
             raise ValueError("Şifreler eşleşmiyor")
-        if self.role == ManagedUserRoleType.OPERATOR and not self.station_id:
-            raise ValueError("Operatör rolü için atölye seçilmesi zorunludur")
-        if self.role != ManagedUserRoleType.OPERATOR and self.station_id is not None:
-            raise ValueError("Sadece operatör rolü için atölye seçilebilir")
-        if self.role == ManagedUserRoleType.MUSTERI:
-            if not self.department or not self.department.strip():
-                raise ValueError("Müşteri rolü için müşteri adı zorunludur")
-            if ":" in self.department:
-                raise ValueError("Müşteri adında ':' karakteri kullanılamaz")
+        if not self.department.strip():
+            raise ValueError("Firma boş olamaz")
+        if ":" in self.department:
+            raise ValueError("Firma adında ':' karakteri kullanılamaz")
+        if self.role == ManagedUserRoleType.OPERATOR:
+            raise ValueError("Operatör kullanıcıları bu uçtan oluşturulamaz; yönetici sayfasını kullanın.")
+        if self.station_id is not None:
+            raise ValueError("station_id gönderilmemelidir")
         if self.musteri_companies is not None:
             if self.role != ManagedUserRoleType.MUSTERI:
-                raise ValueError("Hedef atölyeler sadece müşteri rolü için seçilebilir")
+                raise ValueError("Hedef firmalar sadece müşteri rolü için seçilebilir")
             for value in self.musteri_companies:
                 if not isinstance(value, str) or not value.strip() or ":" in value:
-                    raise ValueError("Geçersiz hedef atölye değeri")
+                    raise ValueError("Geçersiz hedef firma değeri")
         return self
 
 
