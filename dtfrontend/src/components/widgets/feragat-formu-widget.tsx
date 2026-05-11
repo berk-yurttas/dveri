@@ -210,7 +210,8 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 const assignees = new Set<string>()
                 const representationUsers = new Map<string, string>() // step_instance_id -> representation_user
                 
-                for (const row of stepRows) {
+                // Create promises for all outbox queries
+                const outboxPromises = stepRows.map(async (row) => {
                     const stepInstanceId = row[0] || ''
                     const assignee = row[2] || ''
                     
@@ -237,7 +238,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                 let payloadObj = payload
                                 if (typeof payload === 'string') {
                                     try {
-                                        payloadObj = JSON.parse(payload)
+                                        payloadObj = parsePythonStyleJSON(payload)
                                     } catch (e) {
                                         console.error('Failed to parse payload:', e)
                                     }
@@ -257,7 +258,10 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                             console.error(`Failed to fetch outbox events for ${stepInstanceId}:`, err)
                         }
                     }
-                }
+                })
+                
+                // Wait for all outbox queries to complete
+                await Promise.all(outboxPromises)
                 
                 // Fetch user info from Pocketbase for all assignees and representation users
                 for (const username of Array.from(assignees)) {
@@ -578,6 +582,30 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
             return []
         }
     }
+    
+    const getMalzemeBilgileri = () => {
+        const field = data.find(d => d.name === 'Malzeme Bilgileri')
+        if (!field || !field.value) return []
+        
+        try {
+            let malzemeList: any[] = []
+            
+            if (typeof field.value === 'string') {
+                malzemeList = parsePythonStyleJSON(field.value)
+            } else if (Array.isArray(field.value)) {
+                malzemeList = field.value
+            }
+            
+            return malzemeList.map((item: any) => ({
+                malzeme_no: item.malzeme_no || '',
+                malzeme_tanimi: item.malzeme_tanimi || '',
+                alim_adedi: item.alim_adedi || ''
+            }))
+        } catch (err) {
+            console.error('Failed to parse Malzeme Bilgileri:', err)
+            return []
+        }
+    }
 
     const formatDate = (dateStr: string): string => {
         if (!dateStr) return ''
@@ -829,36 +857,58 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         </table>
                                     </div>
                                     
-                                    {/* Row 3: Six columns */}
+                                    {/* Row 3: Material Information - Display as table with row numbers */}
                                     <div className="border-l border-r border-b border-black">
                                         <table className="w-full text-[10px]">
-                                            <tbody>
+                                            <thead>
                                                 <tr>
-                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
-                                                        <div className="font-bold text-blue-900">8. Malzeme No</div>
-                                                        <div className="mt-1">{getFieldValue('Malzeme No')}</div>
-                                                    </td>
-                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">9. Malzeme Tanımı</div>
-                                                        <div className="mt-1">{getFieldValue('Malzeme Tanımı')}</div>
-                                                    </td>
-                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
-                                                        <div className="font-bold text-blue-900">10. Alım Türü</div>
-                                                        <div className="mt-1">{getFieldValue('Alım Türü')}</div>
-                                                    </td>
-                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
-                                                        <div className="font-bold text-blue-900">11. Alım Adedi</div>
-                                                        <div className="mt-1">{getFieldValue('Alım Adedi')}</div>
-                                                    </td>
-                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">12. İşin Sorumlusu/Bölümü</div>
-                                                        <div className="mt-1">{getSorumluValue()}</div>
-                                                    </td>
-                                                    <td className="border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
-                                                        <div className="font-bold text-blue-900">13. Bildirim No</div>
-                                                        <div className="mt-1">{getFieldValue('Feragat Bildirim Numarası')}</div>
-                                                    </td>
+                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '5%' }}></th>
+                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '12.5%' }}>8. Malzeme No</th>
+                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '25%' }}>9. Malzeme Tanımı</th>
+                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '12.5%' }}>10. Alım Adedi</th>
+                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '12.5%' }}>11. Alım Türü</th>
+                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '20%' }}>12. İşin Sorumlusu/Bölümü</th>
+                                                    <th className="border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '12.5%' }}>13. Bildirim No</th>
                                                 </tr>
+                                            </thead>
+                                            <tbody>
+                                                {(() => {
+                                                    const malzemeBilgileri = getMalzemeBilgileri()
+                                                    const alimTuru = getFieldValue('Alım Türü')
+                                                    const isinSorumlusu = getSorumluValue()
+                                                    const bildirimNo = getFieldValue('Feragat Bildirim Numarası')
+                                                    const rowCount = malzemeBilgileri.length || 1
+                                                    
+                                                    if (malzemeBilgileri.length === 0) {
+                                                        return (
+                                                            <tr>
+                                                                <td className="border-r border-t border-black p-2 bg-gray-100 text-center font-bold">1</td>
+                                                                <td className="border-r border-t border-black p-2 bg-blue-50"></td>
+                                                                <td className="border-r border-t border-black p-2 bg-blue-50"></td>
+                                                                <td className="border-r border-t border-black p-2 bg-blue-50"></td>
+                                                                <td className="border-r border-t border-black p-2 bg-blue-50">{alimTuru}</td>
+                                                                <td className="border-r border-t border-black p-2 bg-blue-50">{isinSorumlusu}</td>
+                                                                <td className="border-t border-black p-2 bg-blue-50">{bildirimNo}</td>
+                                                            </tr>
+                                                        )
+                                                    }
+                                                    
+                                                    return malzemeBilgileri.map((item: any, idx: number) => (
+                                                        <tr key={idx}>
+                                                            <td className="border-r border-t border-black p-2 bg-gray-100 text-center font-bold">{idx + 1}</td>
+                                                            <td className="border-r border-t border-black p-2 bg-blue-50">{item.malzeme_no}</td>
+                                                            <td className="border-r border-t border-black p-2 bg-blue-50">{item.malzeme_tanimi}</td>
+                                                            <td className="border-r border-t border-black p-2 bg-blue-50">{item.alim_adedi}</td>
+                                                            {idx === 0 && (
+                                                                <>
+                                                                    <td className="border-r border-t border-black p-2 bg-blue-50" rowSpan={rowCount}>{alimTuru}</td>
+                                                                    <td className="border-r border-t border-black p-2 bg-blue-50" rowSpan={rowCount}>{isinSorumlusu}</td>
+                                                                    <td className="border-t border-black p-2 bg-blue-50" rowSpan={rowCount}>{bildirimNo}</td>
+                                                                </>
+                                                            )}
+                                                        </tr>
+                                                    ))
+                                                })()}
                                             </tbody>
                                         </table>
                                     </div>

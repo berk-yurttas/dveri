@@ -659,59 +659,153 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         ]))
         elements.append(row2_alt_table)
         
-        # Row 3: 6 fields
-        row3_alt_data = [
-            [
-                Paragraph('<b>8. Malzeme No</b>', 
-                          ParagraphStyle('AL8', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-                Paragraph('<b>9. Malzeme Tanımı</b>', 
-                          ParagraphStyle('AL9', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-                '',
-                Paragraph('<b>10. Alım Türü</b>', 
-                          ParagraphStyle('AL10', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-                Paragraph('<b>11. Alım Adedi</b>', 
-                          ParagraphStyle('AL11', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-                Paragraph('<b>12. İşin Sorumlusu/Bölümü</b>', 
-                          ParagraphStyle('AL12', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-                '',
-                Paragraph('<b>13. Bildirim No</b>', 
-                          ParagraphStyle('AL13', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD))
-            ],
-            [
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Malzeme No", "")}</font>', 
-                          ParagraphStyle('AV8', fontSize=8, fontName=FONT_NAME)),
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Malzeme Tanımı", "")}</font>', 
-                          ParagraphStyle('AV9', fontSize=8, fontName=FONT_NAME)),
-                '',
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Alım Türü", "")}</font>', 
-                          ParagraphStyle('AV10', fontSize=8, fontName=FONT_NAME)),
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Alım Adedi", "")}</font>', 
-                          ParagraphStyle('AV11', fontSize=8, fontName=FONT_NAME)),
-                Paragraph(f'<font size=8 color="#374151">{get_isin_sorumlusu_bolumu()}</font>', 
-                          ParagraphStyle('AV12', fontSize=8, fontName=FONT_NAME)),
-                '',
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Bildirim Numarası", "")}</font>', 
-                          ParagraphStyle('AV13', fontSize=8, fontName=FONT_NAME))
-            ]
+        # Row 3: Material Information Table with row numbers
+        # Parse Malzeme Bilgileri JSON array
+        malzeme_bilgileri_raw = form_data.get("Malzeme Bilgileri", None)
+        malzeme_list = []
+        
+        if malzeme_bilgileri_raw:
+            if isinstance(malzeme_bilgileri_raw, list):
+                malzeme_list = malzeme_bilgileri_raw
+            elif isinstance(malzeme_bilgileri_raw, str):
+                try:
+                    parsed_value = json.loads(malzeme_bilgileri_raw)
+                    if isinstance(parsed_value, list):
+                        malzeme_list = parsed_value
+                except (json.JSONDecodeError, TypeError) as e:
+                    print(f"[DEBUG] Failed to parse Malzeme Bilgileri JSON: {e}")
+        
+        # Get values that appear once for all rows
+        alim_turu = form_data.get("Alım Türü", "")
+        isin_sorumlusu = get_isin_sorumlusu_bolumu()
+        bildirim_no = form_data.get("Feragat Bildirim Numarası", "")
+        
+        # Header row
+        row3_header = [
+            Paragraph('', ParagraphStyle('ALH0', fontSize=7, fontName=FONT_NAME_BOLD)),  # Row number column
+            Paragraph('<b>8. Malzeme No</b>', 
+                      ParagraphStyle('AL8', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+            Paragraph('<b>9. Malzeme Tanımı</b>', 
+                      ParagraphStyle('AL9', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+            '',
+            Paragraph('<b>10. Alım Adedi</b>', 
+                      ParagraphStyle('AL10', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+            Paragraph('<b>11. Alım Türü</b>', 
+                      ParagraphStyle('AL11', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+            Paragraph('<b>12. İşin Sorumlusu/Bölümü</b>', 
+                      ParagraphStyle('AL12', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+            '',
+            Paragraph('<b>13. Bildirim No</b>', 
+                      ParagraphStyle('AL13', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD))
         ]
         
-        row3_alt_table = Table(row3_alt_data, colWidths=[col_width]*8)
-        row3_alt_table.setStyle(TableStyle([
-            # Row 0 (labels) - no spans needed, each cell separate
-            ('SPAN', (1, 0), (2, 0)),  # Malzeme Tanımı label
-            ('SPAN', (5, 0), (6, 0)),  # İşin Sorumlusu label
-            # Row 1 (values)
-            ('SPAN', (1, 1), (2, 1)),  # Malzeme Tanımı value
-            ('SPAN', (5, 1), (6, 1)),  # İşin Sorumlusu value
+        # Build data rows
+        row3_alt_data = [row3_header]
+        
+        if not malzeme_list:
+            # If no data, show one empty row
+            row3_alt_data.append([
+                Paragraph('<b>1</b>', ParagraphStyle('ARN1', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
+                Paragraph('', ParagraphStyle('AV8', fontSize=8, fontName=FONT_NAME)),
+                Paragraph('', ParagraphStyle('AV9', fontSize=8, fontName=FONT_NAME)),
+                '',
+                Paragraph('', ParagraphStyle('AV10', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{alim_turu}</font>', 
+                          ParagraphStyle('AV11', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{isin_sorumlusu}</font>', 
+                          ParagraphStyle('AV12', fontSize=8, fontName=FONT_NAME)),
+                '',
+                Paragraph(f'<font size=8 color="#374151">{bildirim_no}</font>', 
+                          ParagraphStyle('AV13', fontSize=8, fontName=FONT_NAME))
+            ])
+        else:
+            # First row includes alim_turu, isin_sorumlusu, and bildirim_no
+            first_item = malzeme_list[0]
+            malzeme_no = first_item.get('malzeme_no', '') if isinstance(first_item, dict) else ''
+            malzeme_tanimi = first_item.get('malzeme_tanimi', '') if isinstance(first_item, dict) else ''
+            alim_adedi = first_item.get('alim_adedi', '') if isinstance(first_item, dict) else ''
+            
+            row3_alt_data.append([
+                Paragraph('<b>1</b>', ParagraphStyle('ARN1', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
+                Paragraph(f'<font size=8 color="#374151">{malzeme_no}</font>', 
+                          ParagraphStyle('AV8_1', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{malzeme_tanimi}</font>', 
+                          ParagraphStyle('AV9_1', fontSize=8, fontName=FONT_NAME)),
+                '',
+                Paragraph(f'<font size=8 color="#374151">{alim_adedi}</font>', 
+                          ParagraphStyle('AV10_1', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{alim_turu}</font>', 
+                          ParagraphStyle('AV11_1', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{isin_sorumlusu}</font>', 
+                          ParagraphStyle('AV12_1', fontSize=8, fontName=FONT_NAME)),
+                '',
+                Paragraph(f'<font size=8 color="#374151">{bildirim_no}</font>', 
+                          ParagraphStyle('AV13_1', fontSize=8, fontName=FONT_NAME))
+            ])
+            
+            # Subsequent rows don't include alim_turu, isin_sorumlusu, and bildirim_no (they will be spanned)
+            for idx, item in enumerate(malzeme_list[1:], start=2):
+                malzeme_no = item.get('malzeme_no', '') if isinstance(item, dict) else ''
+                malzeme_tanimi = item.get('malzeme_tanimi', '') if isinstance(item, dict) else ''
+                alim_adedi = item.get('alim_adedi', '') if isinstance(item, dict) else ''
+                
+                row3_alt_data.append([
+                    Paragraph(f'<b>{idx}</b>', ParagraphStyle(f'ARN{idx}', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
+                    Paragraph(f'<font size=8 color="#374151">{malzeme_no}</font>', 
+                              ParagraphStyle(f'AV8_{idx}', fontSize=8, fontName=FONT_NAME)),
+                    Paragraph(f'<font size=8 color="#374151">{malzeme_tanimi}</font>', 
+                              ParagraphStyle(f'AV9_{idx}', fontSize=8, fontName=FONT_NAME)),
+                    '',
+                    Paragraph(f'<font size=8 color="#374151">{alim_adedi}</font>', 
+                              ParagraphStyle(f'AV10_{idx}', fontSize=8, fontName=FONT_NAME)),
+                    # These columns will be spanned from row 1
+                ])
+        
+        # Column widths: smaller for row number, adjusted for others
+        row3_col_widths = [col_width*0.4, col_width*1.1, col_width*2, col_width*0.5, col_width*0.8, col_width*0.9, col_width*1.8, col_width*0.5, col_width*0.9]
+        
+        row3_alt_table = Table(row3_alt_data, colWidths=row3_col_widths)
+        
+        # Build table style dynamically based on number of rows
+        num_data_rows = len(row3_alt_data) - 1  # Exclude header row
+        
+        table_style_commands = [
+            # Header row styling
+            ('SPAN', (2, 0), (3, 0)),  # Malzeme Tanımı header
+            ('SPAN', (6, 0), (7, 0)),  # İşin Sorumlusu header
+            ('BACKGROUND', (0, 0), (-1, 0), blue_border),  # Header background
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),  # Header text color
             ('GRID', (0, 0), (-1, -1), 1, blue_border),
-            ('BACKGROUND', (0, 0), (-1, 0), blue_bg),
-            ('BACKGROUND', (0, 1), (-1, 1), colors.white),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('TOPPADDING', (0, 0), (-1, -1), 4),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
             ('LEFTPADDING', (0, 0), (-1, -1), 5),
             ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-        ]))
+        ]
+        
+        # Span Alım Türü, İşin Sorumlusu, and Bildirim No across all data rows
+        if num_data_rows > 1:
+            table_style_commands.extend([
+                ('SPAN', (5, 1), (5, num_data_rows)),  # Alım Türü spans all data rows
+                ('SPAN', (6, 1), (7, num_data_rows)),  # İşin Sorumlusu spans all data rows (including its empty col)
+                ('SPAN', (8, 1), (8, num_data_rows)),  # Bildirim No spans all data rows
+            ])
+        
+        # Add row-specific styling for data rows
+        for row_idx in range(1, len(row3_alt_data)):
+            table_style_commands.extend([
+                ('SPAN', (2, row_idx), (3, row_idx)),  # Malzeme Tanımı value span
+                ('BACKGROUND', (0, row_idx), (0, row_idx), colors.HexColor('#D3D3D3')),  # Row number background
+                ('BACKGROUND', (1, row_idx), (-1, row_idx), colors.white),  # Data cells background
+                ('ALIGN', (0, row_idx), (0, row_idx), 'CENTER'),  # Center row number
+                ('FONTNAME', (0, row_idx), (0, row_idx), FONT_NAME_BOLD),  # Bold row number
+            ])
+            
+        # Span İşin Sorumlusu across columns 6-7 for row 1 if no multi-row span
+        if num_data_rows == 1:
+            table_style_commands.append(('SPAN', (6, 1), (7, 1)))  # İşin Sorumlusu single row span
+        
+        row3_alt_table.setStyle(TableStyle(table_style_commands))
         elements.append(row3_alt_table)
         
     else:
