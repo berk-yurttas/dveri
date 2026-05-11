@@ -84,6 +84,10 @@ export default function KullaniciYonetimiPage() {
   const [isFullAdmin, setIsFullAdmin] = useState(false);
   const [companies, setCompanies] = useState<string[]>([]);
   const [filterCompany, setFilterCompany] = useState("");
+  const [selectedMusteriIds, setSelectedMusteriIds] = useState<Set<string>>(new Set());
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkSelectedCompanies, setBulkSelectedCompanies] = useState<string[]>([]);
+  const [bulkMode, setBulkMode] = useState<"add" | "replace">("add");
 
   useEffect(() => {
     const roles = (user?.role && Array.isArray(user.role)) ? user.role : [];
@@ -159,6 +163,38 @@ export default function KullaniciYonetimiPage() {
       return matchesSearch && matchesRole && matchesAtolye && matchesCompany;
     });
   }, [users, search, filterRole, filterAtolye, filterCompany, isFullAdmin]);
+
+  const visibleMusteriIds = useMemo(
+    () => filteredUsers.filter((u) => u.role === "musteri").map((u) => u.pocketbase_id),
+    [filteredUsers]
+  );
+
+  const allVisibleMusterisSelected =
+    visibleMusteriIds.length > 0 && visibleMusteriIds.every((id) => selectedMusteriIds.has(id));
+  const someVisibleMusterisSelected =
+    visibleMusteriIds.some((id) => selectedMusteriIds.has(id)) && !allVisibleMusterisSelected;
+
+  const toggleMusteriSelected = (id: string) => {
+    setSelectedMusteriIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllVisibleMusteris = (checked: boolean) => {
+    setSelectedMusteriIds((prev) => {
+      const next = new Set(prev);
+      for (const id of visibleMusteriIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const clearBulkSelection = () => setSelectedMusteriIds(new Set());
 
   const openEditModal = (target: ManagedUser) => {
     const role: RoleType = target.role || "musteri";
@@ -399,6 +435,32 @@ export default function KullaniciYonetimiPage() {
           </div>
         )}
 
+        {isFullAdmin && selectedMusteriIds.size > 0 && (
+          <div className="mb-4 p-3 bg-[#0f4c3a] text-white rounded-lg flex flex-wrap items-center justify-between gap-3">
+            <span className="text-sm font-medium">{selectedMusteriIds.size} müşteri seçili</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setBulkSelectedCompanies([]);
+                  setBulkMode("add");
+                  setShowBulkModal(true);
+                }}
+                className="px-3 py-1.5 bg-white text-[#0f4c3a] hover:bg-gray-100 rounded-md text-sm font-medium"
+              >
+                Hedef Firmaları Düzenle
+              </button>
+              <button
+                type="button"
+                onClick={clearBulkSelection}
+                className="px-3 py-1.5 bg-transparent border border-white/40 text-white hover:bg-white/10 rounded-md text-sm"
+              >
+                Seçimi Temizle
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white rounded-lg shadow-lg p-4 mb-4">
           <input
             type="text"
@@ -416,17 +478,32 @@ export default function KullaniciYonetimiPage() {
             <table className="min-w-[700px] w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  {isFullAdmin && (
+                    <th className="px-4 py-3 text-left w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="Görünür müşterileri seç"
+                        checked={allVisibleMusterisSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = someVisibleMusterisSelected;
+                        }}
+                        onChange={(e) => toggleAllVisibleMusteris(e.target.checked)}
+                        disabled={visibleMusteriIds.length === 0}
+                      />
+                    </th>
+                  )}
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Kullanıcı Adı</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">İsim</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Rol</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Atölye</th>
                   {isFullAdmin && (
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Şirket</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Firma</th>
                   )}
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">E-posta</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">İşlem</th>
                 </tr>
                 <tr className="bg-gray-100 border-b border-gray-200">
+                  {isFullAdmin && <td className="px-4 py-2" />}
                   <td className="px-4 py-2" />
                   <td className="px-4 py-2" />
                   <td className="px-4 py-2">
@@ -469,13 +546,25 @@ export default function KullaniciYonetimiPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={isFullAdmin ? 7 : 6} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={isFullAdmin ? 8 : 6} className="px-4 py-8 text-center text-gray-500">
                       Kullanıcı bulunamadı.
                     </td>
                   </tr>
                 ) : (
                   filteredUsers.map((u) => (
                     <tr key={u.pocketbase_id} className="hover:bg-gray-50">
+                      {isFullAdmin && (
+                        <td className="px-4 py-3">
+                          {u.role === "musteri" ? (
+                            <input
+                              type="checkbox"
+                              aria-label={`${u.username} seç`}
+                              checked={selectedMusteriIds.has(u.pocketbase_id)}
+                              onChange={() => toggleMusteriSelected(u.pocketbase_id)}
+                            />
+                          ) : null}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
                         {u.username}
                         {u.is_self && (
