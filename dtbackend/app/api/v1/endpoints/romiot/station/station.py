@@ -72,7 +72,10 @@ class ManagedUserUpdateRequest(BaseModel):
     password_confirm: str | None = Field(None, min_length=8, description="New password confirmation")
     role: ManagedUserRoleType | None = Field(None, description="Atolye role")
     station_id: int | None = Field(None, description="Station ID for operator role")
-    company: str | None = Field(None, min_length=1, description="Owning workshop (fullAdmin only)")
+    company: str | None = Field(
+        None,
+        description="Deprecated: ignored on input. Backend writes company = department.",
+    )
     department: str | None = Field(None, min_length=1, description="Müşteri's customer name (fullAdmin only)")
     musteri_companies: list[str] | None = Field(
         None,
@@ -561,14 +564,36 @@ async def update_company_user(
                     detail="Müşteri rolüne dönüştürme yetkiniz yok",
                 )
 
-            # Determine effective owning workshop
-            effective_company: str
-            if full_admin:
-                effective_company = (user_data.company or existing_company).strip()
+            # Firma (department) = effective company; mirrored to PB company on write.
+            # Operators: locked to existing department. Non-operators: editable via user_data.department.
+            target_is_operator = any(
+                isinstance(r, str) and r == "atolye:operator" for r in existing_role_values
+            )
+            if full_admin and target_is_operator:
+                if user_data.department is not None and user_data.department.strip() != existing_department:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Operatör için Firma bilgisi düzenlenemez",
+                    )
+                if user_data.role is not None and user_data.role != ManagedUserRoleType.OPERATOR:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Operatöre farklı bir rol atanamaz.",
+                    )
+                effective_company = existing_department or existing_company
+            elif full_admin:
+                effective_company = (
+                    (user_data.department or existing_department or existing_company).strip()
+                )
                 if not effective_company:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Şirket boş olamaz",
+                        detail="Firma boş olamaz",
+                    )
+                if ":" in effective_company:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Firma adında ':' karakteri kullanılamaz",
                     )
             else:
                 effective_company = user_company  # type: ignore[assignment]
@@ -667,12 +692,12 @@ async def update_company_user(
                         if isinstance(role, str) and role.startswith("atolye:musteri_company:"):
                             pb_roles.append(role)
 
-            # Resolve department for payload
-            if new_role == ManagedUserRoleType.MUSTERI:
-                if full_admin and user_data.department is not None:
-                    department_for_payload = user_data.department.strip()
-                else:
-                    department_for_payload = existing_department or effective_company
+            # Department mirrors Firma. For operators, locked to existing value.
+            # For non-operators under fullAdmin, takes user_data.department if supplied; otherwise effective_company.
+            if target_is_operator:
+                department_for_payload = existing_department or effective_company
+            elif full_admin and user_data.department is not None:
+                department_for_payload = user_data.department.strip()
             else:
                 department_for_payload = effective_company
 
@@ -681,7 +706,7 @@ async def update_company_user(
                 "name": user_data.name if user_data.name is not None else target_pb_user.get("name", ""),
                 "role": pb_roles,
                 "department": department_for_payload,
-                "company": effective_company,
+                "company": department_for_payload,
             }
             if user_data.password:
                 pb_payload["password"] = user_data.password
@@ -736,7 +761,7 @@ async def update_company_user(
                 role=new_role,
                 station_id=pg_user.workshop_id,
                 station_name=station_name,
-                company=effective_company,
+                company=department_for_payload,
                 department=department_for_payload,
                 musteri_companies=[
                     role.split(":", 2)[2]
@@ -760,12 +785,15 @@ class FullAdminUserCreateRequest(BaseModel):
     email: EmailStr = Field(..., description="Email address")
     password: str = Field(..., min_length=8, description="Password")
     password_confirm: str = Field(..., min_length=8, description="Password confirmation")
-    role: ManagedUserRoleType = Field(..., description="yonetici / musteri / operator / satinalma")
-    company: str = Field(..., min_length=1, description="Owning workshop")
-    department: str | None = Field(None, description="Müşteri's customer name (required for musteri)")
-    station_id: int | None = Field(None, description="Required for operator")
+    role: ManagedUserRoleType = Field(..., description="yonetici / musteri / satinalma (operator rejected by handler)")
+    company: str | None = Field(
+        None,
+        description="Deprecated: ignored on input. Backend writes company = department.",
+    )
+    department: str = Field(..., min_length=1, description="Firma (saves to PB department; mirrored to PB company)")
+    station_id: int | None = Field(None, description="Required for operator role — but operator is rejected by handler")
     musteri_companies: list[str] | None = Field(
-        None, description="Optional target workshops (musteri only)"
+        None, description="Optional target firmalar (musteri only)"
     )
 
     @model_validator(mode="after")
@@ -773,21 +801,38 @@ class FullAdminUserCreateRequest(BaseModel):
         _validate_password_strength(self.password)
         if self.password != self.password_confirm:
             raise ValueError("Şifreler eşleşmiyor")
-        if self.role == ManagedUserRoleType.OPERATOR and not self.station_id:
-            raise ValueError("Operatör rolü için atölye seçilmesi zorunludur")
-        if self.role != ManagedUserRoleType.OPERATOR and self.station_id is not None:
-            raise ValueError("Sadece operatör rolü için atölye seçilebilir")
-        if self.role == ManagedUserRoleType.MUSTERI:
-            if not self.department or not self.department.strip():
-                raise ValueError("Müşteri rolü için müşteri adı zorunludur")
-            if ":" in self.department:
-                raise ValueError("Müşteri adında ':' karakteri kullanılamaz")
+        if not self.department.strip():
+            raise ValueError("Firma boş olamaz")
+        if ":" in self.department:
+            raise ValueError("Firma adında ':' karakteri kullanılamaz")
+        if self.role == ManagedUserRoleType.OPERATOR:
+            raise ValueError("Operatör kullanıcıları bu uçtan oluşturulamaz; yönetici sayfasını kullanın.")
+        if self.station_id is not None:
+            raise ValueError("station_id gönderilmemelidir")
         if self.musteri_companies is not None:
             if self.role != ManagedUserRoleType.MUSTERI:
-                raise ValueError("Hedef atölyeler sadece müşteri rolü için seçilebilir")
+                raise ValueError("Hedef firmalar sadece müşteri rolü için seçilebilir")
             for value in self.musteri_companies:
                 if not isinstance(value, str) or not value.strip() or ":" in value:
-                    raise ValueError("Geçersiz hedef atölye değeri")
+                    raise ValueError("Geçersiz hedef firma değeri")
+        return self
+
+
+class BulkMusteriCompaniesMode(str, Enum):
+    ADD = "add"
+    REPLACE = "replace"
+
+
+class BulkMusteriCompaniesRequest(BaseModel):
+    user_ids: list[str] = Field(..., min_length=1, description="PocketBase user ids to update")
+    companies: list[str] = Field(..., description="Target firmalar to apply")
+    mode: BulkMusteriCompaniesMode = Field(..., description="add (merge) or replace (overwrite)")
+
+    @model_validator(mode="after")
+    def validate_companies(self):
+        for c in self.companies:
+            if not isinstance(c, str) or not c.strip() or ":" in c:
+                raise ValueError("Geçersiz hedef firma değeri")
         return self
 
 
@@ -807,30 +852,13 @@ async def full_admin_create_user(
             detail="fullAdmin yetkisi gereklidir",
         )
 
-    company = user_data.company.strip()
-    if not company:
+    # Firma = department (mirrored to company on the PB record)
+    firma = user_data.department.strip()
+    if not firma:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Şirket boş olamaz",
+            detail="Firma boş olamaz",
         )
-
-    station_id_for_db: int | None = None
-    if user_data.role == ManagedUserRoleType.OPERATOR:
-        station_result = await romiot_db.execute(
-            select(Station).where(Station.id == user_data.station_id)
-        )
-        station = station_result.scalar_one_or_none()
-        if not station:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"ID {user_data.station_id} ile atölye bulunamadı",
-            )
-        if station.company != company:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Bu atölye seçilen şirkete ait değil",
-            )
-        station_id_for_db = user_data.station_id
 
     existing_pg_result = await postgres_db.execute(
         select(PostgresUser).where(PostgresUser.username == user_data.username)
@@ -850,11 +878,6 @@ async def full_admin_create_user(
                 seen.add(norm)
                 role_values.append(f"atolye:musteri_company:{norm}")
 
-    if user_data.role == ManagedUserRoleType.MUSTERI:
-        target_department = user_data.department.strip()  # type: ignore[union-attr]
-    else:
-        target_department = company
-
     try:
         pb_user_id = await _pb_create_user_record(
             username=user_data.username,
@@ -863,8 +886,8 @@ async def full_admin_create_user(
             password_confirm=user_data.password_confirm,
             name=user_data.name,
             role=role_values,
-            department=target_department,
-            company=company,
+            department=firma,
+            company=firma,
         )
     except HTTPException:
         raise
@@ -877,7 +900,7 @@ async def full_admin_create_user(
     new_user = PostgresUser(
         username=user_data.username,
         name=user_data.name,
-        workshop_id=station_id_for_db,
+        workshop_id=None,
     )
     postgres_db.add(new_user)
     await postgres_db.commit()
@@ -890,11 +913,97 @@ async def full_admin_create_user(
         "name": new_user.name,
         "email": user_data.email,
         "role": role_values[0],
-        "company": company,
-        "department": target_department,
-        "station_id": new_user.workshop_id,
+        "company": firma,
+        "department": firma,
+        "station_id": None,
         "musteri_companies": user_data.musteri_companies or [],
     }
+
+
+@router.patch("/management/users/bulk-musteri-companies", response_model=dict)
+async def bulk_musteri_companies(
+    payload: BulkMusteriCompaniesRequest,
+    current_user: User = Depends(check_authenticated),
+):
+    """
+    Bulk update target firmalar (atolye:musteri_company:*) for multiple müşteri users.
+    fullAdmin-only. Returns per-user succeeded/failed lists.
+    """
+    if not is_full_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="fullAdmin yetkisi gereklidir",
+        )
+
+    # Dedupe + normalize the requested companies
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for c in payload.companies:
+        n = c.strip()
+        if n and n not in seen:
+            seen.add(n)
+            normalized.append(n)
+
+    succeeded: list[str] = []
+    failed: list[dict] = []
+
+    async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+        auth_token = await _authenticate_pocketbase_admin(client)
+        headers = {"Authorization": auth_token}
+
+        for user_id in payload.user_ids:
+            try:
+                get_resp = await client.get(
+                    f"{settings.POCKETBASE_URL}/api/collections/users/records/{user_id}",
+                    headers=headers,
+                )
+                if get_resp.status_code != 200:
+                    failed.append({"id": user_id, "detail": "Kullanıcı bulunamadı"})
+                    continue
+
+                pb_user = get_resp.json()
+                role_values = pb_user.get("role") if isinstance(pb_user.get("role"), list) else []
+                if "atolye:musteri" not in role_values:
+                    failed.append({"id": user_id, "detail": "Müşteri olmayan kullanıcı atlandı"})
+                    continue
+
+                non_company_roles = [
+                    r for r in role_values
+                    if not (isinstance(r, str) and r.startswith("atolye:musteri_company:"))
+                ]
+
+                if payload.mode == BulkMusteriCompaniesMode.REPLACE:
+                    targets = list(normalized)
+                else:  # ADD
+                    existing_targets = [
+                        r.split(":", 2)[2]
+                        for r in role_values
+                        if isinstance(r, str) and r.startswith("atolye:musteri_company:")
+                    ]
+                    seen_local: set[str] = set()
+                    targets = []
+                    for t in (*existing_targets, *normalized):
+                        if t and t not in seen_local:
+                            seen_local.add(t)
+                            targets.append(t)
+
+                new_role_list = [*non_company_roles] + [
+                    f"atolye:musteri_company:{t}" for t in targets
+                ]
+
+                patch_resp = await client.patch(
+                    f"{settings.POCKETBASE_URL}/api/collections/users/records/{user_id}",
+                    json={"role": new_role_list},
+                    headers=headers,
+                )
+                if patch_resp.status_code in (200, 201):
+                    succeeded.append(user_id)
+                else:
+                    failed.append({"id": user_id, "detail": f"PocketBase güncelleme hatası ({patch_resp.status_code})"})
+            except Exception as e:
+                failed.append({"id": user_id, "detail": str(e) or e.__class__.__name__})
+
+    return {"succeeded": succeeded, "failed": failed}
 
 
 @router.get("/management/companies", response_model=list[str])
