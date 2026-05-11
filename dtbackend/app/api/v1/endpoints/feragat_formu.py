@@ -702,6 +702,11 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         # Build data rows - ALL rows must have 9 columns for proper table rendering
         row3_alt_data = [row3_header]
         
+        print(f"[DEBUG] Malzeme Bilgileri - malzeme_list: {malzeme_list}")
+        print(f"[DEBUG] Malzeme Bilgileri - alim_turu: {alim_turu}")
+        print(f"[DEBUG] Malzeme Bilgileri - isin_sorumlusu: {isin_sorumlusu}")
+        print(f"[DEBUG] Malzeme Bilgileri - bildirim_no: {bildirim_no}")
+        
         if not malzeme_list:
             # If no data, show one empty row with all 9 columns
             row3_alt_data.append([
@@ -748,17 +753,20 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         # Column widths: smaller for row number, adjusted for others
         row3_col_widths = [col_width*0.4, col_width*1.1, col_width*2, col_width*0.5, col_width*0.8, col_width*0.9, col_width*1.8, col_width*0.5, col_width*0.9]
         
+        print(f"[DEBUG] Malzeme table - Total rows: {len(row3_alt_data)}, Data rows: {len(row3_alt_data)-1}")
+        print(f"[DEBUG] Malzeme table - Columns per row: {[len(row) for row in row3_alt_data]}")
+        
         row3_alt_table = Table(row3_alt_data, colWidths=row3_col_widths)
         
         # Build table style dynamically based on number of rows
-        num_data_rows = len(row3_alt_data) - 1  # Exclude header row
+        num_data_rows = len(row3_alt_data) - 1  # Count of data rows (excluding header)
+        last_row_idx = len(row3_alt_data) - 1  # Index of last row
         
         table_style_commands = [
-            # Header row styling
+            # Header row styling (field names row)
             ('SPAN', (2, 0), (3, 0)),  # Malzeme Tanımı header
             ('SPAN', (6, 0), (7, 0)),  # İşin Sorumlusu header
-            ('BACKGROUND', (0, 0), (-1, 0), blue_header),  # Header background - use blue_header
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),  # Header text color
+            ('BACKGROUND', (0, 0), (-1, 0), blue_bg),  # Header background - light gray/blue like other rows
             ('GRID', (0, 0), (-1, -1), 1, blue_border),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('TOPPADDING', (0, 0), (-1, -1), 4),
@@ -767,27 +775,28 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             ('RIGHTPADDING', (0, 0), (-1, -1), 5),
         ]
         
-        # Span Alım Türü, İşin Sorumlusu, and Bildirim No across all data rows
-        if num_data_rows > 1:
-            table_style_commands.extend([
-                ('SPAN', (5, 1), (5, num_data_rows)),  # Alım Türü spans all data rows
-                ('SPAN', (6, 1), (7, num_data_rows)),  # İşin Sorumlusu spans all data rows (including its empty col)
-                ('SPAN', (8, 1), (8, num_data_rows)),  # Bildirim No spans all data rows
-            ])
-        
-        # Add row-specific styling for data rows
+        # Add row-specific styling for data rows FIRST
         for row_idx in range(1, len(row3_alt_data)):
             table_style_commands.extend([
                 ('SPAN', (2, row_idx), (3, row_idx)),  # Malzeme Tanımı value span
                 ('BACKGROUND', (0, row_idx), (0, row_idx), blue_bg),  # Row number background
-                ('BACKGROUND', (1, row_idx), (-1, row_idx), colors.white),  # Data cells background
                 ('ALIGN', (0, row_idx), (0, row_idx), 'CENTER'),  # Center row number
                 ('FONTNAME', (0, row_idx), (0, row_idx), FONT_NAME_BOLD),  # Bold row number
             ])
-            
-        # Span İşin Sorumlusu across columns 6-7 for row 1 if no multi-row span
-        if num_data_rows == 1:
-            table_style_commands.append(('SPAN', (6, 1), (7, 1)))  # İşin Sorumlusu single row span
+        
+        # Apply white background to data cells (will be overridden for row number column)
+        table_style_commands.append(('BACKGROUND', (1, 1), (-1, -1), colors.white))
+        
+        # Span Alım Türü, İşin Sorumlusu, and Bildirim No across all data rows
+        if num_data_rows > 1:
+            table_style_commands.extend([
+                ('SPAN', (5, 1), (5, last_row_idx)),  # Alım Türü spans from row 1 to last row
+                ('SPAN', (6, 1), (7, last_row_idx)),  # İşin Sorumlusu spans from row 1 to last row
+                ('SPAN', (8, 1), (8, last_row_idx)),  # Bildirim No spans from row 1 to last row
+            ])
+        else:
+            # Single row - just span İşin Sorumlusu across its columns
+            table_style_commands.append(('SPAN', (6, 1), (7, 1)))
         
         row3_alt_table.setStyle(TableStyle(table_style_commands))
         elements.append(row3_alt_table)
