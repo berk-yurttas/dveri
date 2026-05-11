@@ -236,10 +236,8 @@ export default function KullaniciYonetimiPage() {
     email: "",
     password: "",
     password_confirm: "",
-    role: "operator" as RoleType,
-    company: "",
+    role: "musteri" as Exclude<RoleType, "operator">,
     department: "",
-    station_id: "",
     musteri_companies: [] as string[],
   });
 
@@ -251,10 +249,8 @@ export default function KullaniciYonetimiPage() {
       email: "",
       password: "",
       password_confirm: "",
-      role: "operator",
-      company: "",
+      role: "musteri",
       department: "",
-      station_id: "",
       musteri_companies: [],
     });
   };
@@ -327,7 +323,8 @@ export default function KullaniciYonetimiPage() {
       const pwError = validatePassword(createForm.password);
       if (pwError) throw new Error(pwError);
       if (createForm.password !== createForm.password_confirm) throw new Error("Şifreler eşleşmiyor");
-      if (!createForm.company.trim()) throw new Error("Şirket seçiniz");
+      if (!createForm.department.trim()) throw new Error("Firma boş olamaz");
+      if (createForm.department.includes(":")) throw new Error("Firma adında ':' karakteri kullanılamaz");
 
       const payload: any = {
         username: createForm.username.trim(),
@@ -336,17 +333,9 @@ export default function KullaniciYonetimiPage() {
         password: createForm.password,
         password_confirm: createForm.password_confirm,
         role: createForm.role,
-        company: createForm.company.trim(),
+        department: createForm.department.trim(),
       };
-      if (createForm.role === "operator") {
-        const sid = parseInt(createForm.station_id, 10);
-        if (isNaN(sid)) throw new Error("Operatör için atölye seçiniz");
-        payload.station_id = sid;
-      }
       if (createForm.role === "musteri") {
-        if (!createForm.department.trim()) throw new Error("Müşteri adı boş olamaz");
-        if (createForm.department.includes(":")) throw new Error("Müşteri adında ':' karakteri kullanılamaz");
-        payload.department = createForm.department.trim();
         payload.musteri_companies = createForm.musteri_companies;
       }
 
@@ -902,12 +891,10 @@ export default function KullaniciYonetimiPage() {
                   <select
                     value={createForm.role}
                     onChange={(e) => {
-                      const newRole = e.target.value as RoleType;
+                      const newRole = e.target.value as Exclude<RoleType, "operator">;
                       setCreateForm({
                         ...createForm,
                         role: newRole,
-                        station_id: newRole === "operator" ? createForm.station_id : "",
-                        department: newRole === "musteri" ? createForm.department : "",
                         musteri_companies: newRole === "musteri" ? createForm.musteri_companies : [],
                       });
                     }}
@@ -917,93 +904,55 @@ export default function KullaniciYonetimiPage() {
                   >
                     <option value="yonetici">Yönetici</option>
                     <option value="musteri">Müşteri</option>
-                    <option value="operator">Operatör</option>
                     <option value="satinalma">Satınalma</option>
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Şirket (Sahip Atölye) *</label>
-                  <select
-                    value={createForm.company}
-                    onChange={(e) => setCreateForm({ ...createForm, company: e.target.value, station_id: "" })}
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Firma *</label>
+                  <input
+                    type="text"
+                    value={createForm.department}
+                    onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
                     required
                     disabled={saving}
-                  >
-                    <option value="">Şirket Seçiniz</option>
-                    {companies.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
+                  />
+                  {createForm.role === "musteri" && (
+                    <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>
+                  )}
                 </div>
-                {createForm.role === "operator" && (
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Atölye *</label>
-                    <select
-                      value={createForm.station_id}
-                      onChange={(e) => setCreateForm({ ...createForm, station_id: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
-                      required
-                      disabled={saving || !createForm.company}
-                    >
-                      <option value="">Atölye Seçiniz</option>
-                      {stations
-                        .filter((s) => !createForm.company || s.company === createForm.company)
-                        .map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}{s.is_exit_station ? " (Çıkış)" : ""}
-                          </option>
-                        ))}
-                    </select>
-                    {!createForm.company && (
-                      <p className="mt-1 text-xs text-gray-500">Önce şirket seçiniz.</p>
-                    )}
-                  </div>
-                )}
+
                 {createForm.role === "musteri" && (
-                  <>
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Müşteri Adı *</label>
-                      <input
-                        type="text"
-                        value={createForm.department}
-                        onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
-                        required
-                        disabled={saving}
-                      />
-                      <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Firmalar</label>
+                    <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
+                      {companies.length === 0 ? (
+                        <p className="text-sm text-gray-500">Sistemde kayıtlı firma yok.</p>
+                      ) : (
+                        companies.map((c) => {
+                          const checked = createForm.musteri_companies.includes(c);
+                          return (
+                            <label key={c} className="flex items-center gap-2 py-1 text-sm text-gray-800">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const next = e.target.checked
+                                    ? Array.from(new Set([...createForm.musteri_companies, c]))
+                                    : createForm.musteri_companies.filter((x) => x !== c);
+                                  setCreateForm({ ...createForm, musteri_companies: next });
+                                }}
+                                disabled={saving}
+                              />
+                              <span>{c}</span>
+                            </label>
+                          );
+                        })
+                      )}
                     </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Atölyeler</label>
-                      <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
-                        {companies.length === 0 ? (
-                          <p className="text-sm text-gray-500">Sistemde kayıtlı atölye yok.</p>
-                        ) : (
-                          companies.map((c) => {
-                            const checked = createForm.musteri_companies.includes(c);
-                            return (
-                              <label key={c} className="flex items-center gap-2 py-1 text-sm text-gray-800">
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={(e) => {
-                                    const next = e.target.checked
-                                      ? Array.from(new Set([...createForm.musteri_companies, c]))
-                                      : createForm.musteri_companies.filter((x) => x !== c);
-                                    setCreateForm({ ...createForm, musteri_companies: next });
-                                  }}
-                                  disabled={saving}
-                                />
-                                <span>{c}</span>
-                              </label>
-                            );
-                          })
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs text-gray-500">Müşterinin barkod oluşturabileceği hedef atölyeler. Boş bırakılabilir.</p>
-                    </div>
-                  </>
+                    <p className="mt-1 text-xs text-gray-500">Müşterinin barkod oluşturabileceği hedef firmalar. Boş bırakılabilir.</p>
+                  </div>
                 )}
               </div>
               <div className="flex justify-end gap-3 pt-2">
