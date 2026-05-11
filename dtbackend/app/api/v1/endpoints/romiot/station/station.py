@@ -831,7 +831,7 @@ class BulkMusteriCompaniesRequest(BaseModel):
     @model_validator(mode="after")
     def validate_companies(self):
         for c in self.companies:
-            if not isinstance(c, str) or ":" in c:
+            if not isinstance(c, str) or not c.strip() or ":" in c:
                 raise ValueError("Geçersiz hedef firma değeri")
         return self
 
@@ -1001,7 +1001,7 @@ async def bulk_musteri_companies(
                 else:
                     failed.append({"id": user_id, "detail": f"PocketBase güncelleme hatası ({patch_resp.status_code})"})
             except Exception as e:
-                failed.append({"id": user_id, "detail": str(e)})
+                failed.append({"id": user_id, "detail": str(e) or e.__class__.__name__})
 
     return {"succeeded": succeeded, "failed": failed}
 
