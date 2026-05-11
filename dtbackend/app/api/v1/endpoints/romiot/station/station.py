@@ -578,7 +578,7 @@ async def update_company_user(
                 if user_data.role is not None and user_data.role != ManagedUserRoleType.OPERATOR:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Operatör rolü değiştirilemez.",
+                        detail="Operatöre farklı bir rol atanamaz.",
                     )
                 effective_company = existing_department or existing_company
             elif full_admin:
