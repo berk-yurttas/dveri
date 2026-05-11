@@ -387,7 +387,9 @@ export default function KullaniciYonetimiPage() {
       if (!payload.username) throw new Error("Kullanıcı adı boş olamaz");
       if (!payload.name) throw new Error("İsim boş olamaz");
 
-      if (formData.role === "operator") {
+      const targetIsOperator = selectedUser?.role === "operator";
+
+      if (formData.role === "operator" || targetIsOperator) {
         const stationId = parseInt(formData.station_id, 10);
         if (isNaN(stationId)) throw new Error("Operatör için atölye seçiniz");
         payload.station_id = stationId;
@@ -407,12 +409,12 @@ export default function KullaniciYonetimiPage() {
       }
 
       if (isFullAdmin) {
-        if (!formData.company.trim()) throw new Error("Şirket seçiniz");
-        payload.company = formData.company.trim();
-        if (formData.role === "musteri") {
-          if (!formData.department.trim()) throw new Error("Müşteri adı boş olamaz");
-          if (formData.department.includes(":")) throw new Error("Müşteri adında ':' karakteri kullanılamaz");
+        if (!targetIsOperator) {
+          if (!formData.department.trim()) throw new Error("Firma boş olamaz");
+          if (formData.department.includes(":")) throw new Error("Firma adında ':' karakteri kullanılamaz");
           payload.department = formData.department.trim();
+        }
+        if (formData.role === "musteri") {
           payload.musteri_companies = formData.musteri_companies;
         }
       }
@@ -696,9 +698,9 @@ export default function KullaniciYonetimiPage() {
                         station_id: newRole === "operator" ? formData.station_id : "",
                       });
                     }}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white disabled:bg-gray-100"
                     required
-                    disabled={saving}
+                    disabled={saving || selectedUser?.role === "operator"}
                   >
                     <option value="yonetici">Yönetici</option>
                     {isFullAdmin && <option value="musteri">Müşteri</option>}
@@ -707,89 +709,79 @@ export default function KullaniciYonetimiPage() {
                   </select>
                 </div>
 
-                {isFullAdmin && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Şirket (Sahip Atölye) *</label>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Firma {selectedUser?.role === "operator" ? "" : "*"}
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.department}
+                    onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                    className={`w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 ${
+                      selectedUser?.role === "operator" ? "bg-gray-100 cursor-not-allowed" : "bg-white"
+                    }`}
+                    required={selectedUser?.role !== "operator"}
+                    disabled={saving}
+                    readOnly={selectedUser?.role === "operator"}
+                  />
+                  {formData.role === "musteri" && (
+                    <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>
+                  )}
+                  {selectedUser?.role === "operator" && (
+                    <p className="mt-1 text-xs text-gray-500">Operatör için Firma düzenlenemez.</p>
+                  )}
+                </div>
+
+                {selectedUser?.role === "operator" && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Atölye *</label>
                     <select
-                      value={formData.company}
-                      onChange={(e) => setFormData({ ...formData, company: e.target.value, station_id: "" })}
+                      value={formData.station_id}
+                      onChange={(e) => setFormData({ ...formData, station_id: e.target.value })}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
                       required
                       disabled={saving}
                     >
-                      <option value="">Şirket Seçiniz</option>
-                      {companies.map((c) => (
-                        <option key={c} value={c}>{c}</option>
+                      <option value="">Atölye Seçiniz</option>
+                      {stations.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}{s.is_exit_station ? " (Çıkış)" : ""}
+                        </option>
                       ))}
                     </select>
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Atölye {formData.role === "operator" ? "*" : ""}</label>
-                  <select
-                    value={formData.station_id}
-                    onChange={(e) => setFormData({ ...formData, station_id: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
-                    disabled={saving || formData.role !== "operator"}
-                    required={formData.role === "operator"}
-                  >
-                    <option value="">Atölye Seçiniz</option>
-                    {stations
-                      .filter((s) => !isFullAdmin || !formData.company || s.company === formData.company)
-                      .map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                          {s.is_exit_station ? " (Çıkış)" : ""}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                {isFullAdmin && formData.role === "musteri" && (
-                  <>
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Müşteri Adı *</label>
-                      <input
-                        type="text"
-                        value={formData.department}
-                        onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
-                        required
-                        disabled={saving}
-                      />
-                      <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>
+                {isFullAdmin && formData.role === "musteri" && selectedUser?.role !== "operator" && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Firmalar</label>
+                    <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
+                      {companies.length === 0 ? (
+                        <p className="text-sm text-gray-500">Sistemde kayıtlı firma yok.</p>
+                      ) : (
+                        companies.map((c) => {
+                          const checked = formData.musteri_companies.includes(c);
+                          return (
+                            <label key={c} className="flex items-center gap-2 py-1 text-sm text-gray-800">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const next = e.target.checked
+                                    ? Array.from(new Set([...formData.musteri_companies, c]))
+                                    : formData.musteri_companies.filter((x) => x !== c);
+                                  setFormData({ ...formData, musteri_companies: next });
+                                }}
+                                disabled={saving}
+                              />
+                              <span>{c}</span>
+                            </label>
+                          );
+                        })
+                      )}
                     </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Atölyeler</label>
-                      <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
-                        {companies.length === 0 ? (
-                          <p className="text-sm text-gray-500">Sistemde kayıtlı atölye yok.</p>
-                        ) : (
-                          companies.map((c) => {
-                            const checked = formData.musteri_companies.includes(c);
-                            return (
-                              <label key={c} className="flex items-center gap-2 py-1 text-sm text-gray-800">
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={(e) => {
-                                    const next = e.target.checked
-                                      ? Array.from(new Set([...formData.musteri_companies, c]))
-                                      : formData.musteri_companies.filter((x) => x !== c);
-                                    setFormData({ ...formData, musteri_companies: next });
-                                  }}
-                                  disabled={saving}
-                                />
-                                <span>{c}</span>
-                              </label>
-                            );
-                          })
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs text-gray-500">Müşterinin barkod oluşturabileceği hedef atölyeler. Boş bırakılabilir; müşteri eklenmeden barkod oluşturamaz.</p>
-                    </div>
-                  </>
+                    <p className="mt-1 text-xs text-gray-500">Müşterinin barkod oluşturabileceği hedef firmalar. Boş bırakılabilir; müşteri eklenmeden barkod oluşturamaz.</p>
+                  </div>
                 )}
 
                 <div>
