@@ -259,6 +259,62 @@ export default function KullaniciYonetimiPage() {
     });
   };
 
+  const closeBulkModal = () => {
+    setShowBulkModal(false);
+    setBulkSelectedCompanies([]);
+    setBulkMode("add");
+  };
+
+  const handleBulkSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedMusteriIds.size === 0) return;
+    if (bulkMode === "replace" && bulkSelectedCompanies.length === 0) {
+      const confirmed = typeof window !== "undefined"
+        ? window.confirm(`${selectedMusteriIds.size} müşterinin tüm hedef firmaları silinecek. Devam edilsin mi?`)
+        : true;
+      if (!confirmed) return;
+    }
+
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const resp = await api.patch<{ succeeded: string[]; failed: { id: string; detail: string }[] }>(
+        "/romiot/station/stations/management/users/bulk-musteri-companies",
+        {
+          user_ids: Array.from(selectedMusteriIds),
+          companies: bulkSelectedCompanies,
+          mode: bulkMode,
+        }
+      );
+
+      const okCount = resp?.succeeded?.length ?? 0;
+      const failCount = resp?.failed?.length ?? 0;
+      if (failCount > 0) {
+        const sample = resp.failed.slice(0, 3).map((f) => `${f.id}: ${f.detail}`).join(" / ");
+        setSuccess(`${okCount} müşteri güncellendi, ${failCount} başarısız (${sample})`);
+      } else {
+        setSuccess(`${okCount} müşteri için hedef firmalar güncellendi`);
+      }
+      clearBulkSelection();
+      closeBulkModal();
+      await fetchData();
+    } catch (err: any) {
+      let message = "Toplu güncelleme başarısız";
+      if (err?.message) {
+        try {
+          const parsed = JSON.parse(err.message);
+          message = parsed.detail || message;
+        } catch {
+          message = err.message;
+        }
+      }
+      setError(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -973,6 +1029,104 @@ export default function KullaniciYonetimiPage() {
                   disabled={saving}
                 >
                   {saving ? "Oluşturuluyor..." : "Oluştur"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {showBulkModal && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30 overflow-y-auto p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-xl w-full max-h-[calc(100vh-2rem)] overflow-y-auto">
+            <div className="bg-gradient-to-r from-[#0f4c3a] to-[#1a6a52] px-6 py-4">
+              <h3 className="text-xl font-bold text-white">Hedef Firmalar — Toplu Düzenleme</h3>
+              <p className="text-sm text-white/80 mt-1">{selectedMusteriIds.size} müşteri seçili</p>
+            </div>
+            <form onSubmit={handleBulkSubmit} className="p-6 space-y-4">
+              <div>
+                <span className="block text-sm font-medium text-gray-700 mb-2">Mod</span>
+                <div className="flex flex-col gap-2 text-sm text-gray-800">
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="radio"
+                      name="bulkMode"
+                      checked={bulkMode === "add"}
+                      onChange={() => setBulkMode("add")}
+                      disabled={saving}
+                      className="mt-1"
+                    />
+                    <span>
+                      <strong>Mevcuta ekle</strong>
+                      <span className="block text-xs text-gray-500">
+                        Seçili müşterilere bu firmaları ekler; mevcut hedef firmalar korunur.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="radio"
+                      name="bulkMode"
+                      checked={bulkMode === "replace"}
+                      onChange={() => setBulkMode("replace")}
+                      disabled={saving}
+                      className="mt-1"
+                    />
+                    <span>
+                      <strong>Mevcudu değiştir</strong>
+                      <span className="block text-xs text-gray-500">
+                        Seçili müşterilerin hedef firmaları tamamen bu listeyle değiştirilir.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <span className="block text-sm font-medium text-gray-700 mb-2">Firmalar</span>
+                <div className="border border-gray-300 rounded-lg p-3 max-h-64 overflow-y-auto bg-white">
+                  {companies.length === 0 ? (
+                    <p className="text-sm text-gray-500">Sistemde kayıtlı firma yok.</p>
+                  ) : (
+                    companies.map((c) => {
+                      const checked = bulkSelectedCompanies.includes(c);
+                      return (
+                        <label key={c} className="flex items-center gap-2 py-1 text-sm text-gray-800">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? Array.from(new Set([...bulkSelectedCompanies, c]))
+                                : bulkSelectedCompanies.filter((x) => x !== c);
+                              setBulkSelectedCompanies(next);
+                            }}
+                            disabled={saving}
+                          />
+                          <span>{c}</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeBulkModal}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  disabled={saving}
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg"
+                  disabled={saving}
+                >
+                  {saving ? "Kaydediliyor..." : "Kaydet"}
                 </button>
               </div>
             </form>
