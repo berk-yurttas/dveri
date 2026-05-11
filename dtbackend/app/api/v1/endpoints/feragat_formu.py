@@ -699,11 +699,11 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                       ParagraphStyle('AL13', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD))
         ]
         
-        # Build data rows
+        # Build data rows - ALL rows must have 9 columns for proper table rendering
         row3_alt_data = [row3_header]
         
         if not malzeme_list:
-            # If no data, show one empty row
+            # If no data, show one empty row with all 9 columns
             row3_alt_data.append([
                 Paragraph('<b>1</b>', ParagraphStyle('ARN1', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
                 Paragraph('', ParagraphStyle('AV8', fontSize=8, fontName=FONT_NAME)),
@@ -719,36 +719,14 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                           ParagraphStyle('AV13', fontSize=8, fontName=FONT_NAME))
             ])
         else:
-            # First row includes alim_turu, isin_sorumlusu, and bildirim_no
-            first_item = malzeme_list[0]
-            malzeme_no = first_item.get('malzeme_no', '') if isinstance(first_item, dict) else ''
-            malzeme_tanimi = first_item.get('malzeme_tanimi', '') if isinstance(first_item, dict) else ''
-            alim_adedi = first_item.get('alim_adedi', '') if isinstance(first_item, dict) else ''
-            
-            row3_alt_data.append([
-                Paragraph('<b>1</b>', ParagraphStyle('ARN1', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
-                Paragraph(f'<font size=8 color="#374151">{malzeme_no}</font>', 
-                          ParagraphStyle('AV8_1', fontSize=8, fontName=FONT_NAME)),
-                Paragraph(f'<font size=8 color="#374151">{malzeme_tanimi}</font>', 
-                          ParagraphStyle('AV9_1', fontSize=8, fontName=FONT_NAME)),
-                '',
-                Paragraph(f'<font size=8 color="#374151">{alim_adedi}</font>', 
-                          ParagraphStyle('AV10_1', fontSize=8, fontName=FONT_NAME)),
-                Paragraph(f'<font size=8 color="#374151">{alim_turu}</font>', 
-                          ParagraphStyle('AV11_1', fontSize=8, fontName=FONT_NAME)),
-                Paragraph(f'<font size=8 color="#374151">{isin_sorumlusu}</font>', 
-                          ParagraphStyle('AV12_1', fontSize=8, fontName=FONT_NAME)),
-                '',
-                Paragraph(f'<font size=8 color="#374151">{bildirim_no}</font>', 
-                          ParagraphStyle('AV13_1', fontSize=8, fontName=FONT_NAME))
-            ])
-            
-            # Subsequent rows don't include alim_turu, isin_sorumlusu, and bildirim_no (they will be spanned)
-            for idx, item in enumerate(malzeme_list[1:], start=2):
+            # Add all material rows - each row must have 9 columns
+            for idx, item in enumerate(malzeme_list, start=1):
                 malzeme_no = item.get('malzeme_no', '') if isinstance(item, dict) else ''
                 malzeme_tanimi = item.get('malzeme_tanimi', '') if isinstance(item, dict) else ''
                 alim_adedi = item.get('alim_adedi', '') if isinstance(item, dict) else ''
                 
+                # All rows include all 9 columns
+                # Columns 5, 6-7, and 8 will be spanned from first row
                 row3_alt_data.append([
                     Paragraph(f'<b>{idx}</b>', ParagraphStyle(f'ARN{idx}', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
                     Paragraph(f'<font size=8 color="#374151">{malzeme_no}</font>', 
@@ -758,7 +736,13 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                     '',
                     Paragraph(f'<font size=8 color="#374151">{alim_adedi}</font>', 
                               ParagraphStyle(f'AV10_{idx}', fontSize=8, fontName=FONT_NAME)),
-                    # These columns will be spanned from row 1
+                    Paragraph(f'<font size=8 color="#374151">{alim_turu if idx == 1 else ""}</font>', 
+                              ParagraphStyle(f'AV11_{idx}', fontSize=8, fontName=FONT_NAME)),
+                    Paragraph(f'<font size=8 color="#374151">{isin_sorumlusu if idx == 1 else ""}</font>', 
+                              ParagraphStyle(f'AV12_{idx}', fontSize=8, fontName=FONT_NAME)),
+                    '',
+                    Paragraph(f'<font size=8 color="#374151">{bildirim_no if idx == 1 else ""}</font>', 
+                              ParagraphStyle(f'AV13_{idx}', fontSize=8, fontName=FONT_NAME))
                 ])
         
         # Column widths: smaller for row number, adjusted for others
@@ -773,7 +757,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             # Header row styling
             ('SPAN', (2, 0), (3, 0)),  # Malzeme Tanımı header
             ('SPAN', (6, 0), (7, 0)),  # İşin Sorumlusu header
-            ('BACKGROUND', (0, 0), (-1, 0), blue_border),  # Header background
+            ('BACKGROUND', (0, 0), (-1, 0), blue_header),  # Header background - use blue_header
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),  # Header text color
             ('GRID', (0, 0), (-1, -1), 1, blue_border),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
@@ -795,7 +779,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         for row_idx in range(1, len(row3_alt_data)):
             table_style_commands.extend([
                 ('SPAN', (2, row_idx), (3, row_idx)),  # Malzeme Tanımı value span
-                ('BACKGROUND', (0, row_idx), (0, row_idx), colors.HexColor('#D3D3D3')),  # Row number background
+                ('BACKGROUND', (0, row_idx), (0, row_idx), blue_bg),  # Row number background
                 ('BACKGROUND', (1, row_idx), (-1, row_idx), colors.white),  # Data cells background
                 ('ALIGN', (0, row_idx), (0, row_idx), 'CENTER'),  # Center row number
                 ('FONTNAME', (0, row_idx), (0, row_idx), FONT_NAME_BOLD),  # Bold row number
