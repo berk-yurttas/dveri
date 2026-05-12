@@ -187,6 +187,12 @@ export default function PlatformHome() {
         imageUrl: '/tzygmy.png',
         departmentPrefix: 'Genel Müdürlük_Tedarik Zinciri Yönetimi Genel Md.Yrd.',
       },
+      {
+        id: 'genel',
+        title: 'ASELSAN Genel Akış',
+        imageUrl: '/genel.png',
+        departmentPrefix: 'Genel Müdürlük',
+      },
     ],
     []
   );
