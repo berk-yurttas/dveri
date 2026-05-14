@@ -16,3 +16,6 @@ offline_packages/
 
 # Local CSuite weekly snapshot store
 dtbackend/data/csuite_weekly_history.json
+
+# Git worktrees
+.worktrees/
