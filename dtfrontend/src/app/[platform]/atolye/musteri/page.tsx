@@ -134,6 +134,24 @@ export default function MusteriPage() {
       return;
     }
 
+    // ASELSAN-specific format validations
+    if (barcodeFormData.main_customer === "ASELSAN") {
+      const yy = String(new Date().getFullYear() % 100).padStart(2, "0");
+      const orderNo = barcodeFormData.aselsan_order_number.trim();
+      const orderPrefixRegex = new RegExp(`^${yy}[YD]`);
+      if (!orderPrefixRegex.test(orderNo)) {
+        setError(`ASELSAN Sipariş Numarası ${yy}Y veya ${yy}D ile başlamalıdır`);
+        return;
+      }
+
+      const itemNoStr = barcodeFormData.order_item_number.trim();
+      const itemNo = Number(itemNoStr);
+      if (!/^\d+$/.test(itemNoStr) || itemNo <= 0 || itemNo % 10 !== 0) {
+        setError("ASELSAN Sipariş Kalem Numarası 10'un katı (pozitif) bir sayı olmalıdır");
+        return;
+      }
+    }
+
     // Validate target_date is at least 7 days from today
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -468,19 +486,33 @@ export default function MusteriPage() {
                   value={barcodeFormData.aselsan_order_number}
                   onChange={(e) => setBarcodeFormData({ ...barcodeFormData, aselsan_order_number: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                  placeholder="26Y0021A53"
+                  placeholder={`${String(new Date().getFullYear() % 100).padStart(2, "0")}Y0021A53`}
                   required
                 />
+                {barcodeFormData.main_customer === "ASELSAN" && (() => {
+                  const yy = String(new Date().getFullYear() % 100).padStart(2, "0");
+                  return (
+                    <p className="mt-1 text-xs text-gray-500">
+                      {yy}Y veya {yy}D ile başlamalıdır
+                    </p>
+                  );
+                })()}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Sipariş Kalem Numarası *</label>
                 <input
-                  type="text"
+                  type="number"
+                  min="10"
+                  step="10"
                   value={barcodeFormData.order_item_number}
                   onChange={(e) => setBarcodeFormData({ ...barcodeFormData, order_item_number: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                  placeholder="10, 20, 30, ..."
                   required
                 />
+                {barcodeFormData.main_customer === "ASELSAN" && (
+                  <p className="mt-1 text-xs text-gray-500">10&apos;un katı olmalıdır</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">{barcodeFormData.main_customer} Parça Numarası *</label>
