@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import QRCodeSVG from "react-qr-code";
 import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
+import { ExitStationBadge } from "@/components/atolye/ExitStationBadge";
 
 interface WorkOrderDetail {
   id: number;
@@ -354,19 +355,21 @@ export default function WorkOrdersPage() {
     return Array.from(grouped.values()).sort((a, b) => b.priority - a.priority);
   };
 
-  // Get the latest station for a work order group (where it currently is)
-  const getCurrentStation = (entries: WorkOrderDetail[]): string => {
+  // Get the current station info (name + exit flag) for a work order group
+  const getCurrentStationInfo = (entries: WorkOrderDetail[]): { name: string; isExit: boolean } => {
     const activeEntries = entries.filter(e => !e.exit_date);
     if (activeEntries.length > 0) {
-      return activeEntries[0].station_name;
+      const e = activeEntries[0];
+      return { name: e.station_name, isExit: e.is_exit_station };
     }
-    // If all exited, show last station
+    // If all exited, show last station (by most recent exit/entrance date)
     const sorted = [...entries].sort((a, b) => {
       const dateA = a.exit_date || a.entrance_date || "";
       const dateB = b.exit_date || b.entrance_date || "";
       return new Date(dateB).getTime() - new Date(dateA).getTime();
     });
-    return sorted.length > 0 ? sorted[0].station_name : "-";
+    if (sorted.length === 0) return { name: "-", isExit: false };
+    return { name: sorted[0].station_name, isExit: sorted[0].is_exit_station };
   };
 
   // Calculate days in current station
@@ -912,7 +915,7 @@ export default function WorkOrdersPage() {
                 groupedWorkOrders.map((wo) => {
                   const key = wo.work_order_group_id;
                   const isExpanded = expandedWorkOrders.has(key);
-                  const currentStation = getCurrentStation(wo.entries);
+                  const currentStation = getCurrentStationInfo(wo.entries);
                   const daysInStation = getDaysInStation(wo.entries);
                   const hasActiveEntry = wo.entries.some(e => !e.exit_date);
 
@@ -932,8 +935,9 @@ export default function WorkOrdersPage() {
                           {renderPriorityDisplay(wo)}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-900">{currentStation}</span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm text-gray-900">{currentStation.name}</span>
+                            <ExitStationBadge isExit={currentStation.isExit} size="sm" />
                             {hasActiveEntry && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
                                 Aktif
@@ -955,7 +959,7 @@ export default function WorkOrdersPage() {
                         </td>
                         {!isMusteri && (
                           <td className="px-4 py-3">
-                            <OrderFilesViewer orderId={wo.part_number} stationName={currentStation !== "-" ? currentStation : undefined} allStationNames={stations.map((s) => s.name)} />
+                            <OrderFilesViewer orderId={wo.part_number} stationName={currentStation.name !== "-" ? currentStation.name : undefined} allStationNames={stations.map((s) => s.name)} />
                           </td>
                         )}
                         <td className="px-4 py-3">
@@ -1034,7 +1038,10 @@ export default function WorkOrdersPage() {
                                           {index + 1}
                                         </div>
                                         <div>
-                                          <h5 className="font-semibold text-gray-900 text-sm">{entry.station_name}</h5>
+                                          <h5 className="font-semibold text-gray-900 text-sm inline-flex items-center gap-2 flex-wrap">
+                                            {entry.station_name}
+                                            <ExitStationBadge isExit={entry.is_exit_station} size="sm" />
+                                          </h5>
                                           <p className="text-xs text-gray-600">
                                             Operatör: {entry.user_name || "Bilinmiyor"} - Paket {entry.package_index}/{entry.total_packages} ({entry.quantity}/{entry.total_quantity} parça)
                                           </p>
