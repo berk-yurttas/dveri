@@ -3,6 +3,7 @@
 import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
+import { ExitStationBadge } from "@/components/atolye/ExitStationBadge";
 
 function validatePassword(password: string): string | null {
   if (password.length < 8) return "Şifre en az 8 karakter olmalıdır";
@@ -26,6 +27,7 @@ interface Station {
   name: string;
   company: string;
   is_exit_station: boolean;
+  station_order_code: number | null;
 }
 
 export default function YoneticiPage() {
@@ -267,6 +269,62 @@ export default function YoneticiPage() {
                   </button>
                 </div>
               </form>
+            </div>
+
+            {/* Existing Workshops List */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-6">Mevcut Atölyeler</h2>
+              {stations.length === 0 ? (
+                <p className="text-sm text-gray-500">Henüz atölye bulunmamaktadır</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">İsim</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tip</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">İşlemler</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {[...stations].sort((a, b) => a.id - b.id).map((station) => (
+                        <tr key={station.id}>
+                          <td className="px-3 py-2 text-sm text-gray-900 font-medium">{station.name}</td>
+                          <td className="px-3 py-2">
+                            {station.is_exit_station ? (
+                              <ExitStationBadge isExit={true} size="sm" />
+                            ) : (
+                              <span className="text-gray-400 text-sm">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="inline-flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => { /* edit handler — wired in Task 7 */ }}
+                                className="px-2 py-1 text-xs font-medium text-[#0f4c3a] hover:bg-[#0f4c3a]/10 rounded transition-colors"
+                                title="Düzenle"
+                                disabled
+                              >
+                                Düzenle
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { /* delete handler — wired in Task 8 */ }}
+                                className="px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 rounded transition-colors"
+                                title="Sil"
+                                disabled
+                              >
+                                Sil
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
           </div>
