@@ -3,6 +3,7 @@
 import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
+import { ExitStationBadge } from "@/components/atolye/ExitStationBadge";
 
 function validatePassword(password: string): string | null {
   if (password.length < 8) return "Şifre en az 8 karakter olmalıdır";
@@ -26,6 +27,7 @@ interface Station {
   name: string;
   company: string;
   is_exit_station: boolean;
+  station_order_code: number | null;
 }
 
 export default function YoneticiPage() {
@@ -47,6 +49,12 @@ export default function YoneticiPage() {
   const [yoneticiLoading, setYoneticiLoading] = useState(false);
   const [yoneticiError, setYoneticiError] = useState<string | null>(null);
   const [yoneticiSuccess, setYoneticiSuccess] = useState<string | null>(null);
+  const [editingStation, setEditingStation] = useState<Station | null>(null);
+  const [editFormData, setEditFormData] = useState<{ name: string; is_exit_station: boolean }>({ name: "", is_exit_station: false });
+  const [editModalLoading, setEditModalLoading] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [deletingStation, setDeletingStation] = useState<Station | null>(null);
+  const [deleteModalLoading, setDeleteModalLoading] = useState(false);
 
   // Check user roles and extract company
   useEffect(() => {
@@ -174,6 +182,86 @@ export default function YoneticiPage() {
     }
   };
 
+  const openEditModal = (station: Station) => {
+    setEditingStation(station);
+    setEditFormData({ name: station.name, is_exit_station: station.is_exit_station });
+    setModalError(null);
+  };
+
+  const closeEditModal = () => {
+    setEditingStation(null);
+    setEditFormData({ name: "", is_exit_station: false });
+    setModalError(null);
+  };
+
+  const handleUpdateStation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStation) return;
+    setEditModalLoading(true);
+    setModalError(null);
+
+    try {
+      await api.put(`/romiot/station/stations/${editingStation.id}`, {
+        name: editFormData.name,
+        company: editingStation.company,
+        is_exit_station: editFormData.is_exit_station,
+        station_order_code: editingStation.station_order_code,
+      });
+      setYoneticiSuccess("Atölye güncellendi");
+      closeEditModal();
+      await fetchStations();
+    } catch (err: any) {
+      let errorMessage = "Atölye güncellenirken hata oluştu";
+      if (err.message) {
+        try {
+          const errorObj = JSON.parse(err.message);
+          errorMessage = errorObj.detail || errorMessage;
+        } catch {
+          errorMessage = err.message;
+        }
+      }
+      setModalError(errorMessage);
+    } finally {
+      setEditModalLoading(false);
+    }
+  };
+
+  const openDeleteModal = (station: Station) => {
+    setDeletingStation(station);
+    setModalError(null);
+  };
+
+  const closeDeleteModal = () => {
+    setDeletingStation(null);
+    setModalError(null);
+  };
+
+  const handleDeleteStation = async () => {
+    if (!deletingStation) return;
+    setDeleteModalLoading(true);
+    setModalError(null);
+
+    try {
+      await api.delete(`/romiot/station/stations/${deletingStation.id}`);
+      setYoneticiSuccess("Atölye silindi");
+      closeDeleteModal();
+      await fetchStations();
+    } catch (err: any) {
+      let errorMessage = "Atölye silinirken hata oluştu";
+      if (err.message) {
+        try {
+          const errorObj = JSON.parse(err.message);
+          errorMessage = errorObj.detail || errorMessage;
+        } catch {
+          errorMessage = err.message;
+        }
+      }
+      setModalError(errorMessage);
+    } finally {
+      setDeleteModalLoading(false);
+    }
+  };
+
 
   if (!isYonetici) {
     return (
@@ -267,6 +355,60 @@ export default function YoneticiPage() {
                   </button>
                 </div>
               </form>
+            </div>
+
+            {/* Existing Workshops List */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-6">Mevcut Atölyeler</h2>
+              {stations.length === 0 ? (
+                <p className="text-sm text-gray-500">Henüz atölye bulunmamaktadır</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">İsim</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tip</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">İşlemler</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {[...stations].sort((a, b) => a.id - b.id).map((station) => (
+                        <tr key={station.id}>
+                          <td className="px-3 py-2 text-sm text-gray-900 font-medium">{station.name}</td>
+                          <td className="px-3 py-2">
+                            {station.is_exit_station ? (
+                              <ExitStationBadge isExit={true} size="sm" />
+                            ) : (
+                              <span className="text-gray-400 text-sm">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="inline-flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openEditModal(station)}
+                                className="px-2 py-1 text-xs font-medium text-[#0f4c3a] hover:bg-[#0f4c3a]/10 rounded transition-colors"
+                                title="Düzenle"
+                              >
+                                Düzenle
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openDeleteModal(station)}
+                                className="px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 rounded transition-colors"
+                                title="Sil"
+                              >
+                                Sil
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
           </div>
@@ -374,6 +516,136 @@ export default function YoneticiPage() {
           </div>
         </div>
       </div>
+
+      {/* Edit Station Modal */}
+      {editingStation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900">Atölye Düzenle</h3>
+              <button
+                type="button"
+                onClick={closeEditModal}
+                className="text-gray-500 hover:text-gray-700 text-xl leading-none"
+                aria-label="Kapat"
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={handleUpdateStation}>
+              <div className="p-6 space-y-4">
+                {modalError && (
+                  <div className="p-3 bg-red-50 border-l-4 border-red-500 rounded text-sm text-red-700 whitespace-pre-line">
+                    {modalError}
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">İsim *</label>
+                  <input
+                    type="text"
+                    value={editFormData.name}
+                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    required
+                    disabled={editModalLoading}
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Şirket</label>
+                  <input
+                    type="text"
+                    value={editingStation.company}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-900"
+                    readOnly
+                    disabled
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Şirket bilgisi düzenlenemez</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="edit_is_exit_station"
+                    checked={editFormData.is_exit_station}
+                    onChange={(e) => setEditFormData({ ...editFormData, is_exit_station: e.target.checked })}
+                    className="h-4 w-4 text-[#0f4c3a] border-gray-300 rounded focus:ring-[#0f4c3a]"
+                    disabled={editModalLoading}
+                  />
+                  <label htmlFor="edit_is_exit_station" className="text-sm font-medium text-gray-700">
+                    Çıkış Atölyesi
+                  </label>
+                  <span className="text-xs text-gray-500">(Bu atölyeden çıkan iş emirleri teslim edilmiş sayılır)</span>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  disabled={editModalLoading}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={editModalLoading}
+                  className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {editModalLoading ? "Kaydediliyor..." : "Kaydet"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Station Modal */}
+      {deletingStation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900">Atölyeyi Sil</h3>
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                className="text-gray-500 hover:text-gray-700 text-xl leading-none"
+                aria-label="Kapat"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {modalError && (
+                <div className="p-3 bg-red-50 border-l-4 border-red-500 rounded text-sm text-red-700 whitespace-pre-line">
+                  {modalError}
+                </div>
+              )}
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold">'{deletingStation.name}'</span> atölyesini silmek istediğinize emin misiniz?
+              </p>
+              <p className="text-xs text-gray-500">Bu işlem geri alınamaz.</p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                disabled={deleteModalLoading}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteStation}
+                disabled={deleteModalLoading}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleteModalLoading ? "Siliniyor..." : "Evet, Sil"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

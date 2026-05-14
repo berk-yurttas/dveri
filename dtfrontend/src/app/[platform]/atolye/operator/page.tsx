@@ -4,6 +4,7 @@ import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "@/lib/api";
 import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
+import { ExitStationBadge } from "@/components/atolye/ExitStationBadge";
 import QRCodeSVG from "react-qr-code";
 
 type Mode = "entrance" | "exit" | null;
@@ -215,6 +216,7 @@ export default function OperatorPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [stationId, setStationId] = useState<number | null>(null);
   const [stationName, setStationName] = useState<string>("");
+  const [stationIsExit, setStationIsExit] = useState<boolean>(false);
   const [allStationNames, setAllStationNames] = useState<string[]>([]);
   const [qrCodeInput, setQRCodeInput] = useState("");
   const qrCodeBufferRef = useRef<string>("");
@@ -262,11 +264,12 @@ export default function OperatorPage() {
         setIsOperator(true);
         const fetchOperatorStation = async () => {
           try {
-            const stationData = await api.get<{ station_id: number; name: string; company: string }>(
+            const stationData = await api.get<{ station_id: number; name: string; company: string; is_exit_station: boolean }>(
               "/romiot/station/stations/my-station"
             );
             setStationId(stationData.station_id);
             setStationName(stationData.name);
+            setStationIsExit(stationData.is_exit_station);
           } catch (err: any) {
             console.error("Error fetching operator station:", err);
             setError("Atölye bilgisi alınamadı. Lütfen yönetici ile iletişime geçin.");
@@ -758,7 +761,10 @@ export default function OperatorPage() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Atölye İşlemleri</h1>
             {stationName && (
-              <p className="text-gray-600 mt-1">Atölye: <span className="font-semibold">{stationName}</span></p>
+              <p className="text-gray-600 mt-1 inline-flex items-center gap-2 flex-wrap">
+                <span>Atölye: <span className="font-semibold">{stationName}</span></span>
+                <ExitStationBadge isExit={stationIsExit} size="md" />
+              </p>
             )}
           </div>
         </div>
