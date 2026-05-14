@@ -53,6 +53,8 @@ export default function YoneticiPage() {
   const [editFormData, setEditFormData] = useState<{ name: string; is_exit_station: boolean }>({ name: "", is_exit_station: false });
   const [editModalLoading, setEditModalLoading] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [deletingStation, setDeletingStation] = useState<Station | null>(null);
+  const [deleteModalLoading, setDeleteModalLoading] = useState(false);
 
   // Check user roles and extract company
   useEffect(() => {
@@ -224,6 +226,42 @@ export default function YoneticiPage() {
     }
   };
 
+  const openDeleteModal = (station: Station) => {
+    setDeletingStation(station);
+    setModalError(null);
+  };
+
+  const closeDeleteModal = () => {
+    setDeletingStation(null);
+    setModalError(null);
+  };
+
+  const handleDeleteStation = async () => {
+    if (!deletingStation) return;
+    setDeleteModalLoading(true);
+    setModalError(null);
+
+    try {
+      await api.delete(`/romiot/station/stations/${deletingStation.id}`);
+      setYoneticiSuccess("Atölye silindi");
+      closeDeleteModal();
+      await fetchStations();
+    } catch (err: any) {
+      let errorMessage = "Atölye silinirken hata oluştu";
+      if (err.message) {
+        try {
+          const errorObj = JSON.parse(err.message);
+          errorMessage = errorObj.detail || errorMessage;
+        } catch {
+          errorMessage = err.message;
+        }
+      }
+      setModalError(errorMessage);
+    } finally {
+      setDeleteModalLoading(false);
+    }
+  };
+
 
   if (!isYonetici) {
     return (
@@ -357,10 +395,9 @@ export default function YoneticiPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => { /* delete handler — wired in Task 8 */ }}
+                                onClick={() => openDeleteModal(station)}
                                 className="px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 rounded transition-colors"
                                 title="Sil"
-                                disabled
                               >
                                 Sil
                               </button>
@@ -558,6 +595,54 @@ export default function YoneticiPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Station Modal */}
+      {deletingStation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900">Atölyeyi Sil</h3>
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                className="text-gray-500 hover:text-gray-700 text-xl leading-none"
+                aria-label="Kapat"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {modalError && (
+                <div className="p-3 bg-red-50 border-l-4 border-red-500 rounded text-sm text-red-700 whitespace-pre-line">
+                  {modalError}
+                </div>
+              )}
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold">'{deletingStation.name}'</span> atölyesini silmek istediğinize emin misiniz?
+              </p>
+              <p className="text-xs text-gray-500">Bu işlem geri alınamaz.</p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                disabled={deleteModalLoading}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteStation}
+                disabled={deleteModalLoading}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleteModalLoading ? "Siliniyor..." : "Evet, Sil"}
+              </button>
+            </div>
           </div>
         </div>
       )}
