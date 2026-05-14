@@ -1374,7 +1374,8 @@ async def update_station(
 async def delete_station(
     station_id: int,
     current_user: User = Depends(check_authenticated),
-    romiot_db: AsyncSession = Depends(get_romiot_db)
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+    postgres_db: AsyncSession = Depends(get_postgres_db),
 ):
     """
     Delete a station.
@@ -1401,6 +1402,18 @@ async def delete_station(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Bu atölye sizin şirketinize ait değil"
+        )
+
+    # Block deletion when operators are assigned to this station
+    assigned_operators_result = await postgres_db.execute(
+        select(PostgresUser).where(PostgresUser.workshop_id == station_id).limit(1)
+    )
+    has_operators = assigned_operators_result.scalar_one_or_none() is not None
+
+    if has_operators:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bu atölyeye atanmış operatör(ler) bulunmaktadır. Önce operatörleri başka atölyeye taşıyın veya silin."
         )
 
     # Check if station has work orders
