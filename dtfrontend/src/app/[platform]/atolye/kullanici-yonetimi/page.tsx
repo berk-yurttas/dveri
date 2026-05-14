@@ -159,7 +159,10 @@ export default function KullaniciYonetimiPage() {
       );
       const matchesRole = !filterRole || u.role === filterRole;
       const matchesAtolye = !filterAtolye || (u.station_name || "").toLowerCase().includes(filterAtolye.toLowerCase());
-      const matchesCompany = !filterCompany || (u.company || "").toLowerCase().includes(filterCompany.toLowerCase());
+      const matchesCompany =
+        !filterCompany ||
+        u.department === filterCompany ||
+        u.musteri_companies.includes(filterCompany);
       return matchesSearch && matchesRole && matchesAtolye && matchesCompany;
     });
   }, [users, search, filterRole, filterAtolye, filterCompany, isFullAdmin]);
@@ -577,13 +580,18 @@ export default function KullaniciYonetimiPage() {
                   </td>
                   {isFullAdmin && (
                     <td className="px-4 py-2">
-                      <input
-                        type="text"
-                        placeholder="Filtrele..."
+                      <select
                         value={filterCompany}
                         onChange={(e) => setFilterCompany(e.target.value)}
-                        className="w-full text-xs border border-gray-300 rounded px-2 py-1"
-                      />
+                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                      >
+                        <option value="">Hepsi</option>
+                        {[...companies]
+                          .sort((a, b) => a.localeCompare(b, "tr"))
+                          .map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                      </select>
                     </td>
                   )}
                   <td className="px-4 py-2" />
