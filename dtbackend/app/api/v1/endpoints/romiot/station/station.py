@@ -1144,7 +1144,8 @@ async def get_my_station(
     return {
         "station_id": station.id,
         "name": station.name,
-        "company": station.company
+        "company": station.company,
+        "is_exit_station": station.is_exit_station,
     }
 
 
