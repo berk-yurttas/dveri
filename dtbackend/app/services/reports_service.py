@@ -1449,31 +1449,7 @@ class ReportsService:
         if not db_filter:
             return {"options": [], "total": 0, "page": page, "page_size": page_size, "has_more": False}
             
-        # Check permissions
-        report = db_filter.query.report
-        has_access = (
-            report.owner_id == db_user.id or 
-            report.is_public == True
-        )
         
-        if not has_access:
-            # Check allowed users
-            if report.allowed_users and user.username in report.allowed_users:
-                has_access = True
-            
-            # Check allowed departments
-            if not has_access and report.allowed_departments and user.department:
-                user_dept_parts = user.department.split('_')
-                current_dept = ""
-                for part in user_dept_parts:
-                    current_dept = f"{current_dept}_{part}" if current_dept else part
-                    if current_dept in report.allowed_departments:
-                        has_access = True
-                        break
-        
-        if not has_access:
-            # Don't throw error, just return empty options to avoid leaking info
-            return {"options": [], "total": 0, "page": page, "page_size": page_size, "has_more": False}
 
         if not db_filter.dropdown_query:
             return {"options": [], "total": 0, "page": page, "page_size": page_size, "has_more": False}

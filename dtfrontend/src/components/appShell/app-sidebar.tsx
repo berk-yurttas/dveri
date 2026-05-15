@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, memo, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { LogOutIcon, Loader2, ChevronDown, type LucideIcon, Database } from "lucide-react"
+import { LogOutIcon, Loader2, ChevronDown, type LucideIcon, Database, BookOpen } from "lucide-react"
 
 import { useMediaQuery } from "./hooks/use-media-query"
 import { Button } from "./ui/button"
@@ -198,6 +198,40 @@ export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPat
             </div>
           </div>
           <div className="p-2 mt-auto border-t border-sidebar-border border-gray-200">
+              {/* Documentation Link */}
+              {platformInfo && (
+                <a
+                  href={`/${platformInfo.code}/documentations`}
+                  className={`flex items-center ${
+                    (!isDesktop && mobileOpen) || isDesktop ? "justify-start" : "justify-center"
+                  } gap-3 rounded-md p-2 mb-2 text-sm transition-colors ${
+                    currentPathname?.includes('/documentations')
+                      ? "bg-gray-200 font-medium"
+                      : "text-gray-700 hover:bg-gray-100 hover:text-gray-800"
+                  }`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (onNavigationItemClick) {
+                      onNavigationItemClick({
+                        title: "Dokümantasyon",
+                        icon: BookOpen,
+                        href: `/${platformInfo.code}/documentations`,
+                      });
+                    }
+                  }}
+                >
+                  <BookOpen className="h-5 w-5 flex-shrink-0 text-current" />
+                  <span
+                    className={`transition-opacity duration-200 ${
+                      (isDesktop && isExpanded) || (!isDesktop && mobileOpen) ? "opacity-100" : "opacity-0"
+                    }`}
+                  >
+                    Dokümantasyon
+                  </span>
+                </a>
+              )}
+              
+              {/* Logout Button */}
               <Button 
                 variant="destructive" 
                 className="w-full flex items-center justify-center gap-3 bg-red-600 text-white hover:bg-red-700"

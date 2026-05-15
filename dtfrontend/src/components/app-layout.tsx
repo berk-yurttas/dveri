@@ -1,7 +1,7 @@
 "use client"
 
 import { AppShell } from "./appShell";
-import { Home, Users, BarChart3, Plus, Receipt, Layout, Star, Database, Server, Cloud, Workflow } from "lucide-react";
+import { Home, Users, BarChart3, Plus, Receipt, Layout, Star, Database, Server, Cloud, Workflow, BookOpen } from "lucide-react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useMemo, useCallback, useEffect, useState, Suspense } from "react";

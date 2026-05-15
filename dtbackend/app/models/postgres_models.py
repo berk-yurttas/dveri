@@ -333,3 +333,29 @@ class Config(PostgreSQLBase):
 
     # Relationships
     platform = relationship("Platform", backref="configs")
+
+
+class Documentation(PostgreSQLBase):
+    """Documentation model for storing platform documentation metadata"""
+    __tablename__ = "documentations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    platform_id = Column(Integer, ForeignKey("platforms.id", ondelete="CASCADE"), nullable=True, index=True)
+    title = Column(String(255), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    file_url = Column(Text, nullable=False)  # PocketBase file URL
+    file_type = Column(String(50), nullable=False)  # video, document, image
+    file_name = Column(String(255), nullable=False)
+    file_size = Column(Integer, nullable=True)  # Size in bytes
+    category = Column(String(100), nullable=True, index=True)
+    tags = Column(ARRAY(String), default=[])
+    uploaded_by = Column(String(255), nullable=False)  # Username
+    is_active = Column(Boolean, default=True, nullable=False)
+    order_index = Column(Integer, default=0)  # For custom ordering
+    view_count = Column(Integer, default=0)
+    download_count = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    platform = relationship("Platform", backref="documentations")
