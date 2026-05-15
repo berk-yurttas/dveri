@@ -358,7 +358,8 @@ export default function ReportDetailPage() {
     currentFilterValues?: FilterState,
     page: number = 1,
     search: string = "",
-    append: boolean = false
+    append: boolean = false,
+    reportData?: ReportData
   ) => {
     if (filter.type !== 'dropdown' && filter.type !== 'multiselect') return
     if (!filter.dropdownQuery) return
@@ -406,7 +407,8 @@ export default function ReportDetailPage() {
 
         const result = await reportsService.previewQuery({
           sql_query: modifiedSql,
-          limit: 1000
+          limit: 1000,
+          db_config: report?.dbConfig || null
         })
 
         if (result.success && result.data.length > 0) {
@@ -460,7 +462,8 @@ export default function ReportDetailPage() {
 
           const result = await reportsService.previewQuery({
             sql_query: sqlQuery,
-            limit: 1000
+            limit: 1000,
+            db_config: (reportData || report)?.dbConfig || null
           })
 
           if (result.success && result.data.length > 0) {
@@ -1135,7 +1138,7 @@ export default function ReportDetailPage() {
                 id: 0, // Use 0 for global filters
                 filters: reportData.globalFilters
               } as any
-              dropdownPromises.push(loadDropdownOptions(pseudoQuery, filter))
+              dropdownPromises.push(loadDropdownOptions(pseudoQuery, filter, undefined, 1, "", false, reportData))
             }
           }
         }
@@ -1156,7 +1159,7 @@ export default function ReportDetailPage() {
 
             // Queue dropdown options loading for dropdown/multiselect filters
             if (filter.type === 'dropdown' || filter.type === 'multiselect') {
-              dropdownPromises.push(loadDropdownOptions(query, filter))
+              dropdownPromises.push(loadDropdownOptions(query, filter, undefined, 1, "", false, reportData))
             }
           }
         }

@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Settings, MessageSquare } from "lucide-react";
+import { Settings, MessageSquare, BookOpen } from "lucide-react";
 
 export default function AdminSidebar() {
   const pathname = usePathname();
@@ -19,6 +19,12 @@ export default function AdminSidebar() {
       icon: MessageSquare,
       href: "/admin/announcements",
       isActive: pathname?.startsWith("/admin/announcements"),
+    },
+    {
+      title: "Dokümantasyon Yönetimi",
+      icon: BookOpen,
+      href: "/admin/documentations",
+      isActive: pathname?.startsWith("/admin/documentations"),
     },
   ];
 

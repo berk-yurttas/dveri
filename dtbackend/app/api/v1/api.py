@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     personel,
     service_status,
     feragat_formu,
+    documentations,
 )
 from app.api.v1.endpoints.romiot.station import company_integration, station, work_order, qr_code, priority
 from app.api.v1.endpoints.romiot import stats
@@ -28,6 +29,7 @@ api_router.include_router(platforms.router, prefix="/platforms", tags=["platform
 api_router.include_router(announcements.router, prefix="/announcements", tags=["announcements"])
 api_router.include_router(config.router, tags=["config"])
 api_router.include_router(feedback.router, prefix="/feedback", tags=["feedback"])
+api_router.include_router(documentations.router, prefix="/documentations", tags=["documentations"])
 api_router.include_router(work_order.router, prefix="/romiot/station/work-orders", tags=["work-orders"])
 api_router.include_router(station.router, prefix="/romiot/station/stations", tags=["stations"])
 api_router.include_router(qr_code.router, prefix="/romiot/station/qr-code", tags=["qr-code"])
