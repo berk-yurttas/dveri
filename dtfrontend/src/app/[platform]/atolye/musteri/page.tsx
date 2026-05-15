@@ -136,11 +136,9 @@ export default function MusteriPage() {
 
     // ASELSAN-specific format validations
     if (barcodeFormData.main_customer === "ASELSAN") {
-      const yy = String(new Date().getFullYear() % 100).padStart(2, "0");
       const orderNo = barcodeFormData.aselsan_order_number.trim();
-      const orderPrefixRegex = new RegExp(`^${yy}[YD]`);
-      if (!orderPrefixRegex.test(orderNo)) {
-        setError(`ASELSAN Sipariş Numarası ${yy}Y veya ${yy}D ile başlamalıdır`);
+      if (!/^2\d[YD]/.test(orderNo)) {
+        setError("ASELSAN Sipariş Numarası 20Y/20D ile 29Y/29D arasında bir önek ile başlamalıdır");
         return;
       }
 
@@ -489,14 +487,11 @@ export default function MusteriPage() {
                   placeholder={`${String(new Date().getFullYear() % 100).padStart(2, "0")}Y0021A53`}
                   required
                 />
-                {barcodeFormData.main_customer === "ASELSAN" && (() => {
-                  const yy = String(new Date().getFullYear() % 100).padStart(2, "0");
-                  return (
-                    <p className="mt-1 text-xs text-gray-500">
-                      {yy}Y veya {yy}D ile başlamalıdır
-                    </p>
-                  );
-                })()}
+                {barcodeFormData.main_customer === "ASELSAN" && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    ASELSAN Sipariş Numarası formatına uygun olmalıdır (örnek: 23Y0021A53, 25D0021A53)
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Sipariş Kalem Numarası *</label>
