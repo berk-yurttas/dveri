@@ -56,7 +56,7 @@ export interface DocumentationCreate {
 export interface DocumentationUpdate {
   title?: string;
   description?: string;
-  platform_id?: number;
+  platform_id?: number | null;
   file_url?: string;
   file_type?: "video" | "document" | "image";
   file_name?: string;

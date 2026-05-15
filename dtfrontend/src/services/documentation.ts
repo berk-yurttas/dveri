@@ -79,7 +79,7 @@ export const documentationService = {
     data: {
       title: string;
       description?: string;
-      platform_id?: number;
+      platform_id?: number | null;
       category?: string;
       tags?: string[];
       order_index?: number;
