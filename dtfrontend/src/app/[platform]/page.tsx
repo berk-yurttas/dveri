@@ -1419,10 +1419,13 @@ export default function PlatformHome() {
         <div className="relative" style={{ zIndex: 2 }}>
           {/* Welcome Section */}
           <div className="mb-14 flex flex-col items-center justify-center w-full">
-            <h1 className="text-2xl font-bold mb-1" style={{ color: "rgb(69,81,89)" }}>
-              Hoş Geldiniz{user?.name ? `, ${user.name}` : ''}
+            <h1 className="text-2xl font-semibold text-center" style={{ color: "rgb(69,81,89)" }}>
+              Hoş Geldiniz,
+              {user?.name && (
+                <div className="mt-1 font-bold">{user.name}</div>
+              )}
             </h1>
-            <p className="text-sm text-gray-600 mb-6">Başlatmak istediğiniz süreci seçin</p>
+            <p className="text-sm text-gray-600 mt-2 mb-6">Başlatmak istediğiniz süreci seçin</p>
           </div>
 
           {/* Sektör Selection Cards - only for seyir platform before a sektör is picked */}
@@ -1450,7 +1453,7 @@ export default function PlatformHome() {
             };
 
             return (
-              <div className="max-w-6xl mx-auto mb-14">
+              <div className="max-w-6xl mx-auto mb-6">
                 <div className="mb-6">
                   <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
                     Sektörler
@@ -1508,7 +1511,7 @@ export default function PlatformHome() {
               )}
               <div className={`${
                 isSeyirPlatform 
-                  ? 'flex flex-wrap gap-8 justify-start ml-[-10px]'
+                  ? 'grid grid-cols-2 gap-6'
                   : `flex flex-wrap gap-2 ${platformData.theme_config.features.length <= 3 ? 'justify-center' : 'justify-start'}`
               }`}>
                 {platformData.theme_config.features.map((feature: any, index: number) => {
@@ -1566,12 +1569,14 @@ export default function PlatformHome() {
                   return (
                     <div
                       key={index}
-                      className={`relative flex flex-col items-center cursor-pointer group ${
-                        isSeyirPlatform ? 'w-[140px]' : 'w-[calc(16.666%-0.5rem)]'
+                      className={`relative cursor-pointer group ${
+                        isSeyirPlatform 
+                          ? 'bg-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 p-4 flex items-center gap-4' 
+                          : 'flex flex-col items-center w-[calc(16.666%-0.5rem)]'
                       }`}
                       onClick={handleFeatureClick}
                     >
-                      {amomExternalHttpUrl && (
+                      {amomExternalHttpUrl && !isSeyirPlatform && (
                         <div className="absolute -top-1 right-0 z-10 pointer-events-none drop-shadow-sm">
                           <ServiceStatusBadge
                             health={externalHealthLookup(amomExternalHttpUrl)}
@@ -1579,39 +1584,69 @@ export default function PlatformHome() {
                           />
                         </div>
                       )}
-                      <div className={`relative group-hover:scale-110 transition-all duration-300 ${
-                        isSeyirPlatform ? 'w-full h-32 flex items-center justify-center mt-2' : 'w-full'
-                      }`}>
-                        {isSeyirPlatform ? (
-                          <img
-                            src={feature.imageUrl}
-                            alt={feature.title || 'Feature'}
-                            className="w-full h-full object-contain"
-                          />
-                        ) : (
-                          <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
-                            <div className="w-full h-full rounded-lg overflow-hidden bg-white">
-                              {feature.imageUrl ? (
-                                <img
-                                  src={feature.imageUrl}
-                                  alt={feature.title || 'Feature'}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center">
-                                  <span className="text-gray-400 text-sm">{feature.title}</span>
-                                </div>
-                              )}
+                      {isSeyirPlatform ? (
+                        <>
+                          {/* Image on the left */}
+                          <div className="flex-shrink-0 w-24 h-24 flex items-center justify-center">
+                            <img
+                              src={feature.imageUrl}
+                              alt={feature.title || 'Feature'}
+                              className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                            />
+                          </div>
+                          {/* Text content on the right */}
+                          <div className="flex-1 text-left">
+                            {feature.title && (
+                              <h4 className="text-base font-bold mb-1" style={{ color: 'rgb(69, 81, 89)' }}>
+                                {feature.title}
+                              </h4>
+                            )}
+                            {feature.description && (
+                              <p className="text-xs text-gray-600 leading-tight line-clamp-2">
+                                {feature.description}
+                              </p>
+                            )}
+                          </div>
+                          {/* Arrow icon at the end */}
+                          <div className="flex-shrink-0">
+                            <svg 
+                              className="w-6 h-6 group-hover:translate-x-1 transition-transform duration-300" 
+                              fill="none" 
+                              stroke="rgb(30, 58, 138)" 
+                              strokeWidth={2.5}
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                            </svg>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="relative group-hover:scale-110 transition-all duration-300 w-full">
+                            <div className="w-full h-40 rounded-xl flex items-center justify-center bg-gradient-to-br from-white to-gray-50 p-1.5 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                              <div className="w-full h-full rounded-lg overflow-hidden bg-white">
+                                {feature.imageUrl ? (
+                                  <img
+                                    src={feature.imageUrl}
+                                    alt={feature.title || 'Feature'}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <span className="text-gray-400 text-sm">{feature.title}</span>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        )}
-                      </div>
-                      {feature.title && (
-                        <div className={`mt-2 text-center ${isSeyirPlatform ? '' : 'w-full'} group-hover:scale-110 transition-all duration-300`}>
-                          <span className="text-sm font-bold" style={{ color: isSeyirPlatform ? 'rgb(69, 81, 89)' : 'rgb(30, 58, 138)' }}>
-                            {feature.title}
-                          </span>
-                        </div>
+                          {feature.title && (
+                            <div className="mt-2 text-center w-full group-hover:scale-110 transition-all duration-300">
+                              <span className="text-sm font-bold" style={{ color: 'rgb(30, 58, 138)' }}>
+                                {feature.title}
+                              </span>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   );
@@ -1624,7 +1659,7 @@ export default function PlatformHome() {
           {selectedSektor === 'rehis' && (
             <>
               {/* Professional Divider Line */}
-              <div className="w-full pt-0 pb-0 mt-24 mb-12">
+              <div className="w-full pt-0 pb-0 mt-12 mb-12">
                 <div className="max-w-6xl mx-auto">
                   <div className="mb-0">
                     <h3 className="text-2xl font-bold mb-2" style={{ color: "rgb(69,81,89)" }}>
@@ -1642,7 +1677,7 @@ export default function PlatformHome() {
               {searchedPartNumber ? (
                 // Searched state - showing searched part number as embedded chip
                 <div className="w-full px-5 py-1.5 pr-12 text-base border-2 border-red-500 bg-white rounded-full shadow-md flex items-center gap-2">
-                  <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5" fill="none" stroke="rgb(30, 58, 138)" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                   <span className="text-gray-500 text-sm">Aranan Parça:</span>
@@ -1677,9 +1712,10 @@ export default function PlatformHome() {
                   />
                   <button
                     onClick={handleSearch}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 bg-red-600 text-white p-2 rounded-full hover:bg-red-700 transition-colors"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-2 rounded-full transition-colors"
+                    style={{ backgroundColor: 'rgb(30, 58, 138)' }}
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="white" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
                   </button>
@@ -2168,7 +2204,7 @@ export default function PlatformHome() {
           )}
 
           {/* Full-width Duyurular Section */}
-          <div className="w-full py-6 mt-24 mb-4">
+          <div className="w-full py-6 mt-6 mb-4">
             <div className="max-w-6xl mx-auto">
               <div className="mb-8">
                 <h3 className="text-2xl font-bold mb-2" style={{ "color": "rgb(69,81,89)" }}>Duyurular</h3>
@@ -2289,16 +2325,22 @@ export default function PlatformHome() {
                   )}
                 </>
               ) : (
-                <div className="text-center py-12">
-                  <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
-                    <MessageSquare className="h-8 w-8 text-gray-400" />
+                <div className="w-full bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+                  <div className="flex items-center justify-center gap-4">
+                    <div className="flex-shrink-0">
+                      <div className="inline-flex items-center justify-center w-12 h-12 rounded-full" style={{ backgroundColor: 'rgb(30, 58, 138)' }}>
+                        <MessageSquare className="h-6 w-6 text-white" />
+                      </div>
+                    </div>
+                    <div className="text-left">
+                      <h4 className="text-base font-semibold text-gray-900 mb-1">
+                        Şu anda aktif duyuru bulunmamaktadır
+                      </h4>
+                      <p className="text-gray-600 text-sm">
+                        Yeni duyurular eklendiğinde burada görünecektir
+                      </p>
+                    </div>
                   </div>
-                  <h4 className="text-lg font-medium text-gray-900 mb-2">
-                    Şu anda aktif duyuru bulunmamaktadır
-                  </h4>
-                  <p className="text-gray-500 text-sm">
-                    Yeni duyurular eklendiğinde burada görünecektir
-                  </p>
                 </div>
               )}
             </div>
@@ -3628,16 +3670,22 @@ export default function PlatformHome() {
               )}
             </>
           ) : (
-            <div className="text-center py-12">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
-                <MessageSquare className="h-8 w-8 text-gray-400" />
+            <div className="w-full bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+              <div className="flex items-center justify-center gap-4">
+                <div className="flex-shrink-0">
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full" style={{ backgroundColor: 'rgb(30, 58, 138)' }}>
+                    <MessageSquare className="h-6 w-6 text-white" />
+                  </div>
+                </div>
+                <div className="text-left">
+                  <h4 className="text-base font-semibold text-gray-900 mb-1">
+                    Şu anda aktif duyuru bulunmamaktadır
+                  </h4>
+                  <p className="text-gray-600 text-sm">
+                    Yeni duyurular eklendiğinde burada görünecektir
+                  </p>
+                </div>
               </div>
-              <h4 className="text-lg font-medium text-gray-900 mb-2">
-                Şu anda aktif duyuru bulunmamaktadır
-              </h4>
-              <p className="text-gray-500 text-sm">
-                Yeni duyurular eklendiğinde burada görünecektir
-              </p>
             </div>
           )}
         </div>

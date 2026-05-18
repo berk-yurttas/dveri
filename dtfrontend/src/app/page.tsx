@@ -353,10 +353,13 @@ export default function Home() {
         
         {/* Welcome Section */}
         <div className="mb-8 flex flex-col items-center justify-center w-full">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2" style={{"color": "rgb(69,81,89)"}}>
-            Hoş Geldiniz{user?.name ? `, ${user.name}` : ''}
+          <h1 className="text-2xl font-semibold text-gray-900 text-center" style={{"color": "rgb(69,81,89)"}}>
+            Hoş Geldiniz,
+            {user?.name && (
+              <div className="mt-1 font-bold">{user.name}</div>
+            )}
           </h1>
-          <p className="text-sm text-gray-600">Çalışmak istediğiniz platformu seçin</p>
+          <p className="text-sm text-gray-600 mt-2">Çalışmak istediğiniz platformu seçin</p>
         </div>
 
         {/* Error Message */}
@@ -580,16 +583,22 @@ export default function Home() {
             )}
             </>
           ) : (
-            <div className="text-center py-12">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
-                <MessageSquare className="h-8 w-8 text-gray-400" />
+            <div className="w-full bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+              <div className="flex items-center justify-center gap-4">
+                <div className="flex-shrink-0">
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full" style={{ backgroundColor: 'rgb(30, 58, 138)' }}>
+                    <MessageSquare className="h-6 w-6 text-white" />
+                  </div>
+                </div>
+                <div className="text-left">
+                  <h4 className="text-base font-semibold text-gray-900 mb-1">
+                    Şu anda aktif duyuru bulunmamaktadır
+                  </h4>
+                  <p className="text-gray-600 text-sm">
+                    Yeni duyurular eklendiğinde burada görünecektir
+                  </p>
+                </div>
               </div>
-              <h4 className="text-lg font-medium text-gray-900 mb-2">
-                Şu anda aktif duyuru bulunmamaktadır
-              </h4>
-              <p className="text-gray-500 text-sm">
-                Yeni duyurular eklendiğinde burada görünecektir
-              </p>
             </div>
           )}
         </div>
