@@ -407,7 +407,7 @@ export default function ReportDetailPage() {
 
         const result = await reportsService.previewQuery({
           sql_query: modifiedSql,
-          limit: 1000,
+          limit: 1000000,
           db_config: report?.dbConfig || null
         })
 
@@ -462,7 +462,7 @@ export default function ReportDetailPage() {
 
           const result = await reportsService.previewQuery({
             sql_query: sqlQuery,
-            limit: 1000,
+            limit: 1000000,
             db_config: (reportData || report)?.dbConfig || null
           })
 
@@ -1368,6 +1368,37 @@ export default function ReportDetailPage() {
 
       return newFilters
     })
+  }
+
+  // Clear all global filters and reload queries
+  const handleClearGlobalFilters = () => {
+    if (!report || !report.globalFilters || report.globalFilters.length === 0) return
+
+    setFilters(prev => {
+      const newFilters = { ...prev }
+      
+      // Clear all global filter values
+      report.globalFilters!.forEach(filter => {
+        if (filter.type === 'date') {
+          delete newFilters[`global_${filter.fieldName}_start`]
+          delete newFilters[`global_${filter.fieldName}_end`]
+        } else if (filter.type === 'multiselect') {
+          newFilters[`global_${filter.fieldName}`] = []
+        } else {
+          delete newFilters[`global_${filter.fieldName}`]
+          delete newFilters[`global_${filter.fieldName}_operator`]
+        }
+      })
+      
+      return newFilters
+    })
+
+    // Re-execute all queries with cleared filters
+    setTimeout(() => {
+      if (report) {
+        executeAllQueries(report, filters)
+      }
+    }, 100)
   }
 
   // Debounced filter change that triggers query execution
@@ -2640,6 +2671,7 @@ export default function ReportDetailPage() {
           // Execute the nested query
           const response = await reportsService.previewQuery({
             sql_query: processedQuery,
+            limit: 1000000,
             db_config: report?.dbConfig || null
           })
 
@@ -3058,6 +3090,7 @@ export default function ReportDetailPage() {
           setDropdownOpen={setDropdownOpen}
           setOperatorMenuOpen={setOperatorMenuOpen}
           onApplyFilters={() => report && executeAllQueries(report, filters)}
+          onClearFilters={handleClearGlobalFilters}
         />
       )}
 

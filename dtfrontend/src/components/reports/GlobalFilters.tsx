@@ -38,6 +38,7 @@ interface GlobalFiltersProps {
   setDropdownOpen: React.Dispatch<React.SetStateAction<{[key: string]: boolean}>>
   setOperatorMenuOpen: React.Dispatch<React.SetStateAction<{[key: string]: boolean}>>
   onApplyFilters: () => void
+  onClearFilters: () => void
 }
 
 const TEXT_FILTER_OPERATORS = [
@@ -69,7 +70,8 @@ export function GlobalFilters({
   setSearchTerms,
   setDropdownOpen,
   setOperatorMenuOpen,
-  onApplyFilters
+  onApplyFilters,
+  onClearFilters
 }: GlobalFiltersProps) {
   if (!globalFilters || globalFilters.length === 0) return null
 
@@ -387,13 +389,20 @@ export function GlobalFilters({
               )}
             </div>
           ))}
-          <div className="flex-shrink-0">
+          <div className="flex-shrink-0 flex gap-2">
             <button
               onClick={onApplyFilters}
               className="h-[28px] px-3 text-xs font-medium text-white bg-orange-600 hover:bg-orange-700 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
             >
               <RefreshCw className="h-3 w-3" />
               Uygula
+            </button>
+            <button
+              onClick={onClearFilters}
+              className="h-[28px] px-3 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <X className="h-3 w-3" />
+              Temizle
             </button>
           </div>
         </div>
