@@ -1,7 +1,7 @@
 "use client"
 
 import { AppShell } from "./appShell";
-import { Home, Users, BarChart3, Plus, Receipt, Layout, Star, Database, Server, Cloud, Workflow, BookOpen } from "lucide-react";
+import { Home, Users, BarChart3, Plus, Receipt, Layout, Star, Database, Server, Cloud, Workflow, BookOpen, ExternalLink } from "lucide-react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useMemo, useCallback, useEffect, useState, Suspense } from "react";
@@ -191,6 +191,16 @@ function AppLayoutContent({ children }: AppLayoutProps) {
           })
       }
 
+      const projeTakipUrl = process.env.NEXT_PUBLIC_PROJE_TAKIP_URL;
+      if (isRomiotPage && projeTakipUrl) {
+        baseItems.push(
+          {
+            title: "Proje Takip",
+            icon: ExternalLink,
+            href: projeTakipUrl,
+          })
+      }
+
       baseItems.push(
         {
           title: "Raporlar",
@@ -206,6 +216,10 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   const handleNavigationClick = useCallback(async (item: any) => {
     console.log("Navigation clicked:", item);
     if (item.href) {
+      if (/^https?:\/\//i.test(item.href)) {
+        window.open(item.href, '_blank', 'noopener,noreferrer');
+        return;
+      }
       // Extract platform code from href if navigating to a platform page
       const platformMatch = item.href.match(/^\/([^\/]+)/);
       if (platformMatch && platformMatch[1] !== '') {
