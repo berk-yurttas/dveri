@@ -67,7 +67,11 @@ async def send_production_order(
       - `len(pairs) == 1`: one POST with Mes_OrderId = "{group_id}-{station.id}"
         (unchanged single-pair behavior).
       - `len(pairs) > 1`: N parallel POSTs, each with
-        Mes_OrderId = "{group_id}-{station.id}-{pair.aselsan_order_number}".
+        Mes_OrderId = "{group_id}-{station.id}-{sipariş_no}-{kalem_no}".
+        The suffix carries BOTH the sipariş no and kalem no so the id stays
+        unique even when one order has several line items (same sipariş_no,
+        different kalem_no) — the primary multi-pair case. Sipariş-no alone
+        would collide there.
 
     Never raises — logs and swallows.
     """
@@ -85,7 +89,7 @@ async def send_production_order(
     # Multi-pair: N independent POSTs in parallel
     tasks = []
     for pair in pairs:
-        mes_order_id = f"{base_id}-{pair.aselsan_order_number}"
+        mes_order_id = f"{base_id}-{pair.aselsan_order_number}-{pair.order_item_number}"
         item = _build_payload_item(work_order, station, pair, mes_order_id)
         tasks.append(_post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id))
     await asyncio.gather(*tasks)

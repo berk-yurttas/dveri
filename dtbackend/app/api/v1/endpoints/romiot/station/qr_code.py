@@ -24,6 +24,25 @@ from app.schemas.user import User
 router = APIRouter()
 
 
+def _normalize_pairs(payload: dict) -> list[dict]:
+    """Return the QR payload's `pairs` list, synthesizing it from legacy scalar
+    keys (`aselsan_order_number`/`order_item_number`) when the payload predates
+    F3. A single source of truth for both QR read paths so they agree on the
+    shape — including treating a `pairs: null` payload the same way (coerced to
+    a list, never returned as `None`)."""
+    pairs = payload.get("pairs")
+    if isinstance(pairs, list):
+        return pairs
+    legacy_order = payload.get("aselsan_order_number")
+    legacy_item = payload.get("order_item_number")
+    if legacy_order and legacy_item:
+        return [{
+            "aselsan_order_number": legacy_order,
+            "order_item_number": legacy_item,
+        }]
+    return []
+
+
 def generate_short_code(length: int = 12) -> str:
     """
     Generate a short alphanumeric code for QR compression.
@@ -266,17 +285,11 @@ async def retrieve_qr_data(
     except (json.JSONDecodeError, ValueError):
         raise HTTPException(status_code=500, detail="QR kod verisi okunamadı")
 
-    # Legacy normalization
-    if "pairs" not in data_dict:
-        legacy_order = data_dict.pop("aselsan_order_number", None)
-        legacy_item = data_dict.pop("order_item_number", None)
-        if legacy_order and legacy_item:
-            data_dict["pairs"] = [{
-                "aselsan_order_number": legacy_order,
-                "order_item_number": legacy_item,
-            }]
-        else:
-            data_dict["pairs"] = []
+    # Legacy normalization — drop the legacy scalar keys and set a canonical
+    # `pairs` list (shared helper keeps this identical to the /group endpoint).
+    data_dict.pop("aselsan_order_number", None)
+    data_dict.pop("order_item_number", None)
+    data_dict["pairs"] = _normalize_pairs(data_dict)
 
     return QRCodeDataRetrieve(data=data_dict)
 
@@ -341,15 +354,9 @@ async def get_qr_codes_by_work_order_group(
         except (json.JSONDecodeError, ValueError):
             continue
 
-        # Normalize legacy single-pair payloads
-        pairs = payload.get("pairs")
-        if pairs is None:
-            legacy_order = payload.get("aselsan_order_number")
-            legacy_item = payload.get("order_item_number")
-            if legacy_order and legacy_item:
-                pairs = [{"aselsan_order_number": legacy_order, "order_item_number": legacy_item}]
-            else:
-                pairs = []
+        # Normalize legacy single-pair payloads (shared helper — identical shape
+        # to the /retrieve endpoint).
+        pairs = _normalize_pairs(payload)
 
         response_items.append({
             "code": row.code,

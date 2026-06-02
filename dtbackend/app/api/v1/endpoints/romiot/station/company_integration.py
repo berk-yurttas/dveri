@@ -86,7 +86,7 @@ async def list_integration_companies(
 
     F1: this is the new source of the Hedef Firma dropdown for müşteri users
     and replaces the per-user `atolye:musteri_company:<X>` role allowlist.
-    Returns the deduplicated company names alphabetically (Turkish locale).
+    Returns the company names (unique per row) ordered alphabetically.
     Open to any authenticated user with an `atolye:*` role.
     """
     role_values = current_user.role if isinstance(current_user.role, list) else []
@@ -99,7 +99,13 @@ async def list_integration_companies(
             detail="Atölye yetkisi gereklidir.",
         )
 
+    # Order by the database's default collation. We intentionally avoid an
+    # explicit `.collate("tr-TR-x-icu")` here: that collation only exists on a
+    # Postgres build with ICU, and a missing collation would turn this routine
+    # dropdown lookup into a hard 500. The result feeds a client-side typeahead
+    # that filters/sorts in the browser, so exact server-side Turkish collation
+    # is not required.
     result = await romiot_db.execute(
-        select(CompanyIntegration.company).order_by(CompanyIntegration.company.collate("tr-TR-x-icu"))
+        select(CompanyIntegration.company).order_by(CompanyIntegration.company)
     )
     return [row[0] for row in result.all()]

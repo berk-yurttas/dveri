@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, select
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.endpoints.romiot.station.auth import check_station_operator_role
 from app.core.auth import check_authenticated
 from app.core.database import get_postgres_db, get_romiot_db
 from app.models.romiot_models import Station, WorkOrder, WorkOrderRoute
@@ -142,7 +142,13 @@ async def create_route(
             station_id=station.id,
             created_by_user_id=creator_id,
         ))
-    await romiot_db.commit()
+    try:
+        await romiot_db.commit()
+    except IntegrityError:
+        # A concurrent request created the route between our 409 check and this
+        # commit (uq_route_position violation). Surface it as the same 409.
+        await romiot_db.rollback()
+        raise HTTPException(status_code=409, detail="Bu grup için zaten bir rota tanımlı.")
 
     return _build_response(body.work_order_group_id, ordered_stations)
 
@@ -187,7 +193,11 @@ async def update_route(
             station_id=station.id,
             created_by_user_id=existing_rows[0].created_by_user_id,
         ))
-    await romiot_db.commit()
+    try:
+        await romiot_db.commit()
+    except IntegrityError:
+        await romiot_db.rollback()
+        raise HTTPException(status_code=409, detail="Rota güncellenirken çakışma oluştu, lütfen tekrar deneyin.")
 
     return _build_response(work_order_group_id, ordered_stations)
 
