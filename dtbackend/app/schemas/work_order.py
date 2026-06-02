@@ -41,6 +41,7 @@ class WorkOrderCreate(WorkOrderBase):
 
 
 class WorkOrderUpdateExitDate(BaseModel):
+    """Schema for updating exit_date for a specific package"""
     station_id: int = Field(..., description="Station ID")
     work_order_group_id: str = Field(..., description="İş Emri Grup ID")
     package_index: int = Field(..., description="Paket sırası (1-based)")
@@ -67,6 +68,7 @@ class WorkOrder(WorkOrderBase):
 
 
 class WorkOrderCreateResponse(BaseModel):
+    """Response when creating a work order package entry"""
     work_order: WorkOrder
     packages_scanned: int = Field(..., description="Bu gruptaki okunan paket sayısı")
     total_packages: int = Field(..., description="Toplam paket sayısı")
@@ -76,6 +78,7 @@ class WorkOrderCreateResponse(BaseModel):
 
 
 class WorkOrderExitResponse(BaseModel):
+    """Response when updating exit date for a package"""
     work_order: WorkOrder
     packages_exited: int = Field(..., description="Bu gruptaki çıkışı yapılan paket sayısı")
     total_packages: int = Field(..., description="Toplam paket sayısı")
@@ -164,6 +167,7 @@ class WorkOrderDetail(BaseModel):
 
 
 class PaginatedWorkOrderResponse(BaseModel):
+    """Schema for paginated work order response"""
     items: list[WorkOrderDetail]
     total: int
     page: int
@@ -172,15 +176,18 @@ class PaginatedWorkOrderResponse(BaseModel):
 
 
 class PriorityAssignment(BaseModel):
+    """Schema for assigning priority to a work order group"""
     work_order_group_id: str = Field(..., description="İş Emri Grup ID")
     priority: int = Field(..., ge=0, le=5, description="Öncelik (0-5 jeton, 0=kaldır)")
 
 
 class PriorityAssignRequest(BaseModel):
+    """Schema for batch priority assignment"""
     assignments: list[PriorityAssignment] = Field(..., description="Öncelik atamaları")
 
 
 class PriorityTokenInfo(BaseModel):
+    """Schema for token info response"""
     total_tokens: int
     used_tokens: int
     remaining_tokens: int
