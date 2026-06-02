@@ -2,16 +2,25 @@
 
 import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import QRCodeSVG from "react-qr-code";
 import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
 import { ExitStationBadge } from "@/components/atolye/ExitStationBadge";
+import { EntryStationBadge } from "@/components/atolye/EntryStationBadge";
+import { RoutePickerModal } from "@/components/atolye/RoutePickerModal";
+
+interface OrderPair {
+  aselsan_order_number: string;
+  order_item_number: string;
+}
 
 interface WorkOrderDetail {
   id: number;
   station_id: number;
   station_name: string;
+  is_entry_station?: boolean;
   is_exit_station: boolean;
+  route_violation?: boolean;
   user_id: number;
   user_name: string | null;
   work_order_group_id: string;
@@ -19,8 +28,8 @@ interface WorkOrderDetail {
   sector: string;
   company_from: string;
   teklif_number: string;
-  aselsan_order_number: string;
-  order_item_number: string;
+  pairs: OrderPair[];
+  pair_count: number;
   part_number: string;
   revision_number: string;
   quantity: number;
@@ -51,8 +60,8 @@ interface GroupedWorkOrder {
   sector: string;
   company_from: string;
   teklif_number: string;
-  aselsan_order_number: string;
-  order_item_number: string;
+  pairs: OrderPair[];
+  pair_count: number;
   total_quantity: number;
   total_packages: number;
   priority: number;
@@ -70,7 +79,36 @@ interface StationInfo {
   id: number;
   name: string;
   company: string;
+  is_entry_station: boolean;
   is_exit_station: boolean;
+}
+
+// Stable shape consumed by RoutePickerModal
+interface RouteStation {
+  id: number;
+  name: string;
+  company: string;
+  is_entry_station: boolean;
+  is_exit_station: boolean;
+}
+
+interface RouteModalState {
+  groupId: string;
+  pinnedStation: RouteStation;
+  companyStations: RouteStation[];
+  initialStationIds?: number[];
+  mode: "create" | "update";
+}
+
+interface WorkOrderRoutePositionResponse {
+  position: number;
+  station_id: number;
+  station_name: string;
+}
+
+interface WorkOrderRouteResponse {
+  work_order_group_id: string;
+  positions: WorkOrderRoutePositionResponse[];
 }
 
 interface PriorityTokenInfo {
@@ -164,6 +202,11 @@ export default function WorkOrdersPage() {
   const [qrCodesByGroup, setQrCodesByGroup] = useState<Record<string, WorkOrderQrCode[]>>({});
   const [qrModalGroupId, setQrModalGroupId] = useState<string | null>(null);
   const [selectedQrIndexByGroup, setSelectedQrIndexByGroup] = useState<Record<string, number>>({});
+
+  // Route picker (yönetici) state
+  const [routeModalState, setRouteModalState] = useState<RouteModalState | null>(null);
+  // Cache of route existence per group (true = has route, false = grandfathered).
+  const [routeExistsByGroup, setRouteExistsByGroup] = useState<Record<string, boolean>>({});
 
   // Check user roles
   useEffect(() => {
@@ -329,8 +372,8 @@ export default function WorkOrdersPage() {
           sector: order.sector,
           company_from: order.company_from,
           teklif_number: order.teklif_number,
-          aselsan_order_number: order.aselsan_order_number,
-          order_item_number: order.order_item_number,
+          pairs: order.pairs ?? [],
+          pair_count: order.pair_count ?? (order.pairs ? order.pairs.length : 0),
           total_quantity: order.total_quantity,
           total_packages: order.total_packages,
           priority: order.priority,
@@ -387,6 +430,24 @@ export default function WorkOrdersPage() {
     return Math.floor(diffMs / (1000 * 60 * 60 * 24));
   };
 
+  // Lazily probe whether a route exists for a group (drives the button label).
+  const ensureRouteExistence = useCallback(async (groupId: string) => {
+    if (routeExistsByGroup[groupId] !== undefined) return;
+    try {
+      await api.get<WorkOrderRouteResponse>(
+        `/romiot/station/work-order-routes/${encodeURIComponent(groupId)}`,
+        undefined,
+        { useCache: false }
+      );
+      setRouteExistsByGroup((prev) => ({ ...prev, [groupId]: true }));
+    } catch (err: any) {
+      if (err instanceof ApiError && err.status === 404) {
+        setRouteExistsByGroup((prev) => ({ ...prev, [groupId]: false }));
+      }
+      // Other errors: leave undefined so we can retry on next expand.
+    }
+  }, [routeExistsByGroup]);
+
   // Toggle work order expansion
   const toggleWorkOrder = (key: string) => {
     const newExpanded = new Set(expandedWorkOrders);
@@ -394,8 +455,99 @@ export default function WorkOrdersPage() {
       newExpanded.delete(key);
     } else {
       newExpanded.add(key);
+      if (isYonetici) ensureRouteExistence(key);
     }
     setExpandedWorkOrders(newExpanded);
+  };
+
+  // Find the station record (from the company-scoped station list) for a station id
+  const findStation = (stationId: number): RouteStation | undefined => {
+    const s = stations.find((st) => st.id === stationId);
+    if (!s) return undefined;
+    return {
+      id: s.id,
+      name: s.name,
+      company: s.company,
+      is_entry_station: s.is_entry_station,
+      is_exit_station: s.is_exit_station,
+    };
+  };
+
+  // Build a RouteStation from a work order entry (fallback when the station list
+  // does not contain the station, e.g. cross-company history). Uses the entry's
+  // own flags so the pinned station still renders its badges correctly.
+  const stationFromEntry = (entry: WorkOrderDetail): RouteStation => ({
+    id: entry.station_id,
+    name: entry.station_name,
+    company: entry.company_from,
+    is_entry_station: !!entry.is_entry_station,
+    is_exit_station: entry.is_exit_station,
+  });
+
+  // Open the Rota Düzenle / Tanımla modal for a work order group.
+  // GET the route: success → "update" with the existing positions; 404 (grandfathered)
+  // → "create" pinned to the group's earliest entrance station.
+  const openRouteModal = async (wo: GroupedWorkOrder) => {
+    // Company-scoped stations available to add to the route.
+    const companyStations: RouteStation[] = stations.map((s) => ({
+      id: s.id,
+      name: s.name,
+      company: s.company,
+      is_entry_station: s.is_entry_station,
+      is_exit_station: s.is_exit_station,
+    }));
+
+    // Earliest entrance entry (entries are sorted most-recent-first).
+    const earliestEntry = [...wo.entries]
+      .filter((e) => e.entrance_date)
+      .sort((a, b) => new Date(a.entrance_date!).getTime() - new Date(b.entrance_date!).getTime())[0]
+      ?? wo.entries[wo.entries.length - 1];
+
+    try {
+      const route = await api.get<WorkOrderRouteResponse>(
+        `/romiot/station/work-order-routes/${encodeURIComponent(wo.work_order_group_id)}`,
+        undefined,
+        { useCache: false }
+      );
+      const ordered = [...route.positions].sort((a, b) => a.position - b.position);
+      const firstId = ordered[0]?.station_id;
+      // Build the pinned station ONCE (stable reference) — prefer the live station
+      // record, fall back to the route's reported name.
+      const pinnedStation: RouteStation =
+        (firstId !== undefined ? findStation(firstId) : undefined) ?? {
+          id: firstId ?? earliestEntry?.station_id ?? 0,
+          name: ordered[0]?.station_name ?? earliestEntry?.station_name ?? "-",
+          company: wo.company_from,
+          is_entry_station: false,
+          is_exit_station: false,
+        };
+      setRouteModalState({
+        groupId: wo.work_order_group_id,
+        pinnedStation,
+        companyStations,
+        initialStationIds: ordered.map((p) => p.station_id),
+        mode: "update",
+      });
+    } catch (err: any) {
+      if (err instanceof ApiError && err.status === 404) {
+        // Grandfathered group — no route yet. Create, pinned to the earliest entrance.
+        if (!earliestEntry) {
+          setError("Bu iş emri için giriş kaydı bulunamadı, rota tanımlanamıyor.");
+          return;
+        }
+        const pinnedStation: RouteStation =
+          findStation(earliestEntry.station_id) ?? stationFromEntry(earliestEntry);
+        setRouteModalState({
+          groupId: wo.work_order_group_id,
+          pinnedStation,
+          companyStations,
+          mode: "create",
+        });
+      } else {
+        console.error("Error fetching route:", err);
+        setError("Rota bilgisi yüklenirken hata oluştu");
+      }
+    }
   };
 
   // Calculate duration
@@ -928,7 +1080,14 @@ export default function WorkOrdersPage() {
                       >
                         <td className="px-4 py-3">
                           <div className="text-sm font-medium text-gray-900">{wo.part_number}{wo.revision_number ? `/${wo.revision_number}` : ""}</div>
-                          <div className="text-xs text-gray-500">{wo.aselsan_order_number}</div>
+                          <div className="text-xs text-gray-500 flex items-center">
+                            <span>{wo.pairs[0]?.aselsan_order_number ?? "-"}</span>
+                            {wo.pair_count > 1 && (
+                              <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                +{wo.pair_count - 1}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-xs text-gray-500">{wo.teklif_number}</div>
                         </td>
                         <td className="px-4 py-3">
@@ -941,6 +1100,14 @@ export default function WorkOrdersPage() {
                             {hasActiveEntry && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
                                 Aktif
+                              </span>
+                            )}
+                            {wo.entries?.some((e) => e.route_violation) && (
+                              <span
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200"
+                                title="Operatör rotaya uymadan tarama yaptı"
+                              >
+                                &#x26A0; Rota dışı
                               </span>
                             )}
                           </div>
@@ -981,14 +1148,38 @@ export default function WorkOrdersPage() {
                             <div className="bg-gray-50 border-t border-b border-gray-200 p-6">
                               {/* Summary */}
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 text-sm">
-                                <div>
-                                  <span className="text-gray-500">Sipariş No:</span>
-                                  <p className="font-medium text-gray-900">{wo.aselsan_order_number}</p>
-                                </div>
-                                <div>
-                                  <span className="text-gray-500">Sipariş Kalem No:</span>
-                                  <p className="font-medium text-gray-900">{wo.order_item_number}</p>
-                                </div>
+                                {wo.pair_count > 1 ? (
+                                  <div className="col-span-2 md:col-span-2">
+                                    <p className="text-xs text-gray-500 mb-1">Malzemeler</p>
+                                    <table className="w-full border-collapse text-xs">
+                                      <thead className="bg-gray-50">
+                                        <tr>
+                                          <th className="px-2 py-1 text-left">Sipariş No</th>
+                                          <th className="px-2 py-1 text-left">Kalem No</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {wo.pairs.map((p, i) => (
+                                          <tr key={i} className="border-t">
+                                            <td className="px-2 py-1">{p.aselsan_order_number}</td>
+                                            <td className="px-2 py-1">{p.order_item_number}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div>
+                                      <span className="text-gray-500">Sipariş No:</span>
+                                      <p className="font-medium text-gray-900">{wo.pairs[0]?.aselsan_order_number ?? "-"}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Sipariş Kalem No:</span>
+                                      <p className="font-medium text-gray-900">{wo.pairs[0]?.order_item_number ?? "-"}</p>
+                                    </div>
+                                  </>
+                                )}
                                 <div>
                                   <span className="text-gray-500">Teklif No:</span>
                                   <p className="font-medium text-gray-900">{wo.teklif_number}</p>
@@ -1008,22 +1199,36 @@ export default function WorkOrdersPage() {
                               </div>
 
                               {(isMusteri || isYonetici || isOperator) && (
-                                <div className="mb-5">
-                                  <button
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      try {
-                                        await fetchGroupQrCodes(wo.work_order_group_id);
-                                        setQrModalGroupId(wo.work_order_group_id);
-                                      } catch (err) {
-                                        console.error("Error fetching group QR codes:", err);
-                                        setError("QR kodları yüklenirken hata oluştu");
-                                      }
-                                    }}
-                                    className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg text-sm font-medium transition-colors"
-                                  >
-                                    QR Kodları Gör / Yazdır
-                                  </button>
+                                <div className="mb-5 flex flex-wrap gap-2">
+                                  {(isMusteri || isYonetici || isOperator) && (
+                                    <button
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        try {
+                                          await fetchGroupQrCodes(wo.work_order_group_id);
+                                          setQrModalGroupId(wo.work_order_group_id);
+                                        } catch (err) {
+                                          console.error("Error fetching group QR codes:", err);
+                                          setError("QR kodları yüklenirken hata oluştu");
+                                        }
+                                      }}
+                                      className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg text-sm font-medium transition-colors"
+                                    >
+                                      QR Kodları Gör / Yazdır
+                                    </button>
+                                  )}
+                                  {isYonetici && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openRouteModal(wo);
+                                      }}
+                                      className="px-4 py-2 text-sm font-medium text-[#0f4c3a] border border-[#0f4c3a] hover:bg-[#0f4c3a]/10 rounded-lg transition-colors"
+                                    >
+                                      {routeExistsByGroup[wo.work_order_group_id] ? "Rota Düzenle" : "Rota Tanımla"}
+                                    </button>
+                                  )}
                                 </div>
                               )}
 
