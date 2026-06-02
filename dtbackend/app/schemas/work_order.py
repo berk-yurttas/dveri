@@ -3,6 +3,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from app.schemas.order_pair import OrderPair
+
 
 class WorkOrderStatus(str, Enum):
     ENTRANCE = "Entrance"
@@ -16,8 +18,7 @@ class WorkOrderBase(BaseModel):
     sector: str = Field(..., description="Sektör")
     company_from: str = Field(..., description="Gönderen Firma")
     teklif_number: str = Field(..., description="Teklif Numarası")
-    aselsan_order_number: str = Field(..., description="ASELSAN Sipariş Numarası")
-    order_item_number: str = Field(..., description="Sipariş Kalem Numarası")
+    pairs: list[OrderPair] = Field(..., min_length=1, description="(Sipariş No, Kalem No) çiftleri")
     part_number: str = Field(..., description="Parça Numarası")
     revision_number: str | None = Field(None, description="Revizyon Numarası")
     quantity: int = Field(..., description="Bu paketin parça sayısı")
@@ -31,14 +32,20 @@ class WorkOrderBase(BaseModel):
 
 class WorkOrderCreate(WorkOrderBase):
     """Schema for creating a work order (one package at one station)"""
-    pass
+    acknowledged_route_violation: bool = Field(
+        False,
+        description="If True, the operator has acknowledged a route warning and the row is committed with route_violation=True",
+    )
 
 
 class WorkOrderUpdateExitDate(BaseModel):
-    """Schema for updating exit_date for a specific package"""
     station_id: int = Field(..., description="Station ID")
     work_order_group_id: str = Field(..., description="İş Emri Grup ID")
     package_index: int = Field(..., description="Paket sırası (1-based)")
+    acknowledged_route_violation: bool = Field(
+        False,
+        description="If True, the operator has acknowledged a route warning",
+    )
 
 
 class WorkOrder(WorkOrderBase):
@@ -46,6 +53,7 @@ class WorkOrder(WorkOrderBase):
     priority: int = 0
     prioritized_by: int | None = None
     delivered: bool = False
+    route_violation: bool = False
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
 
@@ -54,16 +62,15 @@ class WorkOrder(WorkOrderBase):
 
 
 class WorkOrderCreateResponse(BaseModel):
-    """Response when creating a work order package entry"""
     work_order: WorkOrder
     packages_scanned: int = Field(..., description="Bu gruptaki okunan paket sayısı")
     total_packages: int = Field(..., description="Toplam paket sayısı")
     all_scanned: bool = Field(..., description="Tüm paketler okundu mu")
+    is_first_scan_for_group: bool = Field(..., description="Bu, grubun ilk taraması mıydı (F6 rota seçici tetikleyicisi)")
     message: str = Field(..., description="Durum mesajı")
 
 
 class WorkOrderExitResponse(BaseModel):
-    """Response when updating exit date for a package"""
     work_order: WorkOrder
     packages_exited: int = Field(..., description="Bu gruptaki çıkışı yapılan paket sayısı")
     total_packages: int = Field(..., description="Toplam paket sayısı")
@@ -81,8 +88,7 @@ class WorkOrderList(BaseModel):
     sector: str
     company_from: str
     teklif_number: str
-    aselsan_order_number: str
-    order_item_number: str
+    pairs: list[OrderPair]
     part_number: str
     revision_number: str | None = None
     quantity: int
@@ -92,6 +98,7 @@ class WorkOrderList(BaseModel):
     priority: int = 0
     prioritized_by: int | None = None
     delivered: bool = False
+    route_violation: bool = False
     target_date: date | None = None
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
@@ -107,6 +114,7 @@ class WorkOrderDetail(BaseModel):
     id: int
     station_id: int
     station_name: str
+    is_entry_station: bool = False
     is_exit_station: bool = False
     user_id: int
     user_name: str | None = None
@@ -115,8 +123,8 @@ class WorkOrderDetail(BaseModel):
     sector: str
     company_from: str
     teklif_number: str
-    aselsan_order_number: str
-    order_item_number: str
+    pairs: list[OrderPair]
+    pair_count: int = Field(..., description="Toplam çift sayısı (collapsed row badge'i için denormalize)")
     part_number: str
     revision_number: str | None = None
     quantity: int
@@ -126,6 +134,7 @@ class WorkOrderDetail(BaseModel):
     priority: int = 0
     prioritized_by: int | None = None
     delivered: bool = False
+    route_violation: bool = False
     target_date: date | None = None
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
@@ -137,7 +146,6 @@ class WorkOrderDetail(BaseModel):
 
 
 class PaginatedWorkOrderResponse(BaseModel):
-    """Schema for paginated work order response"""
     items: list[WorkOrderDetail]
     total: int
     page: int
@@ -146,18 +154,15 @@ class PaginatedWorkOrderResponse(BaseModel):
 
 
 class PriorityAssignment(BaseModel):
-    """Schema for assigning priority to a work order group"""
     work_order_group_id: str = Field(..., description="İş Emri Grup ID")
     priority: int = Field(..., ge=0, le=5, description="Öncelik (0-5 jeton, 0=kaldır)")
 
 
 class PriorityAssignRequest(BaseModel):
-    """Schema for batch priority assignment"""
     assignments: list[PriorityAssignment] = Field(..., description="Öncelik atamaları")
 
 
 class PriorityTokenInfo(BaseModel):
-    """Schema for token info response"""
     total_tokens: int
     used_tokens: int
     remaining_tokens: int
