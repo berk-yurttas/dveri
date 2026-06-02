@@ -43,7 +43,6 @@ class ManagedUserResponse(BaseModel):
     station_name: str | None = None
     company: str
     department: str | None = None
-    musteri_companies: list[str] = []
     is_self: bool = False
 
 
@@ -77,10 +76,6 @@ class ManagedUserUpdateRequest(BaseModel):
         description="Deprecated: ignored on input. Backend writes company = department.",
     )
     department: str | None = Field(None, min_length=1, description="Müşteri's customer name (fullAdmin only)")
-    musteri_companies: list[str] | None = Field(
-        None,
-        description="Replacement target workshops for müşteri (fullAdmin only). When supplied, replaces every atolye:musteri_company:* entry.",
-    )
 
     @model_validator(mode="after")
     def validate_request(self):
@@ -92,10 +87,6 @@ class ManagedUserUpdateRequest(BaseModel):
                 raise ValueError("Şifreler eşleşmiyor")
         if self.department is not None and ":" in self.department:
             raise ValueError("Müşteri adında ':' karakteri kullanılamaz")
-        if self.musteri_companies is not None:
-            for value in self.musteri_companies:
-                if not isinstance(value, str) or not value.strip() or ":" in value:
-                    raise ValueError("Geçersiz hedef atölye değeri")
         return self
 
 
@@ -157,27 +148,6 @@ def _extract_atolye_role(role_values: list[str] | None) -> ManagedUserRoleType |
             except ValueError:
                 continue
     return None
-
-
-def _extract_musteri_companies_from_roles(role_values: list[str] | None) -> list[str]:
-    """
-    Extracts the list of müşteri companies from supplemental roles:
-    - atolye:musteri_company:<company>
-
-    Order-preserving and deduplicated.
-    """
-    if not role_values:
-        return []
-    prefix = "atolye:musteri_company:"
-    companies: list[str] = []
-    seen: set[str] = set()
-    for role in role_values:
-        if isinstance(role, str) and role.startswith(prefix):
-            value = role[len(prefix):].strip()
-            if value and value not in seen:
-                seen.add(value)
-                companies.append(value)
-    return companies
 
 
 def _get_main_company_from_department(department: str | None) -> str:
@@ -485,7 +455,6 @@ async def list_company_users(
                 station_name=station_name,
                 company=item_company,
                 department=(pb_user.get("department") or "").strip() or None,
-                musteri_companies=_extract_musteri_companies_from_roles(pb_user.get("role")),
                 is_self=username == current_user.username,
             )
         )
@@ -679,18 +648,6 @@ async def update_company_user(
 
             # Build pb_roles
             pb_roles = [f"atolye:{new_role.value}"]
-            if new_role == ManagedUserRoleType.MUSTERI:
-                if full_admin and user_data.musteri_companies is not None:
-                    seen: set[str] = set()
-                    for value in user_data.musteri_companies:
-                        norm = value.strip()
-                        if norm and norm not in seen:
-                            seen.add(norm)
-                            pb_roles.append(f"atolye:musteri_company:{norm}")
-                else:
-                    for role in existing_role_values:
-                        if isinstance(role, str) and role.startswith("atolye:musteri_company:"):
-                            pb_roles.append(role)
 
             # Department mirrors Firma. For operators, locked to existing value.
             # For non-operators under fullAdmin, takes user_data.department if supplied; otherwise effective_company.
@@ -763,11 +720,6 @@ async def update_company_user(
                 station_name=station_name,
                 company=department_for_payload,
                 department=department_for_payload,
-                musteri_companies=[
-                    role.split(":", 2)[2]
-                    for role in pb_roles
-                    if role.startswith("atolye:musteri_company:")
-                ],
                 is_self=new_username == current_user.username,
             )
     except HTTPException:
@@ -792,9 +744,6 @@ class FullAdminUserCreateRequest(BaseModel):
     )
     department: str = Field(..., min_length=1, description="Firma (saves to PB department; mirrored to PB company)")
     station_id: int | None = Field(None, description="Required for operator role — but operator is rejected by handler")
-    musteri_companies: list[str] | None = Field(
-        None, description="Optional target firmalar (musteri only)"
-    )
 
     @model_validator(mode="after")
     def validate(self):
@@ -809,30 +758,6 @@ class FullAdminUserCreateRequest(BaseModel):
             raise ValueError("Operatör kullanıcıları bu uçtan oluşturulamaz; yönetici sayfasını kullanın.")
         if self.station_id is not None:
             raise ValueError("station_id gönderilmemelidir")
-        if self.musteri_companies is not None:
-            if self.role != ManagedUserRoleType.MUSTERI:
-                raise ValueError("Hedef firmalar sadece müşteri rolü için seçilebilir")
-            for value in self.musteri_companies:
-                if not isinstance(value, str) or not value.strip() or ":" in value:
-                    raise ValueError("Geçersiz hedef firma değeri")
-        return self
-
-
-class BulkMusteriCompaniesMode(str, Enum):
-    ADD = "add"
-    REPLACE = "replace"
-
-
-class BulkMusteriCompaniesRequest(BaseModel):
-    user_ids: list[str] = Field(..., min_length=1, description="PocketBase user ids to update")
-    companies: list[str] = Field(..., description="Target firmalar to apply")
-    mode: BulkMusteriCompaniesMode = Field(..., description="add (merge) or replace (overwrite)")
-
-    @model_validator(mode="after")
-    def validate_companies(self):
-        for c in self.companies:
-            if not isinstance(c, str) or not c.strip() or ":" in c:
-                raise ValueError("Geçersiz hedef firma değeri")
         return self
 
 
@@ -870,13 +795,6 @@ async def full_admin_create_user(
         )
 
     role_values = [f"atolye:{user_data.role.value}"]
-    if user_data.role == ManagedUserRoleType.MUSTERI and user_data.musteri_companies:
-        seen: set[str] = set()
-        for value in user_data.musteri_companies:
-            norm = value.strip()
-            if norm and norm not in seen:
-                seen.add(norm)
-                role_values.append(f"atolye:musteri_company:{norm}")
 
     try:
         pb_user_id = await _pb_create_user_record(
@@ -916,94 +834,7 @@ async def full_admin_create_user(
         "company": firma,
         "department": firma,
         "station_id": None,
-        "musteri_companies": user_data.musteri_companies or [],
     }
-
-
-@router.patch("/management/users/bulk-musteri-companies", response_model=dict)
-async def bulk_musteri_companies(
-    payload: BulkMusteriCompaniesRequest,
-    current_user: User = Depends(check_authenticated),
-):
-    """
-    Bulk update target firmalar (atolye:musteri_company:*) for multiple müşteri users.
-    fullAdmin-only. Returns per-user succeeded/failed lists.
-    """
-    if not is_full_admin(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="fullAdmin yetkisi gereklidir",
-        )
-
-    # Dedupe + normalize the requested companies
-    seen: set[str] = set()
-    normalized: list[str] = []
-    for c in payload.companies:
-        n = c.strip()
-        if n and n not in seen:
-            seen.add(n)
-            normalized.append(n)
-
-    succeeded: list[str] = []
-    failed: list[dict] = []
-
-    async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
-        auth_token = await _authenticate_pocketbase_admin(client)
-        headers = {"Authorization": auth_token}
-
-        for user_id in payload.user_ids:
-            try:
-                get_resp = await client.get(
-                    f"{settings.POCKETBASE_URL}/api/collections/users/records/{user_id}",
-                    headers=headers,
-                )
-                if get_resp.status_code != 200:
-                    failed.append({"id": user_id, "detail": "Kullanıcı bulunamadı"})
-                    continue
-
-                pb_user = get_resp.json()
-                role_values = pb_user.get("role") if isinstance(pb_user.get("role"), list) else []
-                if "atolye:musteri" not in role_values:
-                    failed.append({"id": user_id, "detail": "Müşteri olmayan kullanıcı atlandı"})
-                    continue
-
-                non_company_roles = [
-                    r for r in role_values
-                    if not (isinstance(r, str) and r.startswith("atolye:musteri_company:"))
-                ]
-
-                if payload.mode == BulkMusteriCompaniesMode.REPLACE:
-                    targets = list(normalized)
-                else:  # ADD
-                    existing_targets = [
-                        r.split(":", 2)[2]
-                        for r in role_values
-                        if isinstance(r, str) and r.startswith("atolye:musteri_company:")
-                    ]
-                    seen_local: set[str] = set()
-                    targets = []
-                    for t in (*existing_targets, *normalized):
-                        if t and t not in seen_local:
-                            seen_local.add(t)
-                            targets.append(t)
-
-                new_role_list = [*non_company_roles] + [
-                    f"atolye:musteri_company:{t}" for t in targets
-                ]
-
-                patch_resp = await client.patch(
-                    f"{settings.POCKETBASE_URL}/api/collections/users/records/{user_id}",
-                    json={"role": new_role_list},
-                    headers=headers,
-                )
-                if patch_resp.status_code in (200, 201):
-                    succeeded.append(user_id)
-                else:
-                    failed.append({"id": user_id, "detail": f"PocketBase güncelleme hatası ({patch_resp.status_code})"})
-            except Exception as e:
-                failed.append({"id": user_id, "detail": str(e) or e.__class__.__name__})
-
-    return {"succeeded": succeeded, "failed": failed}
 
 
 @router.get("/management/companies", response_model=list[str])
@@ -1145,6 +976,7 @@ async def get_my_station(
         "station_id": station.id,
         "name": station.name,
         "company": station.company,
+        "is_entry_station": station.is_entry_station,
         "is_exit_station": station.is_exit_station,
     }
 
