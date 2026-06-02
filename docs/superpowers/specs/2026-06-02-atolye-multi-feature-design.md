@@ -591,20 +591,35 @@ if route_rows and not work_order_data.acknowledged_route_violation:
 - "Yine de Devam Et" re-fires the same POST with `acknowledged_route_violation: true`. The row is inserted with `route_violation = true`, the operator flow continues.
 - "İptal" closes the modal and discards the scan (no WorkOrder row is created; operator can scan again).
 
-### F6.5 Yönetici "Rota Düzenle" on is-emirleri
+### F6.5 Yönetici "Rota Düzenle" / "Rota Tanımla" on is-emirleri
 
-For users with `atolye:yonetici`, each work-order row in is-emirleri gets a "Rota Düzenle" button. Click opens the same `RoutePickerModal` pre-loaded with the existing route. Save calls:
+For users with `atolye:yonetici`, each work-order row in is-emirleri gets a button:
 
-```
-PUT /romiot/station/work-order-routes/{work_order_group_id}
-Body: { station_ids: list[int] }
-```
+- **Groups that have a route** (≥1 row in `work_order_routes`): button label **"Rota Düzenle"**. Click opens `RoutePickerModal` pre-loaded with the existing route. Position 0 shows as locked with the existing route's position-0 station name (NOT the editing yönetici's station). Save calls:
 
-Backend: same validations as POST. Deletes existing route rows for the group and inserts new ones in a single transaction. Position 0 (entry station) cannot change — yönetici trying to alter it gets a 400 ("Giriş istasyonu değiştirilemez").
+  ```
+  PUT /romiot/station/work-order-routes/{work_order_group_id}
+  Body: { station_ids: list[int] }
+  ```
 
-Grandfathered groups render "Rota Tanımla" (creates rather than replaces). Saving works the same; position 0 takes the operator's first historical entrance scan's station.
+  Backend validations (overrides the POST-style entry check):
+  - `station_ids` non-empty.
+  - All `station_ids` belong to the group's company (looked up via the existing WorkOrder rows; not the editing user's department).
+  - `station_ids[0]` must equal the existing route's position-0 `station_id`. Yönetici cannot alter the entry station — it's a historical fact. 400 "Giriş istasyonu değiştirilemez" otherwise.
+  - `station_ids` unique within the request.
+  - Last station is `is_exit_station == True` OR the company has zero exit stations.
+  - Existing route rows for the group are deleted and the new ones inserted in a single transaction.
 
-The button is yönetici-only — not exposed to operators or müşteri.
+- **Grandfathered groups** (zero rows in `work_order_routes`): button label **"Rota Tanımla"**. Click opens `RoutePickerModal` with position 0 pre-filled from the **earliest historical entrance scan** for the group (`SELECT station_id FROM work_orders WHERE work_order_group_id = :g ORDER BY entrance_date ASC LIMIT 1`). Position 0 still locked in the picker. Save calls the same POST endpoint defined in §F6.2:
+
+  ```
+  POST /romiot/station/work-order-routes/
+  Body: { work_order_group_id, station_ids }
+  ```
+
+  The POST endpoint's `station_ids[0] = operator's station` check has a second permitted source: when the caller is `atolye:yonetici` (rather than `atolye:operator`), `station_ids[0]` must equal the server-derived earliest-entrance station for the group instead. Backend reads the caller's role and routes the validation accordingly; same 400 message on mismatch.
+
+The button is yönetici-only — not exposed to operators or müşteri. Operators do not see "Rota Düzenle" or "Rota Tanımla" on is-emirleri.
 
 ### F6.6 Audit display
 
