@@ -4,6 +4,7 @@ import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { ExitStationBadge } from "@/components/atolye/ExitStationBadge";
+import { EntryStationBadge } from "@/components/atolye/EntryStationBadge";
 
 function validatePassword(password: string): string | null {
   if (password.length < 8) return "Şifre en az 8 karakter olmalıdır";
@@ -26,6 +27,7 @@ interface Station {
   id: number;
   name: string;
   company: string;
+  is_entry_station: boolean;
   is_exit_station: boolean;
   station_order_code: number | null;
 }
@@ -37,7 +39,7 @@ export default function YoneticiPage() {
 
   // Station & user form state
   const [stations, setStations] = useState<Station[]>([]);
-  const [stationFormData, setStationFormData] = useState({ name: "", company: "", is_exit_station: false });
+  const [stationFormData, setStationFormData] = useState({ name: "", company: "", is_entry_station: false, is_exit_station: false });
   const [userFormData, setUserFormData] = useState({
     username: "",
     name: "",
@@ -50,7 +52,7 @@ export default function YoneticiPage() {
   const [yoneticiError, setYoneticiError] = useState<string | null>(null);
   const [yoneticiSuccess, setYoneticiSuccess] = useState<string | null>(null);
   const [editingStation, setEditingStation] = useState<Station | null>(null);
-  const [editFormData, setEditFormData] = useState<{ name: string; is_exit_station: boolean }>({ name: "", is_exit_station: false });
+  const [editFormData, setEditFormData] = useState<{ name: string; is_entry_station: boolean; is_exit_station: boolean }>({ name: "", is_entry_station: false, is_exit_station: false });
   const [editModalLoading, setEditModalLoading] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const [deletingStation, setDeletingStation] = useState<Station | null>(null);
@@ -90,7 +92,7 @@ export default function YoneticiPage() {
   useEffect(() => {
     if (isYonetici && userCompany) {
       fetchStations();
-      setStationFormData({ name: "", company: userCompany, is_exit_station: false });
+      setStationFormData({ name: "", company: userCompany, is_entry_station: false, is_exit_station: false });
     }
   }, [isYonetici, userCompany, fetchStations]);
 
@@ -103,7 +105,7 @@ export default function YoneticiPage() {
     try {
       await api.post("/romiot/station/stations/", stationFormData);
       setYoneticiSuccess("Atölye başarıyla oluşturuldu");
-      setStationFormData({ name: "", company: userCompany || "", is_exit_station: false });
+      setStationFormData({ name: "", company: userCompany || "", is_entry_station: false, is_exit_station: false });
       await new Promise(resolve => setTimeout(resolve, 100));
       await fetchStations();
     } catch (err: any) {
@@ -184,13 +186,13 @@ export default function YoneticiPage() {
 
   const openEditModal = (station: Station) => {
     setEditingStation(station);
-    setEditFormData({ name: station.name, is_exit_station: station.is_exit_station });
+    setEditFormData({ name: station.name, is_entry_station: station.is_entry_station, is_exit_station: station.is_exit_station });
     setModalError(null);
   };
 
   const closeEditModal = () => {
     setEditingStation(null);
-    setEditFormData({ name: "", is_exit_station: false });
+    setEditFormData({ name: "", is_entry_station: false, is_exit_station: false });
     setModalError(null);
   };
 
@@ -204,6 +206,7 @@ export default function YoneticiPage() {
       await api.put(`/romiot/station/stations/${editingStation.id}`, {
         name: editFormData.name,
         company: editingStation.company,
+        is_entry_station: editFormData.is_entry_station,
         is_exit_station: editFormData.is_exit_station,
         station_order_code: editingStation.station_order_code,
       });
@@ -303,6 +306,17 @@ export default function YoneticiPage() {
           </div>
         )}
 
+        {stations.length > 0 && !stations.some(s => s.is_entry_station) && (
+          <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded text-sm text-yellow-800">
+            ⚠ Henüz Giriş Atölyesi tanımlanmamış. İlk taramalar herhangi bir atölyede yapılabilir.
+          </div>
+        )}
+        {stations.length > 0 && !stations.some(s => s.is_exit_station) && (
+          <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded text-sm text-yellow-800">
+            ⚠ Henüz Çıkış Atölyesi tanımlanmamış. İş emirleri teslim edilmiş olarak işaretlenemez ve rotalar son durağı doğrulanamaz.
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="space-y-8">
             {/* Create Workshop Form */}
@@ -331,6 +345,20 @@ export default function YoneticiPage() {
                       disabled
                     />
                     <p className="mt-1 text-xs text-gray-500">Şirket bilgisi otomatik olarak doldurulmuştur</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="is_entry_station"
+                      checked={stationFormData.is_entry_station}
+                      onChange={(e) => setStationFormData({ ...stationFormData, is_entry_station: e.target.checked })}
+                      className="h-4 w-4 text-[#0f4c3a] border-gray-300 rounded focus:ring-[#0f4c3a]"
+                      disabled={yoneticiLoading}
+                    />
+                    <label htmlFor="is_entry_station" className="text-sm font-medium text-gray-700">
+                      Giriş Atölyesi
+                    </label>
+                    <span className="text-xs text-gray-500">(Bu atölyeden iş emrinin ilk girişi yapılabilir)</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <input
@@ -377,11 +405,13 @@ export default function YoneticiPage() {
                         <tr key={station.id}>
                           <td className="px-3 py-2 text-sm text-gray-900 font-medium">{station.name}</td>
                           <td className="px-3 py-2">
-                            {station.is_exit_station ? (
-                              <ExitStationBadge isExit={true} size="sm" />
-                            ) : (
-                              <span className="text-gray-400 text-sm">—</span>
-                            )}
+                            <div className="flex flex-col gap-1 items-start">
+                              <EntryStationBadge isEntry={station.is_entry_station} size="sm" />
+                              <ExitStationBadge isExit={station.is_exit_station} size="sm" />
+                              {!station.is_entry_station && !station.is_exit_station && (
+                                <span className="text-gray-400 text-sm">—</span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-3 py-2 text-right">
                             <div className="inline-flex gap-2">
@@ -561,6 +591,20 @@ export default function YoneticiPage() {
                     disabled
                   />
                   <p className="mt-1 text-xs text-gray-500">Şirket bilgisi düzenlenemez</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="edit_is_entry_station"
+                    checked={editFormData.is_entry_station}
+                    onChange={(e) => setEditFormData({ ...editFormData, is_entry_station: e.target.checked })}
+                    className="h-4 w-4 text-[#0f4c3a] border-gray-300 rounded focus:ring-[#0f4c3a]"
+                    disabled={editModalLoading}
+                  />
+                  <label htmlFor="edit_is_entry_station" className="text-sm font-medium text-gray-700">
+                    Giriş Atölyesi
+                  </label>
+                  <span className="text-xs text-gray-500">(Bu atölyeden iş emrinin ilk girişi yapılabilir)</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <input
