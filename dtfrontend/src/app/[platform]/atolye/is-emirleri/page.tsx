@@ -782,8 +782,10 @@ export default function WorkOrdersPage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.sector}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.company_from}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.teklif_number}</td></tr>
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${wo.main_customer} Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.total_packages > 1 ? wo.aselsan_order_number + "_" + pkg.package_index : wo.aselsan_order_number}</td></tr>
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Kalem Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.order_item_number}</td></tr>
+          ${wo.pairs.length === 1
+            ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${wo.main_customer} Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.total_packages > 1 ? (wo.pairs[0]?.aselsan_order_number ?? "-") + "_" + pkg.package_index : (wo.pairs[0]?.aselsan_order_number ?? "-")}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Kalem Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.pairs[0]?.order_item_number ?? "-"}</td></tr>`
+            : `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Malzemeler</td><td style="border: 1px solid #d1d5db; padding: 6px;"><table style="width:100%; border-collapse:collapse;"><thead><tr><th style="border:1px solid #d1d5db; padding:4px; text-align:left;">Sipariş No</th><th style="border:1px solid #d1d5db; padding:4px; text-align:left;">Kalem No</th></tr></thead><tbody>${wo.pairs.map((p) => `<tr><td style="border:1px solid #d1d5db; padding:4px;">${p.aselsan_order_number}</td><td style="border:1px solid #d1d5db; padding:4px;">${p.order_item_number}</td></tr>`).join("")}</tbody></table></td></tr>`}
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.part_number}${wo.revision_number ? "/" + wo.revision_number : ""}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Toplam Sipariş Miktarı</td><td style="border: 1px solid #d1d5db; padding: 6px;">${pkg.quantity}/${wo.total_quantity}</td></tr>
           ${wo.target_date ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Bitirme Tarihi</td><td style="border: 1px solid #d1d5db; padding: 6px;">${new Date(wo.target_date).toLocaleDateString("tr-TR")}</td></tr>` : ""}
@@ -1435,16 +1437,37 @@ export default function WorkOrdersPage() {
                                 <td className="py-2 pr-3 font-medium text-gray-600">Teklif Numarası</td>
                                 <td className="py-2 text-gray-900">{wo.teklif_number}</td>
                               </tr>
-                              <tr className="border-b border-gray-200">
-                                <td className="py-2 pr-3 font-medium text-gray-600">{wo.main_customer} Sipariş Numarası</td>
-                                <td className="py-2 text-gray-900">
-                                  {wo.total_packages > 1 ? `${wo.aselsan_order_number}_${selectedPkg.package_index}` : wo.aselsan_order_number}
-                                </td>
-                              </tr>
-                              <tr className="border-b border-gray-200">
-                                <td className="py-2 pr-3 font-medium text-gray-600">Sipariş Kalem Numarası</td>
-                                <td className="py-2 text-gray-900">{wo.order_item_number}</td>
-                              </tr>
+                              {wo.pairs.length === 1 ? (
+                                <>
+                                  <tr className="border-b border-gray-200">
+                                    <td className="py-2 pr-3 font-medium text-gray-600">{wo.main_customer} Sipariş Numarası</td>
+                                    <td className="py-2 text-gray-900">
+                                      {wo.total_packages > 1 ? `${wo.pairs[0]?.aselsan_order_number ?? "-"}_${selectedPkg.package_index}` : (wo.pairs[0]?.aselsan_order_number ?? "-")}
+                                    </td>
+                                  </tr>
+                                  <tr className="border-b border-gray-200">
+                                    <td className="py-2 pr-3 font-medium text-gray-600">Sipariş Kalem Numarası</td>
+                                    <td className="py-2 text-gray-900">{wo.pairs[0]?.order_item_number ?? "-"}</td>
+                                  </tr>
+                                </>
+                              ) : (
+                                <tr className="border-b border-gray-200">
+                                  <td className="py-2 pr-3 font-medium text-gray-600 align-top">Malzemeler</td>
+                                  <td className="py-2 text-gray-900">
+                                    <table className="w-full border-collapse text-xs">
+                                      <thead><tr><th className="px-2 py-1 text-left">Sipariş No</th><th className="px-2 py-1 text-left">Kalem No</th></tr></thead>
+                                      <tbody>
+                                        {wo.pairs.map((p, i) => (
+                                          <tr key={i} className="border-t border-gray-100">
+                                            <td className="px-2 py-1">{p.aselsan_order_number}</td>
+                                            <td className="px-2 py-1">{p.order_item_number}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </td>
+                                </tr>
+                              )}
                               <tr className="border-b border-gray-200">
                                 <td className="py-2 pr-3 font-medium text-gray-600">Parça Numarası</td>
                                 <td className="py-2 text-gray-900">{wo.part_number}{wo.revision_number ? `/${wo.revision_number}` : ""}</td>

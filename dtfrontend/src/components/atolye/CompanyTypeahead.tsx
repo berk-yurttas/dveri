@@ -73,8 +73,7 @@ export function CompanyTypeahead({
     if (document.activeElement !== inputRef.current && value !== query) {
       setQuery(value);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
+  }, [value, query]);
 
   // Click-outside closes dropdown
   useEffect(() => {
@@ -175,6 +174,7 @@ export function CompanyTypeahead({
         type="text"
         role="combobox"
         aria-expanded={open}
+        aria-controls="company-typeahead-listbox"
         aria-autocomplete="list"
         aria-activedescendant={open ? `company-typeahead-option-${highlightedIndex}` : undefined}
         value={query}
@@ -192,7 +192,7 @@ export function CompanyTypeahead({
       />
 
       {open && filtered.length > 0 && (
-        <div className="absolute left-0 right-0 z-50 mt-1 bg-white shadow-lg rounded-lg overflow-hidden border border-gray-200">
+        <div id="company-typeahead-listbox" role="listbox" className="absolute left-0 right-0 z-50 mt-1 bg-white shadow-lg rounded-lg overflow-hidden border border-gray-200">
           {filtered.length > VIRTUALIZE_THRESHOLD ? (
             <FixedSizeList
               ref={listRef}
@@ -204,7 +204,7 @@ export function CompanyTypeahead({
               {Row}
             </FixedSizeList>
           ) : (
-            <ul role="listbox" className="max-h-72 overflow-auto">
+            <ul className="max-h-72 overflow-auto">
               {filtered.map((c, i) => (
                 <li key={c} style={{ height: ROW_HEIGHT }}>
                   <Row index={i} style={{ height: ROW_HEIGHT }} data={null} />
