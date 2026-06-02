@@ -899,6 +899,7 @@ async def create_station(
     new_station = Station(
         name=station_data.name,
         company=station_data.company,
+        is_entry_station=station_data.is_entry_station,
         is_exit_station=station_data.is_exit_station,
         station_order_code=station_data.station_order_code,
     )
@@ -1193,6 +1194,7 @@ async def update_station(
     # Update station
     station.name = station_data.name
     station.company = station_data.company
+    station.is_entry_station = station_data.is_entry_station
     station.is_exit_station = station_data.is_exit_station
     station.station_order_code = station_data.station_order_code
 
@@ -1249,7 +1251,7 @@ async def delete_station(
         )
 
     # Check if station has work orders
-    from app.models.romiot_models import WorkOrder
+    from app.models.romiot_models import WorkOrder, WorkOrderRoute
     work_orders_result = await romiot_db.execute(
         select(WorkOrder).where(WorkOrder.station_id == station_id).limit(1)
     )
@@ -1259,6 +1261,20 @@ async def delete_station(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="İş emirleri olan atölye silinemez"
+        )
+
+    # Block deletion when the station is part of a saved work-order route.
+    # The FK is ON DELETE RESTRICT, so without this guard the delete would
+    # surface as an unhandled 500 instead of a friendly 400.
+    routes_result = await romiot_db.execute(
+        select(WorkOrderRoute).where(WorkOrderRoute.station_id == station_id).limit(1)
+    )
+    has_routes = routes_result.scalar_one_or_none() is not None
+
+    if has_routes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bu atölye bir iş emri rotasında kullanılıyor, silinemez."
         )
 
     # Delete station
