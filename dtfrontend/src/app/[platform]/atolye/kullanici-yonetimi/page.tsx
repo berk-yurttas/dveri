@@ -35,7 +35,6 @@ interface ManagedUser {
   station_name: string | null;
   company: string;
   department: string | null;
-  musteri_companies: string[];
   is_self: boolean;
 }
 
@@ -55,7 +54,6 @@ interface EditFormData {
   password_confirm: string;
   company: string;
   department: string;
-  musteri_companies: string[];
 }
 
 const ROLE_LABELS: Record<RoleType, string> = {
@@ -84,10 +82,6 @@ export default function KullaniciYonetimiPage() {
   const [isFullAdmin, setIsFullAdmin] = useState(false);
   const [companies, setCompanies] = useState<string[]>([]);
   const [filterCompany, setFilterCompany] = useState("");
-  const [selectedMusteriIds, setSelectedMusteriIds] = useState<Set<string>>(new Set());
-  const [showBulkModal, setShowBulkModal] = useState(false);
-  const [bulkSelectedCompanies, setBulkSelectedCompanies] = useState<string[]>([]);
-  const [bulkMode, setBulkMode] = useState<"add" | "replace">("add");
 
   useEffect(() => {
     const roles = (user?.role && Array.isArray(user.role)) ? user.role : [];
@@ -107,7 +101,6 @@ export default function KullaniciYonetimiPage() {
     password_confirm: "",
     company: "",
     department: "",
-    musteri_companies: [],
   });
 
   const fetchData = async () => {
@@ -159,45 +152,10 @@ export default function KullaniciYonetimiPage() {
       );
       const matchesRole = !filterRole || u.role === filterRole;
       const matchesAtolye = !filterAtolye || (u.station_name || "").toLowerCase().includes(filterAtolye.toLowerCase());
-      const matchesCompany =
-        !filterCompany ||
-        u.department === filterCompany ||
-        u.musteri_companies.includes(filterCompany);
+      const matchesCompany = !filterCompany || u.department === filterCompany;
       return matchesSearch && matchesRole && matchesAtolye && matchesCompany;
     });
   }, [users, search, filterRole, filterAtolye, filterCompany, isFullAdmin]);
-
-  const visibleMusteriIds = useMemo(
-    () => filteredUsers.filter((u) => u.role === "musteri").map((u) => u.pocketbase_id),
-    [filteredUsers]
-  );
-
-  const allVisibleMusterisSelected =
-    visibleMusteriIds.length > 0 && visibleMusteriIds.every((id) => selectedMusteriIds.has(id));
-  const someVisibleMusterisSelected =
-    visibleMusteriIds.some((id) => selectedMusteriIds.has(id)) && !allVisibleMusterisSelected;
-
-  const toggleMusteriSelected = (id: string) => {
-    setSelectedMusteriIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleAllVisibleMusteris = (checked: boolean) => {
-    setSelectedMusteriIds((prev) => {
-      const next = new Set(prev);
-      for (const id of visibleMusteriIds) {
-        if (checked) next.add(id);
-        else next.delete(id);
-      }
-      return next;
-    });
-  };
-
-  const clearBulkSelection = () => setSelectedMusteriIds(new Set());
 
   const openEditModal = (target: ManagedUser) => {
     const role: RoleType = target.role || "musteri";
@@ -211,7 +169,6 @@ export default function KullaniciYonetimiPage() {
       password_confirm: "",
       company: target.company || "",
       department: target.department || "",
-      musteri_companies: target.musteri_companies || [],
     });
     setError(null);
     setSuccess(null);
@@ -228,7 +185,6 @@ export default function KullaniciYonetimiPage() {
       password_confirm: "",
       company: "",
       department: "",
-      musteri_companies: [],
     });
   };
 
@@ -241,7 +197,6 @@ export default function KullaniciYonetimiPage() {
     password_confirm: "",
     role: "musteri" as Exclude<RoleType, "operator">,
     department: "",
-    musteri_companies: [] as string[],
   });
 
   const closeCreateModal = () => {
@@ -254,64 +209,7 @@ export default function KullaniciYonetimiPage() {
       password_confirm: "",
       role: "musteri",
       department: "",
-      musteri_companies: [],
     });
-  };
-
-  const closeBulkModal = () => {
-    setShowBulkModal(false);
-    setBulkSelectedCompanies([]);
-    setBulkMode("add");
-  };
-
-  const handleBulkSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (selectedMusteriIds.size === 0) return;
-    if (bulkMode === "replace" && bulkSelectedCompanies.length === 0) {
-      const confirmed = typeof window !== "undefined"
-        ? window.confirm(`${selectedMusteriIds.size} müşterinin tüm hedef firmaları silinecek. Devam edilsin mi?`)
-        : true;
-      if (!confirmed) return;
-    }
-
-    setSaving(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const resp = await api.patch<{ succeeded: string[]; failed: { id: string; detail: string }[] }>(
-        "/romiot/station/stations/management/users/bulk-musteri-companies",
-        {
-          user_ids: Array.from(selectedMusteriIds),
-          companies: bulkSelectedCompanies,
-          mode: bulkMode,
-        }
-      );
-
-      const okCount = resp?.succeeded?.length ?? 0;
-      const failCount = resp?.failed?.length ?? 0;
-      if (failCount > 0) {
-        const sample = resp.failed.slice(0, 3).map((f) => `${f.id}: ${f.detail}`).join(" / ");
-        setSuccess(`${okCount} müşteri güncellendi, ${failCount} başarısız (${sample})`);
-      } else {
-        setSuccess(`${okCount} müşteri için hedef firmalar güncellendi`);
-      }
-      clearBulkSelection();
-      closeBulkModal();
-      await fetchData();
-    } catch (err: any) {
-      let message = "Toplu güncelleme başarısız";
-      if (err?.message) {
-        try {
-          const parsed = JSON.parse(err.message);
-          message = parsed.detail || message;
-        } catch {
-          message = err.message;
-        }
-      }
-      setError(message);
-    } finally {
-      setSaving(false);
-    }
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -338,9 +236,6 @@ export default function KullaniciYonetimiPage() {
         role: createForm.role,
         department: createForm.department.trim(),
       };
-      if (createForm.role === "musteri") {
-        payload.musteri_companies = createForm.musteri_companies;
-      }
 
       await api.post("/romiot/station/stations/management/users", payload);
       setSuccess("Kullanıcı başarıyla oluşturuldu");
@@ -405,9 +300,6 @@ export default function KullaniciYonetimiPage() {
           if (!formData.department.trim()) throw new Error("Firma boş olamaz");
           if (formData.department.includes(":")) throw new Error("Firma adında ':' karakteri kullanılamaz");
           payload.department = formData.department.trim();
-        }
-        if (formData.role === "musteri") {
-          payload.musteri_companies = formData.musteri_companies;
         }
       }
 
@@ -485,32 +377,6 @@ export default function KullaniciYonetimiPage() {
           </div>
         )}
 
-        {isFullAdmin && selectedMusteriIds.size > 0 && (
-          <div className="mb-4 p-3 bg-[#0f4c3a] text-white rounded-lg flex flex-wrap items-center justify-between gap-3">
-            <span className="text-sm font-medium">{selectedMusteriIds.size} müşteri seçili</span>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setBulkSelectedCompanies([]);
-                  setBulkMode("add");
-                  setShowBulkModal(true);
-                }}
-                className="px-3 py-1.5 bg-white text-[#0f4c3a] hover:bg-gray-100 rounded-md text-sm font-medium"
-              >
-                Hedef Firmaları Düzenle
-              </button>
-              <button
-                type="button"
-                onClick={clearBulkSelection}
-                className="px-3 py-1.5 bg-transparent border border-white/40 text-white hover:bg-white/10 rounded-md text-sm"
-              >
-                Seçimi Temizle
-              </button>
-            </div>
-          </div>
-        )}
-
         <div className="bg-white rounded-lg shadow-lg p-4 mb-4">
           <input
             type="text"
@@ -528,20 +394,6 @@ export default function KullaniciYonetimiPage() {
             <table className="min-w-[700px] w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  {isFullAdmin && (
-                    <th className="px-4 py-3 text-left w-10">
-                      <input
-                        type="checkbox"
-                        aria-label="Görünür müşterileri seç"
-                        checked={allVisibleMusterisSelected}
-                        ref={(el) => {
-                          if (el) el.indeterminate = someVisibleMusterisSelected;
-                        }}
-                        onChange={(e) => toggleAllVisibleMusteris(e.target.checked)}
-                        disabled={visibleMusteriIds.length === 0}
-                      />
-                    </th>
-                  )}
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Kullanıcı Adı</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">İsim</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Rol</th>
@@ -553,7 +405,6 @@ export default function KullaniciYonetimiPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">İşlem</th>
                 </tr>
                 <tr className="bg-gray-100 border-b border-gray-200">
-                  {isFullAdmin && <td className="px-4 py-2" />}
                   <td className="px-4 py-2" />
                   <td className="px-4 py-2" />
                   <td className="px-4 py-2">
@@ -601,25 +452,13 @@ export default function KullaniciYonetimiPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={isFullAdmin ? 8 : 6} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={isFullAdmin ? 7 : 6} className="px-4 py-8 text-center text-gray-500">
                       Kullanıcı bulunamadı.
                     </td>
                   </tr>
                 ) : (
                   filteredUsers.map((u) => (
                     <tr key={u.pocketbase_id} className="hover:bg-gray-50">
-                      {isFullAdmin && (
-                        <td className="px-4 py-3">
-                          {u.role === "musteri" ? (
-                            <input
-                              type="checkbox"
-                              aria-label={`${u.username} seç`}
-                              checked={selectedMusteriIds.has(u.pocketbase_id)}
-                              onChange={() => toggleMusteriSelected(u.pocketbase_id)}
-                            />
-                          ) : null}
-                        </td>
-                      )}
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
                         {u.username}
                         {u.is_self && (
@@ -757,38 +596,6 @@ export default function KullaniciYonetimiPage() {
                   </div>
                 )}
 
-                {isFullAdmin && formData.role === "musteri" && selectedUser?.role !== "operator" && (
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Firmalar</label>
-                    <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
-                      {companies.length === 0 ? (
-                        <p className="text-sm text-gray-500">Sistemde kayıtlı firma yok.</p>
-                      ) : (
-                        companies.map((c) => {
-                          const checked = formData.musteri_companies.includes(c);
-                          return (
-                            <label key={c} className="flex items-center gap-2 py-1 text-sm text-gray-800">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => {
-                                  const next = e.target.checked
-                                    ? Array.from(new Set([...formData.musteri_companies, c]))
-                                    : formData.musteri_companies.filter((x) => x !== c);
-                                  setFormData({ ...formData, musteri_companies: next });
-                                }}
-                                disabled={saving}
-                              />
-                              <span>{c}</span>
-                            </label>
-                          );
-                        })
-                      )}
-                    </div>
-                    <p className="mt-1 text-xs text-gray-500">Müşterinin barkod oluşturabileceği hedef firmalar. Boş bırakılabilir; müşteri eklenmeden barkod oluşturamaz.</p>
-                  </div>
-                )}
-
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Yeni Şifre</label>
                   <input
@@ -911,7 +718,6 @@ export default function KullaniciYonetimiPage() {
                       setCreateForm({
                         ...createForm,
                         role: newRole,
-                        musteri_companies: newRole === "musteri" ? createForm.musteri_companies : [],
                       });
                     }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
@@ -938,38 +744,6 @@ export default function KullaniciYonetimiPage() {
                     <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>
                   )}
                 </div>
-
-                {createForm.role === "musteri" && (
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Firmalar</label>
-                    <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
-                      {companies.length === 0 ? (
-                        <p className="text-sm text-gray-500">Sistemde kayıtlı firma yok.</p>
-                      ) : (
-                        companies.map((c) => {
-                          const checked = createForm.musteri_companies.includes(c);
-                          return (
-                            <label key={c} className="flex items-center gap-2 py-1 text-sm text-gray-800">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => {
-                                  const next = e.target.checked
-                                    ? Array.from(new Set([...createForm.musteri_companies, c]))
-                                    : createForm.musteri_companies.filter((x) => x !== c);
-                                  setCreateForm({ ...createForm, musteri_companies: next });
-                                }}
-                                disabled={saving}
-                              />
-                              <span>{c}</span>
-                            </label>
-                          );
-                        })
-                      )}
-                    </div>
-                    <p className="mt-1 text-xs text-gray-500">Müşterinin barkod oluşturabileceği hedef firmalar. Boş bırakılabilir.</p>
-                  </div>
-                )}
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button
@@ -986,104 +760,6 @@ export default function KullaniciYonetimiPage() {
                   disabled={saving}
                 >
                   {saving ? "Oluşturuluyor..." : "Oluştur"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {showBulkModal && typeof document !== "undefined" && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30 overflow-y-auto p-4">
-          <div className="bg-white rounded-lg shadow-2xl max-w-xl w-full max-h-[calc(100vh-2rem)] overflow-y-auto">
-            <div className="bg-gradient-to-r from-[#0f4c3a] to-[#1a6a52] px-6 py-4">
-              <h3 className="text-xl font-bold text-white">Hedef Firmalar — Toplu Düzenleme</h3>
-              <p className="text-sm text-white/80 mt-1">{selectedMusteriIds.size} müşteri seçili</p>
-            </div>
-            <form onSubmit={handleBulkSubmit} className="p-6 space-y-4">
-              <div>
-                <span className="block text-sm font-medium text-gray-700 mb-2">Mod</span>
-                <div className="flex flex-col gap-2 text-sm text-gray-800">
-                  <label className="flex items-start gap-2">
-                    <input
-                      type="radio"
-                      name="bulkMode"
-                      checked={bulkMode === "add"}
-                      onChange={() => setBulkMode("add")}
-                      disabled={saving}
-                      className="mt-1"
-                    />
-                    <span>
-                      <strong>Mevcuta ekle</strong>
-                      <span className="block text-xs text-gray-500">
-                        Seçili müşterilere bu firmaları ekler; mevcut hedef firmalar korunur.
-                      </span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-2">
-                    <input
-                      type="radio"
-                      name="bulkMode"
-                      checked={bulkMode === "replace"}
-                      onChange={() => setBulkMode("replace")}
-                      disabled={saving}
-                      className="mt-1"
-                    />
-                    <span>
-                      <strong>Mevcudu değiştir</strong>
-                      <span className="block text-xs text-gray-500">
-                        Seçili müşterilerin hedef firmaları tamamen bu listeyle değiştirilir.
-                      </span>
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <span className="block text-sm font-medium text-gray-700 mb-2">Firmalar</span>
-                <div className="border border-gray-300 rounded-lg p-3 max-h-64 overflow-y-auto bg-white">
-                  {companies.length === 0 ? (
-                    <p className="text-sm text-gray-500">Sistemde kayıtlı firma yok.</p>
-                  ) : (
-                    companies.map((c) => {
-                      const checked = bulkSelectedCompanies.includes(c);
-                      return (
-                        <label key={c} className="flex items-center gap-2 py-1 text-sm text-gray-800">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(e) => {
-                              const next = e.target.checked
-                                ? Array.from(new Set([...bulkSelectedCompanies, c]))
-                                : bulkSelectedCompanies.filter((x) => x !== c);
-                              setBulkSelectedCompanies(next);
-                            }}
-                            disabled={saving}
-                          />
-                          <span>{c}</span>
-                        </label>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={closeBulkModal}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-                  disabled={saving}
-                >
-                  İptal
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg"
-                  disabled={saving}
-                >
-                  {saving ? "Kaydediliyor..." : "Kaydet"}
                 </button>
               </div>
             </form>
