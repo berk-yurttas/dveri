@@ -11,6 +11,7 @@ class Station(PostgreSQLBase):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     company = Column(String(255), nullable=False)
+    is_entry_station = Column(Boolean, nullable=False, server_default="false")
     is_exit_station = Column(Boolean, nullable=False, server_default="false")
     station_order_code = Column(Integer, nullable=True)
 
@@ -38,8 +39,8 @@ class WorkOrder(PostgreSQLBase):
     sector = Column(String(255), nullable=False)
     company_from = Column(String(255), nullable=False)
     teklif_number = Column(String(20), nullable=False)  # Teklif Numarası (MKS-XXXXXX)
-    aselsan_order_number = Column(String(255), nullable=False)
-    order_item_number = Column(String(255), nullable=False)
+    aselsan_order_number = Column(String(255), nullable=True)   # legacy fallback only; F3 reads from work_order_pairs
+    order_item_number = Column(String(255), nullable=True)      # legacy fallback only; F3 reads from work_order_pairs
     part_number = Column(String(255), nullable=False)  # Parça Numarası
 
     # Quantity fields
@@ -64,6 +65,8 @@ class WorkOrder(PostgreSQLBase):
     prioritized_by = Column(Integer, nullable=True)
     # Whether work order has been delivered (exited from exit station)
     delivered = Column(Boolean, nullable=False, server_default="false")
+    # Whether operator overrode a route warning when this row was committed
+    route_violation = Column(Boolean, nullable=False, server_default="false")
 
     # Timestamps
     entrance_date = Column(DateTime(timezone=True), server_default=func.now())
@@ -135,3 +138,45 @@ class WorkOrderLinkDirectory(PostgreSQLBase):
     root_directory = Column(String(1024), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class WorkOrderPair(PostgreSQLBase):
+    """One (Sipariş No, Kalem No) pair belonging to a work order group.
+
+    Every package of a group shares the same pair list. F3 introduces
+    multi-pair work orders; legacy single-pair WorkOrder rows have one
+    matching WorkOrderPair row with idx=0 created by the M1 backfill.
+    """
+    __tablename__ = "work_order_pairs"
+    __table_args__ = (
+        UniqueConstraint("work_order_group_id", "idx", name="uq_work_order_pair"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    work_order_group_id = Column(String(50), nullable=False, index=True)
+    idx = Column(Integer, nullable=False)
+    aselsan_order_number = Column(String(255), nullable=False)
+    order_item_number = Column(String(255), nullable=False)
+
+
+class WorkOrderRoute(PostgreSQLBase):
+    """An ordered station for a work order group's planned route.
+
+    Position 0 is the entry station (operator's station at first scan).
+    Subsequent positions are 1, 2, 3, ... in the order the operator
+    expects the QR to be scanned. F6 references this table on every
+    subsequent scan to detect off-route and out-of-order events.
+    """
+    __tablename__ = "work_order_routes"
+    __table_args__ = (
+        UniqueConstraint("work_order_group_id", "position", name="uq_route_position"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    work_order_group_id = Column(String(50), nullable=False, index=True)
+    position = Column(Integer, nullable=False)
+    # FK→stations.id ON DELETE RESTRICT, blocks station delete while a route references it
+    station_id = Column(Integer, ForeignKey("stations.id", ondelete="RESTRICT"), nullable=False)
+    # user_id from PRIMARY database (not romiot), see WorkOrder.user_id for cross-DB rationale
+    created_by_user_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
