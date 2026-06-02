@@ -1487,6 +1487,53 @@ export default function OperatorPage() {
           </div>
         )}
       </div>
+
+      {/* F6: route picker shown after the first scan of a group */}
+      {routePickerOpen && routePickerGroupId && pinnedFirstStation && (
+        <RoutePickerModal
+          open={routePickerOpen}
+          workOrderGroupId={routePickerGroupId}
+          pinnedFirstStation={pinnedFirstStation}
+          companyStations={routePickerStations}
+          mode="create"
+          onSaved={() => {
+            setRoutePickerOpen(false);
+            setRoutePickerGroupId(null);
+            fetchWorkOrders();
+          }}
+          onCancelled={() => {
+            setRoutePickerOpen(false);
+            setRoutePickerGroupId(null);
+          }}
+        />
+      )}
+
+      {/* F6: route-deviation warning with override */}
+      <RouteWarningModal
+        open={!!routeWarning}
+        message={routeWarning?.message || ""}
+        loading={routeWarningLoading}
+        onCancel={() => setRouteWarning(null)}
+        onConfirm={async () => {
+          if (!routeWarning) return;
+          setRouteWarningLoading(true);
+          const ackPayload = { ...routeWarning.pendingPayload, acknowledged_route_violation: true };
+          const endpoint =
+            routeWarning.mode === "entrance"
+              ? "/romiot/station/work-orders/"
+              : "/romiot/station/work-orders/update-exit-date";
+          try {
+            await api.post(endpoint, ackPayload);
+            setError(null);
+            await fetchWorkOrders();
+            setRouteWarning(null);
+          } catch (err: any) {
+            setError(err?.message || "Rota uyarısı onaylanırken hata oluştu");
+          } finally {
+            setRouteWarningLoading(false);
+          }
+        }}
+      />
     </div>
   );
 }

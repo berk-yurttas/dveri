@@ -1581,6 +1581,23 @@ export default function WorkOrdersPage() {
           </div>
         </div>
       )}
+
+      {/* F6: yönetici route editor (Rota Düzenle / Rota Tanımla) */}
+      {routeModalState && (
+        <RoutePickerModal
+          open
+          workOrderGroupId={routeModalState.groupId}
+          pinnedFirstStation={routeModalState.pinnedStation}
+          companyStations={routeModalState.companyStations}
+          initialRouteStationIds={routeModalState.initialStationIds}
+          mode={routeModalState.mode}
+          onSaved={() => {
+            setRouteModalState(null);
+            fetchWorkOrders();
+          }}
+          onCancelled={() => setRouteModalState(null)}
+        />
+      )}
     </div>
   );
 }
