@@ -1,13 +1,21 @@
 "use client"
 
 import { useUser } from "@/contexts/user-context";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { api } from "@/lib/api";
 import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
 import { ExitStationBadge } from "@/components/atolye/ExitStationBadge";
+import { EntryStationBadge } from "@/components/atolye/EntryStationBadge";
+import { RoutePickerModal } from "@/components/atolye/RoutePickerModal";
+import { RouteWarningModal } from "@/components/atolye/RouteWarningModal";
 import QRCodeSVG from "react-qr-code";
 
 type Mode = "entrance" | "exit" | null;
+
+interface OrderPair {
+  aselsan_order_number: string;
+  order_item_number: string;
+}
 
 interface QRCodeData {
   work_order_group_id: string;
@@ -15,8 +23,7 @@ interface QRCodeData {
   sector: string;
   company_from: string;
   teklif_number: string;
-  aselsan_order_number: string;
-  order_item_number: string;
+  pairs: OrderPair[];
   part_number: string;
   revision_number: string;
   quantity: number;
@@ -24,6 +31,17 @@ interface QRCodeData {
   package_index: number;
   total_packages: number;
   target_date: string | null;
+}
+
+// Parse a structured FastAPI error body (api throws ApiError whose message is
+// the raw JSON response text). Returns the `detail` field (object or string) or null.
+function parseDetail(err: any): any {
+  try {
+    const parsed = JSON.parse(err?.message || "");
+    return parsed.detail ?? null;
+  } catch {
+    return null;
+  }
 }
 
 interface WorkOrder {
@@ -35,8 +53,7 @@ interface WorkOrder {
   sector: string;
   company_from: string;
   teklif_number: string;
-  aselsan_order_number: string;
-  order_item_number: string;
+  pairs: OrderPair[];
   quantity: number;
   total_quantity: number;
   package_index: number;
@@ -50,6 +67,7 @@ interface WorkOrderDetail {
   id: number;
   station_id: number;
   station_name: string;
+  is_entry_station: boolean;
   is_exit_station: boolean;
   user_id: number;
   user_name: string | null;
@@ -58,8 +76,8 @@ interface WorkOrderDetail {
   sector: string;
   company_from: string;
   teklif_number: string;
-  aselsan_order_number: string;
-  order_item_number: string;
+  pairs: OrderPair[];
+  pair_count: number;
   part_number: string;
   revision_number: string;
   quantity: number;
@@ -69,6 +87,7 @@ interface WorkOrderDetail {
   priority: number;
   prioritized_by: number | null;
   delivered: boolean;
+  route_violation: boolean;
   target_date: string | null;
   entrance_date: string | null;
   exit_date: string | null;
@@ -90,8 +109,8 @@ interface GroupedWorkOrder {
   teklif_number: string;
   main_customer: string;
   sector: string;
-  aselsan_order_number: string;
-  order_item_number: string;
+  pairs: OrderPair[];
+  pair_count: number;
   total_quantity: number;
   total_packages: number;
   priority: number;
@@ -104,6 +123,7 @@ interface WorkOrderCreateResponse {
   packages_scanned: number;
   total_packages: number;
   all_scanned: boolean;
+  is_first_scan_for_group: boolean;
   message: string;
 }
 
@@ -134,8 +154,7 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
   const sector = qrCodeData.sector;
   const companyFrom = qrCodeData.company_from;
   const teklifNumber = qrCodeData.teklif_number;
-  const aselsanOrderNumber = qrCodeData.aselsan_order_number;
-  const orderItemNumber = qrCodeData.order_item_number;
+  const pairs = Array.isArray(qrCodeData.pairs) ? qrCodeData.pairs : [];
   const partNumber = qrCodeData.part_number;
   const quantity = qrCodeData.quantity;
   const totalQuantity = qrCodeData.total_quantity;
@@ -148,8 +167,7 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
   if (!sector) errors.push("Sektör eksik");
   if (!companyFrom) errors.push("Gönderen Firma eksik");
   if (!teklifNumber) errors.push("Teklif Numarası eksik");
-  if (!aselsanOrderNumber) errors.push("ASELSAN Sipariş Numarası eksik");
-  if (!orderItemNumber) errors.push("Sipariş Kalem Numarası eksik");
+  if (pairs.length === 0) errors.push("Sipariş bilgisi eksik");
   if (!partNumber) errors.push("Parça Numarası eksik");
 
   const quantityNum = typeof quantity === "number" ? quantity : Number(quantity);
@@ -176,8 +194,10 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
     sector: String(sector).trim(),
     company_from: String(companyFrom).trim(),
     teklif_number: String(teklifNumber).trim(),
-    aselsan_order_number: String(aselsanOrderNumber).trim(),
-    order_item_number: String(orderItemNumber).trim(),
+    pairs: pairs.map((p: any) => ({
+      aselsan_order_number: String(p.aselsan_order_number || "").trim(),
+      order_item_number: String(p.order_item_number || "").trim(),
+    })),
     part_number: String(partNumber).trim(),
     quantity: quantityNum,
     total_quantity: totalQuantityNum,
@@ -217,7 +237,16 @@ export default function OperatorPage() {
   const [stationId, setStationId] = useState<number | null>(null);
   const [stationName, setStationName] = useState<string>("");
   const [stationIsExit, setStationIsExit] = useState<boolean>(false);
+  const [stationIsEntry, setStationIsEntry] = useState<boolean>(false);
+  const [stationCompany, setStationCompany] = useState<string>("");
+  const [companyStations, setCompanyStations] = useState<Array<{ id: number; name: string; company: string; is_entry_station: boolean; is_exit_station: boolean }>>([]);
   const [allStationNames, setAllStationNames] = useState<string[]>([]);
+
+  // F6 route picker (first-scan) + route warning (deviation override) state
+  const [routePickerOpen, setRoutePickerOpen] = useState(false);
+  const [routePickerGroupId, setRoutePickerGroupId] = useState<string | null>(null);
+  const [routeWarning, setRouteWarning] = useState<{ message: string; pendingPayload: any; mode: "entrance" | "exit" } | null>(null);
+  const [routeWarningLoading, setRouteWarningLoading] = useState(false);
   const [qrCodeInput, setQRCodeInput] = useState("");
   const qrCodeBufferRef = useRef<string>("");
   const qrCodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -264,12 +293,14 @@ export default function OperatorPage() {
         setIsOperator(true);
         const fetchOperatorStation = async () => {
           try {
-            const stationData = await api.get<{ station_id: number; name: string; company: string; is_exit_station: boolean }>(
+            const stationData = await api.get<{ station_id: number; name: string; company: string; is_entry_station: boolean; is_exit_station: boolean }>(
               "/romiot/station/stations/my-station"
             );
             setStationId(stationData.station_id);
             setStationName(stationData.name);
+            setStationIsEntry(stationData.is_entry_station);
             setStationIsExit(stationData.is_exit_station);
+            setStationCompany(stationData.company);
           } catch (err: any) {
             console.error("Error fetching operator station:", err);
             setError("Atölye bilgisi alınamadı. Lütfen yönetici ile iletişime geçin.");
@@ -278,8 +309,12 @@ export default function OperatorPage() {
         fetchOperatorStation();
       }
       // Fetch all station names for Parça Dökümanları generic folder detection
-      api.get<{ id: number; name: string; company: string; is_exit_station: boolean }[]>("/romiot/station/stations/")
-        .then((data) => setAllStationNames((data || []).map((s) => s.name)))
+      // and the full station list for the route picker.
+      api.get<{ id: number; name: string; company: string; is_entry_station: boolean; is_exit_station: boolean }[]>("/romiot/station/stations/")
+        .then((data) => {
+          setAllStationNames((data || []).map((s) => s.name));
+          setCompanyStations(data || []);
+        })
         .catch(() => {});
     }
   }, [user]);
@@ -333,8 +368,8 @@ export default function OperatorPage() {
             teklif_number: order.teklif_number,
             main_customer: order.main_customer,
             sector: order.sector,
-            aselsan_order_number: order.aselsan_order_number,
-            order_item_number: order.order_item_number,
+            pairs: order.pairs || [],
+            pair_count: order.pair_count ?? (order.pairs ? order.pairs.length : 0),
             total_quantity: order.total_quantity,
             total_packages: order.total_packages,
             priority: order.priority,
@@ -425,7 +460,18 @@ export default function OperatorPage() {
             return;
           }
 
-          const response = await api.post<WorkOrderCreateResponse>("/romiot/station/work-orders/", payload);
+          let response: WorkOrderCreateResponse;
+          try {
+            response = await api.post<WorkOrderCreateResponse>("/romiot/station/work-orders/", payload);
+          } catch (postError: any) {
+            // F6: a 400 whose detail is a route-deviation object opens the warning modal.
+            const detail = parseDetail(postError);
+            if (detail && typeof detail === "object" && (detail.type === "route_off" || detail.type === "route_out_of_order")) {
+              setRouteWarning({ message: detail.message, pendingPayload: payload, mode: "entrance" });
+              return;
+            }
+            throw postError;
+          }
 
           setError(null);
           setScanProgress({
@@ -444,6 +490,14 @@ export default function OperatorPage() {
           await new Promise((resolve) => setTimeout(resolve, 100));
           await fetchWorkOrders();
           setQRCodeInput("");
+
+          // F5/F6: the very first scan of a group prompts the operator to define
+          // the route. Suspend scanning until the route is saved or cancelled.
+          if (response.is_first_scan_for_group) {
+            setRoutePickerGroupId(response.work_order.work_order_group_id);
+            setRoutePickerOpen(true);
+            setMode(null);
+          }
         } else if (mode === "exit") {
           let payload;
           try {
@@ -454,10 +508,21 @@ export default function OperatorPage() {
             return;
           }
 
-          const response = await api.post<WorkOrderExitResponse>(
-            "/romiot/station/work-orders/update-exit-date",
-            payload
-          );
+          let response: WorkOrderExitResponse;
+          try {
+            response = await api.post<WorkOrderExitResponse>(
+              "/romiot/station/work-orders/update-exit-date",
+              payload
+            );
+          } catch (postError: any) {
+            // F6: a 400 whose detail is a route-deviation object opens the warning modal.
+            const detail = parseDetail(postError);
+            if (detail && typeof detail === "object" && (detail.type === "route_off" || detail.type === "route_out_of_order")) {
+              setRouteWarning({ message: detail.message, pendingPayload: payload, mode: "exit" });
+              return;
+            }
+            throw postError;
+          }
 
           setError(null);
           setScanProgress({
@@ -743,6 +808,26 @@ export default function OperatorPage() {
     }).catch((err) => console.error("Print error:", err));
   };
 
+  // Stable pinned-station reference for the route picker. Keyed on the station
+  // fields (not a fresh inline object) so RoutePickerModal's useMemo deps stay
+  // stable across unrelated re-renders.
+  const pinnedFirstStation = useMemo(() => {
+    if (stationId == null) return null;
+    return {
+      id: stationId,
+      name: stationName,
+      company: stationCompany,
+      is_entry_station: stationIsEntry,
+      is_exit_station: stationIsExit,
+    };
+  }, [stationId, stationName, stationCompany, stationIsEntry, stationIsExit]);
+
+  // Company stations available to add to the route (everything except the pinned one).
+  const routePickerStations = useMemo(
+    () => companyStations.filter((s) => s.id !== stationId),
+    [companyStations, stationId],
+  );
+
   if (!isOperator && !isYonetici) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -763,6 +848,7 @@ export default function OperatorPage() {
             {stationName && (
               <p className="text-gray-600 mt-1 inline-flex items-center gap-2 flex-wrap">
                 <span>Atölye: <span className="font-semibold">{stationName}</span></span>
+                <EntryStationBadge isEntry={stationIsEntry} size="md" />
                 <ExitStationBadge isExit={stationIsExit} size="md" />
               </p>
             )}
