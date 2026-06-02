@@ -65,9 +65,15 @@ export function CompanyTypeahead({
     return () => clearTimeout(t);
   }, [query]);
 
-  // Keep input text in sync with controlled value when parent changes externally
+  // Keep input text in sync with the controlled value ONLY when the change came
+  // from outside (parent reset / programmatic set), never while the user is
+  // actively typing — otherwise a parent that normalizes the value (trim,
+  // uppercase, form lib) would clobber in-progress input and jump the caret.
   useEffect(() => {
-    setQuery(value);
+    if (document.activeElement !== inputRef.current && value !== query) {
+      setQuery(value);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   // Click-outside closes dropdown
@@ -94,9 +100,12 @@ export function CompanyTypeahead({
     setHighlightedIndex(0);
   }, [debouncedQuery, companies]);
 
+  // Validity compares the raw value against the catalog — consistent with how
+  // commitSelection / onChange store it untrimmed and how `filtered` matches.
+  // (Selecting from the list always yields an exact catalog entry.)
   const isValid = useMemo(() => {
     if (!value || !companies) return true;
-    return companies.includes(value.trim());
+    return companies.includes(value);
   }, [value, companies]);
 
   const commitSelection = useCallback((next: string) => {
