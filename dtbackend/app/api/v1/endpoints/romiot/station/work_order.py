@@ -38,27 +38,6 @@ from app.schemas.work_order import (
 router = APIRouter()
 
 
-def _extract_musteri_companies_from_roles(role_values: list[str] | None) -> list[str]:
-    """
-    Extracts the list of müşteri companies from supplemental roles:
-    - atolye:musteri_company:<company>
-
-    Order-preserving and deduplicated.
-    """
-    if not role_values:
-        return []
-    prefix = "atolye:musteri_company:"
-    companies: list[str] = []
-    seen: set[str] = set()
-    for role in role_values:
-        if isinstance(role, str) and role.startswith(prefix):
-            value = role[len(prefix):].strip()
-            if value and value not in seen:
-                seen.add(value)
-                companies.append(value)
-    return companies
-
-
 async def _pairs_for_group(romiot_db: AsyncSession, work_order_group_id: str) -> list[OrderPair]:
     """Fetch pairs for a group ordered by idx. Falls back to the legacy scalar
     columns of the oldest WorkOrder row when work_order_pairs is empty (defensive
@@ -659,16 +638,13 @@ async def get_all_work_orders(
 
     department_value = (current_user.department or "").strip()
     company = department_value
-    musteri_targets: list[str] = []
     is_musteri = "atolye:musteri" in role_values
     is_yonetici = "atolye:yonetici" in role_values
-    if is_musteri:
-        musteri_targets = _extract_musteri_companies_from_roles(role_values)
-        if not musteri_targets:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Hedef firma rolü atanmamış. Yöneticinizle iletişime geçin.",
-            )
+    # F1: müşteri are no longer scoped by atolye:musteri_company:* target roles.
+    # Their identity is their own department; they see work orders they originated
+    # (company_from == department), scanned at ANY company's stations. The
+    # company_from filter below is the real scope; station/QR lookups are unscoped
+    # by company for müşteri.
 
     is_aselsan_satinalma = (
         "atolye:satinalma" in role_values
@@ -686,16 +662,15 @@ async def get_all_work_orders(
     if is_aselsan_satinalma and filter_company:
         target_company = filter_company
     
-    # Get all stations for target company.
-    # Müşteri sees work orders scanned at any of their picked target workshops,
-    # so scope station lookup by musteri_targets instead of their own department.
+    # Get stations. Müşteri (F1) sees work orders they originated regardless of
+    # which company's station scanned them, so their station lookup is unscoped
+    # by company; the company_from == department filter below does the scoping.
     if is_musteri:
-        station_filter = Station.company.in_(musteri_targets)
+        stations_result = await romiot_db.execute(select(Station))
     else:
-        station_filter = Station.company == target_company
-    stations_result = await romiot_db.execute(
-        select(Station).where(station_filter)
-    )
+        stations_result = await romiot_db.execute(
+            select(Station).where(Station.company == target_company)
+        )
     stations = stations_result.scalars().all()
     station_ids = [station.id for station in stations]
     
@@ -853,14 +828,14 @@ async def get_all_work_orders(
 
         if not search_station:
             if is_musteri:
-                # Müşteri: their unscanned QRs are stored under each picked target.
-                unscanned_qr_filter = QRCodeData.company.in_(musteri_targets)
+                # F1: müşteri's unscanned QRs may be stored under any target company;
+                # their identity is company_from == department, enforced in the loop below.
+                qr_rows_result = await romiot_db.execute(select(QRCodeData))
             else:
                 # Yönetici / operator / satinalma: own workshop.
-                unscanned_qr_filter = QRCodeData.company == target_company
-            qr_rows_result = await romiot_db.execute(
-                select(QRCodeData).where(unscanned_qr_filter)
-            )
+                qr_rows_result = await romiot_db.execute(
+                    select(QRCodeData).where(QRCodeData.company == target_company)
+                )
             qr_rows = qr_rows_result.scalars().all()
             synthetic_id = -1
 
