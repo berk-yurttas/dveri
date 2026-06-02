@@ -67,6 +67,17 @@ async def _pairs_for_group(romiot_db: AsyncSession, work_order_group_id: str) ->
     return []
 
 
+def _work_order_to_schema(work_order: WorkOrder, pairs: list[OrderPair]) -> WorkOrderSchema:
+    """Serialize a WorkOrder ORM row to its response schema with pairs attached.
+
+    The response schema requires a non-empty `pairs`, which is NOT an ORM column,
+    so validating the bare ORM row raises ValidationError — an unhandled 500 the
+    browser reports as "Failed to fetch". Attach pairs (a transient, non-mapped
+    instance attribute) before validation."""
+    work_order.pairs = pairs
+    return WorkOrderSchema.model_validate(work_order)
+
+
 async def _route_expected_position(
     romiot_db: AsyncSession,
     work_order_group_id: str,
@@ -321,10 +332,10 @@ async def create_work_order(
                 new_work_order, this_station, integration.api_url, integration.api_key, this_station.company, pairs,
             ))
 
-    work_order_schema = WorkOrderSchema.model_validate(new_work_order)
-    # Stuff pairs into the response model (read from DB to use canonical list)
+    # Attach pairs (canonical list from DB) before validating — the response
+    # schema requires a non-empty `pairs`, which is not an ORM column.
     pairs_for_response = await _pairs_for_group(romiot_db, work_order_data.work_order_group_id)
-    work_order_schema = work_order_schema.model_copy(update={"pairs": pairs_for_response})
+    work_order_schema = _work_order_to_schema(new_work_order, pairs_for_response)
 
     return WorkOrderCreateResponse(
         work_order=work_order_schema,
@@ -500,9 +511,8 @@ async def update_exit_date(
                 send_production_order(work_order, exit_station_obj, exit_integration.api_url, exit_integration.api_key, exit_station_obj.company, pairs)
             )
 
-    work_order_schema = WorkOrderSchema.model_validate(work_order)
     pairs_for_response = await _pairs_for_group(romiot_db, work_order.work_order_group_id)
-    work_order_schema = work_order_schema.model_copy(update={"pairs": pairs_for_response})
+    work_order_schema = _work_order_to_schema(work_order, pairs_for_response)
 
     return WorkOrderExitResponse(
         work_order=work_order_schema,
