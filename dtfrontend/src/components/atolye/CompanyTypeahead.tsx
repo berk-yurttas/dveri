@@ -42,7 +42,7 @@ export function CompanyTypeahead({
     (async () => {
       try {
         const data = await api.get<string[]>(
-          "/romiot/station/company-integrations/companies",
+          "/romiot/station/company-integration/companies",
           undefined,
           { useCache: true },
         );
