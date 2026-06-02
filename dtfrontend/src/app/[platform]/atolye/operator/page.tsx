@@ -766,7 +766,7 @@ export default function OperatorPage() {
           <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Sektör</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.sector}</td></tr>
           <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Gönderen Firma</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.company_from}</td></tr>
           <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Teklif Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.teklif_number}</td></tr>
-          ${wo.pairs.length === 1
+          ${wo.pairs.length <= 1
             ? `<tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">${wo.main_customer} Sipariş Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.total_packages > 1 ? (wo.pairs[0]?.aselsan_order_number ?? "-") + "_" + pkg.package_index : (wo.pairs[0]?.aselsan_order_number ?? "-")}</td></tr>
           <tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Sipariş Kalem Numarası</td><td style="border:1px solid #d1d5db;padding:6px;">${wo.pairs[0]?.order_item_number ?? "-"}</td></tr>`
             : `<tr><td style="border:1px solid #d1d5db;padding:6px;font-weight:600;">Malzemeler</td><td style="border:1px solid #d1d5db;padding:6px;"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="border:1px solid #d1d5db;padding:4px;text-align:left;">Sipariş No</th><th style="border:1px solid #d1d5db;padding:4px;text-align:left;">Kalem No</th></tr></thead><tbody>${wo.pairs.map((p) => `<tr><td style="border:1px solid #d1d5db;padding:4px;">${p.aselsan_order_number}</td><td style="border:1px solid #d1d5db;padding:4px;">${p.order_item_number}</td></tr>`).join("")}</tbody></table></td></tr>`}
@@ -1429,7 +1429,7 @@ export default function OperatorPage() {
                                   <td className="py-2 pr-3 font-medium text-gray-600">Teklif Numarası</td>
                                   <td className="py-2 text-gray-900">{wo.teklif_number}</td>
                                 </tr>
-                                {wo.pairs.length === 1 ? (
+                                {wo.pair_count <= 1 ? (
                                   <>
                                     <tr className="border-b border-gray-200">
                                       <td className="py-2 pr-3 font-medium text-gray-600">{wo.main_customer} Sipariş Numarası</td>
@@ -1518,17 +1518,48 @@ export default function OperatorPage() {
           if (!routeWarning) return;
           setRouteWarningLoading(true);
           const ackPayload = { ...routeWarning.pendingPayload, acknowledged_route_violation: true };
-          const endpoint =
-            routeWarning.mode === "entrance"
-              ? "/romiot/station/work-orders/"
-              : "/romiot/station/work-orders/update-exit-date";
+          const mode = routeWarning.mode;
           try {
-            await api.post(endpoint, ackPayload);
+            if (mode === "entrance") {
+              const r = await api.post<WorkOrderCreateResponse>("/romiot/station/work-orders/", ackPayload);
+              setScanProgress({
+                groupId: r.work_order.work_order_group_id,
+                scanned: r.packages_scanned,
+                total: r.total_packages,
+                allDone: r.all_scanned,
+                message: r.message,
+              });
+              if (r.all_scanned) {
+                setSuccessMessage(r.message);
+                setTimeout(() => setScanProgress(null), 5000);
+              }
+            } else {
+              const r = await api.post<WorkOrderExitResponse>("/romiot/station/work-orders/update-exit-date", ackPayload);
+              setScanProgress({
+                groupId: r.work_order.work_order_group_id,
+                scanned: r.packages_exited,
+                total: r.total_packages,
+                allDone: r.all_exited,
+                message: r.message,
+              });
+              if (r.all_exited) {
+                setSuccessMessage(r.message);
+                setTimeout(() => setScanProgress(null), 5000);
+              }
+            }
             setError(null);
             await fetchWorkOrders();
             setRouteWarning(null);
           } catch (err: any) {
-            setError(err?.message || "Rota uyarısı onaylanırken hata oluştu");
+            // Translate structured/route errors the same way the main scan path does.
+            const detail = parseDetail(err);
+            if (detail && typeof detail === "object" && detail.message) {
+              setError(detail.message);
+            } else if (typeof detail === "string") {
+              setError(detail);
+            } else {
+              setError(err?.message || "Rota uyarısı onaylanırken hata oluştu");
+            }
           } finally {
             setRouteWarningLoading(false);
           }

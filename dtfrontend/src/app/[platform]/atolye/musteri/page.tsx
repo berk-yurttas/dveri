@@ -103,6 +103,14 @@ export default function MusteriPage() {
 
   const handleGenerateBarcode = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Hedef Firma presence guard. The typeahead has `required`, but a disabled
+    // (yönetici-only) field is skipped by native validation, so guard explicitly.
+    const effectiveTarget =
+      isYonetici && !isMusteri ? userOwnCompany : barcodeFormData.target_company;
+    if (!effectiveTarget || !effectiveTarget.trim()) {
+      setError("Hedef Firma zorunludur");
+      return;
+    }
     if (barcodeFormData.quantity <= 0) {
       setError("Toplam sipariş miktarı 0'dan büyük olmalıdır");
       return;
@@ -150,7 +158,9 @@ export default function MusteriPage() {
       const payload: any = {
         main_customer: barcodeFormData.main_customer,
         sector: barcodeFormData.sector,
-        target_company: barcodeFormData.target_company,
+        // Yönetici-only users have a disabled (no-onChange) typeahead, so send
+        // their own company explicitly rather than the unset target_company state.
+        target_company: effectiveTarget,
         teklif_number: barcodeFormData.teklif_number.trim(),
         pairs: barcodeFormData.pairs.map((p) => ({
           aselsan_order_number: p.aselsan_order_number.trim(),
@@ -487,8 +497,11 @@ export default function MusteriPage() {
                               setBarcodeFormData({ ...barcodeFormData, pairs: next });
                             }}
                             onChange={(e) => {
+                              // Sanitize here too (not just keydown/paste) so separators can't
+                              // slip in via drag-drop, IME composition, or autofill.
+                              const cleaned = e.target.value.replace(/[^A-Za-z0-9]/g, "");
                               const next = [...barcodeFormData.pairs];
-                              next[idx] = { ...next[idx], aselsan_order_number: e.target.value };
+                              next[idx] = { ...next[idx], aselsan_order_number: cleaned };
                               setBarcodeFormData({ ...barcodeFormData, pairs: next });
                             }}
                             placeholder="Sipariş No"
@@ -512,8 +525,10 @@ export default function MusteriPage() {
                               setBarcodeFormData({ ...barcodeFormData, pairs: next });
                             }}
                             onChange={(e) => {
+                              // Sanitize here too (drag-drop / IME / autofill vectors).
+                              const cleaned = e.target.value.replace(/[^0-9]/g, "");
                               const next = [...barcodeFormData.pairs];
-                              next[idx] = { ...next[idx], order_item_number: e.target.value };
+                              next[idx] = { ...next[idx], order_item_number: cleaned };
                               setBarcodeFormData({ ...barcodeFormData, pairs: next });
                             }}
                             placeholder="Kalem No"
