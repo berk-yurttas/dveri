@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import {
   DndContext,
@@ -178,9 +179,12 @@ export function RoutePickerModal({
     }
   };
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  // Portal to document.body so `fixed` positions relative to the viewport. The
+  // app shell wraps page content in a `backdrop-blur` container, which would
+  // otherwise become the containing block and center the modal on the whole page.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
       <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4">
         <div className="px-6 py-4 border-b border-gray-200">
@@ -266,6 +270,7 @@ export function RoutePickerModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

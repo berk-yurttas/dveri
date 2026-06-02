@@ -1,5 +1,7 @@
 "use client";
 
+import { createPortal } from "react-dom";
+
 interface RouteWarningModalProps {
   open: boolean;
   message: string;
@@ -9,8 +11,11 @@ interface RouteWarningModalProps {
 }
 
 export function RouteWarningModal({ open, message, onCancel, onConfirm, loading }: RouteWarningModalProps) {
-  if (!open) return null;
-  return (
+  if (!open || typeof document === "undefined") return null;
+  // Portal to document.body so `fixed` positions relative to the viewport. The
+  // app shell wraps page content in a `backdrop-blur` container, which would
+  // otherwise become the containing block and center the modal on the whole page.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
       <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
         <div className="px-6 py-4 border-b border-gray-200">
@@ -40,6 +45,7 @@ export function RouteWarningModal({ open, message, onCancel, onConfirm, loading 
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
