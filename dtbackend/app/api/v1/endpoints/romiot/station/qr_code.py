@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import check_authenticated
 from app.core.database import get_romiot_db
-from app.models.romiot_models import QRCodeData
+from app.models.romiot_models import CompanyIntegration, QRCodeData, WorkOrderPair
 from app.schemas.qr_code import (
     QRCodeBatchCreate,
     QRCodeBatchResponse,
@@ -24,25 +24,23 @@ from app.schemas.user import User
 router = APIRouter()
 
 
-def _extract_musteri_companies_from_roles(role_values: list[str] | None) -> list[str]:
-    """
-    Extracts the list of müşteri companies from supplemental roles:
-    - atolye:musteri_company:<company>
-
-    Order-preserving and deduplicated.
-    """
-    if not role_values:
-        return []
-    prefix = "atolye:musteri_company:"
-    companies: list[str] = []
-    seen: set[str] = set()
-    for role in role_values:
-        if isinstance(role, str) and role.startswith(prefix):
-            value = role[len(prefix):].strip()
-            if value and value not in seen:
-                seen.add(value)
-                companies.append(value)
-    return companies
+def _normalize_pairs(payload: dict) -> list[dict]:
+    """Return the QR payload's `pairs` list, synthesizing it from legacy scalar
+    keys (`aselsan_order_number`/`order_item_number`) when the payload predates
+    F3. A single source of truth for both QR read paths so they agree on the
+    shape — including treating a `pairs: null` payload the same way (coerced to
+    a list, never returned as `None`)."""
+    pairs = payload.get("pairs")
+    if isinstance(pairs, list):
+        return pairs
+    legacy_order = payload.get("aselsan_order_number")
+    legacy_item = payload.get("order_item_number")
+    if legacy_order and legacy_item:
+        return [{
+            "aselsan_order_number": legacy_order,
+            "order_item_number": legacy_item,
+        }]
+    return []
 
 
 def generate_short_code(length: int = 12) -> str:
@@ -136,15 +134,13 @@ async def generate_qr_code(
 async def generate_qr_code_batch(
     batch_data: QRCodeBatchCreate,
     current_user: User = Depends(check_authenticated),
-    romiot_db: AsyncSession = Depends(get_romiot_db)
+    romiot_db: AsyncSession = Depends(get_romiot_db),
 ):
     """
     Generate multiple QR codes for a work order, splitting by package quantity.
-    For example: quantity=115, package_quantity=25 generates 5 QR codes
-    (4 packages of 25 and 1 package of 15).
-    Requires 'atolye:musteri' or 'atolye:yonetici' role.
+    F1: target validated against company_integrations.
+    F3: payload carries pairs[], persisted into work_order_pairs.
     """
-    # Sender ("Gönderen Firma") is always the caller's own company.
     sender_company = (current_user.department or "").strip()
     role_values = current_user.role if isinstance(current_user.role, list) else []
     is_musteri = "atolye:musteri" in role_values
@@ -154,74 +150,69 @@ async def generate_qr_code_batch(
     if not has_create_role or not sender_company:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir."
+            detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir.",
         )
 
-    # Validate target_company against the caller's allowed targets.
-    # Müşteri rule takes precedence when user has both roles.
     submitted_target = batch_data.target_company.strip()
     if not submitted_target:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Hedef firma boş olamaz.",
-        )
-    if is_musteri:
-        allowed_targets = _extract_musteri_companies_from_roles(role_values)
-        if not allowed_targets:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Hedef firma rolü atanmamış. Yöneticinizle iletişime geçin.",
-            )
-        if submitted_target not in allowed_targets:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Bu hedef firma için QR kod oluşturma yetkiniz yok.",
-            )
-    elif is_yonetici:
+        raise HTTPException(status_code=400, detail="Hedef firma boş olamaz.")
+
+    # F1.4: yönetici-only locks target to own company
+    if is_yonetici and not is_musteri:
         if submitted_target != sender_company:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Bu hedef firma için QR kod oluşturma yetkiniz yok.",
             )
 
-    # Calculate packages
+    # F1: target must exist in company_integrations
+    integration_check = await romiot_db.execute(
+        select(CompanyIntegration.id).where(CompanyIntegration.company == submitted_target).limit(1)
+    )
+    if integration_check.scalar_one_or_none() is None:
+        raise HTTPException(status_code=400, detail="Hedef firma bulunamadı")
+
+    # Package math (unchanged)
     total_quantity = batch_data.quantity
     total_packages = batch_data.package_quantity
-    
     if total_packages > total_quantity:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Paket sayısı toplam parça sayısından büyük olamaz"
+            status_code=400,
+            detail="Paket sayısı toplam parça sayısından büyük olamaz",
         )
-    
-    # Calculate per-package quantities (distribute as evenly as possible)
+
     base_qty = total_quantity // total_packages
     remainder = total_quantity % total_packages
-    
-    # Generate work order group ID
+
     work_order_group_id = generate_work_order_group_id()
-    
-    # Set expiry to 1 year from now
     expires_at = datetime.now(timezone.utc) + timedelta(days=365)
-    
-    # Generate QR codes for each package
+
+    # Persist pairs once for this group
+    pair_dicts = [
+        {"aselsan_order_number": p.aselsan_order_number, "order_item_number": p.order_item_number}
+        for p in batch_data.pairs
+    ]
+    for idx, p in enumerate(pair_dicts):
+        romiot_db.add(
+            WorkOrderPair(
+                work_order_group_id=work_order_group_id,
+                idx=idx,
+                aselsan_order_number=p["aselsan_order_number"],
+                order_item_number=p["order_item_number"],
+            )
+        )
+
     packages: list[QRCodePackageInfo] = []
-    
     for i in range(1, total_packages + 1):
-        # First 'remainder' packages get base_qty + 1, the rest get base_qty
         pkg_qty = base_qty + (1 if i <= remainder else 0)
-        
-        # Build the QR data for this package.
-        # `company_from` is the SENDER (printed "Gönderen Firma") and is always
-        # the caller's own department, never the client's input.
+
         qr_data = {
             "work_order_group_id": work_order_group_id,
             "main_customer": batch_data.main_customer,
             "sector": batch_data.sector,
             "company_from": sender_company,
             "teklif_number": batch_data.teklif_number,
-            "aselsan_order_number": batch_data.aselsan_order_number,
-            "order_item_number": batch_data.order_item_number,
+            "pairs": pair_dicts,
             "part_number": batch_data.part_number,
             "revision_number": batch_data.revision_number,
             "quantity": pkg_qty,
@@ -230,13 +221,12 @@ async def generate_qr_code_batch(
             "total_packages": total_packages,
             "target_date": batch_data.target_date.isoformat(),
         }
-        
+
         data_json = json.dumps(qr_data)
-        
-        # Generate unique code
-        max_retries = 5
+
+        # Unique short code (5 retries)
         code = None
-        for _ in range(max_retries):
+        for _ in range(5):
             candidate = generate_short_code(12)
             existing = await romiot_db.execute(
                 select(QRCodeData).where(QRCodeData.code == candidate)
@@ -244,36 +234,31 @@ async def generate_qr_code_batch(
             if not existing.scalar_one_or_none():
                 code = candidate
                 break
-        
+
         if not code:
+            await romiot_db.rollback()
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"QR kod oluşturulamadı (paket {i}). Lütfen tekrar deneyin."
+                status_code=500,
+                detail=f"QR kod oluşturulamadı (paket {i}). Lütfen tekrar deneyin.",
             )
-        
-        # Create QR code data record. `company` is the TARGET (storage tenant).
-        qr_code_record = QRCodeData(
+
+        romiot_db.add(QRCodeData(
             code=code,
             data=data_json,
             company=submitted_target,
-            expires_at=expires_at
-        )
-        romiot_db.add(qr_code_record)
-        
-        packages.append(QRCodePackageInfo(
-            code=code,
-            package_index=i,
-            quantity=pkg_qty
+            expires_at=expires_at,
         ))
-    
+
+        packages.append(QRCodePackageInfo(code=code, package_index=i, quantity=pkg_qty))
+
     await romiot_db.commit()
-    
+
     return QRCodeBatchResponse(
         work_order_group_id=work_order_group_id,
         total_packages=total_packages,
         total_quantity=total_quantity,
         packages=packages,
-        expires_at=expires_at
+        expires_at=expires_at,
     )
 
 
@@ -281,42 +266,32 @@ async def generate_qr_code_batch(
 async def retrieve_qr_data(
     code: str,
     current_user: User = Depends(check_authenticated),
-    romiot_db: AsyncSession = Depends(get_romiot_db)
+    romiot_db: AsyncSession = Depends(get_romiot_db),
 ):
     """
-    Retrieve the full QR code data using the short code.
-    This endpoint is called by the barcode scanner to decompress the QR code.
-    Returns the original JSON structure that was stored.
-    Requires 'atolye:operator' role.
+    Retrieve full QR data using the short code. F3: legacy QR payloads that
+    contain `aselsan_order_number`/`order_item_number` are normalized into the
+    new `pairs:[{...}]` shape on the fly so old printed QRs keep working.
     """
-    # Find QR code data by code
-    result = await romiot_db.execute(
-        select(QRCodeData).where(QRCodeData.code == code)
-    )
+    result = await romiot_db.execute(select(QRCodeData).where(QRCodeData.code == code))
     qr_record = result.scalar_one_or_none()
-    
     if not qr_record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="QR kod bulunamadı"
-        )
-    
-    # Check if expired
+        raise HTTPException(status_code=404, detail="QR kod bulunamadı")
     if qr_record.expires_at and qr_record.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="QR kodun süresi dolmuş"
-        )
-    
-    # Parse JSON data and return as-is
+        raise HTTPException(status_code=410, detail="QR kodun süresi dolmuş")
+
     try:
         data_dict = json.loads(qr_record.data)
-        return QRCodeDataRetrieve(data=data_dict)
-    except (json.JSONDecodeError, ValueError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="QR kod verisi okunamadı"
-        )
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(status_code=500, detail="QR kod verisi okunamadı")
+
+    # Legacy normalization — drop the legacy scalar keys and set a canonical
+    # `pairs` list (shared helper keeps this identical to the /group endpoint).
+    data_dict.pop("aselsan_order_number", None)
+    data_dict.pop("order_item_number", None)
+    data_dict["pairs"] = _normalize_pairs(data_dict)
+
+    return QRCodeDataRetrieve(data=data_dict)
 
 
 @router.get("/group/{work_order_group_id}", response_model=list[dict])
@@ -327,53 +302,36 @@ async def get_qr_codes_by_work_order_group(
 ):
     """
     Retrieve all QR codes for a work order group.
-    Musteri users can only access their own work orders (company_from match).
+
+    F1: müşteri sees groups they originated (JSON `company_from = department`).
+    Other atolye roles see groups stored under their own company.
     """
     role_values = current_user.role if current_user.role and isinstance(current_user.role, list) else []
     has_atolye_role = any(
-        role in {"atolye:operator", "atolye:yonetici", "atolye:musteri", "atolye:satinalma"}
-        for role in role_values
+        r in {"atolye:operator", "atolye:yonetici", "atolye:musteri", "atolye:satinalma"}
+        for r in role_values
     )
     if not has_atolye_role:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Atölye yetkisi gereklidir."
-        )
+        raise HTTPException(status_code=403, detail="Atölye yetkisi gereklidir.")
 
     department_value = (current_user.department or "").strip()
     if not department_value:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Kullanıcı şirket bilgisi bulunamadı."
-        )
+        raise HTTPException(status_code=403, detail="Kullanıcı şirket bilgisi bulunamadı.")
 
     is_musteri = "atolye:musteri" in role_values
-    musteri_targets: list[str] = []
-    if is_musteri:
-        musteri_targets = _extract_musteri_companies_from_roles(role_values)
-        if not musteri_targets:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Hedef firma rolü atanmamış. Yöneticinizle iletişime geçin.",
-            )
 
     if is_musteri:
-        # Müşteri sees QR groups stored under any of their target companies.
         query = text(
             """
             SELECT code, data
             FROM qr_code_data
-            WHERE company = ANY(:companies)
-              AND data::jsonb ->> 'work_order_group_id' = :group_id
+            WHERE data::jsonb ->> 'work_order_group_id' = :group_id
+              AND data::jsonb ->> 'company_from' = :dept
             ORDER BY (data::jsonb ->> 'package_index')::int
             """
         )
-        result = await romiot_db.execute(
-            query,
-            {"companies": musteri_targets, "group_id": work_order_group_id},
-        )
+        result = await romiot_db.execute(query, {"group_id": work_order_group_id, "dept": department_value})
     else:
-        # Yönetici / operator / satinalma: scoped to their own department.
         query = text(
             """
             SELECT code, data
@@ -383,12 +341,9 @@ async def get_qr_codes_by_work_order_group(
             ORDER BY (data::jsonb ->> 'package_index')::int
             """
         )
-        result = await romiot_db.execute(
-            query,
-            {"company": department_value, "group_id": work_order_group_id},
-        )
-    rows = result.fetchall()
+        result = await romiot_db.execute(query, {"company": department_value, "group_id": work_order_group_id})
 
+    rows = result.fetchall()
     if not rows:
         return []
 
@@ -399,29 +354,24 @@ async def get_qr_codes_by_work_order_group(
         except (json.JSONDecodeError, ValueError):
             continue
 
-        if is_musteri:
-            # Defense-in-depth: müşteri's own QRs always carry their department
-            # as the JSON's company_from (server-set at creation).
-            if (payload.get("company_from") or "").strip() != department_value:
-                continue
+        # Normalize legacy single-pair payloads (shared helper — identical shape
+        # to the /retrieve endpoint).
+        pairs = _normalize_pairs(payload)
 
-        response_items.append(
-            {
-                "code": row.code,
-                "work_order_group_id": payload.get("work_order_group_id"),
-                "main_customer": payload.get("main_customer"),
-                "sector": payload.get("sector"),
-                "company_from": payload.get("company_from"),
-                "teklif_number": payload.get("teklif_number"),
-                "aselsan_order_number": payload.get("aselsan_order_number"),
-                "order_item_number": payload.get("order_item_number"),
-                "part_number": payload.get("part_number"),
-                "quantity": payload.get("quantity"),
-                "total_quantity": payload.get("total_quantity"),
-                "package_index": payload.get("package_index"),
-                "total_packages": payload.get("total_packages"),
-                "target_date": payload.get("target_date"),
-            }
-        )
+        response_items.append({
+            "code": row.code,
+            "work_order_group_id": payload.get("work_order_group_id"),
+            "main_customer": payload.get("main_customer"),
+            "sector": payload.get("sector"),
+            "company_from": payload.get("company_from"),
+            "teklif_number": payload.get("teklif_number"),
+            "pairs": pairs,
+            "part_number": payload.get("part_number"),
+            "quantity": payload.get("quantity"),
+            "total_quantity": payload.get("total_quantity"),
+            "package_index": payload.get("package_index"),
+            "total_packages": payload.get("total_packages"),
+            "target_date": payload.get("target_date"),
+        })
 
     return response_items

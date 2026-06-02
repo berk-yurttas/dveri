@@ -3,14 +3,15 @@ from typing import Any, Dict
 
 from pydantic import BaseModel, Field
 
+from app.schemas.order_pair import OrderPair
+
 
 class QRCodeDataCreate(BaseModel):
     """Schema for creating a new QR code with compressed data - accepts any JSON structure"""
-    data: Dict[str, Any]  # Flexible JSON structure for future changes
+    data: Dict[str, Any]
 
 
 class QRCodeDataResponse(BaseModel):
-    """Response with the short code to embed in QR"""
     code: str
     expires_at: datetime | None = None
 
@@ -20,7 +21,7 @@ class QRCodeDataResponse(BaseModel):
 
 class QRCodeDataRetrieve(BaseModel):
     """Full QR code data retrieved by code - returns the original JSON structure"""
-    data: Dict[str, Any]  # Returns the original JSON structure
+    data: Dict[str, Any]
 
 
 class QRCodeBatchCreate(BaseModel):
@@ -36,8 +37,7 @@ class QRCodeBatchCreate(BaseModel):
     sector: str = Field(..., description="Sektör")
     target_company: str = Field(..., description="Hedef Firma — QR'ın oluşturulduğu hedef şirket")
     teklif_number: str = Field(..., description="Teklif Numarası")
-    aselsan_order_number: str = Field(..., description="ASELSAN Sipariş Numarası")
-    order_item_number: str = Field(..., description="Sipariş Kalem Numarası")
+    pairs: list[OrderPair] = Field(..., min_length=1, description="(Sipariş No, Kalem No) çiftleri")
     part_number: str = Field(..., description="Parça Numarası")
     revision_number: str | None = Field(None, description="Revizyon Numarası")
     quantity: int = Field(..., gt=0, description="Toplam Sipariş Miktarı")
@@ -46,14 +46,12 @@ class QRCodeBatchCreate(BaseModel):
 
 
 class QRCodePackageInfo(BaseModel):
-    """Info for a single package QR code"""
     code: str
     package_index: int
     quantity: int
 
 
 class QRCodeBatchResponse(BaseModel):
-    """Response with all QR codes for a work order"""
     work_order_group_id: str
     total_packages: int
     total_quantity: int

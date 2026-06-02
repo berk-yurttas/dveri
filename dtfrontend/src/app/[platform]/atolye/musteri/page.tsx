@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import QRCodeSVG from "react-qr-code";
 import { DateInput } from "@/components/ui/date-input";
+import { CompanyTypeahead } from "@/components/atolye/CompanyTypeahead";
 
 interface PackageInfo {
   code: string;
@@ -20,13 +21,17 @@ interface BatchQRResponse {
   expires_at: string | null;
 }
 
+interface OrderPair {
+  aselsan_order_number: string;
+  order_item_number: string;
+}
+
 interface BarcodeFormData {
   main_customer: string;
   sector: string;
   target_company: string;
   teklif_number: string;
-  aselsan_order_number: string;
-  order_item_number: string;
+  pairs: OrderPair[];
   part_number: string;
   revision_number: string;
   quantity: number;
@@ -34,53 +39,47 @@ interface BarcodeFormData {
   target_date: string;
 }
 
+function validatePair(pair: OrderPair, all: OrderPair[], idx: number, mainCustomer: string): string[] {
+  const errs: string[] = [];
+  if (!pair.aselsan_order_number.trim()) errs.push("Sipariş No boş");
+  if (!pair.order_item_number.trim()) errs.push("Kalem No boş");
+  if (mainCustomer === "ASELSAN" && pair.aselsan_order_number && !/^2\d[YD]/.test(pair.aselsan_order_number.trim())) {
+    errs.push("Sipariş No 20Y/D–29Y/D ile başlamalı");
+  }
+  if (mainCustomer === "ASELSAN" && pair.order_item_number) {
+    const n = Number(pair.order_item_number);
+    if (!/^\d+$/.test(pair.order_item_number) || n <= 0 || n % 10 !== 0) {
+      errs.push("Kalem No 10'un katı olmalı");
+    }
+  }
+  // duplicate detection
+  const isDup = all.some((p, i) =>
+    i !== idx &&
+    p.aselsan_order_number.trim() === pair.aselsan_order_number.trim() &&
+    p.order_item_number.trim() === pair.order_item_number.trim() &&
+    pair.aselsan_order_number.trim() !== "",
+  );
+  if (isDup) errs.push("Bu çift birden fazla eklenmiş");
+  return errs;
+}
+
 export default function MusteriPage() {
   const { user } = useUser();
   const [isMusteri, setIsMusteri] = useState(false);
   const [isYonetici, setIsYonetici] = useState(false);
-  const [userCompanies, setUserCompanies] = useState<string[]>([]);
   const [userOwnCompany, setUserOwnCompany] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Check user roles and extract sender + allowed targets.
+  // Check user roles and set sender company.
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
-      const musteriRole = user.role.find(
-        (role) => typeof role === "string" && role === "atolye:musteri"
-      );
-      const yoneticiRole = user.role.find(
-        (role) => typeof role === "string" && role === "atolye:yonetici"
-      );
+      const musteriRole = user.role.find((r) => typeof r === "string" && r === "atolye:musteri");
+      const yoneticiRole = user.role.find((r) => typeof r === "string" && r === "atolye:yonetici");
       if (musteriRole || yoneticiRole) {
         setIsMusteri(!!musteriRole);
         setIsYonetici(!!yoneticiRole);
-
-        // Sender ("Gönderen Firma") is always the user's own company.
-        const ownCompany = (user.department || user.company || "").trim();
-        setUserOwnCompany(ownCompany);
-
-        // Targets ("Hedef Firma" dropdown options) — for müşteri, the
-        // atolye:musteri_company:<X> role values; for yönetici-only, their own
-        // company (a single allowed self-target preserves the existing flow).
-        const prefix = "atolye:musteri_company:";
-        const seen = new Set<string>();
-        const targets: string[] = [];
-        if (musteriRole) {
-          for (const role of user.role) {
-            if (typeof role === "string" && role.startsWith(prefix)) {
-              const value = role.slice(prefix.length).trim();
-              if (value && !seen.has(value)) {
-                seen.add(value);
-                targets.push(value);
-              }
-            }
-          }
-          setUserCompanies(targets);
-        } else {
-          // Yönetici-only: target == own company.
-          setUserCompanies(ownCompany ? [ownCompany] : []);
-        }
+        setUserOwnCompany((user.department || user.company || "").trim());
       }
     }
   }, [user]);
@@ -91,8 +90,7 @@ export default function MusteriPage() {
     sector: "",
     target_company: "",
     teklif_number: "",
-    aselsan_order_number: "",
-    order_item_number: "",
+    pairs: [{ aselsan_order_number: "", order_item_number: "" }],
     part_number: "",
     revision_number: "",
     quantity: 0,
@@ -103,20 +101,16 @@ export default function MusteriPage() {
   const [selectedPackageIndex, setSelectedPackageIndex] = useState<number>(0);
   const qrCodeRef = useRef<HTMLDivElement | null>(null);
 
-  // Default target_company to the first allowed target; preserve user's choice if it is still valid.
-  useEffect(() => {
-    if (userCompanies.length > 0 && (isMusteri || isYonetici)) {
-      setBarcodeFormData((prev) => ({
-        ...prev,
-        target_company: userCompanies.includes(prev.target_company)
-          ? prev.target_company
-          : userCompanies[0],
-      }));
-    }
-  }, [userCompanies, isMusteri, isYonetici]);
-
   const handleGenerateBarcode = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Hedef Firma presence guard. The typeahead has `required`, but a disabled
+    // (yönetici-only) field is skipped by native validation, so guard explicitly.
+    const effectiveTarget =
+      isYonetici && !isMusteri ? userOwnCompany : barcodeFormData.target_company;
+    if (!effectiveTarget || !effectiveTarget.trim()) {
+      setError("Hedef Firma zorunludur");
+      return;
+    }
     if (barcodeFormData.quantity <= 0) {
       setError("Toplam sipariş miktarı 0'dan büyük olmalıdır");
       return;
@@ -134,20 +128,13 @@ export default function MusteriPage() {
       return;
     }
 
-    // ASELSAN-specific format validations
-    if (barcodeFormData.main_customer === "ASELSAN") {
-      const orderNo = barcodeFormData.aselsan_order_number.trim();
-      if (!/^2\d[YD]/.test(orderNo)) {
-        setError("ASELSAN Sipariş Numarası 20Y/20D ile 29Y/29D arasında bir önek ile başlamalıdır");
-        return;
-      }
-
-      const itemNoStr = barcodeFormData.order_item_number.trim();
-      const itemNo = Number(itemNoStr);
-      if (!/^\d+$/.test(itemNoStr) || itemNo <= 0 || itemNo % 10 !== 0) {
-        setError("ASELSAN Sipariş Kalem Numarası 10'un katı (pozitif) bir sayı olmalıdır");
-        return;
-      }
+    // Per-row pair validation (includes ASELSAN-specific format checks + duplicate detection)
+    const pairErrors = barcodeFormData.pairs.flatMap((p, i) =>
+      validatePair(p, barcodeFormData.pairs, i, barcodeFormData.main_customer)
+    );
+    if (pairErrors.length > 0) {
+      setError(pairErrors.join("; "));
+      return;
     }
 
     // Validate target_date is at least 7 days from today
@@ -171,10 +158,14 @@ export default function MusteriPage() {
       const payload: any = {
         main_customer: barcodeFormData.main_customer,
         sector: barcodeFormData.sector,
-        target_company: barcodeFormData.target_company,
+        // Yönetici-only users have a disabled (no-onChange) typeahead, so send
+        // their own company explicitly rather than the unset target_company state.
+        target_company: effectiveTarget,
         teklif_number: barcodeFormData.teklif_number.trim(),
-        aselsan_order_number: barcodeFormData.aselsan_order_number,
-        order_item_number: barcodeFormData.order_item_number,
+        pairs: barcodeFormData.pairs.map((p) => ({
+          aselsan_order_number: p.aselsan_order_number.trim(),
+          order_item_number: p.order_item_number.trim(),
+        })),
         part_number: barcodeFormData.part_number,
         revision_number: barcodeFormData.revision_number,
         quantity: barcodeFormData.quantity,
@@ -234,7 +225,34 @@ export default function MusteriPage() {
     qrSize: number,
     totalQuantity: number,
     totalPackages: number
-  ) => `
+  ) => {
+    const pairsRowHtml = barcodeFormData.pairs.length === 1
+      ? `
+        <tr><td style="border:1px solid #d1d5db; padding:6px; font-weight:600;">${barcodeFormData.main_customer} Sipariş Numarası</td><td style="border:1px solid #d1d5db; padding:6px;">${totalPackages > 1 ? barcodeFormData.pairs[0].aselsan_order_number + "_" + pkg.package_index : barcodeFormData.pairs[0].aselsan_order_number}</td></tr>
+        <tr><td style="border:1px solid #d1d5db; padding:6px; font-weight:600;">Sipariş Kalem Numarası</td><td style="border:1px solid #d1d5db; padding:6px;">${barcodeFormData.pairs[0].order_item_number}</td></tr>
+      `
+      : `
+        <tr>
+          <td style="border:1px solid #d1d5db; padding:6px; font-weight:600;">Malzemeler</td>
+          <td style="border:1px solid #d1d5db; padding:6px;">
+            <table style="width:100%; border-collapse:collapse;">
+              <thead><tr>
+                <th style="border:1px solid #d1d5db; padding:4px; font-weight:600; text-align:left;">Sipariş No</th>
+                <th style="border:1px solid #d1d5db; padding:4px; font-weight:600; text-align:left;">Kalem No</th>
+              </tr></thead>
+              <tbody>
+                ${barcodeFormData.pairs.map(p => `
+                  <tr>
+                    <td style="border:1px solid #d1d5db; padding:4px;">${p.aselsan_order_number}</td>
+                    <td style="border:1px solid #d1d5db; padding:4px;">${p.order_item_number}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      `;
+    return `
     <div class="package-card">
       <div style="text-align: center; margin-bottom: 16px;">
         ${svgMarkup}
@@ -245,8 +263,7 @@ export default function MusteriPage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.sector}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${userOwnCompany}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.teklif_number}</td></tr>
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${totalPackages > 1 ? barcodeFormData.aselsan_order_number + "_" + pkg.package_index : barcodeFormData.aselsan_order_number}</td></tr>
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sipariş Kalem Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.order_item_number}</td></tr>
+          ${pairsRowHtml}
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.part_number}${barcodeFormData.revision_number ? "/" + barcodeFormData.revision_number : ""}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Toplam Sipariş Miktarı</td><td style="border: 1px solid #d1d5db; padding: 6px;">${pkg.quantity}/${totalQuantity}</td></tr>
           ${barcodeFormData.target_date ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Bitirme Tarihi</td><td style="border: 1px solid #d1d5db; padding: 6px;">${new Date(barcodeFormData.target_date).toLocaleDateString("tr-TR")}</td></tr>` : ""}
@@ -254,6 +271,7 @@ export default function MusteriPage() {
       </table>
     </div>
   `;
+  };
 
   const printPageStyles = `
     @page { margin: 10mm; size: A4; }
@@ -437,34 +455,14 @@ export default function MusteriPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Firma *</label>
-                <select
-                  value={barcodeFormData.target_company}
-                  onChange={(e) =>
-                    setBarcodeFormData({ ...barcodeFormData, target_company: e.target.value })
-                  }
-                  className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 ${
-                    userCompanies.length <= 1 ? "bg-gray-100 cursor-not-allowed" : "bg-white"
-                  }`}
-                  disabled={userCompanies.length === 0 || userCompanies.length === 1}
+                <label htmlFor="target_company" className="block text-sm font-medium text-gray-700 mb-2">Hedef Firma *</label>
+                <CompanyTypeahead
+                  id="target_company"
+                  value={isYonetici && !isMusteri ? userOwnCompany : barcodeFormData.target_company}
+                  onChange={(v) => setBarcodeFormData({ ...barcodeFormData, target_company: v })}
+                  disabled={isYonetici && !isMusteri}
                   required
-                >
-                  {userCompanies.length === 0 && (
-                    <option value="" disabled>
-                      Yetkili hedef firma yok
-                    </option>
-                  )}
-                  {userCompanies.map((company) => (
-                    <option key={company} value={company}>
-                      {company}
-                    </option>
-                  ))}
-                </select>
-                {isMusteri && userCompanies.length === 0 && (
-                  <p className="mt-1 text-xs text-red-600">
-                    Hedef firma rolü atanmamış. Yöneticinizle iletişime geçin.
-                  </p>
-                )}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Teklif Numarası *</label>
@@ -477,37 +475,101 @@ export default function MusteriPage() {
                   required
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">{barcodeFormData.main_customer} Sipariş Numarası *</label>
-                <input
-                  type="text"
-                  value={barcodeFormData.aselsan_order_number}
-                  onChange={(e) => setBarcodeFormData({ ...barcodeFormData, aselsan_order_number: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                  placeholder={`${String(new Date().getFullYear() % 100).padStart(2, "0")}Y0021A53`}
-                  required
-                />
-                {barcodeFormData.main_customer === "ASELSAN" && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    ASELSAN Sipariş Numarası formatına uygun olmalıdır (örnek: 23Y0021A53, 25D0021A53)
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Sipariş Kalem Numarası *</label>
-                <input
-                  type="number"
-                  min="10"
-                  step="10"
-                  value={barcodeFormData.order_item_number}
-                  onChange={(e) => setBarcodeFormData({ ...barcodeFormData, order_item_number: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                  placeholder="10, 20, 30, ..."
-                  required
-                />
-                {barcodeFormData.main_customer === "ASELSAN" && (
-                  <p className="mt-1 text-xs text-gray-500">10&apos;un katı olmalıdır</p>
-                )}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Malzemeler *</label>
+                <div className="space-y-2">
+                  {barcodeFormData.pairs.map((pair, idx) => {
+                    const errors = validatePair(pair, barcodeFormData.pairs, idx, barcodeFormData.main_customer);
+                    return (
+                      <div key={idx} className="flex flex-wrap gap-2 items-start">
+                        <div className="flex-1 min-w-[180px]">
+                          <input
+                            type="text"
+                            value={pair.aselsan_order_number}
+                            onKeyDown={(e) => {
+                              if (e.key.length === 1 && !/^[A-Za-z0-9]$/.test(e.key)) e.preventDefault();
+                            }}
+                            onPaste={(e) => {
+                              e.preventDefault();
+                              const sanitized = e.clipboardData.getData("text").replace(/[^A-Za-z0-9]/g, "");
+                              const next = [...barcodeFormData.pairs];
+                              next[idx] = { ...next[idx], aselsan_order_number: sanitized };
+                              setBarcodeFormData({ ...barcodeFormData, pairs: next });
+                            }}
+                            onChange={(e) => {
+                              // Sanitize here too (not just keydown/paste) so separators can't
+                              // slip in via drag-drop, IME composition, or autofill.
+                              const cleaned = e.target.value.replace(/[^A-Za-z0-9]/g, "");
+                              const next = [...barcodeFormData.pairs];
+                              next[idx] = { ...next[idx], aselsan_order_number: cleaned };
+                              setBarcodeFormData({ ...barcodeFormData, pairs: next });
+                            }}
+                            placeholder="Sipariş No"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                            required
+                          />
+                        </div>
+                        <div className="w-32">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={pair.order_item_number}
+                            onKeyDown={(e) => {
+                              if (e.key.length === 1 && !/^[0-9]$/.test(e.key)) e.preventDefault();
+                            }}
+                            onPaste={(e) => {
+                              e.preventDefault();
+                              const sanitized = e.clipboardData.getData("text").replace(/[^0-9]/g, "");
+                              const next = [...barcodeFormData.pairs];
+                              next[idx] = { ...next[idx], order_item_number: sanitized };
+                              setBarcodeFormData({ ...barcodeFormData, pairs: next });
+                            }}
+                            onChange={(e) => {
+                              // Sanitize here too (drag-drop / IME / autofill vectors).
+                              const cleaned = e.target.value.replace(/[^0-9]/g, "");
+                              const next = [...barcodeFormData.pairs];
+                              next[idx] = { ...next[idx], order_item_number: cleaned };
+                              setBarcodeFormData({ ...barcodeFormData, pairs: next });
+                            }}
+                            placeholder="Kalem No"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                            required
+                          />
+                        </div>
+                        {barcodeFormData.pairs.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBarcodeFormData({
+                                ...barcodeFormData,
+                                pairs: barcodeFormData.pairs.filter((_, i) => i !== idx),
+                              })
+                            }
+                            className="px-2 py-1 text-red-600 hover:bg-red-50 rounded"
+                            aria-label="Malzemeyi kaldır"
+                          >
+                            ×
+                          </button>
+                        )}
+                        {errors.length > 0 && (
+                          <div className="basis-full text-xs text-red-600 pl-1">{errors.join(", ")}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setBarcodeFormData({
+                        ...barcodeFormData,
+                        pairs: [...barcodeFormData.pairs, { aselsan_order_number: "", order_item_number: "" }],
+                      })
+                    }
+                    className="px-3 py-1 text-sm border border-dashed border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  >
+                    + Malzeme Ekle
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">{barcodeFormData.main_customer} Parça Numarası *</label>
@@ -571,7 +633,7 @@ export default function MusteriPage() {
             </div>
             <button
               type="submit"
-              disabled={loading || userCompanies.length === 0}
+              disabled={loading}
               className="w-full mt-6 px-4 py-2 bg-[#fe9526] hover:bg-[#e5861f] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "Oluşturuluyor..." : "Barkod Oluştur"}
@@ -656,18 +718,44 @@ export default function MusteriPage() {
                             <td className="py-2 px-3 font-semibold text-gray-700">Teklif Numarası</td>
                             <td className="py-2 px-3 text-gray-900">{barcodeFormData.teklif_number}</td>
                           </tr>
-                          <tr className="border-b border-gray-200">
-                            <td className="py-2 px-3 font-semibold text-gray-700">{barcodeFormData.main_customer} Sipariş Numarası</td>
-                            <td className="py-2 px-3 text-gray-900">
-                              {generatedBatch && generatedBatch.total_packages > 1
-                                ? `${barcodeFormData.aselsan_order_number}_${pkg.package_index}`
-                                : barcodeFormData.aselsan_order_number}
-                            </td>
-                          </tr>
-                          <tr className="border-b border-gray-200">
-                            <td className="py-2 px-3 font-semibold text-gray-700">Sipariş Kalem Numarası</td>
-                            <td className="py-2 px-3 text-gray-900">{barcodeFormData.order_item_number}</td>
-                          </tr>
+                          {barcodeFormData.pairs.length === 1 ? (
+                            <>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 px-3 font-semibold text-gray-700">{barcodeFormData.main_customer} Sipariş Numarası</td>
+                                <td className="py-2 px-3 text-gray-900">
+                                  {generatedBatch && generatedBatch.total_packages > 1
+                                    ? `${barcodeFormData.pairs[0].aselsan_order_number}_${pkg.package_index}`
+                                    : barcodeFormData.pairs[0].aselsan_order_number}
+                                </td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 px-3 font-semibold text-gray-700">Sipariş Kalem Numarası</td>
+                                <td className="py-2 px-3 text-gray-900">{barcodeFormData.pairs[0].order_item_number}</td>
+                              </tr>
+                            </>
+                          ) : (
+                            <tr className="border-b border-gray-200">
+                              <td className="py-2 px-3 font-semibold text-gray-700 align-top">Malzemeler</td>
+                              <td className="py-2 px-3 text-gray-900">
+                                <table className="w-full border-collapse text-xs">
+                                  <thead className="bg-gray-50">
+                                    <tr>
+                                      <th className="px-2 py-1 text-left">Sipariş No</th>
+                                      <th className="px-2 py-1 text-left">Kalem No</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {barcodeFormData.pairs.map((p, i) => (
+                                      <tr key={i} className="border-t border-gray-100">
+                                        <td className="px-2 py-1">{p.aselsan_order_number}</td>
+                                        <td className="px-2 py-1">{p.order_item_number}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          )}
                           <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">{barcodeFormData.main_customer} Parça Numarası</td>
                             <td className="py-2 px-3 text-gray-900">{barcodeFormData.part_number}{barcodeFormData.revision_number ? `/${barcodeFormData.revision_number}` : ""}</td>

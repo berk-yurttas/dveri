@@ -10,7 +10,16 @@ from app.api.v1.endpoints.romiot.station.auth import check_station_operator_role
 from app.core.auth import check_authenticated
 from app.core.database import get_postgres_db, get_romiot_db
 from app.models.postgres_models import User as PostgresUser
-from app.models.romiot_models import CompanyIntegration, PriorityToken, QRCodeData, Station, WorkOrder
+from app.models.romiot_models import (
+    CompanyIntegration,
+    PriorityToken,
+    QRCodeData,
+    Station,
+    WorkOrder,
+    WorkOrderPair,
+    WorkOrderRoute,
+)
+from app.schemas.order_pair import OrderPair
 from app.schemas.user import User
 from app.services.toy_api_service import send_production_order
 from app.services.user_service import UserService
@@ -29,25 +38,61 @@ from app.schemas.work_order import (
 router = APIRouter()
 
 
-def _extract_musteri_companies_from_roles(role_values: list[str] | None) -> list[str]:
-    """
-    Extracts the list of müşteri companies from supplemental roles:
-    - atolye:musteri_company:<company>
+async def _pairs_for_group(romiot_db: AsyncSession, work_order_group_id: str) -> list[OrderPair]:
+    """Fetch pairs for a group ordered by idx. Falls back to the legacy scalar
+    columns of the oldest WorkOrder row when work_order_pairs is empty (defensive
+    only; the M1 backfill should populate everything)."""
+    result = await romiot_db.execute(
+        select(WorkOrderPair)
+        .where(WorkOrderPair.work_order_group_id == work_order_group_id)
+        .order_by(WorkOrderPair.idx)
+    )
+    rows = result.scalars().all()
+    if rows:
+        return [OrderPair(
+            aselsan_order_number=r.aselsan_order_number,
+            order_item_number=r.order_item_number,
+        ) for r in rows]
 
-    Order-preserving and deduplicated.
+    # Fallback: oldest WorkOrder row for the group
+    legacy_result = await romiot_db.execute(
+        select(WorkOrder.aselsan_order_number, WorkOrder.order_item_number)
+        .where(WorkOrder.work_order_group_id == work_order_group_id)
+        .order_by(WorkOrder.id)
+        .limit(1)
+    )
+    legacy = legacy_result.first()
+    if legacy and legacy[0] and legacy[1]:
+        return [OrderPair(aselsan_order_number=legacy[0], order_item_number=legacy[1])]
+    return []
+
+
+async def _route_expected_position(
+    romiot_db: AsyncSession,
+    work_order_group_id: str,
+    package_index: int,
+) -> int:
+    """Return the position the NEXT scan should be at for this package.
+
+    Highest route position whose station this package has exited + 1; 0 if
+    the package has never exited any route station.
     """
-    if not role_values:
-        return []
-    prefix = "atolye:musteri_company:"
-    companies: list[str] = []
-    seen: set[str] = set()
-    for role in role_values:
-        if isinstance(role, str) and role.startswith(prefix):
-            value = role[len(prefix):].strip()
-            if value and value not in seen:
-                seen.add(value)
-                companies.append(value)
-    return companies
+    result = await romiot_db.execute(
+        select(WorkOrderRoute.position)
+        .join(WorkOrder, and_(
+            WorkOrder.station_id == WorkOrderRoute.station_id,
+            WorkOrder.work_order_group_id == WorkOrderRoute.work_order_group_id,
+            WorkOrder.package_index == package_index,
+        ))
+        .where(
+            WorkOrderRoute.work_order_group_id == work_order_group_id,
+            WorkOrder.exit_date.is_not(None),
+        )
+        .order_by(WorkOrderRoute.position.desc())
+        .limit(1)
+    )
+    highest_exited = result.scalar_one_or_none()
+    return 0 if highest_exited is None else highest_exited + 1
 
 
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -55,47 +100,110 @@ async def create_work_order(
     work_order_data: WorkOrderCreate,
     current_user: User = Depends(check_authenticated),
     romiot_db: AsyncSession = Depends(get_romiot_db),
-    postgres_db: AsyncSession = Depends(get_postgres_db)
+    postgres_db: AsyncSession = Depends(get_postgres_db),
 ):
+    """Create a new work order entry for a specific package at a station.
+
+    F3: pairs are persisted on the first scan of the group via work_order_pairs.
+    F5: first scan of a group must be at an is_entry_station (or company has none).
+    F6: subsequent scans validated against work_order_routes per-package.
     """
-    Create a new work order entry for a specific package at a station (entrance).
-    Returns progress info showing how many packages of this group have been scanned.
-    Returns 400 Bad Request if this package has already been entered at this station.
-    Requires role 'atolye:operator' where department matches the station's company.
-    """
-    # Check if user has the required role for this station
     await check_station_operator_role(work_order_data.station_id, current_user, romiot_db)
-    
-    # Get PostgreSQL user ID from username
+
     pg_user = await UserService.get_user_by_username(postgres_db, current_user.username)
     if not pg_user:
-        # Create user in PostgreSQL if it doesn't exist
         pg_user = await UserService.create_user(postgres_db, current_user.username)
     pg_user_id = pg_user.id
-    
-    # Check if this specific package already exists at this station
+
+    # Duplicate-package check (existing)
     existing_result = await romiot_db.execute(
         select(WorkOrder).where(
             and_(
                 WorkOrder.station_id == work_order_data.station_id,
                 WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
-                WorkOrder.package_index == work_order_data.package_index
+                WorkOrder.package_index == work_order_data.package_index,
             )
         )
     )
-    existing = existing_result.scalar_one_or_none()
-
-    if existing:
+    if existing_result.scalar_one_or_none():
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Bu paket (Paket {work_order_data.package_index}/{work_order_data.total_packages}) ile işlem yapılmıştır"
+            status_code=400,
+            detail=f"Bu paket (Paket {work_order_data.package_index}/{work_order_data.total_packages}) ile işlem yapılmıştır",
         )
 
-    # Check if any package from this group is currently active at a different station
-    active_at_other_station_result = await romiot_db.execute(
-        select(WorkOrder.station_id, Station.name).join(
-            Station, WorkOrder.station_id == Station.id
-        ).where(
+    # Determine if this is the first scan for the group
+    first_scan_check = await romiot_db.execute(
+        select(WorkOrder.id).where(WorkOrder.work_order_group_id == work_order_data.work_order_group_id).limit(1)
+    )
+    is_first_scan_for_group = first_scan_check.scalar_one_or_none() is None
+
+    # Look up this station for F5/F6 checks
+    this_station_result = await romiot_db.execute(
+        select(Station).where(Station.id == work_order_data.station_id)
+    )
+    this_station = this_station_result.scalar_one_or_none()
+
+    # F5: first-scan-at-entry-station rule
+    if is_first_scan_for_group and this_station is not None:
+        company_has_entry_result = await romiot_db.execute(
+            select(Station.id).where(
+                Station.company == this_station.company,
+                Station.is_entry_station == True,
+            ).limit(1)
+        )
+        company_has_entry = company_has_entry_result.scalar_one_or_none() is not None
+        if company_has_entry and not this_station.is_entry_station:
+            raise HTTPException(
+                status_code=400,
+                detail="İlk tarama bir Giriş Atölyesinde yapılmalıdır.",
+            )
+        if not company_has_entry:
+            import logging
+            logging.getLogger(__name__).warning(
+                "First scan at non-entry station accepted because company %s has no entry stations configured",
+                this_station.company,
+            )
+
+    # F6: route validation (only for groups WITH a route; grandfathered skipped)
+    route_rows_result = await romiot_db.execute(
+        select(WorkOrderRoute.position, WorkOrderRoute.station_id)
+        .where(WorkOrderRoute.work_order_group_id == work_order_data.work_order_group_id)
+        .order_by(WorkOrderRoute.position)
+    )
+    route_rows = route_rows_result.all()
+    if route_rows and not work_order_data.acknowledged_route_violation:
+        expected_pos = await _route_expected_position(
+            romiot_db, work_order_data.work_order_group_id, work_order_data.package_index,
+        )
+        this_pos = next((r.position for r in route_rows if r.station_id == work_order_data.station_id), None)
+
+        if this_pos is None:
+            raise HTTPException(status_code=400, detail={
+                "type": "route_off",
+                "message": "Bu atölye iş emrinin rotasında yok. Yine de devam etmek istiyor musunuz?",
+            })
+        if this_pos != expected_pos:
+            expected_station_name_result = await romiot_db.execute(
+                select(Station.name)
+                .join(WorkOrderRoute, WorkOrderRoute.station_id == Station.id)
+                .where(
+                    WorkOrderRoute.work_order_group_id == work_order_data.work_order_group_id,
+                    WorkOrderRoute.position == expected_pos,
+                )
+            )
+            expected_name = expected_station_name_result.scalar_one_or_none() or "—"
+            raise HTTPException(status_code=400, detail={
+                "type": "route_out_of_order",
+                "message": f"Sıradaki atölye: {expected_name} (pozisyon {expected_pos + 1}). Yine de devam etmek istiyor musunuz?",
+                "expected_position": expected_pos,
+                "actual_position": this_pos,
+            })
+
+    # Active-at-other-station check (existing)
+    active_at_other_result = await romiot_db.execute(
+        select(WorkOrder.station_id, Station.name)
+        .join(Station, WorkOrder.station_id == Station.id)
+        .where(
             and_(
                 WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
                 WorkOrder.station_id != work_order_data.station_id,
@@ -103,16 +211,14 @@ async def create_work_order(
             )
         ).limit(1)
     )
-    active_at_other = active_at_other_station_result.first()
-
+    active_at_other = active_at_other_result.first()
     if active_at_other:
-        other_station_name = active_at_other[1]
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Bu iş emri grubu şu anda \"{other_station_name}\" atölyesinde aktif. Önce mevcut atölyeden çıkış yapılmalıdır."
+            status_code=400,
+            detail=f"Bu iş emri grubu şu anda \"{active_at_other[1]}\" atölyesinde aktif. Önce mevcut atölyeden çıkış yapılmalıdır.",
         )
 
-    # Inherit priority from existing records in the same group
+    # Inherit priority (existing)
     existing_priority = 0
     existing_prioritized_by = None
     existing_group_result = await romiot_db.execute(
@@ -129,7 +235,7 @@ async def create_work_order(
         existing_priority = existing_group_record.priority
         existing_prioritized_by = existing_group_record.prioritized_by
 
-    # Look up QR creation time if a qr_code short code was provided
+    # Look up QR creation time (existing)
     qr_created_at = None
     if work_order_data.qr_code:
         qr_record_result = await romiot_db.execute(
@@ -139,7 +245,24 @@ async def create_work_order(
         if qr_record:
             qr_created_at = qr_record.created_at
 
-    # Create new work order entry for this package
+    # Persist pairs once per group (idempotent; UNIQUE catches dup inserts)
+    for idx, pair in enumerate(work_order_data.pairs):
+        existing_pair_check = await romiot_db.execute(
+            select(WorkOrderPair.id).where(
+                WorkOrderPair.work_order_group_id == work_order_data.work_order_group_id,
+                WorkOrderPair.idx == idx,
+            ).limit(1)
+        )
+        if existing_pair_check.scalar_one_or_none() is None:
+            romiot_db.add(WorkOrderPair(
+                work_order_group_id=work_order_data.work_order_group_id,
+                idx=idx,
+                aselsan_order_number=pair.aselsan_order_number,
+                order_item_number=pair.order_item_number,
+            ))
+
+    # Create WorkOrder row. Legacy scalar columns mirror pairs[0] for back-compat.
+    first_pair = work_order_data.pairs[0]
     new_work_order = WorkOrder(
         station_id=work_order_data.station_id,
         user_id=pg_user_id,
@@ -148,8 +271,8 @@ async def create_work_order(
         sector=work_order_data.sector,
         company_from=work_order_data.company_from,
         teklif_number=work_order_data.teklif_number,
-        aselsan_order_number=work_order_data.aselsan_order_number,
-        order_item_number=work_order_data.order_item_number,
+        aselsan_order_number=first_pair.aselsan_order_number,
+        order_item_number=first_pair.order_item_number,
         part_number=work_order_data.part_number,
         revision_number=work_order_data.revision_number,
         quantity=work_order_data.quantity,
@@ -162,18 +285,18 @@ async def create_work_order(
         exit_date=None,
         priority=existing_priority,
         prioritized_by=existing_prioritized_by,
+        route_violation=work_order_data.acknowledged_route_violation,
     )
-
     romiot_db.add(new_work_order)
     await romiot_db.commit()
     await romiot_db.refresh(new_work_order)
 
-    # Count how many packages of this group have been scanned at this station
+    # Count scanned (existing)
     scanned_count_result = await romiot_db.execute(
         select(func.count()).where(
             and_(
                 WorkOrder.station_id == work_order_data.station_id,
-                WorkOrder.work_order_group_id == work_order_data.work_order_group_id
+                WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
             )
         )
     )
@@ -186,27 +309,30 @@ async def create_work_order(
     else:
         message = f"Paket {work_order_data.package_index} okundu. ({packages_scanned}/{total_packages})"
 
-    # Fire-and-forget: push entrance event to external integration (e.g. Mekasan)
-    station_result = await romiot_db.execute(
-        select(Station).where(Station.id == work_order_data.station_id)
-    )
-    station_obj = station_result.scalar_one_or_none()
-    if station_obj:
+    # F3+Mekasan: push with pairs
+    if this_station:
         integration_result = await romiot_db.execute(
-            select(CompanyIntegration).where(CompanyIntegration.company == station_obj.company)
+            select(CompanyIntegration).where(CompanyIntegration.company == this_station.company)
         )
         integration = integration_result.scalar_one_or_none()
         if integration and integration.api_url and integration.api_key:
-            asyncio.create_task(
-                send_production_order(new_work_order, station_obj, integration.api_url, integration.api_key, station_obj.company)
-            )
+            pairs = await _pairs_for_group(romiot_db, work_order_data.work_order_group_id)
+            asyncio.create_task(send_production_order(
+                new_work_order, this_station, integration.api_url, integration.api_key, this_station.company, pairs,
+            ))
+
+    work_order_schema = WorkOrderSchema.model_validate(new_work_order)
+    # Stuff pairs into the response model (read from DB to use canonical list)
+    pairs_for_response = await _pairs_for_group(romiot_db, work_order_data.work_order_group_id)
+    work_order_schema = work_order_schema.model_copy(update={"pairs": pairs_for_response})
 
     return WorkOrderCreateResponse(
-        work_order=WorkOrderSchema.model_validate(new_work_order),
+        work_order=work_order_schema,
         packages_scanned=packages_scanned,
         total_packages=total_packages,
         all_scanned=all_scanned,
-        message=message
+        is_first_scan_for_group=is_first_scan_for_group,
+        message=message,
     )
 
 
@@ -250,8 +376,49 @@ async def update_exit_date(
             detail=f"Bu paket (Paket {update_data.package_index}/{work_order.total_packages}) ile çıkış işlemi yapılmıştır"
         )
 
+    # F6 route validation on exit
+    route_rows_result = await romiot_db.execute(
+        select(WorkOrderRoute.position, WorkOrderRoute.station_id)
+        .where(WorkOrderRoute.work_order_group_id == update_data.work_order_group_id)
+        .order_by(WorkOrderRoute.position)
+    )
+    route_rows = route_rows_result.all()
+    if route_rows and not update_data.acknowledged_route_violation:
+        # Expected exit position = whatever position the package is currently at
+        # (highest non-exited entry); fallback to per-package expected position - 1
+        current_entry_result = await romiot_db.execute(
+            select(WorkOrderRoute.position)
+            .join(WorkOrder, and_(
+                WorkOrder.station_id == WorkOrderRoute.station_id,
+                WorkOrder.work_order_group_id == WorkOrderRoute.work_order_group_id,
+                WorkOrder.package_index == update_data.package_index,
+            ))
+            .where(
+                WorkOrderRoute.work_order_group_id == update_data.work_order_group_id,
+                WorkOrder.exit_date.is_(None),
+            )
+            .order_by(WorkOrderRoute.position.desc())
+            .limit(1)
+        )
+        expected_exit_pos = current_entry_result.scalar_one_or_none()
+        this_pos = next((r.position for r in route_rows if r.station_id == update_data.station_id), None)
+        if expected_exit_pos is not None and this_pos != expected_exit_pos:
+            if this_pos is None:
+                raise HTTPException(status_code=400, detail={
+                    "type": "route_off",
+                    "message": "Bu atölye iş emrinin rotasında yok. Yine de devam etmek istiyor musunuz?",
+                })
+            raise HTTPException(status_code=400, detail={
+                "type": "route_out_of_order",
+                "message": "Çıkış pozisyonu sıralı değil. Yine de devam etmek istiyor musunuz?",
+                "expected_position": expected_exit_pos,
+                "actual_position": this_pos,
+            })
+
     # Update exit_date with current datetime (timezone-aware)
     work_order.exit_date = datetime.now(timezone.utc)
+    if update_data.acknowledged_route_violation:
+        work_order.route_violation = True
     await romiot_db.commit()
     await romiot_db.refresh(work_order)
 
@@ -328,12 +495,17 @@ async def update_exit_date(
         )
         exit_integration = exit_integration_result.scalar_one_or_none()
         if exit_integration and exit_integration.api_url and exit_integration.api_key:
+            pairs = await _pairs_for_group(romiot_db, work_order.work_order_group_id)
             asyncio.create_task(
-                send_production_order(work_order, exit_station_obj, exit_integration.api_url, exit_integration.api_key, exit_station_obj.company)
+                send_production_order(work_order, exit_station_obj, exit_integration.api_url, exit_integration.api_key, exit_station_obj.company, pairs)
             )
 
+    work_order_schema = WorkOrderSchema.model_validate(work_order)
+    pairs_for_response = await _pairs_for_group(romiot_db, work_order.work_order_group_id)
+    work_order_schema = work_order_schema.model_copy(update={"pairs": pairs_for_response})
+
     return WorkOrderExitResponse(
-        work_order=WorkOrderSchema.model_validate(work_order),
+        work_order=work_order_schema,
         packages_exited=packages_exited,
         total_packages=total_packages,
         all_exited=all_exited,
@@ -389,7 +561,45 @@ async def get_work_orders_by_station(
     result = await romiot_db.execute(query)
     work_orders = result.scalars().all()
 
-    return list(work_orders)
+    # Per-row pairs (cache by group_id within request to avoid N+1)
+    pairs_cache: dict[str, list[OrderPair]] = {}
+
+    async def _cached_pairs(group_id: str) -> list[OrderPair]:
+        if group_id not in pairs_cache:
+            pairs_cache[group_id] = await _pairs_for_group(romiot_db, group_id)
+        return pairs_cache[group_id]
+
+    response: list[WorkOrderList] = []
+    for wo in work_orders:
+        pairs = await _cached_pairs(wo.work_order_group_id)
+        response.append(WorkOrderList(
+            id=wo.id,
+            station_id=wo.station_id,
+            user_id=wo.user_id,
+            work_order_group_id=wo.work_order_group_id,
+            main_customer=wo.main_customer,
+            sector=wo.sector,
+            company_from=wo.company_from,
+            teklif_number=wo.teklif_number,
+            pairs=pairs,
+            part_number=wo.part_number,
+            revision_number=wo.revision_number,
+            quantity=wo.quantity,
+            total_quantity=wo.total_quantity,
+            package_index=wo.package_index,
+            total_packages=wo.total_packages,
+            priority=wo.priority,
+            prioritized_by=wo.prioritized_by,
+            delivered=wo.delivered,
+            route_violation=wo.route_violation,
+            target_date=wo.target_date,
+            entrance_date=wo.entrance_date,
+            exit_date=wo.exit_date,
+            qr_code=wo.qr_code,
+            qr_created_at=wo.qr_created_at,
+        ))
+
+    return response
 
 
 @router.get("/all", response_model=PaginatedWorkOrderResponse)
@@ -428,16 +638,13 @@ async def get_all_work_orders(
 
     department_value = (current_user.department or "").strip()
     company = department_value
-    musteri_targets: list[str] = []
     is_musteri = "atolye:musteri" in role_values
     is_yonetici = "atolye:yonetici" in role_values
-    if is_musteri:
-        musteri_targets = _extract_musteri_companies_from_roles(role_values)
-        if not musteri_targets:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Hedef firma rolü atanmamış. Yöneticinizle iletişime geçin.",
-            )
+    # F1: müşteri are no longer scoped by atolye:musteri_company:* target roles.
+    # Their identity is their own department; they see work orders they originated
+    # (company_from == department), scanned at ANY company's stations. The
+    # company_from filter below is the real scope; station/QR lookups are unscoped
+    # by company for müşteri.
 
     is_aselsan_satinalma = (
         "atolye:satinalma" in role_values
@@ -455,16 +662,15 @@ async def get_all_work_orders(
     if is_aselsan_satinalma and filter_company:
         target_company = filter_company
     
-    # Get all stations for target company.
-    # Müşteri sees work orders scanned at any of their picked target workshops,
-    # so scope station lookup by musteri_targets instead of their own department.
+    # Get stations. Müşteri (F1) sees work orders they originated regardless of
+    # which company's station scanned them, so their station lookup is unscoped
+    # by company; the company_from == department filter below does the scoping.
     if is_musteri:
-        station_filter = Station.company.in_(musteri_targets)
+        stations_result = await romiot_db.execute(select(Station))
     else:
-        station_filter = Station.company == target_company
-    stations_result = await romiot_db.execute(
-        select(Station).where(station_filter)
-    )
+        stations_result = await romiot_db.execute(
+            select(Station).where(Station.company == target_company)
+        )
     stations = stations_result.scalars().all()
     station_ids = [station.id for station in stations]
     
@@ -479,7 +685,15 @@ async def get_all_work_orders(
     
     # Create a map of station_id to station_name
     station_map = {station.id: station.name for station in stations}
-    
+    # Per-station entry flag (F4) and per-group pairs cache (F3, avoids N+1)
+    station_entry_map = {station.id: station.is_entry_station for station in stations}
+    pairs_cache: dict[str, list[OrderPair]] = {}
+
+    async def _cached_pairs(group_id: str) -> list[OrderPair]:
+        if group_id not in pairs_cache:
+            pairs_cache[group_id] = await _pairs_for_group(romiot_db, group_id)
+        return pairs_cache[group_id]
+
     # Build base filter conditions
     base_conditions = [
         WorkOrder.station_id.in_(station_ids),
@@ -492,15 +706,26 @@ async def get_all_work_orders(
 
     # Apply search filters (OR when both provided, AND individually)
     from sqlalchemy import or_
+
+    def _order_number_exists(q: str):
+        # F3.8: ANY pair match wins — EXISTS on work_order_pairs instead of the
+        # legacy WorkOrder.aselsan_order_number scalar column.
+        return (
+            select(WorkOrderPair.id).where(
+                WorkOrderPair.work_order_group_id == WorkOrder.work_order_group_id,
+                WorkOrderPair.aselsan_order_number.ilike(f"%{q}%"),
+            ).exists()
+        )
+
     if search_part_number and search_order_number:
         base_conditions.append(or_(
             WorkOrder.part_number.ilike(f"%{search_part_number}%"),
-            WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"),
+            _order_number_exists(search_order_number),
         ))
     elif search_part_number:
         base_conditions.append(WorkOrder.part_number.ilike(f"%{search_part_number}%"))
     elif search_order_number:
-        base_conditions.append(WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"))
+        base_conditions.append(_order_number_exists(search_order_number))
 
     # Column filters
     from sqlalchemy import or_
@@ -542,12 +767,12 @@ async def get_all_work_orders(
         if search_part_number and search_order_number:
             base_conditions.append(or_(
                 WorkOrder.part_number.ilike(f"%{search_part_number}%"),
-                WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"),
+                _order_number_exists(search_order_number),
             ))
         elif search_part_number:
             base_conditions.append(WorkOrder.part_number.ilike(f"%{search_part_number}%"))
         elif search_order_number:
-            base_conditions.append(WorkOrder.aselsan_order_number.ilike(f"%{search_order_number}%"))
+            base_conditions.append(_order_number_exists(search_order_number))
 
     # Yönetici and müşteri can also see created-but-not-scanned work orders from QR store.
     # To include those groups in pagination, use Python-side grouping for these roles.
@@ -570,11 +795,13 @@ async def get_all_work_orders(
         station_exit_map = {station.id: station.is_exit_station for station in stations}
         grouped_entries: dict[str, list[WorkOrderDetail]] = {}
         for wo in scanned_work_orders:
+            wo_pairs = await _cached_pairs(wo.work_order_group_id)
             grouped_entries.setdefault(wo.work_order_group_id, []).append(
                 WorkOrderDetail(
                     id=wo.id,
                     station_id=wo.station_id,
                     station_name=station_map.get(wo.station_id, "Unknown"),
+                    is_entry_station=station_entry_map.get(wo.station_id, False),
                     is_exit_station=station_exit_map.get(wo.station_id, False),
                     user_id=wo.user_id,
                     user_name=user_map.get(wo.user_id, "Unknown"),
@@ -583,8 +810,8 @@ async def get_all_work_orders(
                     sector=wo.sector,
                     company_from=wo.company_from,
                     teklif_number=wo.teklif_number,
-                    aselsan_order_number=wo.aselsan_order_number,
-                    order_item_number=wo.order_item_number,
+                    pairs=wo_pairs,
+                    pair_count=len(wo_pairs),
                     part_number=wo.part_number,
                     quantity=wo.quantity,
                     total_quantity=wo.total_quantity,
@@ -601,14 +828,14 @@ async def get_all_work_orders(
 
         if not search_station:
             if is_musteri:
-                # Müşteri: their unscanned QRs are stored under each picked target.
-                unscanned_qr_filter = QRCodeData.company.in_(musteri_targets)
+                # F1: müşteri's unscanned QRs may be stored under any target company;
+                # their identity is company_from == department, enforced in the loop below.
+                qr_rows_result = await romiot_db.execute(select(QRCodeData))
             else:
                 # Yönetici / operator / satinalma: own workshop.
-                unscanned_qr_filter = QRCodeData.company == target_company
-            qr_rows_result = await romiot_db.execute(
-                select(QRCodeData).where(unscanned_qr_filter)
-            )
+                qr_rows_result = await romiot_db.execute(
+                    select(QRCodeData).where(QRCodeData.company == target_company)
+                )
             qr_rows = qr_rows_result.scalars().all()
             synthetic_id = -1
 
@@ -626,16 +853,38 @@ async def get_all_work_orders(
                 if is_musteri and company_from != department_value:
                     continue
 
+                # F3: pairs come from the QR JSON payload (Task 11 writes a `pairs`
+                # array). Fall back to legacy scalar keys for old QR rows.
+                payload_pairs_raw = payload.get("pairs")
+                qr_pairs: list[OrderPair] = []
+                if isinstance(payload_pairs_raw, list) and payload_pairs_raw:
+                    for p in payload_pairs_raw:
+                        if not isinstance(p, dict):
+                            continue
+                        a = str(p.get("aselsan_order_number") or "").strip()
+                        i = str(p.get("order_item_number") or "").strip()
+                        if a and i:
+                            qr_pairs.append(OrderPair(aselsan_order_number=a, order_item_number=i))
+                if not qr_pairs:
+                    legacy_a = str(payload.get("aselsan_order_number") or "").strip()
+                    legacy_i = str(payload.get("order_item_number") or "").strip()
+                    if legacy_a and legacy_i:
+                        qr_pairs.append(OrderPair(aselsan_order_number=legacy_a, order_item_number=legacy_i))
+                if not qr_pairs:
+                    continue
+
                 part_number = str(payload.get("part_number") or "")
-                order_number = str(payload.get("aselsan_order_number") or "")
+                # ANY-pair match for the order-number search (F3.8)
+                order_number_match = any(
+                    search_order_number.lower() in p.aselsan_order_number.lower()
+                    for p in qr_pairs
+                ) if search_order_number else False
                 if search_part_number and search_order_number:
-                    if (search_part_number.lower() not in part_number.lower()) and (
-                        search_order_number.lower() not in order_number.lower()
-                    ):
+                    if (search_part_number.lower() not in part_number.lower()) and not order_number_match:
                         continue
                 elif search_part_number and search_part_number.lower() not in part_number.lower():
                     continue
-                elif search_order_number and search_order_number.lower() not in order_number.lower():
+                elif search_order_number and not order_number_match:
                     continue
 
                 if filter_customer:
@@ -668,6 +917,7 @@ async def get_all_work_orders(
                         id=synthetic_id,
                         station_id=0,
                         station_name="Henüz okutulmadı",
+                        is_entry_station=False,
                         is_exit_station=False,
                         user_id=0,
                         user_name=None,
@@ -676,8 +926,8 @@ async def get_all_work_orders(
                         sector=str(payload.get("sector") or ""),
                         company_from=company_from,
                         teklif_number=str(payload.get("teklif_number") or "MKS-000000"),
-                        aselsan_order_number=order_number,
-                        order_item_number=str(payload.get("order_item_number") or ""),
+                        pairs=qr_pairs,
+                        pair_count=len(qr_pairs),
                         part_number=part_number,
                         quantity=quantity,
                         total_quantity=total_quantity,
@@ -849,10 +1099,12 @@ async def get_all_work_orders(
     # Build detailed work order list from SQL rows
     detailed_work_orders = []
     for row in paginated_work_orders:
+        row_pairs = await _cached_pairs(row.work_order_group_id)
         detailed_work_orders.append(WorkOrderDetail(
             id=row.id,
             station_id=row.station_id,
             station_name=station_map.get(row.station_id, "Unknown"),
+            is_entry_station=station_entry_map.get(row.station_id, False),
             is_exit_station=station_exit_map.get(row.station_id, False),
             user_id=row.user_id,
             user_name=user_map.get(row.user_id, "Unknown"),
@@ -861,8 +1113,8 @@ async def get_all_work_orders(
             sector=row.sector,
             company_from=row.company_from,
             teklif_number=row.teklif_number,
-            aselsan_order_number=row.aselsan_order_number,
-            order_item_number=row.order_item_number,
+            pairs=row_pairs,
+            pair_count=len(row_pairs),
             part_number=row.part_number,
             quantity=row.quantity,
             total_quantity=row.total_quantity,
