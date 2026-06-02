@@ -28,7 +28,7 @@ def upgrade() -> None:
         sa.Column('position', sa.Integer(), nullable=False),
         sa.Column('station_id', sa.Integer(), sa.ForeignKey('stations.id', ondelete='RESTRICT'), nullable=False),
         sa.Column('created_by_user_id', sa.Integer(), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.UniqueConstraint('work_order_group_id', 'position', name='uq_route_position'),
     )
 
