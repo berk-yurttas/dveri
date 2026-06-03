@@ -11,6 +11,13 @@ interface CompanyTypeaheadProps {
   required?: boolean;
   placeholder?: string;
   id?: string;
+  /**
+   * Optional caller-supplied company name list. When provided, the component
+   * uses it instead of fetching from the integration endpoint — lets the same
+   * typeahead be pointed at the company registry. When omitted, behaviour is
+   * unchanged (internal fetch).
+   */
+  items?: string[];
 }
 
 const ROW_HEIGHT = 36;
@@ -24,6 +31,7 @@ export function CompanyTypeahead({
   required,
   placeholder = "Hedef firma seçin veya arayın",
   id,
+  items,
 }: CompanyTypeaheadProps) {
   const [companies, setCompanies] = useState<string[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -36,8 +44,15 @@ export function CompanyTypeahead({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<FixedSizeList | null>(null);
 
-  // Fetch the list once on mount
+  // Source the catalog from caller-supplied `items` when provided; otherwise
+  // fetch the integration list once. `items` lets the same typeahead be pointed
+  // at the company registry without an internal request.
   useEffect(() => {
+    if (items !== undefined) {
+      setCompanies(items);
+      setLoadError(null);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -57,7 +72,7 @@ export function CompanyTypeahead({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [items]);
 
   // Debounce the filter (250 ms)
   useEffect(() => {
