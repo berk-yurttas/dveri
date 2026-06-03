@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.endpoints.romiot.station.company_resolver import require_user_company
 from app.core.auth import check_authenticated
 from app.core.database import get_romiot_db
 from app.models.romiot_models import CompanyIntegration, QRCodeData, WorkOrderPair
@@ -75,15 +76,16 @@ async def generate_qr_code(
     Accepts any JSON structure for future flexibility.
     Requires 'atolye:musteri' or 'atolye:yonetici' role.
     """
-    # Company is now read from department; role is company-independent
-    user_company = (current_user.department or "").strip()
+    # Company is resolved from the user_companies pairing; role is company-independent
+    sender = await require_user_company(current_user, romiot_db)
+    user_company = sender.name
     has_create_role = (
         current_user.role
         and isinstance(current_user.role, list)
         and ("atolye:musteri" in current_user.role or "atolye:yonetici" in current_user.role)
     )
-    
-    if not has_create_role or not user_company:
+
+    if not has_create_role:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir."
@@ -141,13 +143,14 @@ async def generate_qr_code_batch(
     F1: target validated against company_integrations.
     F3: payload carries pairs[], persisted into work_order_pairs.
     """
-    sender_company = (current_user.department or "").strip()
+    sender = await require_user_company(current_user, romiot_db)
+    sender_company = sender.name
     role_values = current_user.role if isinstance(current_user.role, list) else []
     is_musteri = "atolye:musteri" in role_values
     is_yonetici = "atolye:yonetici" in role_values
     has_create_role = is_musteri or is_yonetici
 
-    if not has_create_role or not sender_company:
+    if not has_create_role:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir.",
@@ -211,6 +214,7 @@ async def generate_qr_code_batch(
             "main_customer": batch_data.main_customer,
             "sector": batch_data.sector,
             "company_from": sender_company,
+            "company_from_id": sender.id,
             "teklif_number": batch_data.teklif_number,
             "pairs": pair_dicts,
             "part_number": batch_data.part_number,
@@ -314,9 +318,7 @@ async def get_qr_codes_by_work_order_group(
     if not has_atolye_role:
         raise HTTPException(status_code=403, detail="Atölye yetkisi gereklidir.")
 
-    department_value = (current_user.department or "").strip()
-    if not department_value:
-        raise HTTPException(status_code=403, detail="Kullanıcı şirket bilgisi bulunamadı.")
+    department_value = (await require_user_company(current_user, romiot_db)).name
 
     is_musteri = "atolye:musteri" in role_values
 
