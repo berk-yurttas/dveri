@@ -7,10 +7,15 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints.romiot.station.auth import check_station_operator_role
+from app.api.v1.endpoints.romiot.station.company_resolver import (
+    resolve_user_company,
+    require_user_company,
+)
 from app.core.auth import check_authenticated
 from app.core.database import get_postgres_db, get_romiot_db
 from app.models.postgres_models import User as PostgresUser
 from app.models.romiot_models import (
+    Company,
     CompanyIntegration,
     PriorityToken,
     QRCodeData,
@@ -261,6 +266,15 @@ async def create_work_order(
                 order_item_number=pair.order_item_number,
             ))
 
+    # Resolve company_from_id: prefer the id carried in the scan body; fall back
+    # to a name lookup against the company registry.
+    company_from_id = work_order_data.company_from_id
+    if company_from_id is None and work_order_data.company_from:
+        cf = await romiot_db.execute(
+            select(Company.id).where(Company.name == work_order_data.company_from)
+        )
+        company_from_id = cf.scalar_one_or_none()
+
     # Create WorkOrder row. Legacy scalar columns mirror pairs[0] for back-compat.
     first_pair = work_order_data.pairs[0]
     new_work_order = WorkOrder(
@@ -270,6 +284,7 @@ async def create_work_order(
         main_customer=work_order_data.main_customer,
         sector=work_order_data.sector,
         company_from=work_order_data.company_from,
+        company_from_id=company_from_id,
         teklif_number=work_order_data.teklif_number,
         aselsan_order_number=first_pair.aselsan_order_number,
         order_item_number=first_pair.order_item_number,
@@ -317,8 +332,14 @@ async def create_work_order(
         integration = integration_result.scalar_one_or_none()
         if integration and integration.api_url and integration.api_key:
             pairs = await _pairs_for_group(romiot_db, work_order_data.work_order_group_id)
+            subcontractor_id = None
+            if new_work_order.company_from_id is not None:
+                code_row = await romiot_db.execute(
+                    select(Company.code).where(Company.id == new_work_order.company_from_id)
+                )
+                subcontractor_id = code_row.scalar_one_or_none()
             asyncio.create_task(send_production_order(
-                new_work_order, this_station, integration.api_url, integration.api_key, this_station.company, pairs,
+                new_work_order, this_station, integration.api_url, integration.api_key, this_station.company, pairs, subcontractor_id,
             ))
 
     work_order_schema = WorkOrderSchema.model_validate(new_work_order)
@@ -496,8 +517,14 @@ async def update_exit_date(
         exit_integration = exit_integration_result.scalar_one_or_none()
         if exit_integration and exit_integration.api_url and exit_integration.api_key:
             pairs = await _pairs_for_group(romiot_db, work_order.work_order_group_id)
+            subcontractor_id = None
+            if work_order.company_from_id is not None:
+                code_row = await romiot_db.execute(
+                    select(Company.code).where(Company.id == work_order.company_from_id)
+                )
+                subcontractor_id = code_row.scalar_one_or_none()
             asyncio.create_task(
-                send_production_order(work_order, exit_station_obj, exit_integration.api_url, exit_integration.api_key, exit_station_obj.company, pairs)
+                send_production_order(work_order, exit_station_obj, exit_integration.api_url, exit_integration.api_key, exit_station_obj.company, pairs, subcontractor_id)
             )
 
     work_order_schema = WorkOrderSchema.model_validate(work_order)
@@ -636,7 +663,7 @@ async def get_all_work_orders(
         for role in role_values
     )
 
-    department_value = (current_user.department or "").strip()
+    department_value = (await require_user_company(current_user, romiot_db)).name
     company = department_value
     is_musteri = "atolye:musteri" in role_values
     is_yonetici = "atolye:yonetici" in role_values
@@ -1146,7 +1173,8 @@ async def get_companies(
     Get distinct list of companies that have stations.
     Only available for ASELSAN satinalma users.
     """
-    company = (current_user.department or "").strip()
+    resolved_company = await resolve_user_company(current_user, romiot_db)
+    company = (resolved_company.name if resolved_company else "").strip()
     is_aselsan_satinalma = (
         current_user.role
         and isinstance(current_user.role, list)
