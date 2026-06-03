@@ -149,15 +149,6 @@ def _extract_atolye_role(role_values: list[str] | None) -> ManagedUserRoleType |
     return None
 
 
-def _get_main_company_from_department(department: str | None) -> str:
-    department_value = (department or "").strip()
-    if not department_value:
-        return ""
-    if ":" in department_value:
-        return department_value.split(":", 1)[0].strip()
-    return department_value
-
-
 async def _pb_create_user_record(
     *,
     username: str,
