@@ -278,7 +278,8 @@ async def get_work_order_link_directory(
             detail="Atölye yetkisi gereklidir",
         )
 
-    company = _get_main_company_from_department(current_user.department)
+    from app.api.v1.endpoints.romiot.station.company_resolver import require_user_company
+    company = (await require_user_company(current_user, romiot_db)).name
     if not company:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -306,7 +307,7 @@ async def upsert_work_order_link_directory(
     Saves company's root directory for work-order file links.
     Requires yonetici role.
     """
-    user_company = await check_station_yonetici_role(current_user)
+    user_company = await check_station_yonetici_role(current_user, romiot_db)
     normalized_directory = data.merkez_dizin.strip()
     if not normalized_directory:
         raise HTTPException(
@@ -869,7 +870,7 @@ async def create_station(
     Station names must be unique within the same company.
     """
     # Check if user has yonetici role and get company
-    user_company = await check_station_yonetici_role(current_user)
+    user_company = await check_station_yonetici_role(current_user, romiot_db)
 
     # Verify that the station company matches the user's company
     if station_data.company != user_company:
@@ -1001,7 +1002,7 @@ async def list_stations(
         return list(stations_result.scalars().all())
 
     from app.api.v1.endpoints.romiot.station.auth import get_station_company
-    user_company = await get_station_company(current_user)
+    user_company = await get_station_company(current_user, romiot_db)
     stations_result = await romiot_db.execute(
         select(Station).where(Station.company == user_company)
     )
@@ -1144,7 +1145,7 @@ async def update_station(
     Station names must be unique within the same company.
     """
     # Check if user has yonetici role and get company
-    user_company = await check_station_yonetici_role(current_user)
+    user_company = await check_station_yonetici_role(current_user, romiot_db)
 
     # Get the station
     station_result = await romiot_db.execute(
@@ -1217,7 +1218,7 @@ async def delete_station(
     Cannot delete a station that has work orders.
     """
     # Check if user has yonetici role and get company
-    user_company = await check_station_yonetici_role(current_user)
+    user_company = await check_station_yonetici_role(current_user, romiot_db)
 
     # Get the station
     station_result = await romiot_db.execute(
