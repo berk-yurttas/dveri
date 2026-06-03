@@ -44,6 +44,37 @@ def _normalize_pairs(payload: dict) -> list[dict]:
     return []
 
 
+async def _resolve_pairs(romiot_db: AsyncSession, data_dict: dict) -> list[dict]:
+    """Pairs for a QR payload, reconciling the two stores they can live in.
+
+    Prefer the QR's embedded snapshot (`_normalize_pairs`), but when it carries
+    none — QRs printed before F3 froze a JSON snapshot without `pairs` — fall
+    back to the `work_order_pairs` table keyed by `work_order_group_id`, where
+    the M1 backfill put them. Without this fallback the operator scan path reads
+    an empty snapshot and wrongly reports "Sipariş bilgisi eksik" for work
+    orders that demonstrably have pairs in the relational table."""
+    pairs = _normalize_pairs(data_dict)
+    if pairs:
+        return pairs
+
+    group_id = data_dict.get("work_order_group_id")
+    if not group_id:
+        return []
+
+    result = await romiot_db.execute(
+        select(WorkOrderPair)
+        .where(WorkOrderPair.work_order_group_id == group_id)
+        .order_by(WorkOrderPair.idx)
+    )
+    return [
+        {
+            "aselsan_order_number": row.aselsan_order_number,
+            "order_item_number": row.order_item_number,
+        }
+        for row in result.scalars().all()
+    ]
+
+
 def generate_short_code(length: int = 12) -> str:
     """
     Generate a short alphanumeric code for QR compression.
@@ -290,10 +321,11 @@ async def retrieve_qr_data(
         raise HTTPException(status_code=500, detail="QR kod verisi okunamadı")
 
     # Legacy normalization — drop the legacy scalar keys and set a canonical
-    # `pairs` list (shared helper keeps this identical to the /group endpoint).
+    # `pairs` list. Falls back to the work_order_pairs table when the snapshot
+    # has none, so old QRs (frozen JSON without pairs) still resolve their pairs.
     data_dict.pop("aselsan_order_number", None)
     data_dict.pop("order_item_number", None)
-    data_dict["pairs"] = _normalize_pairs(data_dict)
+    data_dict["pairs"] = await _resolve_pairs(romiot_db, data_dict)
 
     return QRCodeDataRetrieve(data=data_dict)
 

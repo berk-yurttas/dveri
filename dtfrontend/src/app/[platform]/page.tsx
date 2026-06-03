@@ -1555,11 +1555,7 @@ export default function PlatformHome() {
 
                     if (hasUrl) {
                       if (featureUrl.startsWith('http')) {
-                        const w = Math.round(screen.width * 0.9);
-                        const h = Math.round(screen.height * 0.9);
-                        const l = Math.round((screen.width - w) / 2);
-                        const t = Math.round((screen.height - h) / 2);
-                        window.open(featureUrl, 'popup', `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`);
+                        window.location.href = featureUrl;
                       } else {
                         router.push(featureUrl);
                       }

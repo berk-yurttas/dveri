@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.api import api_router
 from app.core.config import settings
+from app.core.exception_handlers import unhandled_exception_handler
 from app.core.middleware import AuthMiddleware
 from app.core.platform_middleware import PlatformMiddleware
 from app.services.csuite_history_scheduler import CSuiteHistoryScheduler
@@ -47,6 +48,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Catch-all so unhandled exceptions return a real 500 WITH CORS headers
+# (otherwise the browser sees a header-less response as "Failed to fetch").
+app.add_exception_handler(Exception, unhandled_exception_handler)
 
 # Include API router (auth handled by middleware)
 app.include_router(
