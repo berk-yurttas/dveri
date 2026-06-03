@@ -13,6 +13,8 @@ def _build_payload_item(
     station,
     pair: OrderPair,
     mes_order_id: str,
+    subcontractor_id: str | None,
+    source_company: str,
 ) -> dict:
     return {
         "AselsanOrderCode": pair.aselsan_order_number,
@@ -24,6 +26,10 @@ def _build_payload_item(
         "OperationDesc": station.name,
         "Mes_OrderId": mes_order_id,
         "SubcontractorWorkOrderNo": work_order.work_order_group_id,
+        # SubcontractorID = company_from's code (resolved by the caller from
+        # work_orders.company_from_id); SourceCompany = the target company name.
+        "SubcontractorID": subcontractor_id,
+        "SourceCompany": source_company,
         "ActualStartDate": work_order.entrance_date.isoformat() if work_order.entrance_date else None,
         "ActualEndDate": work_order.exit_date.isoformat() if work_order.exit_date else None,
         "PlannedQuantity": work_order.quantity,
@@ -59,6 +65,7 @@ async def send_production_order(
     api_key: str,
     company: str,
     pairs: list[OrderPair],
+    subcontractor_id: str | None = None,
 ) -> None:
     """
     Fire-and-forget Mekasan push.
@@ -82,7 +89,7 @@ async def send_production_order(
     base_id = f"{work_order.work_order_group_id}-{station.id}"
 
     if len(pairs) == 1:
-        item = _build_payload_item(work_order, station, pairs[0], base_id)
+        item = _build_payload_item(work_order, station, pairs[0], base_id, subcontractor_id, company)
         await _post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id)
         return
 
@@ -90,6 +97,6 @@ async def send_production_order(
     tasks = []
     for pair in pairs:
         mes_order_id = f"{base_id}-{pair.aselsan_order_number}-{pair.order_item_number}"
-        item = _build_payload_item(work_order, station, pair, mes_order_id)
+        item = _build_payload_item(work_order, station, pair, mes_order_id, subcontractor_id, company)
         tasks.append(_post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id))
     await asyncio.gather(*tasks)
