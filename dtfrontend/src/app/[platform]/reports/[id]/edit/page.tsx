@@ -1203,6 +1203,9 @@ export default function EditReportPage() {
           isDirectLink: (reportData as any).isDirectLink || false,
           directLink: (reportData as any).directLink || '',
           dbConfig: (reportData as any).dbConfig,  // Preserve the database configuration
+          filterByDepartment: (reportData as any).filterByDepartment || false,  // Preserve the department filter setting
+          departmentFilterLevel: (reportData as any).departmentFilterLevel || null,  // Preserve the department filter level
+          filterByStepDepartment: (reportData as any).filterByStepDepartment || false,  // Preserve the step_department filter setting
           queries: reportData.queries.map((query, index) => ({
             id: query.id?.toString() || generateId(),
             name: query.name,
@@ -1865,6 +1868,68 @@ export default function EditReportPage() {
                     </Label>
                   </div>
                 </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="filterByDepartment" className="text-sm">Departman Filtresi</Label>
+                  <div className="flex items-center space-x-2 h-9">
+                    <Checkbox
+                      id="filterByDepartment"
+                      checked={report.filterByDepartment || false}
+                      onCheckedChange={(checked) => setReport(prev => ({ ...prev, filterByDepartment: !!checked }))}
+                    />
+                    <Label htmlFor="filterByDepartment" className="text-sm font-normal cursor-pointer">
+                      Kullanıcının Departmanına Göre Filtrele
+                    </Label>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Etkinleştirildiğinde, rapor sorguları otomatik olarak kullanıcının departmanına göre filtrelenecektir
+                  </p>
+                </div>
+                
+                {/* Step Department Filter Checkbox */}
+                {report.filterByDepartment && (
+                  <div className="space-y-2">
+                    <Label htmlFor="filterByStepDepartment" className="text-sm">Kolon Seçimi</Label>
+                    <div className="flex items-center space-x-2 h-9">
+                      <Checkbox
+                        id="filterByStepDepartment"
+                        checked={report.filterByStepDepartment || false}
+                        onCheckedChange={(checked) => setReport(prev => ({ ...prev, filterByStepDepartment: !!checked }))}
+                      />
+                      <Label htmlFor="filterByStepDepartment" className="text-sm font-normal cursor-pointer">
+                        step_department Kolonunu Kullan (department yerine)
+                      </Label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Etkinleştirildiğinde, "department" kolonu yerine "step_department" kolonu kullanılır
+                    </p>
+                  </div>
+                )}
+                
+                {/* Department Filter Level Dropdown */}
+                {report.filterByDepartment && (
+                  <div className="space-y-2">
+                    <Label htmlFor="departmentFilterLevel" className="text-sm">
+                      Departman Seviyesi
+                    </Label>
+                    <Select
+                      id="departmentFilterLevel"
+                      value={report.departmentFilterLevel || ''}
+                      onValueChange={(value) => setReport(prev => ({ ...prev, departmentFilterLevel: value || null }))}
+                      className="h-9"
+                    >
+                      <option value="">Tam Hiyerarşi (Tüm Seviyeler)</option>
+                      <option value="sektor">Sektör</option>
+                      <option value="direktorluk">Direktörlük</option>
+                      <option value="mudurluk">Müdürlük</option>
+                      <option value="birim">Birim</option>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Hangi departman seviyesine göre filtreleme yapılacağını seçin. 
+                      Örneğin "Direktörlük" seçerseniz, kullanıcının direktörlüğündeki tüm veriler görünür.
+                    </p>
+                  </div>
+                )}
                 
                 {/* Database Selection */}
                 {!report.isDirectLink && availableDatabases.length > 0 && (

@@ -181,6 +181,9 @@ export interface ReportConfig {
   isDirectLink?: boolean  // If true, report uses direct link instead of queries
   directLink?: string  // Direct link URL to external report page
   dbConfig?: DatabaseConfig  // Database configuration for this report (selected from platform's db_configs)
+  filterByDepartment?: boolean  // If true, automatically filter query results by user's department
+  departmentFilterLevel?: string | null  // Department hierarchy level: 'sektor', 'direktorluk', 'mudurluk', 'birim', or null (full hierarchy)
+  filterByStepDepartment?: boolean  // If true, filter by step_department column instead of department
 }
 
 // Future report save/load types
@@ -200,6 +203,9 @@ export interface SavedReport extends ReportConfig {
   allowedDepartments?: string[]
   allowedUsers?: string[]
   dbConfig?: DatabaseConfig  // Database configuration for this report
+  filterByDepartment?: boolean  // If true, automatically filter query results by user's department
+  departmentFilterLevel?: string | null  // Department hierarchy level
+  filterByStepDepartment?: boolean  // If true, filter by step_department column instead of department
 }
 
 // Report execution types
@@ -250,6 +256,9 @@ export interface ReportDetail {
   allowedDepartments?: string[]
   allowedUsers?: string[]
   dbConfig?: DatabaseConfig  // Database configuration for this report
+  filterByDepartment?: boolean  // If true, automatically filter query results by user's department
+  departmentFilterLevel?: string | null  // Department hierarchy level
+  filterByStepDepartment?: boolean  // If true, filter by step_department column instead of department
 }
 
 export interface QueryDetail {

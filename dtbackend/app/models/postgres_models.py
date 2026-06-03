@@ -193,6 +193,9 @@ class Report(PostgreSQLBase):
     is_direct_link = Column(Boolean, default=False)  # If true, report uses direct link instead of queries
     direct_link = Column(Text, nullable=True)  # Direct link URL to external report page
     db_config = Column(JSONB, nullable=True)  # Database configuration for this report (from platform's db_configs)
+    filter_by_department = Column(Boolean, default=False)  # If true, automatically filter queries by user's department
+    department_filter_level = Column(String(50), nullable=True)  # Department hierarchy level: 'sektor', 'direktorluk', 'mudurluk', 'birim', or None (full hierarchy)
+    filter_by_step_department = Column(Boolean, default=False)  # If true, automatically filter queries by user's step_department column instead
     # Example db_config structure (single config from platform's db_configs array):
     # {
     #   "name": "Primary Database",

@@ -233,6 +233,9 @@ class ReportBase(BaseModel):
     is_direct_link: bool | None = Field(False, alias="isDirectLink", description="If true, report uses direct link instead of queries")
     direct_link: str | None = Field(None, alias="directLink", description="Direct link URL to external report page")
     db_config: dict[str, Any] | None = Field(None, alias="dbConfig", description="Database configuration for this report (selected from platform's db_configs)")
+    filter_by_department: bool | None = Field(False, alias="filterByDepartment", description="If true, automatically filter query results by user's department")
+    department_filter_level: str | None = Field(None, alias="departmentFilterLevel", description="Department hierarchy level to filter by: 'sektor', 'direktorluk', 'mudurluk', 'birim', or None (full hierarchy)")
+    filter_by_step_department: bool | None = Field(False, alias="filterByStepDepartment", description="If true, automatically filter query results by user's step_department column")
 
     class Config:
         populate_by_name = True  # Allow both field names and aliases
@@ -273,6 +276,9 @@ class ReportUpdate(BaseModel):
     is_direct_link: bool | None = Field(None, alias="isDirectLink")
     direct_link: str | None = Field(None, alias="directLink")
     db_config: dict[str, Any] | None = Field(None, alias="dbConfig")
+    filter_by_department: bool | None = Field(None, alias="filterByDepartment")
+    department_filter_level: str | None = Field(None, alias="departmentFilterLevel")
+    filter_by_step_department: bool | None = Field(None, alias="filterByStepDepartment")
 
     class Config:
         populate_by_name = True
@@ -292,6 +298,9 @@ class ReportFullUpdate(BaseModel):
     is_direct_link: bool | None = Field(None, alias="isDirectLink")
     direct_link: str | None = Field(None, alias="directLink")
     db_config: dict[str, Any] | None = Field(None, alias="dbConfig")
+    filter_by_department: bool | None = Field(None, alias="filterByDepartment")
+    department_filter_level: str | None = Field(None, alias="departmentFilterLevel")
+    filter_by_step_department: bool | None = Field(None, alias="filterByStepDepartment")
 
     @model_validator(mode='after')
     def validate_queries_and_direct_link(self):

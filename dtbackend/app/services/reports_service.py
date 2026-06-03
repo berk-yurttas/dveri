@@ -244,7 +244,10 @@ class ReportsService:
             allowed_users=report_data.allowed_users or [],
             is_direct_link=report_data.is_direct_link or False,
             direct_link=report_data.direct_link,
-            db_config=report_data.db_config
+            db_config=report_data.db_config,
+            filter_by_department=report_data.filter_by_department or False,
+            department_filter_level=report_data.department_filter_level,
+            filter_by_step_department=report_data.filter_by_step_department or False
         )
         self.db.add(db_report)
         await self.db.flush()  # Get the report ID
@@ -580,6 +583,12 @@ class ReportsService:
             db_report.direct_link = report_data.direct_link
         if report_data.db_config is not None:
             db_report.db_config = report_data.db_config
+        if report_data.filter_by_department is not None:
+            db_report.filter_by_department = report_data.filter_by_department
+        if report_data.department_filter_level is not None:
+            db_report.department_filter_level = report_data.department_filter_level
+        if report_data.filter_by_step_department is not None:
+            db_report.filter_by_step_department = report_data.filter_by_step_department
 
         await self.db.commit()
 
@@ -632,6 +641,12 @@ class ReportsService:
             db_report.direct_link = report_data.direct_link
         if report_data.db_config is not None:
             db_report.db_config = report_data.db_config
+        if report_data.filter_by_department is not None:
+            db_report.filter_by_department = report_data.filter_by_department
+        if report_data.department_filter_level is not None:
+            db_report.department_filter_level = report_data.department_filter_level
+        if report_data.filter_by_step_department is not None:
+            db_report.filter_by_step_department = report_data.filter_by_step_department
 
         # Update global filters if provided
         if report_data.global_filters is not None:
@@ -1010,7 +1025,7 @@ class ReportsService:
 
         return new_sql
 
-    async def execute_query(self, query: ReportQuery, filter_values: list[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Platform | None = None, global_filters: list[dict[str, Any]] = None, db_config: dict[str, Any] | None = None) -> QueryExecutionResult:
+    async def execute_query(self, query: ReportQuery, filter_values: list[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Platform | None = None, global_filters: list[dict[str, Any]] = None, db_config: dict[str, Any] | None = None, filter_by_department: bool = False, user_department: str | None = None, department_filter_level: str | None = None, filter_by_step_department: bool = False) -> QueryExecutionResult:
         """Execute a single query with optional filters
 
         Args:
@@ -1025,6 +1040,10 @@ class ReportsService:
             platform: Platform instance for database connection (optional, falls back to clickhouse_client)
             global_filters: Global filters from the report that apply to all queries
             db_config: Database configuration from report (overrides platform db_config)
+            filter_by_department: If True, automatically filter results by user's department
+            user_department: User's department for automatic filtering
+            department_filter_level: Department hierarchy level to filter by ('sektor', 'direktorluk', 'mudurluk', 'birim', or None for full)
+            filter_by_step_department: If True, filter by step_department column instead of department column
         """
         t0 = time.time()
         print(f"\n[PERF] Starting execute_query for query_id={query.id}")
@@ -1071,6 +1090,86 @@ class ReportsService:
             t1 = time.time()
             sql = self.apply_filters_to_query(sql, all_filters, filter_values or [], db_type)
             print(f"[PERF] Apply filters: {(time.time() - t1) * 1000:.2f}ms")
+
+            # Apply department filtering if enabled
+            t1 = time.time()
+            if filter_by_department and user_department:
+                # Determine which column to filter by
+                column_name = "step_department" if filter_by_step_department else "department"
+                
+                # Inject department filter into the query based on the selected hierarchy level
+                # Department structure: A_B_C_D_E where:
+                # - A is root
+                # - B is Sektör (sector)
+                # - C is Direktörlük (directorate)
+                # - D is Müdürlük (department)
+                # - E is Birim (unit)
+                
+                dept_parts = user_department.split('_')
+                
+                # Determine which department level to filter by
+                if department_filter_level:
+                    # Map level names to position in hierarchy (0-indexed)
+                    level_map = {
+                        'sektor': 2,        # A_B (up to position 2)
+                        'direktorluk': 3,   # A_B_C (up to position 3)
+                        'mudurluk': 4,      # A_B_C_D (up to position 4)
+                        'birim': 5          # A_B_C_D_E (up to position 5, or full)
+                    }
+                    
+                    level_position = level_map.get(department_filter_level.lower())
+                    
+                    if level_position and len(dept_parts) >= level_position:
+                        # Get the department up to the specified level
+                        filtered_dept = '_'.join(dept_parts[:level_position])
+                    else:
+                        # If level not recognized or user doesn't have that level, use full department
+                        filtered_dept = user_department
+                else:
+                    # No level specified, use full user department hierarchy
+                    # Build list of all parent departments for flexible matching
+                    dept_hierarchy = []
+                    current = ""
+                    for part in dept_parts:
+                        current = f"{current}_{part}" if current else part
+                        dept_hierarchy.append(current)
+                    filtered_dept = None  # Will use hierarchy list instead
+                
+                # Create SQL condition - uses the selected column name (department or step_department)
+                if filtered_dept:
+                    # Single level filtering - match column that starts with the specified level
+                    if db_type.lower() in ["postgresql", "mssql"]:
+                        dept_filter_clause = f"{column_name} LIKE '{filtered_dept}%'"
+                    else:
+                        # ClickHouse uses LIKE
+                        dept_filter_clause = f"{column_name} LIKE '{filtered_dept}%'"
+                else:
+                    # Full hierarchy filtering - match any parent level
+                    dept_conditions = []
+                    for dept in dept_hierarchy:
+                        if db_type.lower() in ["postgresql", "mssql"]:
+                            dept_conditions.append(f"{column_name} LIKE '{dept}%'")
+                        else:
+                            dept_conditions.append(f"{column_name} LIKE '{dept}%'")
+                    dept_filter_clause = " OR ".join(dept_conditions)
+                
+                # Inject the department filter into the query
+                if "WHERE" in sql.upper():
+                    # If there's already a WHERE clause, add the department filter with AND
+                    sql = sql + f" AND ({dept_filter_clause})"
+                else:
+                    # If no WHERE clause exists, add one
+                    # We need to be careful here - check if there's a GROUP BY, ORDER BY, or LIMIT
+                    import re
+                    # Find position to insert WHERE clause (before GROUP BY, HAVING, ORDER BY, or LIMIT)
+                    match = re.search(r'\s+(GROUP\s+BY|HAVING|ORDER\s+BY|LIMIT)\s+', sql, re.IGNORECASE)
+                    if match:
+                        insert_pos = match.start()
+                        sql = sql[:insert_pos] + f" WHERE ({dept_filter_clause})" + sql[insert_pos:]
+                    else:
+                        # No GROUP BY, ORDER BY, or LIMIT - just append
+                        sql = sql + f" WHERE ({dept_filter_clause})"
+            print(f"[PERF] Apply department filter: {(time.time() - t1) * 1000:.2f}ms")
 
             # Apply sorting if provided
             t1 = time.time()
@@ -1382,7 +1481,11 @@ class ReportsService:
                     query.visualization_config.get('type', 'table'),
                     platform=platform,
                     global_filters=report.global_filters or [],
-                    db_config=report_db_config
+                    db_config=report_db_config,
+                    filter_by_department=report.filter_by_department or False,
+                    user_department=user.department,
+                    department_filter_level=report.department_filter_level,
+                    filter_by_step_department=report.filter_by_step_department or False
                 )
                 results.append(result)
             else:
@@ -1396,7 +1499,11 @@ class ReportsService:
                         query.visualization_config.get('type', 'table'),
                         platform=platform,
                         global_filters=report.global_filters or [],
-                        db_config=report_db_config
+                        db_config=report_db_config,
+                        filter_by_department=report.filter_by_department or False,
+                        user_department=user.department,
+                        department_filter_level=report.department_filter_level,
+                        filter_by_step_department=report.filter_by_step_department or False
                     )
                     tasks.append(task)
                 

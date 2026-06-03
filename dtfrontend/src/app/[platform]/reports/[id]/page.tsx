@@ -1374,31 +1374,27 @@ export default function ReportDetailPage() {
   const handleClearGlobalFilters = () => {
     if (!report || !report.globalFilters || report.globalFilters.length === 0) return
 
-    setFilters(prev => {
-      const newFilters = { ...prev }
-      
-      // Clear all global filter values
-      report.globalFilters!.forEach(filter => {
-        if (filter.type === 'date') {
-          delete newFilters[`global_${filter.fieldName}_start`]
-          delete newFilters[`global_${filter.fieldName}_end`]
-        } else if (filter.type === 'multiselect') {
-          newFilters[`global_${filter.fieldName}`] = []
-        } else {
-          delete newFilters[`global_${filter.fieldName}`]
-          delete newFilters[`global_${filter.fieldName}_operator`]
-        }
-      })
-      
-      return newFilters
-    })
-
-    // Re-execute all queries with cleared filters
-    setTimeout(() => {
-      if (report) {
-        executeAllQueries(report, filters)
+    // Calculate the cleared filters
+    const clearedFilters = { ...filters }
+    
+    // Clear all global filter values
+    report.globalFilters.forEach(filter => {
+      if (filter.type === 'date') {
+        delete clearedFilters[`global_${filter.fieldName}_start`]
+        delete clearedFilters[`global_${filter.fieldName}_end`]
+      } else if (filter.type === 'multiselect') {
+        clearedFilters[`global_${filter.fieldName}`] = []
+      } else {
+        delete clearedFilters[`global_${filter.fieldName}`]
+        delete clearedFilters[`global_${filter.fieldName}_operator`]
       }
-    }, 100)
+    })
+    
+    // Update state with cleared filters
+    setFilters(clearedFilters)
+
+    // Re-execute all queries with cleared filters immediately
+    executeAllQueries(report, clearedFilters)
   }
 
   // Debounced filter change that triggers query execution
