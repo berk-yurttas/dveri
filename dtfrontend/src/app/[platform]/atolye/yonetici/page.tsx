@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { ExitStationBadge } from "@/components/atolye/ExitStationBadge";
 import { EntryStationBadge } from "@/components/atolye/EntryStationBadge";
+import { useMyCompany } from "@/hooks/useMyCompany";
 
 function validatePassword(password: string): string | null {
   if (password.length < 8) return "Şifre en az 8 karakter olmalıdır";
@@ -37,6 +38,10 @@ export default function YoneticiPage() {
   const [isYonetici, setIsYonetici] = useState(false);
   const [userCompany, setUserCompany] = useState<string | null>(null);
 
+  // Own company is resolved from the pairing-backed /my-company endpoint,
+  // not from the PocketBase department/company fields.
+  const myCompany = useMyCompany(isYonetici);
+
   // Station & user form state
   const [stations, setStations] = useState<Station[]>([]);
   const [stationFormData, setStationFormData] = useState({ name: "", company: "", is_entry_station: false, is_exit_station: false });
@@ -58,7 +63,7 @@ export default function YoneticiPage() {
   const [deletingStation, setDeletingStation] = useState<Station | null>(null);
   const [deleteModalLoading, setDeleteModalLoading] = useState(false);
 
-  // Check user roles and extract company
+  // Check user roles
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
       const yoneticiRole = user.role.find((role) =>
@@ -66,10 +71,14 @@ export default function YoneticiPage() {
       );
       if (yoneticiRole) {
         setIsYonetici(true);
-        setUserCompany(user.department || user.company || null);
       }
     }
   }, [user]);
+
+  // Drive userCompany from the resolved own-company (feeds fetchStations and forms).
+  useEffect(() => {
+    setUserCompany(myCompany?.name ?? null);
+  }, [myCompany]);
 
   // Fetch stations
   const fetchStations = useCallback(async () => {
