@@ -19,3 +19,4 @@ dtbackend/data/csuite_weekly_history.json
 
 # Git worktrees
 .worktrees/
+.claude/worktrees/
