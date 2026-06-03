@@ -16,7 +16,7 @@ from app.api.v1.endpoints import (
     feragat_formu,
     documentations,
 )
-from app.api.v1.endpoints.romiot.station import company_integration, station, work_order, qr_code, priority, work_order_route
+from app.api.v1.endpoints.romiot.station import company_integration, station, work_order, qr_code, priority, work_order_route, company as station_company
 from app.api.v1.endpoints.romiot import stats
 
 api_router = APIRouter()
@@ -36,6 +36,7 @@ api_router.include_router(qr_code.router, prefix="/romiot/station/qr-code", tags
 api_router.include_router(priority.router, prefix="/romiot/station/priority", tags=["priority"])
 api_router.include_router(company_integration.router, prefix="/romiot/station/company-integration", tags=["company-integration"])
 api_router.include_router(work_order_route.router, prefix="/romiot/station/work-order-routes", tags=["station:work-order-routes"])
+api_router.include_router(station_company.router, prefix="/romiot/station/companies", tags=["station:companies"])
 api_router.include_router(stats.router, prefix="/romiot/stats", tags=["romiot-stats"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(sap_seyir.router, prefix="/sap_seyir", tags=["sap_seyir"])
