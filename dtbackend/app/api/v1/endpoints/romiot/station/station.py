@@ -12,7 +12,7 @@ from app.core.auth import check_authenticated
 from app.core.config import settings
 from app.core.database import get_postgres_db, get_romiot_db
 from app.models.postgres_models import User as PostgresUser
-from app.models.romiot_models import CompanyIntegration, Station, WorkOrderLinkDirectory
+from app.models.romiot_models import Company, CompanyIntegration, Station, UserCompany, WorkOrderLinkDirectory
 from app.schemas.station import Station as StationSchema
 from app.schemas.station import StationCreate, StationList
 from app.schemas.user import User
@@ -75,7 +75,8 @@ class ManagedUserUpdateRequest(BaseModel):
         None,
         description="Deprecated: ignored on input. Backend writes company = department.",
     )
-    department: str | None = Field(None, min_length=1, description="Müşteri's customer name (fullAdmin only)")
+    department: str | None = Field(None, min_length=1, description="Server-derived mirror of the paired company name (not an input source)")
+    company_id: int | None = Field(None, description="Selected company id from the registry")
 
     @model_validator(mode="after")
     def validate_request(self):
@@ -85,8 +86,6 @@ class ManagedUserUpdateRequest(BaseModel):
             _validate_password_strength(self.password)
             if self.password != self.password_confirm:
                 raise ValueError("Şifreler eşleşmiyor")
-        if self.department is not None and ":" in self.department:
-            raise ValueError("Müşteri adında ':' karakteri kullanılamaz")
         return self
 
 
@@ -258,6 +257,43 @@ async def _pb_create_user_record(
         )
 
 
+async def _company_by_id(romiot_db: AsyncSession, company_id: int) -> Company:
+    """Load a registry company by id, or raise 400 for an invalid selection."""
+    row = await romiot_db.execute(select(Company).where(Company.id == company_id))
+    company = row.scalar_one_or_none()
+    if company is None:
+        raise HTTPException(status_code=400, detail="Geçersiz firma seçimi")
+    return company
+
+
+async def _company_by_name(romiot_db: AsyncSession, name: str) -> Company | None:
+    """Load a registry company by exact name; None when not in the registry."""
+    row = await romiot_db.execute(select(Company).where(Company.name == name))
+    return row.scalar_one_or_none()
+
+
+async def _upsert_user_company(romiot_db: AsyncSession, pb_user_id: str, company_id: int) -> None:
+    """Insert or update the 1:1 user_companies pairing for a PB user."""
+    existing = await romiot_db.execute(
+        select(UserCompany).where(UserCompany.pb_user_id == pb_user_id)
+    )
+    row = existing.scalar_one_or_none()
+    if row is None:
+        romiot_db.add(UserCompany(pb_user_id=pb_user_id, company_id=company_id))
+    else:
+        row.company_id = company_id
+    await romiot_db.commit()
+
+
+async def _resolve_pairing_company_name(romiot_db: AsyncSession, pb_user_id: str) -> str | None:
+    """Return the company NAME paired to a PB user (None when unpaired)."""
+    row = await romiot_db.execute(
+        select(Company.name).join(UserCompany, UserCompany.company_id == Company.id)
+        .where(UserCompany.pb_user_id == pb_user_id)
+    )
+    return row.scalar_one_or_none()
+
+
 @router.get("/management/work-order-link-directory", response_model=WorkOrderLinkDirectoryResponse)
 async def get_work_order_link_directory(
     current_user: User = Depends(check_authenticated),
@@ -353,7 +389,7 @@ async def list_company_users(
     if full_admin:
         user_company = None  # not used for filtering
     else:
-        user_company = await check_station_yonetici_role(current_user)
+        user_company = await check_station_yonetici_role(current_user, romiot_db)
 
     try:
         async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
@@ -390,8 +426,10 @@ async def list_company_users(
                     )
                     if not has_atolye_role:
                         continue
-                    item_company = (item.get("company") or "").strip()
+                    # Company comes from the user_companies pairing table, not PB.
+                    item_company = await _resolve_pairing_company_name(romiot_db, item.get("id")) or ""
                     if full_admin:
+                        item["_paired_company"] = item_company
                         all_pb_users.append(item)
                     else:
                         if item_company != user_company:
@@ -402,6 +440,7 @@ async def list_company_users(
                         )
                         if is_musteri:
                             continue
+                        item["_paired_company"] = item_company
                         all_pb_users.append(item)
                 total_pages = payload.get("totalPages", 1) or 1
                 page += 1
@@ -443,7 +482,8 @@ async def list_company_users(
         station_id = pg_user.workshop_id if pg_user else None
         station_name = station_name_by_id.get(station_id) if station_id else None
         extracted_role = _extract_atolye_role(pb_user.get("role"))
-        item_company = (pb_user.get("company") or "").strip()
+        # Pairing-resolved company (set while paging above); fall back to "" (unpaired).
+        item_company = pb_user.get("_paired_company") or ""
 
         response_items.append(
             ManagedUserResponse(
@@ -455,7 +495,7 @@ async def list_company_users(
                 station_id=station_id,
                 station_name=station_name,
                 company=item_company,
-                department=(pb_user.get("department") or "").strip() or None,
+                department=item_company or None,
                 is_self=username == current_user.username,
             )
         )
@@ -478,7 +518,7 @@ async def update_company_user(
     if full_admin:
         user_company: str | None = None
     else:
-        user_company = await check_station_yonetici_role(current_user)
+        user_company = await check_station_yonetici_role(current_user, romiot_db)
 
     try:
         async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
@@ -501,14 +541,16 @@ async def update_company_user(
             existing_role_values = (
                 target_pb_user.get("role") if isinstance(target_pb_user.get("role"), list) else []
             )
-            existing_company = (target_pb_user.get("company") or "").strip()
-            existing_department = (target_pb_user.get("department") or "").strip()
+            # Target's current company comes from the user_companies pairing, not PB.
+            existing_pairing_company = await _resolve_pairing_company_name(
+                romiot_db, pocketbase_user_id
+            ) or ""
             target_is_musteri = any(
                 isinstance(r, str) and r == "atolye:musteri" for r in existing_role_values
             )
 
             if not full_admin:
-                if existing_company != user_company:
+                if existing_pairing_company != user_company:
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="Bu kullanıcı sizin şirketinize ait değil",
@@ -534,13 +576,17 @@ async def update_company_user(
                     detail="Müşteri rolüne dönüştürme yetkiniz yok",
                 )
 
-            # Firma (department) = effective company; mirrored to PB company on write.
-            # Operators: locked to existing department. Non-operators: editable via user_data.department.
+            # Effective company resolves from the registry (companies table) and is
+            # mirrored to PB department+company; the user_companies pairing is the
+            # source of truth.  Operators: locked to their station's company.
+            # Non-operators: chosen via company_id (fullAdmin) or pinned to the
+            # yönetici's own company (non-fullAdmin).
             target_is_operator = any(
                 isinstance(r, str) and r == "atolye:operator" for r in existing_role_values
             )
+            effective_company_obj: Company
             if full_admin and target_is_operator:
-                if user_data.department is not None and user_data.department.strip() != existing_department:
+                if user_data.company_id is not None or user_data.department is not None:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Operatör için Firma bilgisi düzenlenemez",
@@ -550,23 +596,34 @@ async def update_company_user(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Operatöre farklı bir rol atanamaz.",
                     )
-                effective_company = existing_department or existing_company
+                # Operator's company stays its station's company; resolve below from the station.
+                effective_company_obj = None  # type: ignore[assignment]
             elif full_admin:
-                effective_company = (
-                    (user_data.department or existing_department or existing_company).strip()
-                )
-                if not effective_company:
+                if user_data.company_id is None:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Firma boş olamaz",
+                        detail="Firma seçimi zorunludur",
                     )
-                if ":" in effective_company:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Firma adında ':' karakteri kullanılamaz",
-                    )
+                effective_company_obj = await _company_by_id(romiot_db, user_data.company_id)
             else:
-                effective_company = user_company  # type: ignore[assignment]
+                # Non-fullAdmin yönetici: company pinned to their own company.
+                if user_data.company_id is not None:
+                    candidate = await _company_by_id(romiot_db, user_data.company_id)
+                    if candidate.name != user_company:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Yalnızca kendi firmanıza ait kullanıcıları düzenleyebilirsiniz",
+                        )
+                    effective_company_obj = candidate
+                else:
+                    candidate = await _company_by_name(romiot_db, user_company)  # type: ignore[arg-type]
+                    if candidate is None:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Firmanız firma kayıtlarında bulunamadı",
+                        )
+                    effective_company_obj = candidate
+            effective_company = effective_company_obj.name if effective_company_obj is not None else None
 
             # Resolve postgres mirror & station assignment
             pg_user = None
@@ -601,7 +658,22 @@ async def update_company_user(
                         status_code=status.HTTP_404_NOT_FOUND,
                         detail=f"ID {station_id_for_db} ile atölye bulunamadı",
                     )
-                if station.company != effective_company:
+                if new_role == ManagedUserRoleType.OPERATOR:
+                    # Operator's company is the station's company, resolved via the registry.
+                    station_company = await _company_by_name(romiot_db, station.company)
+                    if station_company is None:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Bu istasyonun firması firma kayıtlarında bulunamadı",
+                        )
+                    if not full_admin and station_company.name != user_company:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Bu atölye sizin şirketinize ait değil",
+                        )
+                    effective_company_obj = station_company
+                    effective_company = station_company.name
+                elif station.company != effective_company:
                     if full_admin and user_data.station_id is None:
                         raise HTTPException(
                             status_code=status.HTTP_400_BAD_REQUEST,
@@ -650,14 +722,13 @@ async def update_company_user(
             # Build pb_roles
             pb_roles = [f"atolye:{new_role.value}"]
 
-            # Department mirrors Firma. For operators, locked to existing value.
-            # For non-operators under fullAdmin, takes user_data.department if supplied; otherwise effective_company.
-            if target_is_operator:
-                department_for_payload = existing_department or effective_company
-            elif full_admin and user_data.department is not None:
-                department_for_payload = user_data.department.strip()
-            else:
-                department_for_payload = effective_company
+            # Department + company mirror the registry-resolved company name (Q11).
+            if effective_company_obj is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Firma çözümlenemedi",
+                )
+            department_for_payload = effective_company
 
             pb_payload: dict = {
                 "username": new_username,
@@ -686,6 +757,9 @@ async def update_company_user(
                     status_code=update_pb_response.status_code,
                     detail=f"Kullanıcı PocketBase üzerinde güncellenemedi: {error_message}",
                 )
+
+            # Persist the user_companies pairing (source of truth for company).
+            await _upsert_user_company(romiot_db, pocketbase_user_id, effective_company_obj.id)
 
             if not pg_user:
                 pg_user = PostgresUser(
@@ -743,7 +817,8 @@ class FullAdminUserCreateRequest(BaseModel):
         None,
         description="Deprecated: ignored on input. Backend writes company = department.",
     )
-    department: str = Field(..., min_length=1, description="Firma (saves to PB department; mirrored to PB company)")
+    department: str | None = Field(None, min_length=1, description="Server-derived mirror of the paired company name (not an input source)")
+    company_id: int | None = Field(None, description="Selected company id from the registry")
     station_id: int | None = Field(None, description="Required for operator role — but operator is rejected by handler")
 
     @model_validator(mode="after")
@@ -751,10 +826,6 @@ class FullAdminUserCreateRequest(BaseModel):
         _validate_password_strength(self.password)
         if self.password != self.password_confirm:
             raise ValueError("Şifreler eşleşmiyor")
-        if not self.department.strip():
-            raise ValueError("Firma boş olamaz")
-        if ":" in self.department:
-            raise ValueError("Firma adında ':' karakteri kullanılamaz")
         if self.role == ManagedUserRoleType.OPERATOR:
             raise ValueError("Operatör kullanıcıları bu uçtan oluşturulamaz; yönetici sayfasını kullanın.")
         if self.station_id is not None:
@@ -778,13 +849,14 @@ async def full_admin_create_user(
             detail="fullAdmin yetkisi gereklidir",
         )
 
-    # Firma = department (mirrored to company on the PB record)
-    firma = user_data.department.strip()
-    if not firma:
+    # Firma resolves from the registry via company_id; mirrored to PB department+company.
+    if user_data.company_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Firma boş olamaz",
+            detail="Firma seçimi zorunludur",
         )
+    company = await _company_by_id(romiot_db, user_data.company_id)
+    firma = company.name
 
     existing_pg_result = await postgres_db.execute(
         select(PostgresUser).where(PostgresUser.username == user_data.username)
@@ -815,6 +887,9 @@ async def full_admin_create_user(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"PocketBase'de kullanıcı oluşturulurken hata oluştu: {str(e)}",
         )
+
+    # Persist the user_companies pairing (source of truth for company).
+    await _upsert_user_company(romiot_db, pb_user_id, company.id)
 
     new_user = PostgresUser(
         username=user_data.username,
@@ -1016,6 +1091,7 @@ class UserCreateRequest(BaseModel):
     password: str = Field(..., min_length=8, description="Password")
     password_confirm: str = Field(..., description="Password confirmation")
     musteri_department: str | None = Field(None, min_length=1, description="Müşteri alt departman/şirket")
+    company_id: int | None = Field(None, description="Selected company id from the registry (must match the station's company)")
     station_id: int | None = Field(None, description="Station ID (required for operator, not for musteri)")
     role: UserRoleType = Field(default=UserRoleType.OPERATOR, description="Role: operator")
 
@@ -1044,7 +1120,7 @@ async def create_user_for_station(
     Requires role 'atolye:yonetici'.
     """
     # Check if user has yonetici role and get company
-    user_company = await check_station_yonetici_role(current_user)
+    user_company = await check_station_yonetici_role(current_user, romiot_db)
 
     # Verify station exists and belongs to user_company (always required since role is operator-only)
     if not user_data.station_id:
@@ -1068,6 +1144,19 @@ async def create_user_for_station(
             detail="Bu atölye sizin şirketinize ait değil"
         )
 
+    # Operator's company is the station's company, resolved via the registry.
+    company = await _company_by_name(romiot_db, station.company)
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bu istasyonun firması firma kayıtlarında bulunamadı"
+        )
+    if user_data.company_id is not None and user_data.company_id != company.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Operatör firması istasyonun firmasıyla eşleşmelidir"
+        )
+
     station_id_for_db = user_data.station_id
 
     # Check if user already exists (by username) in PostgreSQL
@@ -1084,7 +1173,8 @@ async def create_user_for_station(
 
     full_role = f"atolye:{user_data.role.value}"
     role_values = [full_role]
-    target_department = user_company
+    # Department + company mirror the registry-resolved company name (Q11).
+    target_department = company.name
 
     # Create user in PocketBase via shared helper
     pb_user_id = None
@@ -1097,7 +1187,7 @@ async def create_user_for_station(
             name=user_data.name,
             role=role_values,
             department=target_department,
-            company=user_company,
+            company=target_department,
         )
     except HTTPException:
         raise
@@ -1106,6 +1196,9 @@ async def create_user_for_station(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"PocketBase'de kullanıcı oluşturulurken hata oluştu: {str(e)}",
         )
+
+    # Persist the user_companies pairing (source of truth for company).
+    await _upsert_user_company(romiot_db, pb_user_id, company.id)
 
     # Create new user in primary database
     new_user = PostgresUser(
@@ -1297,7 +1390,7 @@ async def list_station_operators(
     Requires role 'atolye:yonetici' and department matching the station's company.
     """
     # Check if user has yonetici role and get company
-    user_company = await check_station_yonetici_role(current_user)
+    user_company = await check_station_yonetici_role(current_user, romiot_db)
 
     # Get the station
     station_result = await romiot_db.execute(
@@ -1353,7 +1446,7 @@ async def update_operator(
     Requires role 'atolye:yonetici'.
     """
     # Check if user has yonetici role and get company
-    user_company = await check_station_yonetici_role(current_user)
+    user_company = await check_station_yonetici_role(current_user, romiot_db)
 
     # Get the user
     user_result = await postgres_db.execute(
@@ -1405,7 +1498,8 @@ async def update_operator(
 async def delete_operator(
     user_id: int,
     current_user: User = Depends(check_authenticated),
-    postgres_db: AsyncSession = Depends(get_postgres_db)
+    postgres_db: AsyncSession = Depends(get_postgres_db),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
 ):
     """
     Delete an operator.
@@ -1413,7 +1507,7 @@ async def delete_operator(
     Note: This only deletes from PostgreSQL. PocketBase user should be handled separately.
     """
     # Check if user has yonetici role
-    await check_station_yonetici_role(current_user)
+    await check_station_yonetici_role(current_user, romiot_db)
 
     # Get the user
     user_result = await postgres_db.execute(
