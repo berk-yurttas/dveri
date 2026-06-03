@@ -21,7 +21,7 @@ async def get_company_integration(
     Returns the current company's external API integration settings (api_url, api_key).
     Requires 'atolye:yonetici' role.
     """
-    company = await check_station_yonetici_role(current_user)
+    company = await check_station_yonetici_role(current_user, romiot_db)
 
     result = await romiot_db.execute(
         select(CompanyIntegration).where(CompanyIntegration.company == company)
@@ -48,7 +48,7 @@ async def upsert_company_integration(
     Creates or updates the external API integration settings for the current company.
     Requires 'atolye:yonetici' role.
     """
-    company = await check_station_yonetici_role(current_user)
+    company = await check_station_yonetici_role(current_user, romiot_db)
 
     result = await romiot_db.execute(
         select(CompanyIntegration).where(CompanyIntegration.company == company)
