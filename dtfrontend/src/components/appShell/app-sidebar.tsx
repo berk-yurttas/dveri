@@ -214,7 +214,7 @@ export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPat
                       (isDesktop && isExpanded) || (!isDesktop && mobileOpen) ? "opacity-100" : "opacity-0"
                     }`}
                   >
-                    "Proje Takip"
+                    Proje Takip
                   </span>
                 </a>
               )}
