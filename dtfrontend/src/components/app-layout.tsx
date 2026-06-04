@@ -1,7 +1,7 @@
 "use client"
 
 import { AppShell } from "./appShell";
-import { Home, Users, BarChart3, Plus, Receipt, Layout, Star, Database, Server, Cloud, Workflow, BookOpen, ExternalLink } from "lucide-react";
+import { Home, Users, BarChart3, Plus, Receipt, Layout, Star, Database, Server, Cloud, Workflow, BookOpen, ClipboardList } from "lucide-react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useMemo, useCallback, useEffect, useState, Suspense } from "react";
@@ -196,7 +196,7 @@ function AppLayoutContent({ children }: AppLayoutProps) {
         baseItems.push(
           {
             title: "Proje Takip",
-            icon: ExternalLink,
+            icon: ClipboardList,
             href: projeTakipUrl,
           })
       }

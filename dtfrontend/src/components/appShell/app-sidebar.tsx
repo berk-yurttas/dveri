@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, memo, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { LogOutIcon, Loader2, ChevronDown, type LucideIcon, Database, BookOpen } from "lucide-react"
+import { LogOutIcon, Loader2, ChevronDown, type LucideIcon, Database, BookOpen, ClipboardList } from "lucide-react"
 
 import { useMediaQuery } from "./hooks/use-media-query"
 import { Button } from "./ui/button"
@@ -198,6 +198,27 @@ export const AppSidebar = memo(function AppSidebar({ navigationItems, currentPat
             </div>
           </div>
           <div className="p-2 mt-auto border-t border-sidebar-border border-gray-200">
+              {/* İvme External Link (only when env URL is set) */}
+              {isIvmePlatform && process.env.NEXT_PUBLIC_IVME_EXTERNAL_LINK_URL && (
+                <a
+                  href={process.env.NEXT_PUBLIC_IVME_EXTERNAL_LINK_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex items-center ${
+                    (!isDesktop && mobileOpen) || isDesktop ? "justify-start" : "justify-center"
+                  } gap-3 rounded-md p-2 mb-2 text-sm transition-colors text-gray-700 hover:bg-gray-100 hover:text-gray-800`}
+                >
+                  <ClipboardList className="h-5 w-5 flex-shrink-0 text-current" />
+                  <span
+                    className={`transition-opacity duration-200 ${
+                      (isDesktop && isExpanded) || (!isDesktop && mobileOpen) ? "opacity-100" : "opacity-0"
+                    }`}
+                  >
+                    "Proje Takip"
+                  </span>
+                </a>
+              )}
+
               {/* Documentation Link */}
               {platformInfo && (
                 <a
