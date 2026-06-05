@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import QRCodeSVG from "react-qr-code";
 import { DateInput } from "@/components/ui/date-input";
 import { CompanyTypeahead } from "@/components/atolye/CompanyTypeahead";
+import { useMyCompany } from "@/hooks/useMyCompany";
 
 interface PackageInfo {
   code: string;
@@ -71,7 +72,14 @@ export default function MusteriPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Check user roles and set sender company.
+  // Own company is resolved from the pairing-backed /my-company endpoint,
+  // not from the PocketBase department/company fields.
+  const myCompany = useMyCompany(isMusteri || isYonetici);
+  useEffect(() => {
+    if (myCompany) setUserOwnCompany(myCompany.name);
+  }, [myCompany]);
+
+  // Check user roles.
   useEffect(() => {
     if (user?.role && Array.isArray(user.role)) {
       const musteriRole = user.role.find((r) => typeof r === "string" && r === "atolye:musteri");
@@ -79,7 +87,6 @@ export default function MusteriPage() {
       if (musteriRole || yoneticiRole) {
         setIsMusteri(!!musteriRole);
         setIsYonetici(!!yoneticiRole);
-        setUserOwnCompany((user.department || user.company || "").trim());
       }
     }
   }, [user]);

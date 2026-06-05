@@ -8,6 +8,7 @@ import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
 import { ExitStationBadge } from "@/components/atolye/ExitStationBadge";
 import { EntryStationBadge } from "@/components/atolye/EntryStationBadge";
 import { RoutePickerModal } from "@/components/atolye/RoutePickerModal";
+import { useMyCompany } from "@/hooks/useMyCompany";
 
 interface OrderPair {
   aselsan_order_number: string;
@@ -131,6 +132,10 @@ export default function WorkOrdersPage() {
   const [userCompany, setUserCompany] = useState<string>("");
   const [expandedWorkOrders, setExpandedWorkOrders] = useState<Set<string>>(new Set());
 
+  // Own company is resolved from the pairing-backed /my-company endpoint,
+  // not from the PocketBase department/company fields.
+  const myCompany = useMyCompany(isYonetici || isOperator || isSatinalma || isMusteri);
+
   // Company tabs state (for ASELSAN satinalma)
   const [companies, setCompanies] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string>("");
@@ -230,24 +235,15 @@ export default function WorkOrdersPage() {
         typeof role === "string" && role === "atolye:satinalma"
       );
       setIsSatinalma(!!satinalmaRole);
-
-      // Extract company from any atolye role
-      const anyAtolyeRole = user.role.find((role) =>
-        typeof role === "string" && role.startsWith("atolye:")
-      );
-      if (anyAtolyeRole && typeof anyAtolyeRole === "string") {
-        setUserCompany(user.department || user.company || "");
-      }
-
-      // Check if ASELSAN satinalma
-      if (satinalmaRole && typeof satinalmaRole === "string") {
-        const companyFromDepartment = (user.department || user.company || "").toUpperCase();
-        if (companyFromDepartment === "ASELSAN") {
-          setIsAselsanSatinalma(true);
-        }
-      }
     }
   }, [user]);
+
+  // Drive userCompany and the ASELSAN-satinalma flag from the resolved own company.
+  useEffect(() => {
+    const companyName = myCompany?.name ?? "";
+    setUserCompany(companyName);
+    setIsAselsanSatinalma(isSatinalma && companyName.toUpperCase() === "ASELSAN");
+  }, [myCompany, isSatinalma]);
 
   // Fetch operator's own station name (for filtering work orders to own station)
   useEffect(() => {

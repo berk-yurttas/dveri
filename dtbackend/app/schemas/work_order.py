@@ -17,6 +17,7 @@ class WorkOrderBase(BaseModel):
     main_customer: str = Field(..., description="Ana Müşteri")
     sector: str = Field(..., description="Sektör")
     company_from: str = Field(..., description="Gönderen Firma")
+    company_from_id: int | None = Field(None, description="Gönderen Firma ID (companies kaydı)")
     teklif_number: str = Field(..., description="Teklif Numarası")
     pairs: list[OrderPair] = Field(..., min_length=1, description="(Sipariş No, Kalem No) çiftleri")
     part_number: str = Field(..., description="Parça Numarası")
@@ -90,6 +91,7 @@ class WorkOrderList(BaseModel):
     main_customer: str
     sector: str
     company_from: str
+    company_from_id: int | None = None
     teklif_number: str
     pairs: list[OrderPair]
     part_number: str
@@ -125,6 +127,7 @@ class WorkOrderDetail(BaseModel):
     main_customer: str
     sector: str
     company_from: str
+    company_from_id: int | None = None
     teklif_number: str
     pairs: list[OrderPair]
     pair_count: int = Field(..., description="Toplam çift sayısı (collapsed row badge'i için denormalize)")

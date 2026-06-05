@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.romiot_models import Station
 from app.schemas.user import User
+from app.api.v1.endpoints.romiot.station.company_resolver import require_user_company
 
 
 async def check_station_operator_role(
@@ -11,36 +12,26 @@ async def check_station_operator_role(
     current_user: User,
     db: AsyncSession
 ):
-    """
-    Helper function to check if user has the role 'atolye:operator'
-    and department matches the station's company.
-    Raises HTTPException with 401 if role doesn't match.
-    """
-    # Get station from database
+    """Check the user holds 'atolye:operator' AND their resolved company matches
+    the station's company. Company now comes from user_companies, not PocketBase."""
     station_result = await db.execute(
         select(Station).where(Station.id == station_id)
     )
     station = station_result.scalar_one_or_none()
-
     if not station:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{station_id} ID'li atölye bulunamadı"
         )
 
-    # New role format is company-independent: atolye:operator
-    expected_role = "atolye:operator"
-
-    # Check if user has the expected role
-    if expected_role not in current_user.role:
+    if "atolye:operator" not in current_user.role:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Bu atölye için gerekli operatör yetkisine sahip değilsiniz"
         )
 
-    # Company is now stored in user's department field
-    user_company = (current_user.department or "").strip()
-    if not user_company or station.company != user_company:
+    company = await require_user_company(current_user, db)
+    if station.company != company.name:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Bu atölye için şirket yetkisine sahip değilsiniz"
@@ -49,70 +40,39 @@ async def check_station_operator_role(
     return station
 
 
-async def check_station_yonetici_role(current_user: User):
-    """
-    Helper function to check if user has the role 'atolye:yonetici'.
-    Raises HTTPException with 401 if role doesn't match.
-    Returns the company name from user's department field.
-    """
+async def check_station_yonetici_role(current_user: User, romiot_db: AsyncSession) -> str:
+    """Check 'atolye:yonetici' and return the user's resolved company NAME
+    (from user_companies). Raises 401 without the role, 403 when unpaired."""
     if not current_user.role or not isinstance(current_user.role, list):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Yönetici yetkisine sahip değilsiniz"
         )
-
     if "atolye:yonetici" not in current_user.role:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Yönetici yetkisine sahip değilsiniz"
         )
-
-    company = (current_user.department or "").strip()
-    if not company:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Kullanıcı şirket bilgisi bulunamadı"
-        )
-
-    return company
+    company = await require_user_company(current_user, romiot_db)
+    return company.name
 
 
-async def get_station_company(current_user: User):
-    """
-    Helper function to get company from department for any station role.
-    Returns the company name if user has any station role, raises HTTPException otherwise.
-    """
+async def get_station_company(current_user: User, romiot_db: AsyncSession) -> str:
+    """Return the user's resolved company NAME for any atolye role
+    (from user_companies). 401 without an atolye role, 403 when unpaired."""
     if not current_user.role or not isinstance(current_user.role, list):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Atölye yetkisine sahip değilsiniz"
         )
-
-    allowed_roles = {
-        "atolye:yonetici",
-        "atolye:operator",
-        "atolye:musteri",
-        "atolye:satinalma",
-    }
-    has_station_role = any(
-        isinstance(role, str) and role in allowed_roles
-        for role in current_user.role
-    )
-
-    if not has_station_role:
+    allowed_roles = {"atolye:yonetici", "atolye:operator", "atolye:musteri", "atolye:satinalma"}
+    if not any(isinstance(r, str) and r in allowed_roles for r in current_user.role):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Geçerli bir atölye yetkisine sahip değilsiniz"
         )
-
-    company = (current_user.department or "").strip()
-    if not company:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Kullanıcı şirket bilgisi bulunamadı"
-        )
-
-    return company
+    company = await require_user_company(current_user, romiot_db)
+    return company.name
 
 
 def is_full_admin(current_user: User) -> bool:
