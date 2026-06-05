@@ -1,17 +1,24 @@
-"""One-time backfill: pair existing atolye PocketBase users to companies.
+"""One-time seed + backfill for the company registry.
 
-Run AFTER the migration is applied AND the `companies` table is seeded via SQL.
-Idempotent: skips users that already have a user_companies row. Reports any
-user whose PB department has no matching company, and any company name used by
-stations/work_orders that is missing from `companies`.
+For every PocketBase user that has an `atolye:...` role, this script:
+  1. Derives the company NAME from the user's PB `department` (the segment
+     before the first ":", mirroring the station/work-order create flow).
+  2. Auto-creates a `companies` row for each distinct department name that
+     isn't already in the registry, with a random unique integer PLACEHOLDER
+     `code` (the real Mekasan codes are filled in later — code is NOT NULL +
+     UNIQUE and feeds SubcontractorID, so it can't be left blank).
+  3. Pairs each atolye user to their company in `user_companies`.
 
-Department matching mirrors the station/work-order create flow
-(`_get_main_company_from_department`): only the segment before the first ":" of
-the PB `department` is used as the company name.
+Run AFTER the migration is applied. Idempotent: existing companies (by name)
+are reused, and users that already have a user_companies row are skipped. Both
+the company inserts and the pairings commit in a single transaction. Also
+warns about company names used by stations/work_orders that have no registry
+row (those are NOT auto-created — only user departments are seeded).
 
 Usage:  python -m scripts.backfill_user_companies
 """
 import asyncio
+import random
 
 import httpx
 from sqlalchemy import select
@@ -75,12 +82,39 @@ async def main() -> None:
         token = await _pb_admin_token(client)
         pb_users = await _list_atolye_users(client, token)
 
+    created = 0
     paired = 0
     skipped = 0
     unmatched_users: list[str] = []
     async with RomiotAsyncSessionLocal() as db:
-        companies = {c.name: c.id for c in (await db.execute(select(Company))).scalars().all()}
+        existing_companies = (await db.execute(select(Company))).scalars().all()
+        companies = {c.name: c.id for c in existing_companies}
+        used_codes = {c.code for c in existing_companies}
 
+        def _gen_unique_code() -> str:
+            """A random 6-digit integer code (as text), unique across existing
+            + this batch. Placeholder only — real Mekasan codes are set later."""
+            while True:
+                candidate = str(random.randint(100000, 999999))
+                if candidate not in used_codes:
+                    used_codes.add(candidate)
+                    return candidate
+
+        # 1. Auto-create a company for each distinct atolye-user department name.
+        dept_names = sorted(
+            {_main_company_from_department(u.get("department")) for u in pb_users} - {""}
+        )
+        for name in dept_names:
+            if name in companies:
+                continue
+            company = Company(name=name, code=_gen_unique_code())
+            db.add(company)
+            await db.flush()  # assign company.id for the pairing step
+            companies[name] = company.id
+            created += 1
+
+        # Informational: company names used by stations/work_orders that have no
+        # registry row (not auto-created — only user departments are seeded).
         used_names = set()
         for s in (await db.execute(select(Station.company))).scalars().all():
             used_names.add((s or "").strip())
@@ -88,8 +122,9 @@ async def main() -> None:
             used_names.add((cf or "").strip())
         missing = sorted(n for n in used_names if n and n not in companies)
         if missing:
-            print("WARNING: company names in use but missing from companies:", missing)
+            print("WARNING: company names in use (stations/work_orders) with no registry row:", missing)
 
+        # 2. Pair each atolye user to their company.
         for u in pb_users:
             pb_id = u["id"]
             existing = (await db.execute(
@@ -101,13 +136,16 @@ async def main() -> None:
             dept = _main_company_from_department(u.get("department"))
             company_id = companies.get(dept)
             if company_id is None:
+                # Only happens when the user has an empty department.
                 unmatched_users.append(f"{u.get('username')} (department={dept!r})")
                 continue
             db.add(UserCompany(pb_user_id=pb_id, company_id=company_id))
             paired += 1
+
         await db.commit()
 
-    print(f"paired={paired} skipped_existing={skipped} unmatched={len(unmatched_users)}")
+    print(f"companies_created={created} paired={paired} skipped_existing={skipped} unmatched={len(unmatched_users)}")
+    print("NOTE: auto-created company codes are random placeholders — set real Mekasan codes before relying on SubcontractorID.")
     for line in unmatched_users:
         print("  UNMATCHED:", line)
 
