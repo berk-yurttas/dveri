@@ -5,6 +5,13 @@ import { api } from "@/lib/api";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useParams, useRouter } from "next/navigation";
+import { CompanyTypeahead } from "@/components/atolye/CompanyTypeahead";
+
+interface CompanyRegistryItem {
+  id: number;
+  name: string;
+  code: string;
+}
 
 function validatePassword(password: string): string | null {
   if (password.length < 8) return "Şifre en az 8 karakter olmalıdır";
@@ -82,6 +89,7 @@ export default function KullaniciYonetimiPage() {
   const [isFullAdmin, setIsFullAdmin] = useState(false);
   const [companies, setCompanies] = useState<string[]>([]);
   const [filterCompany, setFilterCompany] = useState("");
+  const [companyRegistry, setCompanyRegistry] = useState<CompanyRegistryItem[]>([]);
 
   useEffect(() => {
     const roles = (user?.role && Array.isArray(user.role)) ? user.role : [];
@@ -111,17 +119,20 @@ export default function KullaniciYonetimiPage() {
       const requests: Promise<unknown>[] = [
         api.get<ManagedUser[]>("/romiot/station/stations/management/users", undefined, { useCache: false }),
         api.get<Station[]>("/romiot/station/stations/", undefined, { useCache: false }),
+        api.get<CompanyRegistryItem[]>("/romiot/station/companies/", undefined, { useCache: false }),
       ];
       if (isFullAdmin) {
         requests.push(api.get<string[]>("/romiot/station/stations/management/companies", undefined, { useCache: false }));
       }
-      const [usersData, stationsData, companiesData] = await Promise.all(requests) as [
+      const [usersData, stationsData, registryData, companiesData] = await Promise.all(requests) as [
         ManagedUser[] | undefined,
         Station[] | undefined,
+        CompanyRegistryItem[] | undefined,
         string[] | undefined,
       ];
       setUsers(usersData || []);
       setStations(stationsData || []);
+      setCompanyRegistry(registryData || []);
       setCompanies(companiesData || []);
     } catch (err: any) {
       let message = "Kullanıcı verileri alınamadı";
@@ -152,10 +163,29 @@ export default function KullaniciYonetimiPage() {
       );
       const matchesRole = !filterRole || u.role === filterRole;
       const matchesAtolye = !filterAtolye || (u.station_name || "").toLowerCase().includes(filterAtolye.toLowerCase());
-      const matchesCompany = !filterCompany || u.department === filterCompany;
+      const matchesCompany = !filterCompany || u.company === filterCompany;
       return matchesSearch && matchesRole && matchesAtolye && matchesCompany;
     });
   }, [users, search, filterRole, filterAtolye, filterCompany, isFullAdmin]);
+
+  // Stable list of registry names for the typeahead (memoized so its
+  // `items` prop reference doesn't change every render).
+  const companyNames = useMemo(
+    () => companyRegistry.map((c) => c.name),
+    [companyRegistry]
+  );
+
+  // Resolve a company name (from the typeahead) to its registry id. The
+  // typeahead always commits an exact catalog entry, but we match
+  // case-insensitively (tr-TR) for safety. Returns null when unmatched.
+  const resolveCompanyId = (name: string): number | null => {
+    const target = name.trim().toLocaleLowerCase("tr-TR");
+    if (!target) return null;
+    const match = companyRegistry.find(
+      (c) => c.name.toLocaleLowerCase("tr-TR") === target
+    );
+    return match ? match.id : null;
+  };
 
   const openEditModal = (target: ManagedUser) => {
     const role: RoleType = target.role || "musteri";
@@ -168,7 +198,10 @@ export default function KullaniciYonetimiPage() {
       password: "",
       password_confirm: "",
       company: target.company || "",
-      department: target.department || "",
+      // Seed the Firma field from the pairing-resolved company name so the
+      // typeahead (non-operator) / locked display (operator) shows the current
+      // company; fall back to the mirrored department.
+      department: target.company || target.department || "",
     });
     setError(null);
     setSuccess(null);
@@ -225,7 +258,8 @@ export default function KullaniciYonetimiPage() {
       if (pwError) throw new Error(pwError);
       if (createForm.password !== createForm.password_confirm) throw new Error("Şifreler eşleşmiyor");
       if (!createForm.department.trim()) throw new Error("Firma boş olamaz");
-      if (createForm.department.includes(":")) throw new Error("Firma adında ':' karakteri kullanılamaz");
+      const companyId = resolveCompanyId(createForm.department);
+      if (companyId === null) throw new Error("Lütfen listeden geçerli bir firma seçin");
 
       const payload: any = {
         username: createForm.username.trim(),
@@ -234,7 +268,7 @@ export default function KullaniciYonetimiPage() {
         password: createForm.password,
         password_confirm: createForm.password_confirm,
         role: createForm.role,
-        department: createForm.department.trim(),
+        company_id: companyId,
       };
 
       await api.post("/romiot/station/stations/management/users", payload);
@@ -298,8 +332,9 @@ export default function KullaniciYonetimiPage() {
       if (isFullAdmin) {
         if (!targetIsOperator) {
           if (!formData.department.trim()) throw new Error("Firma boş olamaz");
-          if (formData.department.includes(":")) throw new Error("Firma adında ':' karakteri kullanılamaz");
-          payload.department = formData.department.trim();
+          const companyId = resolveCompanyId(formData.department);
+          if (companyId === null) throw new Error("Lütfen listeden geçerli bir firma seçin");
+          payload.company_id = companyId;
         }
       }
 
@@ -552,17 +587,24 @@ export default function KullaniciYonetimiPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Firma {firmaLocked ? "" : "*"}
                       </label>
-                      <input
-                        type="text"
-                        value={formData.department}
-                        onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                        className={`w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 ${
-                          firmaLocked ? "bg-gray-100 cursor-not-allowed" : "bg-white"
-                        }`}
-                        required={!firmaLocked}
-                        disabled={saving}
-                        readOnly={firmaLocked}
-                      />
+                      {firmaLocked ? (
+                        <input
+                          type="text"
+                          value={formData.department}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-gray-100 cursor-not-allowed"
+                          disabled
+                          readOnly
+                        />
+                      ) : (
+                        <CompanyTypeahead
+                          value={formData.department}
+                          onChange={(v) => setFormData({ ...formData, department: v })}
+                          items={companyNames}
+                          disabled={saving}
+                          required
+                          placeholder="Firma seçin veya arayın"
+                        />
+                      )}
                       {formData.role === "musteri" && !firmaLocked && (
                         <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>
                       )}
@@ -581,7 +623,16 @@ export default function KullaniciYonetimiPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Atölye *</label>
                     <select
                       value={formData.station_id}
-                      onChange={(e) => setFormData({ ...formData, station_id: e.target.value })}
+                      onChange={(e) => {
+                        const nextStationId = e.target.value;
+                        const station = stations.find((s) => String(s.id) === nextStationId);
+                        setFormData({
+                          ...formData,
+                          station_id: nextStationId,
+                          // Operator company follows the selected station's company.
+                          department: station ? station.company : "",
+                        });
+                      }}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
                       required
                       disabled={saving}
@@ -732,13 +783,13 @@ export default function KullaniciYonetimiPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Firma *</label>
-                  <input
-                    type="text"
+                  <CompanyTypeahead
                     value={createForm.department}
-                    onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                    onChange={(v) => setCreateForm({ ...createForm, department: v })}
+                    items={companyNames}
                     required
                     disabled={saving}
+                    placeholder="Firma seçin veya arayın"
                   />
                   {createForm.role === "musteri" && (
                     <p className="mt-1 text-xs text-gray-500">QR'da "Gönderen Firma" olarak basılır.</p>

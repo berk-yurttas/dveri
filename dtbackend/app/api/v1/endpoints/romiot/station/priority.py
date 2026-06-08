@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.endpoints.romiot.station.company_resolver import require_user_company
 from app.core.auth import check_authenticated
 from app.core.database import get_postgres_db, get_romiot_db
 from app.models.postgres_models import User as PostgresUser
@@ -17,13 +18,13 @@ DEFAULT_TOKEN_LIMIT = 1
 MAX_PRIORITY_PER_ORDER = 5
 
 
-def _get_satinalma_company(current_user: User) -> str:
+async def _get_satinalma_company(current_user: User, romiot_db: AsyncSession) -> str:
     """Extract company from satinalma role. Raises if not satinalma."""
     if not current_user.role or not isinstance(current_user.role, list):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Satınalma yetkisi gerekli")
 
     if any(isinstance(role, str) and role == "atolye:satinalma" for role in current_user.role):
-        company = (current_user.department or "").strip()
+        company = (await require_user_company(current_user, romiot_db)).name.strip()
         if company:
             return company
 
@@ -60,7 +61,7 @@ async def get_my_tokens(
     romiot_db: AsyncSession = Depends(get_romiot_db),
 ):
     """Get current user's priority token balance."""
-    company = _get_satinalma_company(current_user)
+    company = await _get_satinalma_company(current_user, romiot_db)
 
     pg_user = await UserService.get_user_by_username(postgres_db, current_user.username)
     if not pg_user:
@@ -87,7 +88,7 @@ async def assign_priorities(
     Each work order group can have max 5 tokens.
     Deducts tokens from user's balance.
     """
-    company = _get_satinalma_company(current_user)
+    company = await _get_satinalma_company(current_user, romiot_db)
 
     pg_user = await UserService.get_user_by_username(postgres_db, current_user.username)
     if not pg_user:

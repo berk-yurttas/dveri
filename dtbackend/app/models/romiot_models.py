@@ -38,6 +38,9 @@ class WorkOrder(PostgreSQLBase):
     main_customer = Column(String(255), nullable=False)
     sector = Column(String(255), nullable=False)
     company_from = Column(String(255), nullable=False)
+    # FK form of company_from (Q13). Nullable for legacy rows / unmatched names;
+    # the string column above is kept as a back-compat mirror, dropped in a later pass.
+    company_from_id = Column(Integer, ForeignKey("companies.id", ondelete="RESTRICT"), nullable=True)
     teklif_number = Column(String(20), nullable=False)  # Teklif Numarası (MKS-XXXXXX)
     aselsan_order_number = Column(String(255), nullable=True)   # legacy fallback only; F3 reads from work_order_pairs
     order_item_number = Column(String(255), nullable=True)      # legacy fallback only; F3 reads from work_order_pairs
@@ -180,3 +183,37 @@ class WorkOrderRoute(PostgreSQLBase):
     # user_id from PRIMARY database (not romiot), see WorkOrder.user_id for cross-DB rationale
     created_by_user_id = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class Company(PostgreSQLBase):
+    """Authoritative company registry for the atolye subsystem (replaces the
+    PocketBase department as the source of a user's company). `name` is the
+    canonical company string used by stations/qr/work_orders; `code` is sent to
+    Mekasan as SubcontractorID."""
+    __tablename__ = "companies"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_companies_name"),
+        UniqueConstraint("code", name="uq_companies_code"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    code = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class UserCompany(PostgreSQLBase):
+    """1:1 pairing of a PocketBase user to a company. `pb_user_id` stores the
+    PocketBase user id (string); no cross-DB FK is possible (same pattern as
+    WorkOrder.user_id). UNIQUE(pb_user_id) enforces one company per user."""
+    __tablename__ = "user_companies"
+    __table_args__ = (
+        UniqueConstraint("pb_user_id", name="uq_user_companies_pb_user_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    pb_user_id = Column(String(255), nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="RESTRICT"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
