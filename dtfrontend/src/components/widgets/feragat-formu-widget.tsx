@@ -240,57 +240,61 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 const stepDataMap: StepDataMap = {}
                 const userCache: { [username: string]: any } = {}
                 
-                // First, collect all unique assignees and check for representation users
+                // First, collect all unique assignees and unique stepInstanceIds
                 const assignees = new Set<string>()
                 const representationUsers = new Map<string, string>() // step_instance_id -> representation_user
+                const uniqueStepInstances = new Map<string, string>() // step_instance_id -> assignee
                 
-                // Create promises for all outbox queries
-                const outboxPromises = stepRows.map(async (row) => {
+                // Collect unique stepInstanceIds and assignees
+                stepRows.forEach(row => {
                     const stepInstanceId = row[0] || ''
                     const assignee = row[3] || ''
                     
                     if (assignee) assignees.add(assignee)
+                    if (stepInstanceId && !uniqueStepInstances.has(stepInstanceId)) {
+                        uniqueStepInstances.set(stepInstanceId, assignee)
+                    }
+                })
+                
+                // Create promises for unique outbox queries only
+                const outboxPromises = Array.from(uniqueStepInstances.entries()).map(async ([stepInstanceId, assignee]) => {
+                    const outboxSql = `
+                        SELECT payload
+                        FROM outbox_events
+                        WHERE aggregate_type = 'job_step_instance'
+                        AND aggregate_id = '${stepInstanceId}'
+                        AND event_type = 'STEP_STATUS_CHANGED'
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    `
                     
-                    // Check outbox_events for representation user
-                    if (stepInstanceId) {
-                        const outboxSql = `
-                            SELECT payload
-                            FROM outbox_events
-                            WHERE aggregate_type = 'job_step_instance'
-                            AND aggregate_id = '${stepInstanceId}'
-                            AND event_type = 'STEP_STATUS_CHANGED'
-                            ORDER BY created_at DESC
-                            LIMIT 1
-                        `
-                        
-                        try {
-                            const outboxRows = await runQuery(outboxSql, seyirDbConfig)
-                            if (outboxRows.length > 0 && outboxRows[0][0]) {
-                                const payload = outboxRows[0][0]
-                                
-                                // Parse payload if it's a string
-                                let payloadObj = payload
-                                if (typeof payload === 'string') {
-                                    try {
-                                        payloadObj = parsePythonStyleJSON(payload)
-                                    } catch (e) {
-                                        console.error('Failed to parse payload:', e)
-                                    }
-                                }
-                                
-                                if (payloadObj && typeof payloadObj === 'object') {
-                                    const newStatus = payloadObj.newStatus
-                                    const changedBy = payloadObj.changedBy
-                                    
-                                    if (newStatus === 'done' && changedBy && changedBy !== assignee) {
-                                        representationUsers.set(stepInstanceId, changedBy)
-                                        assignees.add(changedBy) // Also fetch representation user's info
-                                    }
+                    try {
+                        const outboxRows = await runQuery(outboxSql, seyirDbConfig)
+                        if (outboxRows.length > 0 && outboxRows[0][0]) {
+                            const payload = outboxRows[0][0]
+                            
+                            // Parse payload if it's a string
+                            let payloadObj = payload
+                            if (typeof payload === 'string') {
+                                try {
+                                    payloadObj = parsePythonStyleJSON(payload)
+                                } catch (e) {
+                                    console.error('Failed to parse payload:', e)
                                 }
                             }
-                        } catch (err) {
-                            console.error(`Failed to fetch outbox events for ${stepInstanceId}:`, err)
+                            
+                            if (payloadObj && typeof payloadObj === 'object') {
+                                const newStatus = payloadObj.newStatus
+                                const changedBy = payloadObj.changedBy
+                                
+                                if (newStatus === 'done' && changedBy && changedBy !== assignee) {
+                                    representationUsers.set(stepInstanceId, changedBy)
+                                    assignees.add(changedBy) // Also fetch representation user's info
+                                }
+                            }
                         }
+                    } catch (err) {
+                        console.error(`Failed to fetch outbox events for ${stepInstanceId}:`, err)
                     }
                 })
                 
