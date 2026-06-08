@@ -38,6 +38,8 @@ from app.schemas.work_order import (
     WorkOrderStatus,
     WorkOrderUpdateExitDate,
     PaginatedWorkOrderResponse,
+    TrackResponse,
+    TrackMatch,
 )
 
 router = APIRouter()
@@ -109,6 +111,239 @@ async def _route_expected_position(
     )
     highest_exited = result.scalar_one_or_none()
     return 0 if highest_exited is None else highest_exited + 1
+
+
+def _track_package_status(
+    *,
+    has_rows: bool,
+    active_is_exit: bool | None,
+    last_is_exit: bool | None,
+    target_date,
+    today,
+) -> str:
+    """Status of a single package. `active_is_exit` is the active row's
+    station exit-flag (None when no active row); `last_is_exit` is the latest
+    exited row's station exit-flag (used only when no active row)."""
+    if not has_rows:
+        return "Henüz okutulmadı"
+    if active_is_exit is not None:
+        if active_is_exit:
+            return "Sevke Hazır"
+        if target_date is not None and target_date < today:
+            return "Gecikmiş"
+        return "İşlemde"
+    # No active row → all rows exited
+    return "Tamamlandı" if last_is_exit else "Bekliyor"
+
+
+def _track_group_status(package_statuses: list[str], *, delivered: bool) -> str:
+    """Roll up package statuses to one group status (precedence documented in plan)."""
+    if delivered or (package_statuses and all(s == "Tamamlandı" for s in package_statuses)):
+        return "Tamamlandı"
+    for status in ("Gecikmiş", "İşlemde", "Sevke Hazır", "Bekliyor"):
+        if status in package_statuses:
+            return status
+    return "Henüz okutulmadı"
+
+
+def _build_track_timeline(route, history, *, group_is_delayed: bool) -> list[dict]:
+    """Build timeline steps.
+
+    `route`: ordered list of {station_id, station_name, is_exit_station} (may be empty).
+    `history`: {station_id: {"entry", "exit", "active", and (history-only) "name", "is_exit"}}.
+    Route present → spine with overlay (unvisited future stations = "waiting").
+    Route empty → history stations ordered by entry date (no future steps).
+    """
+    def overlay_status(h):
+        if h is None:
+            return "waiting"
+        if h.get("active"):
+            return "delayed" if group_is_delayed else "active"
+        return "done"
+
+    steps: list[dict] = []
+    if route:
+        for pos, st in enumerate(route):
+            h = history.get(st["station_id"])
+            steps.append({
+                "position": pos,
+                "station_id": st["station_id"],
+                "station_name": st["station_name"],
+                "is_exit_station": st["is_exit_station"],
+                "status": overlay_status(h),
+                "entry_date": h["entry"] if h else None,
+                "exit_date": h["exit"] if h else None,
+            })
+        return steps
+
+    # History-only: order by entry date (None last)
+    ordered = sorted(
+        history.items(),
+        key=lambda kv: (kv[1]["entry"] is None, kv[1]["entry"] or 0),
+    )
+    for station_id, h in ordered:
+        steps.append({
+            "position": None,
+            "station_id": station_id,
+            "station_name": h.get("name", ""),
+            "is_exit_station": h.get("is_exit", False),
+            "status": overlay_status(h),
+            "entry_date": h["entry"],
+            "exit_date": h["exit"],
+        })
+    return steps
+
+
+def _assemble_track_match(
+    *,
+    rows,
+    route,
+    station_meta,
+    group_id,
+    part_number,
+    revision_number,
+    pairs,
+    main_customer,
+    sector,
+    company_from,
+    coating_company,
+    teklif_number,
+    total_quantity,
+    total_packages,
+    target_date,
+    delivered,
+    today,
+) -> dict:
+    """Assemble a TrackMatch dict from a group's WorkOrder rows (all packages,
+    all stations), the route, and a station_id -> (name, is_exit) map. Pure."""
+    # Group rows per package
+    by_pkg: dict[int, list] = {}
+    for r in rows:
+        by_pkg.setdefault(r.package_index, []).append(r)
+
+    package_views: list[dict] = []
+    package_statuses: list[str] = []
+    for pkg_index in sorted(by_pkg):
+        pkg_rows = sorted(by_pkg[pkg_index], key=lambda r: (r.entrance_date or datetime.min))
+        active = next((r for r in pkg_rows if r.exit_date is None), None)
+        last = pkg_rows[-1] if pkg_rows else None
+        active_is_exit = station_meta.get(active.station_id, ("", False))[1] if active else None
+        last_is_exit = station_meta.get(last.station_id, ("", False))[1] if last else None
+        status = _track_package_status(
+            has_rows=bool(pkg_rows), active_is_exit=active_is_exit,
+            last_is_exit=last_is_exit, target_date=target_date, today=today,
+        )
+        package_statuses.append(status)
+        current_name = station_meta.get(active.station_id, (None, False))[0] if active else None
+        package_views.append({
+            "package_index": pkg_index,
+            "total_packages": total_packages,
+            "quantity": pkg_rows[0].quantity if pkg_rows else 0,
+            "current_station_name": current_name,
+            "status": status,
+        })
+
+    group_status = _track_group_status(package_statuses, delivered=delivered)
+    group_is_delayed = group_status == "Gecikmiş"
+
+    # Aggregate per-station history across all packages
+    history: dict[int, dict] = {}
+    for r in rows:
+        name, is_exit = station_meta.get(r.station_id, ("", False))
+        h = history.get(r.station_id)
+        if h is None:
+            h = {"entry": r.entrance_date, "exit": r.exit_date,
+                 "active": r.exit_date is None, "name": name, "is_exit": is_exit}
+            history[r.station_id] = h
+        else:
+            if r.entrance_date and (h["entry"] is None or r.entrance_date < h["entry"]):
+                h["entry"] = r.entrance_date
+            if r.exit_date and (h["exit"] is None or r.exit_date > h["exit"]):
+                h["exit"] = r.exit_date
+            if r.exit_date is None:
+                h["active"] = True
+
+    timeline = _build_track_timeline(route, history, group_is_delayed=group_is_delayed)
+
+    # Current location: station with the most active packages (tie → lowest route position)
+    active_rows = [r for r in rows if r.exit_date is None]
+    current_station_name = None
+    current_entry_date = None
+    if active_rows:
+        route_pos = {st["station_id"]: i for i, st in enumerate(route)}
+        counts: dict[int, int] = {}
+        for r in active_rows:
+            counts[r.station_id] = counts.get(r.station_id, 0) + 1
+        best_sid = sorted(counts, key=lambda sid: (-counts[sid], route_pos.get(sid, 10**6)))[0]
+        current_station_name = station_meta.get(best_sid, (None, False))[0]
+        current_entry_date = min(
+            (r.entrance_date for r in active_rows if r.station_id == best_sid and r.entrance_date),
+            default=None,
+        )
+
+    # last_updated = latest entry/exit across all rows
+    all_dates = [d for r in rows for d in (r.entrance_date, r.exit_date) if d]
+    last_updated = max(all_dates) if all_dates else None
+
+    return {
+        "work_order_group_id": group_id,
+        "part_number": part_number,
+        "revision_number": revision_number,
+        "pairs": pairs,
+        "main_customer": main_customer,
+        "sector": sector,
+        "company_from": company_from,
+        "coating_company": coating_company,
+        "teklif_number": teklif_number,
+        "total_quantity": total_quantity,
+        "total_packages": total_packages,
+        "target_date": target_date,
+        "current_station_name": current_station_name,
+        "current_entry_date": current_entry_date,
+        "status": group_status,
+        "last_updated": last_updated,
+        "has_route": bool(route),
+        "timeline": timeline,
+        "packages": package_views,
+    }
+
+
+async def _resolve_track_group_ids(
+    romiot_db: AsyncSession,
+    *,
+    company_from: str,
+    order_number: str | None,
+    order_item_number: str | None,
+    part_number: str | None,
+) -> list[str]:
+    """Distinct work_order_group_ids of SCANNED rows matching the query, scoped to
+    company_from. order+item → exact pair match; part_number → ilike."""
+    conditions = [WorkOrder.company_from == company_from]
+    if part_number:
+        conditions.append(WorkOrder.part_number.ilike(f"%{part_number}%"))
+    if order_number and order_item_number:
+        conditions.append(
+            select(WorkOrderPair.id).where(
+                WorkOrderPair.work_order_group_id == WorkOrder.work_order_group_id,
+                WorkOrderPair.aselsan_order_number == order_number,
+                WorkOrderPair.order_item_number == order_item_number,
+            ).exists()
+        )
+    result = await romiot_db.execute(
+        select(WorkOrder.work_order_group_id).where(and_(*conditions)).distinct()
+    )
+    return [row[0] for row in result.all()]
+
+
+async def _company_for_group_local(romiot_db: AsyncSession, group_id: str) -> str | None:
+    """The company that owns the stations this group was scanned at."""
+    result = await romiot_db.execute(
+        select(Station.company)
+        .join(WorkOrder, WorkOrder.station_id == Station.id)
+        .where(WorkOrder.work_order_group_id == group_id)
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -1172,6 +1407,140 @@ async def get_all_work_orders(
         page_size=page_size,
         total_pages=total_pages
     )
+
+
+@router.get("/track", response_model=TrackResponse)
+async def track_product(
+    order_number: str | None = Query(None, description="ASELSAN Sipariş No"),
+    order_item_number: str | None = Query(None, description="Sipariş Kalem No"),
+    part_number: str | None = Query(None, description="Parça Numarası"),
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """Müşteri product tracker. Resolves the caller's own work-order groups
+    (company_from == department) matching the query and returns assembled
+    current-location + status + route/history timeline per group."""
+    role_values = current_user.role if isinstance(current_user.role, list) else []
+    if "atolye:musteri" not in role_values:
+        raise HTTPException(status_code=403, detail="Bu sayfa yalnızca müşteri kullanıcıları içindir.")
+
+    department = (current_user.department or "").strip()
+    if not department:
+        raise HTTPException(status_code=403, detail="Kullanıcı firması belirlenemedi.")
+
+    has_order = bool(order_number and order_item_number)
+    if not has_order and not part_number:
+        raise HTTPException(
+            status_code=400,
+            detail="Sipariş No + Kalem No veya Parça No girilmelidir.",
+        )
+
+    today = datetime.now(timezone.utc).date()
+
+    group_ids = set(await _resolve_track_group_ids(
+        romiot_db, company_from=department,
+        order_number=order_number if has_order else None,
+        order_item_number=order_item_number if has_order else None,
+        part_number=part_number,
+    ))
+
+    qr_only: dict[str, dict] = {}
+    qr_rows_result = await romiot_db.execute(select(QRCodeData))
+    for qr_row in qr_rows_result.scalars().all():
+        try:
+            payload = json.loads(qr_row.data)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        gid = str(payload.get("work_order_group_id") or "").strip()
+        if not gid or gid in group_ids or gid in qr_only:
+            continue
+        if str(payload.get("company_from") or "").strip() != department:
+            continue
+        payload_pairs = payload.get("pairs") or []
+        pair_match = any(
+            isinstance(p, dict)
+            and str(p.get("aselsan_order_number") or "") == order_number
+            and str(p.get("order_item_number") or "") == order_item_number
+            for p in payload_pairs
+        ) if has_order else False
+        part_match = (
+            part_number and part_number.lower() in str(payload.get("part_number") or "").lower()
+        )
+        if not (pair_match or part_match):
+            continue
+        qr_only[gid] = payload
+
+    stations_result = await romiot_db.execute(select(Station))
+    station_meta = {s.id: (s.name, s.is_exit_station) for s in stations_result.scalars().all()}
+
+    matches: list[TrackMatch] = []
+
+    for gid in group_ids:
+        rows_result = await romiot_db.execute(
+            select(WorkOrder).where(WorkOrder.work_order_group_id == gid)
+        )
+        rows = rows_result.scalars().all()
+        if not rows:
+            continue
+        route_result = await romiot_db.execute(
+            select(WorkOrderRoute.station_id)
+            .where(WorkOrderRoute.work_order_group_id == gid)
+            .order_by(WorkOrderRoute.position)
+        )
+        route = [
+            {"station_id": sid, "station_name": station_meta.get(sid, ("?", False))[0],
+             "is_exit_station": station_meta.get(sid, ("?", False))[1]}
+            for (sid,) in route_result.all()
+        ]
+        pairs = await _pairs_for_group(romiot_db, gid)
+        coating_company = await _company_for_group_local(romiot_db, gid)
+        first = rows[0]
+        delivered = any(r.delivered for r in rows)
+        match_dict = _assemble_track_match(
+            rows=rows, route=route, station_meta=station_meta,
+            group_id=gid, part_number=first.part_number, revision_number=first.revision_number,
+            pairs=pairs, main_customer=first.main_customer, sector=first.sector,
+            company_from=first.company_from, coating_company=coating_company,
+            teklif_number=first.teklif_number, total_quantity=first.total_quantity,
+            total_packages=first.total_packages, target_date=first.target_date,
+            delivered=delivered, today=today,
+        )
+        matches.append(TrackMatch(**match_dict))
+
+    for gid, payload in qr_only.items():
+        pairs = [
+            OrderPair(aselsan_order_number=str(p.get("aselsan_order_number") or ""),
+                      order_item_number=str(p.get("order_item_number") or ""))
+            for p in (payload.get("pairs") or [])
+            if isinstance(p, dict) and p.get("aselsan_order_number") and p.get("order_item_number")
+        ]
+        target_date = None
+        td = payload.get("target_date")
+        if isinstance(td, str) and td:
+            try:
+                target_date = datetime.fromisoformat(td).date()
+            except ValueError:
+                target_date = None
+        try:
+            qr_total_quantity = int(payload.get("total_quantity") or 0)
+            qr_total_packages = int(payload.get("total_packages") or 0)
+        except (TypeError, ValueError):
+            continue
+        match_dict = _assemble_track_match(
+            rows=[], route=[], station_meta=station_meta,
+            group_id=gid, part_number=str(payload.get("part_number") or ""),
+            revision_number=payload.get("revision_number"),
+            pairs=pairs, main_customer=str(payload.get("main_customer") or ""),
+            sector=str(payload.get("sector") or ""),
+            company_from=str(payload.get("company_from") or ""),
+            coating_company=None, teklif_number=str(payload.get("teklif_number") or ""),
+            total_quantity=qr_total_quantity,
+            total_packages=qr_total_packages,
+            target_date=target_date, delivered=False, today=today,
+        )
+        matches.append(TrackMatch(**match_dict))
+
+    return TrackResponse(matches=matches)
 
 
 @router.get("/companies", response_model=list[str])

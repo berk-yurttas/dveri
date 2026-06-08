@@ -176,3 +176,51 @@ class PriorityTokenInfo(BaseModel):
     total_tokens: int
     used_tokens: int
     remaining_tokens: int
+
+
+class TrackTimelineStep(BaseModel):
+    """One station node on the tracking timeline (route spine + history overlay)."""
+    position: int | None = Field(None, description="Route pozisyonu; history-only modda None")
+    station_id: int
+    station_name: str
+    is_exit_station: bool = False
+    status: str = Field(..., description='"done" | "active" | "delayed" | "waiting"')
+    entry_date: datetime | None = None
+    exit_date: datetime | None = None
+
+
+class TrackPackage(BaseModel):
+    """A single package's current position within its group."""
+    package_index: int
+    total_packages: int
+    quantity: int
+    current_station_name: str | None = None
+    status: str = Field(..., description="TrackStatus")
+
+
+class TrackMatch(BaseModel):
+    """A matched work-order group assembled for the tracker view."""
+    work_order_group_id: str
+    part_number: str
+    revision_number: str | None = None
+    pairs: list[OrderPair]
+    main_customer: str
+    sector: str
+    company_from: str
+    coating_company: str | None = None
+    teklif_number: str
+    total_quantity: int
+    total_packages: int
+    target_date: date | None = None
+    current_station_name: str | None = None
+    current_entry_date: datetime | None = None
+    status: str = Field(..., description="TrackStatus (group rollup)")
+    last_updated: datetime | None = None
+    has_route: bool = False
+    timeline: list[TrackTimelineStep]
+    packages: list[TrackPackage]
+
+
+class TrackResponse(BaseModel):
+    """0 matches = not found; 1 = open directly; >1 = selector list."""
+    matches: list[TrackMatch]
