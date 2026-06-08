@@ -17,19 +17,15 @@ const RECENT_KEY = "urunum_nerede_recent";
 interface RecentItem { label: string; sub: string; query: TrackQuery; }
 
 export default function UrunumNeredePage() {
-  const { user } = useUser();
-  const [isMusteri, setIsMusteri] = useState(false);
+  const { user, loading } = useUser();
   const [view, setView] = useState<View>("idle");
   const [matches, setMatches] = useState<TrackMatch[]>([]);
   const [selected, setSelected] = useState<TrackMatch | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<RecentItem[]>([]);
 
-  useEffect(() => {
-    if (user?.role && Array.isArray(user.role)) {
-      setIsMusteri(user.role.some((r) => typeof r === "string" && r === "atolye:musteri"));
-    }
-  }, [user]);
+  const isMusteri =
+    Array.isArray(user?.role) && user.role.some((r) => typeof r === "string" && r === "atolye:musteri");
 
   useEffect(() => {
     try {
@@ -82,6 +78,14 @@ export default function UrunumNeredePage() {
       setView("idle");
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-9 w-9 border-2 border-gray-200 border-t-[#0f4c3a]" />
+      </div>
+    );
+  }
 
   if (!isMusteri) {
     return (
