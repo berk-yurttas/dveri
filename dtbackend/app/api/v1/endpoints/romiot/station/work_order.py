@@ -187,6 +187,120 @@ def _build_track_timeline(route, history, *, group_is_delayed: bool) -> list[dic
     return steps
 
 
+def _assemble_track_match(
+    *,
+    rows,
+    route,
+    station_meta,
+    group_id,
+    part_number,
+    revision_number,
+    pairs,
+    main_customer,
+    sector,
+    company_from,
+    coating_company,
+    teklif_number,
+    total_quantity,
+    total_packages,
+    target_date,
+    delivered,
+    today,
+) -> dict:
+    """Assemble a TrackMatch dict from a group's WorkOrder rows (all packages,
+    all stations), the route, and a station_id -> (name, is_exit) map. Pure."""
+    # Group rows per package
+    by_pkg: dict[int, list] = {}
+    for r in rows:
+        by_pkg.setdefault(r.package_index, []).append(r)
+
+    package_views: list[dict] = []
+    package_statuses: list[str] = []
+    for pkg_index in sorted(by_pkg):
+        pkg_rows = sorted(by_pkg[pkg_index], key=lambda r: (r.entrance_date or datetime.min))
+        active = next((r for r in pkg_rows if r.exit_date is None), None)
+        last = pkg_rows[-1] if pkg_rows else None
+        active_is_exit = station_meta.get(active.station_id, ("", False))[1] if active else None
+        last_is_exit = station_meta.get(last.station_id, ("", False))[1] if last else None
+        status = _track_package_status(
+            has_rows=bool(pkg_rows), active_is_exit=active_is_exit,
+            last_is_exit=last_is_exit, target_date=target_date, today=today,
+        )
+        package_statuses.append(status)
+        current_name = station_meta.get(active.station_id, (None, False))[0] if active else None
+        package_views.append({
+            "package_index": pkg_index,
+            "total_packages": total_packages,
+            "quantity": pkg_rows[0].quantity if pkg_rows else 0,
+            "current_station_name": current_name,
+            "status": status,
+        })
+
+    group_status = _track_group_status(package_statuses, delivered=delivered)
+    group_is_delayed = group_status == "Gecikmiş"
+
+    # Aggregate per-station history across all packages
+    history: dict[int, dict] = {}
+    for r in rows:
+        name, is_exit = station_meta.get(r.station_id, ("", False))
+        h = history.get(r.station_id)
+        if h is None:
+            h = {"entry": r.entrance_date, "exit": r.exit_date,
+                 "active": r.exit_date is None, "name": name, "is_exit": is_exit}
+            history[r.station_id] = h
+        else:
+            if r.entrance_date and (h["entry"] is None or r.entrance_date < h["entry"]):
+                h["entry"] = r.entrance_date
+            if r.exit_date and (h["exit"] is None or r.exit_date > h["exit"]):
+                h["exit"] = r.exit_date
+            if r.exit_date is None:
+                h["active"] = True
+
+    timeline = _build_track_timeline(route, history, group_is_delayed=group_is_delayed)
+
+    # Current location: station with the most active packages (tie → lowest route position)
+    active_rows = [r for r in rows if r.exit_date is None]
+    current_station_name = None
+    current_entry_date = None
+    if active_rows:
+        route_pos = {st["station_id"]: i for i, st in enumerate(route)}
+        counts: dict[int, int] = {}
+        for r in active_rows:
+            counts[r.station_id] = counts.get(r.station_id, 0) + 1
+        best_sid = sorted(counts, key=lambda sid: (-counts[sid], route_pos.get(sid, 10**6)))[0]
+        current_station_name = station_meta.get(best_sid, (None, False))[0]
+        current_entry_date = min(
+            (r.entrance_date for r in active_rows if r.station_id == best_sid and r.entrance_date),
+            default=None,
+        )
+
+    # last_updated = latest entry/exit across all rows
+    all_dates = [d for r in rows for d in (r.entrance_date, r.exit_date) if d]
+    last_updated = max(all_dates) if all_dates else None
+
+    return {
+        "work_order_group_id": group_id,
+        "part_number": part_number,
+        "revision_number": revision_number,
+        "pairs": pairs,
+        "main_customer": main_customer,
+        "sector": sector,
+        "company_from": company_from,
+        "coating_company": coating_company,
+        "teklif_number": teklif_number,
+        "total_quantity": total_quantity,
+        "total_packages": total_packages,
+        "target_date": target_date,
+        "current_station_name": current_station_name,
+        "current_entry_date": current_entry_date,
+        "status": group_status,
+        "last_updated": last_updated,
+        "has_route": bool(route),
+        "timeline": timeline,
+        "packages": package_views,
+    }
+
+
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_work_order(
     work_order_data: WorkOrderCreate,
