@@ -139,6 +139,54 @@ def _track_group_status(package_statuses: list[str], *, delivered: bool) -> str:
     return "Henüz okutulmadı"
 
 
+def _build_track_timeline(route, history, *, group_is_delayed: bool) -> list[dict]:
+    """Build timeline steps.
+
+    `route`: ordered list of {station_id, station_name, is_exit_station} (may be empty).
+    `history`: {station_id: {"entry", "exit", "active", and (history-only) "name", "is_exit"}}.
+    Route present → spine with overlay (unvisited future stations = "waiting").
+    Route empty → history stations ordered by entry date (no future steps).
+    """
+    def overlay_status(h):
+        if h is None:
+            return "waiting"
+        if h.get("active"):
+            return "delayed" if group_is_delayed else "active"
+        return "done"
+
+    steps: list[dict] = []
+    if route:
+        for pos, st in enumerate(route):
+            h = history.get(st["station_id"])
+            steps.append({
+                "position": pos,
+                "station_id": st["station_id"],
+                "station_name": st["station_name"],
+                "is_exit_station": st["is_exit_station"],
+                "status": overlay_status(h),
+                "entry_date": h["entry"] if h else None,
+                "exit_date": h["exit"] if h else None,
+            })
+        return steps
+
+    # History-only: order by entry date (None last)
+    ordered = sorted(
+        history.items(),
+        key=lambda kv: (kv[1]["entry"] is None, kv[1]["entry"] or 0),
+    )
+    for station_id, h in ordered:
+        steps.append({
+            "position": None,
+            "station_id": station_id,
+            "station_name": h.get("name", ""),
+            "is_exit_station": h.get("is_exit", False),
+            "status": overlay_status(h),
+            "entry_date": h["entry"],
+            "exit_date": h["exit"],
+        })
+    return steps
+
+
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_work_order(
     work_order_data: WorkOrderCreate,
