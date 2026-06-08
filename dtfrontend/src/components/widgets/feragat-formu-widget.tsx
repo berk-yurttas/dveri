@@ -1676,20 +1676,19 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                     <tbody>
                                         {['Proje Yönetici', getSorumluLabel(), 'Sorumlu Yönetici'].map((gorev, idx) => {
                                             const stepInfo = stepData[gorev] || {}
-                                            // Only show completed steps (status = 'done')
-                                            if (stepInfo.status !== 'done') return null
+                                            const isDone = stepInfo.status === 'done'
                                             
-                                            const fullName = stepInfo.fullName || ''
-                                            const completedAt = stepInfo.completed_at || ''
+                                            const fullName = isDone ? (stepInfo.fullName || '') : ''
+                                            const completedAt = isDone ? (stepInfo.completed_at || '') : ''
                                             const tarih = completedAt ? formatDate(completedAt) : ''
-                                            const imza = getSignature(gorev)
+                                            const imza = isDone ? getSignature(gorev) : ''
                                             
                                             return (
                                                 <tr key={idx} className="border-b border-gray-300">
                                                     <td className="border-r border-gray-400 p-1 font-bold bg-gray-100">{gorev}</td>
                                                     <td className="border-r border-gray-400 p-1">{fullName}</td>
                                                     <td className="border-r border-gray-400 p-1">{tarih}</td>
-                                                    <td className="p-1">{renderImzaCell(gorev, imza)}</td>
+                                                    <td className="p-1">{isDone ? renderImzaCell(gorev, imza) : ''}</td>
                                                 </tr>
                                             )
                                         })}
@@ -1717,20 +1716,19 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         {getGorevList().length > 0 ? (
                                             getGorevList().map((gorev, idx) => {
                                                 const stepInfo = stepData[gorev] || {}
-                                                // Only show completed steps (status = 'done')
-                                                if (stepInfo.status !== 'done') return null
+                                                const isDone = stepInfo.status === 'done'
                                                 
-                                                const fullName = stepInfo.fullName || ''
-                                                const completedAt = stepInfo.completed_at || ''
+                                                const fullName = isDone ? (stepInfo.fullName || '') : ''
+                                                const completedAt = isDone ? (stepInfo.completed_at || '') : ''
                                                 const tarih = completedAt ? formatDate(completedAt) : ''
-                                                const imza = getSignature(gorev)
+                                                const imza = isDone ? getSignature(gorev) : ''
                                                 
                                                 return (
                                                     <tr key={idx} className="border-b border-black last:border-b-0">
                                                         <td className="border-r border-black p-2 align-top">{gorev}</td>
                                                         <td className="border-r border-black p-2 align-top bg-gray-50">{fullName}</td>
                                                         <td className="border-r border-black p-2 align-top bg-gray-50">{tarih}</td>
-                                                        <td className="p-2 align-top bg-gray-50">{renderImzaCell(gorev, imza)}</td>
+                                                        <td className="p-2 align-top bg-gray-50">{isDone ? renderImzaCell(gorev, imza) : ''}</td>
                                                     </tr>
                                                 )
                                             })
@@ -1765,29 +1763,19 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         {(() => {
                                             const gorev = 'REHİS Sektör Başkanı'
                                             const stepInfo = stepData[gorev] || {}
-                                            // Only show completed steps (status = 'done')
-                                            if (stepInfo.status !== 'done') {
-                                                return (
-                                                    <tr className="border-b border-black">
-                                                        <td className="border-r border-black p-2 align-top font-bold">{gorev}</td>
-                                                        <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                        <td className="border-r border-black p-2 align-top bg-gray-50"></td>
-                                                        <td className="p-2 align-top bg-gray-50"></td>
-                                                    </tr>
-                                                )
-                                            }
+                                            const isDone = stepInfo.status === 'done'
                                             
-                                            const fullName = stepInfo.fullName || ''
-                                            const completedAt = stepInfo.completed_at || ''
+                                            const fullName = isDone ? (stepInfo.fullName || '') : ''
+                                            const completedAt = isDone ? (stepInfo.completed_at || '') : ''
                                             const tarih = completedAt ? formatDate(completedAt) : ''
-                                            const imza = getSignature(gorev)
+                                            const imza = isDone ? getSignature(gorev) : ''
                                             
                                             return (
                                                 <tr className="border-b border-black">
                                                     <td className="border-r border-black p-2 align-top font-bold">{gorev}</td>
                                                     <td className="border-r border-black p-2 align-top bg-gray-50">{fullName}</td>
                                                     <td className="border-r border-black p-2 align-top bg-gray-50">{tarih}</td>
-                                                    <td className="p-2 align-top bg-gray-50">{renderImzaCell(gorev, imza)}</td>
+                                                    <td className="p-2 align-top bg-gray-50">{isDone ? renderImzaCell(gorev, imza) : ''}</td>
                                                 </tr>
                                             )
                                         })()}
