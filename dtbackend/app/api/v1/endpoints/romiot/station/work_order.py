@@ -33,6 +33,8 @@ from app.schemas.work_order import (
     WorkOrderStatus,
     WorkOrderUpdateExitDate,
     PaginatedWorkOrderResponse,
+    TrackResponse,
+    TrackMatch,
 )
 
 router = APIRouter()
@@ -299,6 +301,44 @@ def _assemble_track_match(
         "timeline": timeline,
         "packages": package_views,
     }
+
+
+async def _resolve_track_group_ids(
+    romiot_db: AsyncSession,
+    *,
+    company_from: str,
+    order_number: str | None,
+    order_item_number: str | None,
+    part_number: str | None,
+) -> list[str]:
+    """Distinct work_order_group_ids of SCANNED rows matching the query, scoped to
+    company_from. order+item → exact pair match; part_number → ilike."""
+    conditions = [WorkOrder.company_from == company_from]
+    if part_number:
+        conditions.append(WorkOrder.part_number.ilike(f"%{part_number}%"))
+    if order_number and order_item_number:
+        conditions.append(
+            select(WorkOrderPair.id).where(
+                WorkOrderPair.work_order_group_id == WorkOrder.work_order_group_id,
+                WorkOrderPair.aselsan_order_number == order_number,
+                WorkOrderPair.order_item_number == order_item_number,
+            ).exists()
+        )
+    result = await romiot_db.execute(
+        select(WorkOrder.work_order_group_id).where(and_(*conditions)).distinct()
+    )
+    return [row[0] for row in result.all()]
+
+
+async def _company_for_group_local(romiot_db: AsyncSession, group_id: str) -> str | None:
+    """The company that owns the stations this group was scanned at."""
+    result = await romiot_db.execute(
+        select(Station.company)
+        .join(WorkOrder, WorkOrder.station_id == Station.id)
+        .where(WorkOrder.work_order_group_id == group_id)
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -1340,6 +1380,135 @@ async def get_all_work_orders(
         page_size=page_size,
         total_pages=total_pages
     )
+
+
+@router.get("/track", response_model=TrackResponse)
+async def track_product(
+    order_number: str | None = Query(None, description="ASELSAN Sipariş No"),
+    order_item_number: str | None = Query(None, description="Sipariş Kalem No"),
+    part_number: str | None = Query(None, description="Parça Numarası"),
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """Müşteri product tracker. Resolves the caller's own work-order groups
+    (company_from == department) matching the query and returns assembled
+    current-location + status + route/history timeline per group."""
+    role_values = current_user.role if isinstance(current_user.role, list) else []
+    if "atolye:musteri" not in role_values:
+        raise HTTPException(status_code=403, detail="Bu sayfa yalnızca müşteri kullanıcıları içindir.")
+
+    department = (current_user.department or "").strip()
+    if not department:
+        raise HTTPException(status_code=403, detail="Kullanıcı firması belirlenemedi.")
+
+    has_order = bool(order_number and order_item_number)
+    if not has_order and not part_number:
+        raise HTTPException(
+            status_code=400,
+            detail="Sipariş No + Kalem No veya Parça No girilmelidir.",
+        )
+
+    today = datetime.now(timezone.utc).date()
+
+    group_ids = set(await _resolve_track_group_ids(
+        romiot_db, company_from=department,
+        order_number=order_number if has_order else None,
+        order_item_number=order_item_number if has_order else None,
+        part_number=part_number,
+    ))
+
+    qr_only: dict[str, dict] = {}
+    qr_rows_result = await romiot_db.execute(select(QRCodeData))
+    for qr_row in qr_rows_result.scalars().all():
+        try:
+            payload = json.loads(qr_row.data)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        gid = str(payload.get("work_order_group_id") or "").strip()
+        if not gid or gid in group_ids or gid in qr_only:
+            continue
+        if str(payload.get("company_from") or "").strip() != department:
+            continue
+        payload_pairs = payload.get("pairs") or []
+        pair_match = any(
+            isinstance(p, dict)
+            and str(p.get("aselsan_order_number") or "") == order_number
+            and str(p.get("order_item_number") or "") == order_item_number
+            for p in payload_pairs
+        ) if has_order else False
+        part_match = (
+            part_number and part_number.lower() in str(payload.get("part_number") or "").lower()
+        )
+        if not (pair_match or part_match):
+            continue
+        qr_only[gid] = payload
+
+    stations_result = await romiot_db.execute(select(Station))
+    station_meta = {s.id: (s.name, s.is_exit_station) for s in stations_result.scalars().all()}
+
+    matches: list[TrackMatch] = []
+
+    for gid in group_ids:
+        rows_result = await romiot_db.execute(
+            select(WorkOrder).where(WorkOrder.work_order_group_id == gid)
+        )
+        rows = rows_result.scalars().all()
+        if not rows:
+            continue
+        route_result = await romiot_db.execute(
+            select(WorkOrderRoute.station_id)
+            .where(WorkOrderRoute.work_order_group_id == gid)
+            .order_by(WorkOrderRoute.position)
+        )
+        route = [
+            {"station_id": sid, "station_name": station_meta.get(sid, ("?", False))[0],
+             "is_exit_station": station_meta.get(sid, ("?", False))[1]}
+            for (sid,) in route_result.all()
+        ]
+        pairs = await _pairs_for_group(romiot_db, gid)
+        coating_company = await _company_for_group_local(romiot_db, gid)
+        first = rows[0]
+        delivered = any(r.delivered for r in rows)
+        match_dict = _assemble_track_match(
+            rows=rows, route=route, station_meta=station_meta,
+            group_id=gid, part_number=first.part_number, revision_number=first.revision_number,
+            pairs=pairs, main_customer=first.main_customer, sector=first.sector,
+            company_from=first.company_from, coating_company=coating_company,
+            teklif_number=first.teklif_number, total_quantity=first.total_quantity,
+            total_packages=first.total_packages, target_date=first.target_date,
+            delivered=delivered, today=today,
+        )
+        matches.append(TrackMatch(**match_dict))
+
+    for gid, payload in qr_only.items():
+        pairs = [
+            OrderPair(aselsan_order_number=str(p.get("aselsan_order_number") or ""),
+                      order_item_number=str(p.get("order_item_number") or ""))
+            for p in (payload.get("pairs") or [])
+            if isinstance(p, dict) and p.get("aselsan_order_number") and p.get("order_item_number")
+        ]
+        target_date = None
+        td = payload.get("target_date")
+        if isinstance(td, str) and td:
+            try:
+                target_date = datetime.fromisoformat(td).date()
+            except ValueError:
+                target_date = None
+        match_dict = _assemble_track_match(
+            rows=[], route=[], station_meta=station_meta,
+            group_id=gid, part_number=str(payload.get("part_number") or ""),
+            revision_number=payload.get("revision_number"),
+            pairs=pairs, main_customer=str(payload.get("main_customer") or ""),
+            sector=str(payload.get("sector") or ""),
+            company_from=str(payload.get("company_from") or ""),
+            coating_company=None, teklif_number=str(payload.get("teklif_number") or ""),
+            total_quantity=int(payload.get("total_quantity") or 0),
+            total_packages=int(payload.get("total_packages") or 0),
+            target_date=target_date, delivered=False, today=today,
+        )
+        matches.append(TrackMatch(**match_dict))
+
+    return TrackResponse(matches=matches)
 
 
 @router.get("/companies", response_model=list[str])
