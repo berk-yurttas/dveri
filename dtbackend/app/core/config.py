@@ -57,8 +57,18 @@ class Settings(BaseSettings):
     OTOMASYON_DB_USER: str = Field(default_factory=lambda: os.getenv("OTOMASYON_DB_USER", "postgres"))
     OTOMASYON_DB_PASSWORD: str = Field(default_factory=lambda: os.getenv("OTOMASYON_DB_PASSWORD", "postgres"))
 
+    # Seyir Database (Port 5437)
+    SEYIR_DB_HOST: str = Field(default_factory=lambda: os.getenv("SEYIR_DB_HOST", "10.60.139.11"))
+    SEYIR_DB_PORT: int = Field(default_factory=lambda: int(os.getenv("SEYIR_DB_PORT", "5437")))
+    SEYIR_DB_NAME: str = Field(default_factory=lambda: os.getenv("SEYIR_DB_NAME", "aflow_db"))
+    SEYIR_DB_USER: str = Field(default_factory=lambda: os.getenv("SEYIR_DB_USER", "postgres"))
+    SEYIR_DB_PASSWORD: str = Field(default_factory=lambda: os.getenv("SEYIR_DB_PASSWORD", "postgres"))
+
     # SAP Seyir API
     SAP_SEYIR_BASE_URL: str = Field(default_factory=lambda: os.getenv("SAP_SEYIR_BASE_URL", "http://localhost:8500"))
+    
+    # Seyir API
+    SEYIR_BASE_URL: str = Field(default_factory=lambda: os.getenv("SEYIR_BASE_URL", "https://seyirapi.dev.ahtapot.aselsan.com.tr"))
 
     # Security
     SECRET_KEY: str = "secret"

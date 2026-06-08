@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { createPortal } from "react-dom"
 import { Download } from "lucide-react"
 import { api } from "@/lib/api"
 
@@ -22,9 +23,15 @@ interface AttributeData {
 }
 
 interface StepInfo {
+    id: string
     assignee: string
     completed_at: string
     fullName?: string
+    status?: string
+    attributes?: Array<{
+        attribute_definition_id: string
+        attribute_name: string
+    }>
 }
 
 interface StepDataMap {
@@ -124,14 +131,20 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     const [downloading, setDownloading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [jobInstanceId, setJobInstanceId] = useState<string>('')
+    const [currentUsername, setCurrentUsername] = useState<string>('')
+    const [showActionModal, setShowActionModal] = useState(false)
+    const [actionType, setActionType] = useState<'onayla' | 'serh'>('onayla')
+    const [actionStepId, setActionStepId] = useState<string>('')
+    const [explanation, setExplanation] = useState('')
+    const [submitting, setSubmitting] = useState(false)
 
     const seyirDbConfig = {
         db_type: 'postgresql',
-        host: '10.60.139.11',
-        port: 5437,
-        database: 'aflow_db',
-        user: 'postgres',
-        password: 'postgres'
+        host: process.env.NEXT_PUBLIC_SEYIR_DB_HOST || '10.60.139.11',
+        port: parseInt(process.env.NEXT_PUBLIC_SEYIR_DB_PORT || '5437'),
+        database: process.env.NEXT_PUBLIC_SEYIR_DB_NAME || 'aflow_db',
+        user: process.env.NEXT_PUBLIC_SEYIR_DB_USER || 'postgres',
+        password: process.env.NEXT_PUBLIC_SEYIR_DB_PASSWORD || 'postgres'
     }
 
     useEffect(() => {
@@ -142,6 +155,20 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 setJobInstanceId(jobId)
             }
         }
+    }, [])
+
+    useEffect(() => {
+        const fetchCurrentUser = async () => {
+            try {
+                const userRes = await api.get('/feragat-formu/get-current-user')
+                if ((userRes as any).username) {
+                    setCurrentUsername((userRes as any).username)
+                }
+            } catch (err) {
+                console.error('Failed to fetch current user:', err)
+            }
+        }
+        fetchCurrentUser()
     }, [])
 
     useEffect(() => {
@@ -160,7 +187,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 const sql = `
                     SELECT 
                         ad."name",
-                        ia.job_step_instance_id,
+                        ia.job_instance_id,
                         ia.value,
                         ia.updated_at
                     FROM 
@@ -188,15 +215,22 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                     SELECT 
                         si.id,
                         sd.name,
-                        si.assignee,
-                        si.completed_at
+                        si.status,
+                        COALESCE(si.assignee, jsia.username) as assignee,
+                        si.completed_at,
+                        si.workflow_step_id,
+                        wsa.attribute_definition_id,
+                        ad.name as attribute_name
                     FROM 
                         job_step_instances si
                     LEFT JOIN step_definitions sd ON si.step_definition_id = sd.id
+                    LEFT JOIN job_step_instance_assignees jsia ON jsia.job_step_instance_id = si.id
+                    LEFT JOIN workflow_step_attributes wsa ON si.workflow_step_id = wsa.workflow_step_id
+                    LEFT JOIN attribute_definitions ad ON wsa.attribute_definition_id = ad.id
                     WHERE si.job_id = '${jobInstanceId}'
                     AND sd.name LIKE '%Onayı'
-                    AND si.status = 'done'
-                    ORDER BY sd.id
+                    AND (ad.name LIKE '%Onayı' OR ad.name = 'Şerh Açıklaması' OR ad.name = 'Açıklama' OR ad.name IS NULL)
+                    ORDER BY sd.id, wsa.attribute_definition_id
                 `
                 
                 const stepRows = await runQuery(stepSql, seyirDbConfig)
@@ -213,7 +247,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 // Create promises for all outbox queries
                 const outboxPromises = stepRows.map(async (row) => {
                     const stepInstanceId = row[0] || ''
-                    const assignee = row[2] || ''
+                    const assignee = row[3] || ''
                     
                     if (assignee) assignees.add(assignee)
                     
@@ -284,8 +318,12 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 stepRows.forEach(row => {
                     const stepInstanceId = row[0] || ''
                     const name = row[1] || ''
-                    const assignee = row[2] || ''
-                    const completed_at = row[3] || ''
+                    const status = row[2] || ''
+                    const assignee = row[3] || ''
+                    const completed_at = row[4] || ''
+                    const workflow_step_id = row[5] || ''
+                    const attribute_definition_id = row[6] || ''
+                    const attribute_name = row[7] || ''
                     
                     // Remove " Onayı" suffix to get the Görev name
                     const gorev = name.replace(' Onayı', '').trim()
@@ -305,10 +343,31 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                             fullName = `${userInfo.name}`.trim()
                         }
                         
-                        stepDataMap[gorev] = {
-                            assignee: assignee,
-                            completed_at: completed_at,
-                            fullName: fullName
+                        // Initialize or update step data
+                        if (!stepDataMap[gorev]) {
+                            stepDataMap[gorev] = {
+                                id: stepInstanceId,
+                                assignee: assignee,
+                                completed_at: completed_at,
+                                fullName: fullName,
+                                status: status,
+                                attributes: []
+                            }
+                        }
+                        
+                        // Add attribute definition if present
+                        if (attribute_definition_id && attribute_name) {
+                            stepDataMap[gorev].attributes = stepDataMap[gorev].attributes || []
+                            // Check if this attribute is already added
+                            const exists = stepDataMap[gorev].attributes!.some(
+                                attr => attr.attribute_definition_id === attribute_definition_id
+                            )
+                            if (!exists) {
+                                stepDataMap[gorev].attributes!.push({
+                                    attribute_definition_id: attribute_definition_id,
+                                    attribute_name: attribute_name
+                                })
+                            }
                         }
                     }
                 })
@@ -329,6 +388,23 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         fetchData()
         return () => { cancelled = true }
     }, [jobInstanceId])
+
+    // Auto-open onayla modal if onay=true in URL
+    useEffect(() => {
+        if (typeof window !== 'undefined' && stepData && Object.keys(stepData).length > 0 && currentUsername) {
+            const params = new URLSearchParams(window.location.search)
+            const onayParam = params.get('onay')
+            
+            if (onayParam === 'true') {
+                // Find the single actionable step
+                const singleStep = getSingleActionableStep()
+                if (singleStep) {
+                    // Auto-trigger onayla modal
+                    handleActionClick('onayla', singleStep.stepId)
+                }
+            }
+        }
+    }, [stepData, currentUsername])
 
     const handleDownloadPdf = async () => {
         if (!jobInstanceId) {
@@ -583,6 +659,32 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         }
     }
     
+    const getprojeBilgileri = () => {
+        const field = data.find(d => d.name === 'Proje Bilgileri')
+        if (!field || !field.value) return []
+        
+        try {
+            let projeList: any[] = []
+            
+            if (typeof field.value === 'string') {
+                projeList = parsePythonStyleJSON(field.value)
+            } else if (Array.isArray(field.value)) {
+                projeList = field.value
+            }
+            
+            return projeList.map((item: any) => ({
+                proje_tipi: item.proje_tipi || '',
+                proje_kodu_xxxx: item.proje_kodu_xxxx || '',
+                proje_tanimi_proje_adi: item.proje_tanimi_proje_adi || '',
+                proje_no_u_p_li_kod_xxxx_pyyyyyy: item.proje_no_u_p_li_kod_xxxx_pyyyyyy || '',
+                musteri_proje_ana_sozlesmesi_nin_imza_makami: item.musteri_proje_ana_sozlesmesi_nin_imza_makami || ''
+            }))
+        } catch (err) {
+            console.error('Failed to parse Proje Bilgileri:', err)
+            return []
+        }
+    }
+    
     const getMalzemeBilgileri = () => {
         const field = data.find(d => d.name === 'Malzeme Bilgileri')
         if (!field || !field.value) return []
@@ -615,6 +717,150 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         } catch {
             return dateStr
         }
+    }
+
+    const handleActionClick = (type: 'onayla' | 'serh', stepId: string) => {
+        setActionType(type)
+        setActionStepId(stepId)
+        setExplanation('')
+        setShowActionModal(true)
+    }
+
+    const handleSubmitAction = async () => {
+        if (!explanation.trim()) {
+            alert('Lütfen açıklama giriniz.')
+            return
+        }
+
+        if (!actionStepId) {
+            alert('Adım bilgisi bulunamadı.')
+            return
+        }
+
+        // Find the step info to get attributes
+        const stepInfo = Object.values(stepData).find(step => step.id === actionStepId)
+        if (!stepInfo || !stepInfo.attributes || stepInfo.attributes.length === 0) {
+            alert('Adım için attribute bilgisi bulunamadı.')
+            return
+        }
+
+        // Find the attribute definition IDs for "%Onayı" and "Açıklama"
+        const onayAttr = stepInfo.attributes.find(attr => attr.attribute_name.includes('Onayı'))
+        const aciklamaAttr = stepInfo.attributes.find(attr => 
+            attr.attribute_name === 'Açıklama' || attr.attribute_name === 'Şerh Açıklaması'
+        )
+
+        if (!onayAttr) {
+            alert('Onay attribute\'u bulunamadı.')
+            return
+        }
+
+        // Prepare attributes to update
+        const attributes = []
+        
+        // Add %Onayı attribute
+        attributes.push({
+            attribute_definition_id: String(onayAttr.attribute_definition_id),
+            value: actionType === 'onayla' ? 'Onaylanmıştır' : 'Şerh Edilmiştir'
+        })
+        
+        // Add Açıklama attribute if found
+        if (aciklamaAttr) {
+            attributes.push({
+                attribute_definition_id: String(aciklamaAttr.attribute_definition_id),
+                value: explanation.trim()
+            })
+        }
+
+        setSubmitting(true)
+        try {
+            const endpoint = actionType === 'onayla' ? '/feragat-formu/onayla' : '/feragat-formu/serh-koy'
+            await api.post(endpoint, {
+                job_instance_id: String(jobInstanceId),
+                step_instance_id: String(actionStepId),
+                explanation: explanation.trim(),
+                attributes: attributes,
+                status: stepInfo.status || ''
+            })
+            
+            alert(`${actionType === 'onayla' ? 'Onay' : 'Şerh'} başarıyla kaydedildi.`)
+            setShowActionModal(false)
+            setExplanation('')
+            setActionStepId('')
+            
+            // Reload data
+            window.location.reload()
+        } catch (err: any) {
+            console.error('Action submit error:', err)
+            alert(err?.message || 'İşlem sırasında hata oluştu.')
+        } finally {
+            setSubmitting(false)
+        }
+    }
+
+    const canUserActOnStep = (gorev: string): boolean => {
+        if (!currentUsername) return false
+        const stepInfo = stepData[gorev]
+        if (!stepInfo || !stepInfo.status) return false
+        
+        const allowedStatuses = ['waiting_for_acceptance', 'task_accepted', 'working']
+        return stepInfo.assignee === currentUsername && allowedStatuses.includes(stepInfo.status)
+    }
+
+    const getActionableStepsCount = (): number => {
+        let count = 0
+        for (const gorev of Object.keys(stepData)) {
+            if (canUserActOnStep(gorev)) {
+                count++
+            }
+        }
+        return count
+    }
+
+    const getSingleActionableStep = (): { gorev: string, stepId: string } | null => {
+        for (const [gorev, stepInfo] of Object.entries(stepData)) {
+            if (canUserActOnStep(gorev) && stepInfo.id) {
+                return { gorev, stepId: stepInfo.id }
+            }
+        }
+        return null
+    }
+
+    const shouldShowTopButtons = (): boolean => {
+        return getActionableStepsCount() === 1
+    }
+
+    const shouldShowTableButtons = (): boolean => {
+        return getActionableStepsCount() > 1
+    }
+
+    const renderImzaCell = (gorev: string, imza: string) => {
+        const stepInfo = stepData[gorev]
+        const canAct = canUserActOnStep(gorev)
+        const showInTable = shouldShowTableButtons()
+        
+        if (canAct && stepInfo?.id && showInTable) {
+            return (
+                <div className="flex flex-col gap-1">
+                    <div className="flex gap-1">
+                        <button
+                            onClick={() => handleActionClick('onayla', stepInfo.id)}
+                            className="px-2 py-1 bg-green-600 text-white text-[9px] rounded hover:bg-green-700 transition-colors"
+                        >
+                            Onayla
+                        </button>
+                        <button
+                            onClick={() => handleActionClick('serh', stepInfo.id)}
+                            className="px-2 py-1 bg-orange-600 text-white text-[9px] rounded hover:bg-orange-700 transition-colors"
+                        >
+                            Şerh Koy
+                        </button>
+                    </div>
+                </div>
+            )
+        }
+        
+        return <span className="whitespace-pre-line">{imza}</span>
     }
 
     const feragatTuru = getFieldValue('Feragat Türü')
@@ -766,19 +1012,44 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     }
 
     return (
-        <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 shadow-sm flex flex-col gap-3 overflow-auto">
-            {/* Header with Download Button */}
-            <div className="flex items-center justify-between flex-shrink-0 pb-2 border-b border-gray-200">
-                <h3 className="text-lg font-bold text-gray-800">{getTitle()}</h3>
-                <button
-                    onClick={handleDownloadPdf}
-                    disabled={downloading || data.length === 0}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                >
-                    <Download className="w-4 h-4" />
-                    {downloading ? 'İndiriliyor...' : 'PDF İndir'}
-                </button>
-            </div>
+        <>
+            <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 shadow-sm flex flex-col gap-3 overflow-auto">
+                {/* Header with Download Button */}
+                <div className="flex items-center justify-between flex-shrink-0 pb-2 border-b border-gray-200">
+                    <h3 className="text-lg font-bold text-gray-800">{getTitle()}</h3>
+                    <div className="flex items-center gap-2">
+                        {shouldShowTopButtons() && (() => {
+                            const singleStep = getSingleActionableStep()
+                            if (singleStep) {
+                                return (
+                                    <>
+                                        <button
+                                            onClick={() => handleActionClick('onayla', singleStep.stepId)}
+                                            className="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+                                        >
+                                            Onayla
+                                        </button>
+                                        <button
+                                            onClick={() => handleActionClick('serh', singleStep.stepId)}
+                                            className="px-3 py-1.5 bg-orange-600 text-white text-sm rounded hover:bg-orange-700 transition-colors"
+                                        >
+                                            Şerh Koy
+                                        </button>
+                                    </>
+                                )
+                            }
+                            return null
+                        })()}
+                        <button
+                            onClick={handleDownloadPdf}
+                            disabled={downloading || data.length === 0}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                        >
+                            <Download className="w-4 h-4" />
+                            {downloading ? 'İndiriliyor...' : 'PDF İndir'}
+                        </button>
+                    </div>
+                </div>
 
             {/* Form Preview */}
             {data.length > 0 ? (
@@ -831,84 +1102,24 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         </table>
                                     </div>
                                     
-                                    {/* Row 2: Four columns */}
+                                    {/* Row 2: Alım Türü, İşin Sorumlusu, Bildirim No */}
                                     <div className="border-l border-r border-b border-black">
                                         <table className="w-full text-[10px]">
                                             <tbody>
                                                 <tr>
                                                     <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">4. Proje No</div>
-                                                        <div className="mt-1">{getFieldValue('Proje No (Proje kodu ve U-P\'li kodu XXXX/PYYYYYYY)')}</div>
+                                                        <div className="font-bold text-blue-900">4. Alım Türü</div>
+                                                        <div className="mt-1">{getFieldValue('Alım Türü')}</div>
                                                     </td>
-                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">5. Proje Tanımı</div>
-                                                        <div className="mt-1">{getFieldValue('Proje Tanımı ( Proje Adı)')}</div>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '37.5%' }}>
+                                                        <div className="font-bold text-blue-900">5. İşin Sorumlusu/Bölümü</div>
+                                                        <div className="mt-1">{getSorumluValue()}</div>
                                                     </td>
-                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">6. Müşteri</div>
-                                                        <div className="mt-1">{getFieldValue('Müşteri ( Proje Ana Sözleşmesi\'nin imza makamı )')}</div>
-                                                    </td>
-                                                    <td className="border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">7. Proje Tipi</div>
-                                                        <div className="mt-1">{getFieldValue('Proje Tipi')}</div>
+                                                    <td className="border-t border-black p-2 bg-blue-50" style={{ width: '37.5%' }}>
+                                                        <div className="font-bold text-blue-900">6. Bildirim No</div>
+                                                        <div className="mt-1">{getFieldValue('Feragat Bildirim Numarası')}</div>
                                                     </td>
                                                 </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    
-                                    {/* Row 3: Material Information - Display as table with row numbers */}
-                                    <div className="border-l border-r border-b border-black">
-                                        <table className="w-full text-[10px]">
-                                            <thead>
-                                                <tr>
-                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '5%' }}></th>
-                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '12.5%' }}>8. Malzeme No</th>
-                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '25%' }}>9. Malzeme Tanımı</th>
-                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '12.5%' }}>10. Alım Adedi</th>
-                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '12.5%' }}>11. Alım Türü</th>
-                                                    <th className="border-r border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '20%' }}>12. İşin Sorumlusu/Bölümü</th>
-                                                    <th className="border-t border-black p-2 bg-blue-900 text-white font-bold" style={{ width: '12.5%' }}>13. Bildirim No</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {(() => {
-                                                    const malzemeBilgileri = getMalzemeBilgileri()
-                                                    const alimTuru = getFieldValue('Alım Türü')
-                                                    const isinSorumlusu = getSorumluValue()
-                                                    const bildirimNo = getFieldValue('Feragat Bildirim Numarası')
-                                                    const rowCount = malzemeBilgileri.length || 1
-                                                    
-                                                    if (malzemeBilgileri.length === 0) {
-                                                        return (
-                                                            <tr>
-                                                                <td className="border-r border-t border-black p-2 bg-gray-100 text-center font-bold">1</td>
-                                                                <td className="border-r border-t border-black p-2 bg-blue-50"></td>
-                                                                <td className="border-r border-t border-black p-2 bg-blue-50"></td>
-                                                                <td className="border-r border-t border-black p-2 bg-blue-50"></td>
-                                                                <td className="border-r border-t border-black p-2 bg-blue-50">{alimTuru}</td>
-                                                                <td className="border-r border-t border-black p-2 bg-blue-50">{isinSorumlusu}</td>
-                                                                <td className="border-t border-black p-2 bg-blue-50">{bildirimNo}</td>
-                                                            </tr>
-                                                        )
-                                                    }
-                                                    
-                                                    return malzemeBilgileri.map((item: any, idx: number) => (
-                                                        <tr key={idx}>
-                                                            <td className="border-r border-t border-black p-2 bg-gray-100 text-center font-bold">{idx + 1}</td>
-                                                            <td className="border-r border-t border-black p-2 bg-blue-50">{item.malzeme_no}</td>
-                                                            <td className="border-r border-t border-black p-2 bg-blue-50">{item.malzeme_tanimi}</td>
-                                                            <td className="border-r border-t border-black p-2 bg-blue-50">{item.alim_adedi}</td>
-                                                            {idx === 0 && (
-                                                                <>
-                                                                    <td className="border-r border-t border-black p-2 bg-blue-50" rowSpan={rowCount}>{alimTuru}</td>
-                                                                    <td className="border-r border-t border-black p-2 bg-blue-50" rowSpan={rowCount}>{isinSorumlusu}</td>
-                                                                    <td className="border-t border-black p-2 bg-blue-50" rowSpan={rowCount}>{bildirimNo}</td>
-                                                                </>
-                                                            )}
-                                                        </tr>
-                                                    ))
-                                                })()}
                                             </tbody>
                                         </table>
                                     </div>
@@ -916,55 +1127,29 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                             ) : (
                                 <>
                                     {/* Uyarlama Layout (Radar/EH) */}
-                                    {/* Row 1: Four columns */}
+                                    {/* Row 1: Other fields */}
                                     <div className="border border-black">
                                         <table className="w-full text-[10px]">
                                             <tbody>
                                                 <tr>
                                                     <td className="border-r border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">1. Proje No</div>
-                                                        <div className="mt-1">{getFieldValue('Proje No (Proje kodu ve U-P\'li kodu XXXX/PYYYYYYY)')}</div>
-                                                    </td>
-                                                    <td className="border-r border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">2. Proje Tanımı</div>
-                                                        <div className="mt-1">{getFieldValue('Proje Tanımı ( Proje Adı)')}</div>
-                                                    </td>
-                                                    <td className="border-r border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">3. Müşteri</div>
-                                                        <div className="mt-1">{getFieldValue('Müşteri ( Proje Ana Sözleşmesi\'nin imza makamı )')}</div>
-                                                    </td>
-                                                    <td className="p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">4. Proje Tipi</div>
-                                                        <div className="mt-1">{getFieldValue('Proje Tipi')}</div>
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    
-                                    {/* Row 2: Four columns */}
-                                    <div className="border-l border-r border-b border-black">
-                                        <table className="w-full text-[10px]">
-                                            <tbody>
-                                                <tr>
-                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">5. Proje Aşaması</div>
+                                                        <div className="font-bold text-blue-900">1. Proje Aşaması</div>
                                                         <div className="mt-1">{getFieldValue('Proje Aşaması')}</div>
                                                     </td>
-                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">6. Proje Süresi (ay)</div>
+                                                    <td className="border-r border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">2. Proje Süresi (ay)</div>
                                                         <div className="mt-1">{getFieldValue('Proje Süresi (ay)')}</div>
                                                     </td>
-                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
-                                                        <div className="font-bold text-blue-900">7. İlgili Süreçler</div>
+                                                    <td className="border-r border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
+                                                        <div className="font-bold text-blue-900">3. İlgili Süreçler</div>
                                                         <div className="mt-1">{getFieldValue('İlgili Süreçler')}</div>
                                                     </td>
-                                                    <td className="border-r border-t border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
-                                                        <div className="font-bold text-blue-900">8. {getSorumluLabel()}</div>
+                                                    <td className="border-r border-black p-2 bg-blue-50" style={{ width: '12.5%' }}>
+                                                        <div className="font-bold text-blue-900">4. {getSorumluLabel()}</div>
                                                         <div className="mt-1">{getFeragatSorumlusuValue()}</div>
                                                     </td>
-                                                    <td className="border-t border-black p-2 bg-blue-50" style={{ width: '25%' }}>
-                                                        <div className="font-bold text-blue-900">9. Feragat Bildirim Numarası</div>
+                                                    <td className="border-black p-2 bg-blue-50" style={{ width: '25%' }}>
+                                                        <div className="font-bold text-blue-900">5. Feragat Bildirim Numarası</div>
                                                         <div className="mt-1">{getFieldValue('Feragat Bildirim Numarası')}</div>
                                                     </td>
                                                 </tr>
@@ -973,6 +1158,102 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                     </div>
                                 </>
                             )}
+                        </div>
+
+                        {/* MALZEME BİLGİLERİ - Only for Onaysız AY, placed BEFORE Proje Bilgileri */}
+                        {feragatTuru === 'Onaysız AY Feragati' && (
+                            <div>
+                                <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
+                                    MALZEME BİLGİLERİ
+                                </div>
+                                <div className="border border-black border-t-0">
+                                    <table className="w-full text-[10px]">
+                                        <thead>
+                                            <tr className="bg-gray-200 border-t border-b border-black">
+                                                <th className="border-r border-black p-2 font-bold text-center" style={{ width: '5%' }}></th>
+                                                <th className="border-r border-black p-2 font-bold text-center" style={{ width: '20%' }}>Malzeme No</th>
+                                                <th className="border-r border-black p-2 font-bold text-center" style={{ width: '55%' }}>Malzeme Tanımı</th>
+                                                <th className="border-black p-2 font-bold text-center" style={{ width: '20%' }}>Alım Adedi</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {(() => {
+                                                const malzemeBilgileri = getMalzemeBilgileri()
+                                                
+                                                if (malzemeBilgileri.length === 0) {
+                                                    return (
+                                                        <tr>
+                                                            <td className="border-r border-t border-black p-2 bg-gray-100 text-center font-bold">1</td>
+                                                            <td className="border-r border-t border-black p-2 bg-blue-50"></td>
+                                                            <td className="border-r border-t border-black p-2 bg-blue-50"></td>
+                                                            <td className="border-t border-black p-2 bg-blue-50"></td>
+                                                        </tr>
+                                                    )
+                                                }
+                                                
+                                                return malzemeBilgileri.map((item: any, idx: number) => (
+                                                    <tr key={idx}>
+                                                        <td className="border-r border-t border-black p-2 bg-gray-100 text-center font-bold">{idx + 1}</td>
+                                                        <td className="border-r border-t border-black p-2 bg-blue-50">{item.malzeme_no}</td>
+                                                        <td className="border-r border-t border-black p-2 bg-blue-50">{item.malzeme_tanimi}</td>
+                                                        <td className="border-t border-black p-2 bg-blue-50">{item.alim_adedi}</td>
+                                                    </tr>
+                                                ))
+                                            })()}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* PROJE BİLGİLERİ */}
+                        <div>
+                            <div className="bg-blue-900 text-white text-center py-1 text-sm font-bold border border-black">
+                                PROJE BİLGİLERİ
+                            </div>
+                            <div className="border border-black border-t-0">
+                                <table className="w-full text-[10px]">
+                                    <thead>
+                                        <tr className="bg-gray-200 border-t border-b border-black">
+                                            <th className="border-r border-black p-2 font-bold text-center" style={{ width: '5%' }}></th>
+                                            <th className="border-r border-black p-2 font-bold text-center" style={{ width: '12%' }}>Proje Kodu</th>
+                                            <th className="border-r border-black p-2 font-bold text-center" style={{ width: '18%' }}>Proje No</th>
+                                            <th className="border-r border-black p-2 font-bold text-center" style={{ width: '28%' }}>Proje Tanımı</th>
+                                            <th className="border-r border-black p-2 font-bold text-center" style={{ width: '12%' }}>Proje Tipi</th>
+                                            <th className="border-black p-2 font-bold text-center" style={{ width: '25%' }}>Müşteri</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {(() => {
+                                            const projeBilgileri = getprojeBilgileri()
+                                            
+                                            if (projeBilgileri.length === 0) {
+                                                return (
+                                                    <tr>
+                                                        <td className="border-r border-t border-black p-2 bg-gray-100 text-center font-bold">1</td>
+                                                        <td className="border-r border-t border-black p-2 bg-blue-50"></td>
+                                                        <td className="border-r border-t border-black p-2 bg-blue-50"></td>
+                                                        <td className="border-r border-t border-black p-2 bg-blue-50"></td>
+                                                        <td className="border-r border-t border-black p-2 bg-blue-50"></td>
+                                                        <td className="border-t border-black p-2 bg-blue-50"></td>
+                                                    </tr>
+                                                )
+                                            }
+                                            
+                                            return projeBilgileri.map((item: any, idx: number) => (
+                                                <tr key={idx}>
+                                                    <td className="border-r border-t border-black p-2 bg-gray-100 text-center font-bold">{idx + 1}</td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50">{item.proje_kodu_xxxx}</td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50">{item.proje_no_u_p_li_kod_xxxx_pyyyyyy}</td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50">{item.proje_tanimi_proje_adi}</td>
+                                                    <td className="border-r border-t border-black p-2 bg-blue-50">{item.proje_tipi}</td>
+                                                    <td className="border-t border-black p-2 bg-blue-50">{item.musteri_proje_ana_sozlesmesi_nin_imza_makami}</td>
+                                                </tr>
+                                            ))
+                                        })()}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
 
                         {/* B. TALEP EDİLEN FERAGAT / DEĞERLENDİRMELER */}
@@ -1375,7 +1656,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                     <td className="border-r border-gray-400 p-1 font-bold bg-gray-100">{gorev}</td>
                                                     <td className="border-r border-gray-400 p-1">{fullName}</td>
                                                     <td className="border-r border-gray-400 p-1">{tarih}</td>
-                                                    <td className="p-1 whitespace-pre-line">{imza}</td>
+                                                    <td className="p-1">{renderImzaCell(gorev, imza)}</td>
                                                 </tr>
                                             )
                                         })}
@@ -1413,7 +1694,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                         <td className="border-r border-black p-2 align-top">{gorev}</td>
                                                         <td className="border-r border-black p-2 align-top bg-gray-50">{fullName}</td>
                                                         <td className="border-r border-black p-2 align-top bg-gray-50">{tarih}</td>
-                                                        <td className="p-2 align-top bg-gray-50 whitespace-pre-line">{imza}</td>
+                                                        <td className="p-2 align-top bg-gray-50">{renderImzaCell(gorev, imza)}</td>
                                                     </tr>
                                                 )
                                             })
@@ -1458,7 +1739,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                                     <td className="border-r border-black p-2 align-top font-bold">{gorev}</td>
                                                     <td className="border-r border-black p-2 align-top bg-gray-50">{fullName}</td>
                                                     <td className="border-r border-black p-2 align-top bg-gray-50">{tarih}</td>
-                                                    <td className="p-2 align-top bg-gray-50 whitespace-pre-line">{imza}</td>
+                                                    <td className="p-2 align-top bg-gray-50">{renderImzaCell(gorev, imza)}</td>
                                                 </tr>
                                             )
                                         })()}
@@ -1474,5 +1755,41 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 </div>
             )}
         </div>
+
+        {/* Action Modal */}
+        {showActionModal && typeof window !== 'undefined' && createPortal(
+            <div className="fixed inset-0 backdrop-blur-sm bg-white/50 flex items-center justify-center z-[9999]">
+                <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+                    <h3 className="text-lg font-bold text-gray-800 mb-4">
+                        {actionType === 'onayla' ? 'Onay' : 'Şerh'} Açıklaması
+                    </h3>
+                    <textarea
+                        value={explanation}
+                        onChange={(e) => setExplanation(e.target.value)}
+                        placeholder="Açıklama giriniz..."
+                        className="w-full h-32 p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                        disabled={submitting}
+                    />
+                    <div className="flex justify-end gap-2 mt-4">
+                        <button
+                            onClick={() => setShowActionModal(false)}
+                            disabled={submitting}
+                            className="px-4 py-2 text-sm text-gray-700 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            İptal
+                        </button>
+                        <button
+                            onClick={handleSubmitAction}
+                            disabled={submitting}
+                            className="px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {submitting ? 'Gönderiliyor...' : 'Gönder'}
+                        </button>
+                    </div>
+                </div>
+            </div>,
+            document.body
+        )}
+    </>
     )
 }

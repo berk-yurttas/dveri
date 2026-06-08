@@ -5,13 +5,15 @@ Generates PDF matching the Excel form layout exactly
 import io
 import json
 import os
+import ast
 from typing import Any
 from datetime import datetime
 
 import httpx
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle
@@ -33,6 +35,19 @@ from app.core.config import settings
 from app.schemas.user import User
 
 router = APIRouter()
+
+
+# Request models
+class AttributeUpdate(BaseModel):
+    attribute_definition_id: str
+    value: str
+
+class ActionRequest(BaseModel):
+    job_instance_id: str
+    step_instance_id: str
+    explanation: str
+    attributes: list[AttributeUpdate] = []
+    status: str = ""
 
 
 @router.get("/get-user-info")
@@ -92,18 +107,20 @@ if not font_loaded:
     FONT_NAME_BOLD = 'Helvetica-Bold'
 
 # Database configuration for "seyir" database
-SEYIR_DB_CONFIG = {
-    'host': '10.60.139.11',
-    'port': 5437,
-    'database': 'aflow_db',
-    'user': 'postgres',
-    'password': 'postgres'
-}
+def get_seyir_db_config():
+    """Get Seyir database configuration from settings"""
+    return {
+        'host': settings.SEYIR_DB_HOST,
+        'port': settings.SEYIR_DB_PORT,
+        'database': settings.SEYIR_DB_NAME,
+        'user': settings.SEYIR_DB_USER,
+        'password': settings.SEYIR_DB_PASSWORD
+    }
 
 
 def get_seyir_connection():
     """Get connection to seyir database"""
-    return psycopg2.connect(**SEYIR_DB_CONFIG)
+    return psycopg2.connect(**get_seyir_db_config())
 
 
 async def get_pocketbase_user(username: str) -> dict:
@@ -160,11 +177,12 @@ def get_step_definitions_data(job_instance_id: str) -> dict:
                 SELECT
                     si.id,
                     sd.name,
-                    si.assignee,
+                    COALESCE(si.assignee, jsia.username) as assignee,
                     si.completed_at
                 FROM 
                     job_step_instances si
                 LEFT JOIN step_definitions sd ON si.step_definition_id = sd.id
+                LEFT JOIN job_step_instance_assignees jsia ON jsia.job_step_instance_id = si.id
                 WHERE si.job_id = %(job_id)s
                 AND sd.name LIKE '%%Onayı'
                 AND si.status = 'done'
@@ -213,7 +231,7 @@ def get_step_definitions_data(job_instance_id: str) -> dict:
                                 ORDER BY created_at DESC
                                 LIMIT 1
                             """
-                            cursor.execute(outbox_query, {'aggregate_id': step_instance_id})
+                            cursor.execute(outbox_query, {'aggregate_id': str(step_instance_id)})
                             outbox_row = cursor.fetchone()
                             
                             if outbox_row and outbox_row[0]:
@@ -309,7 +327,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         query = """
             SELECT 
                 ad."name",
-                ia.job_step_instance_id,
+                ia.job_instance_id,
                 ia.value,
                 ia.updated_at
             FROM 
@@ -344,10 +362,11 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                 field_value_extracted = extract_value(field_value)
                 form_data[field_name] = field_value_extracted
         
+
     finally:
         cursor.close()
         conn.close()
-    
+
     # Get step definitions data for E, F, G sections
     step_data = get_step_definitions_data(job_instance_id)
     
@@ -435,6 +454,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
     # Define column width (Excel has 8 columns total in the layout)
     col_width = 3.5*cm  # Each column is 3.5cm
     
+    print(f"[create_feragat_pdf] Form data: {form_data}")
     # Get Feragat Türü to determine layout (needed for header title)
     feragat_turu = form_data.get("Feragat Türü", "")
     print(f"[create_feragat_pdf] Feragat Türü: {feragat_turu}")
@@ -606,48 +626,48 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         ]))
         elements.append(row1_alt_table)
         
-        # Row 2: Proje No, Proje Tanımı, Müşteri, Proje Tipi (same as Radar/EH)
+        # Row 2: Alım Türü, İşin Sorumlusu, Bildirim No
+        alim_turu = form_data.get("Alım Türü", "")
+        isin_sorumlusu = get_isin_sorumlusu_bolumu()
+        bildirim_no = form_data.get("Feragat Bildirim Numarası", "")
+        
         row2_alt_data = [
             [
-                Paragraph('<b>4. Proje No</b>', 
+                Paragraph('<b>4. Alım Türü</b>', 
                           ParagraphStyle('AL4', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
                 '',
-                Paragraph('<b>5. Proje Tanımı</b>', 
+                Paragraph('<b>5. İşin Sorumlusu/Bölümü</b>', 
                           ParagraphStyle('AL5', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
                 '',
-                Paragraph('<b>6. Müşteri</b>', 
+                '',
+                Paragraph('<b>6. Bildirim No</b>', 
                           ParagraphStyle('AL6', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
                 '',
-                Paragraph('<b>7. Proje Tipi</b>', 
-                          ParagraphStyle('AL7', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
                 ''
             ],
             [
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje No (Proje kodu ve U-P" + chr(39) + "li kodu XXXX/PYYYYYYY)", "")}</font>', 
+                Paragraph(f'<font size=8 color="#374151">{alim_turu}</font>', 
                           ParagraphStyle('AV4', fontSize=8, fontName=FONT_NAME)),
                 '',
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tanımı ( Proje Adı)", "")}</font>', 
+                Paragraph(f'<font size=8 color="#374151">{isin_sorumlusu}</font>', 
                           ParagraphStyle('AV5', fontSize=8, fontName=FONT_NAME)),
                 '',
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Müşteri ( Proje Ana Sözleşmesi" + chr(39) + "nin imza makamı )", "")}</font>', 
+                '',
+                Paragraph(f'<font size=8 color="#374151">{bildirim_no}</font>', 
                           ParagraphStyle('AV6', fontSize=8, fontName=FONT_NAME)),
                 '',
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tipi", "")}</font>', 
-                          ParagraphStyle('AV7', fontSize=8, fontName=FONT_NAME)),
                 ''
             ]
         ]
         
         row2_alt_table = Table(row2_alt_data, colWidths=[col_width]*8)
         row2_alt_table.setStyle(TableStyle([
-            ('SPAN', (0, 0), (1, 0)),  # Proje No label
-            ('SPAN', (2, 0), (3, 0)),  # Proje Tanımı label
-            ('SPAN', (4, 0), (5, 0)),  # Müşteri label
-            ('SPAN', (6, 0), (7, 0)),  # Proje Tipi label
-            ('SPAN', (0, 1), (1, 1)),  # Proje No value
-            ('SPAN', (2, 1), (3, 1)),  # Proje Tanımı value
-            ('SPAN', (4, 1), (5, 1)),  # Müşteri value
-            ('SPAN', (6, 1), (7, 1)),  # Proje Tipi value
+            ('SPAN', (0, 0), (1, 0)),  # Alım Türü label
+            ('SPAN', (2, 0), (4, 0)),  # İşin Sorumlusu label
+            ('SPAN', (5, 0), (7, 0)),  # Bildirim No label
+            ('SPAN', (0, 1), (1, 1)),  # Alım Türü value
+            ('SPAN', (2, 1), (4, 1)),  # İşin Sorumlusu value
+            ('SPAN', (5, 1), (7, 1)),  # Bildirim No value
             ('GRID', (0, 0), (-1, -1), 1, blue_border),
             ('BACKGROUND', (0, 0), (-1, 0), blue_bg),
             ('BACKGROUND', (0, 1), (-1, 1), colors.white),
@@ -659,216 +679,9 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         ]))
         elements.append(row2_alt_table)
         
-        # Row 3: Material Information Table with row numbers
-        # Parse Malzeme Bilgileri JSON array
-        malzeme_bilgileri_raw = form_data.get("Malzeme Bilgileri", None)
-        malzeme_list = []
-        
-        if malzeme_bilgileri_raw:
-            if isinstance(malzeme_bilgileri_raw, list):
-                malzeme_list = malzeme_bilgileri_raw
-            elif isinstance(malzeme_bilgileri_raw, str):
-                try:
-                    parsed_value = json.loads(malzeme_bilgileri_raw)
-                    if isinstance(parsed_value, list):
-                        malzeme_list = parsed_value
-                except (json.JSONDecodeError, TypeError) as e:
-                    print(f"[DEBUG] Failed to parse Malzeme Bilgileri JSON: {e}")
-        
-        # Get values that appear once for all rows
-        alim_turu = form_data.get("Alım Türü", "")
-        isin_sorumlusu = get_isin_sorumlusu_bolumu()
-        bildirim_no = form_data.get("Feragat Bildirim Numarası", "")
-        
-        # Header row
-        row3_header = [
-            Paragraph('', ParagraphStyle('ALH0', fontSize=7, fontName=FONT_NAME_BOLD)),  # Row number column
-            Paragraph('<b>8. Malzeme No</b>', 
-                      ParagraphStyle('AL8', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            Paragraph('<b>9. Malzeme Tanımı</b>', 
-                      ParagraphStyle('AL9', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            '',
-            Paragraph('<b>10. Alım Adedi</b>', 
-                      ParagraphStyle('AL10', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            Paragraph('<b>11. Alım Türü</b>', 
-                      ParagraphStyle('AL11', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            Paragraph('<b>12. İşin Sorumlusu/Bölümü</b>', 
-                      ParagraphStyle('AL12', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-            '',
-            Paragraph('<b>13. Bildirim No</b>', 
-                      ParagraphStyle('AL13', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD))
-        ]
-        
-        # Build data rows - ALL rows must have 9 columns for proper table rendering
-        row3_alt_data = [row3_header]
-        
-        print(f"[DEBUG] Malzeme Bilgileri - malzeme_list: {malzeme_list}")
-        print(f"[DEBUG] Malzeme Bilgileri - alim_turu: {alim_turu}")
-        print(f"[DEBUG] Malzeme Bilgileri - isin_sorumlusu: {isin_sorumlusu}")
-        print(f"[DEBUG] Malzeme Bilgileri - bildirim_no: {bildirim_no}")
-        
-        if not malzeme_list:
-            # If no data, show one empty row with all 9 columns
-            row3_alt_data.append([
-                Paragraph('<b>1</b>', ParagraphStyle('ARN1', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
-                Paragraph('', ParagraphStyle('AV8', fontSize=8, fontName=FONT_NAME)),
-                Paragraph('', ParagraphStyle('AV9', fontSize=8, fontName=FONT_NAME)),
-                '',
-                Paragraph('', ParagraphStyle('AV10', fontSize=8, fontName=FONT_NAME)),
-                Paragraph(f'<font size=8 color="#374151">{alim_turu}</font>', 
-                          ParagraphStyle('AV11', fontSize=8, fontName=FONT_NAME)),
-                Paragraph(f'<font size=8 color="#374151">{isin_sorumlusu}</font>', 
-                          ParagraphStyle('AV12', fontSize=8, fontName=FONT_NAME)),
-                '',
-                Paragraph(f'<font size=8 color="#374151">{bildirim_no}</font>', 
-                          ParagraphStyle('AV13', fontSize=8, fontName=FONT_NAME))
-            ])
-        else:
-            # Add all material rows - each row must have 9 columns
-            for idx, item in enumerate(malzeme_list, start=1):
-                malzeme_no = item.get('malzeme_no', '') if isinstance(item, dict) else ''
-                malzeme_tanimi = item.get('malzeme_tanimi', '') if isinstance(item, dict) else ''
-                alim_adedi = item.get('alim_adedi', '') if isinstance(item, dict) else ''
-                
-                # All rows include all 9 columns
-                # Columns 5, 6-7, and 8 will be spanned from first row
-                row3_alt_data.append([
-                    Paragraph(f'<b>{idx}</b>', ParagraphStyle(f'ARN{idx}', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
-                    Paragraph(f'<font size=8 color="#374151">{malzeme_no}</font>', 
-                              ParagraphStyle(f'AV8_{idx}', fontSize=8, fontName=FONT_NAME)),
-                    Paragraph(f'<font size=8 color="#374151">{malzeme_tanimi}</font>', 
-                              ParagraphStyle(f'AV9_{idx}', fontSize=8, fontName=FONT_NAME)),
-                    '',
-                    Paragraph(f'<font size=8 color="#374151">{alim_adedi}</font>', 
-                              ParagraphStyle(f'AV10_{idx}', fontSize=8, fontName=FONT_NAME)),
-                    Paragraph(f'<font size=8 color="#374151">{alim_turu if idx == 1 else ""}</font>', 
-                              ParagraphStyle(f'AV11_{idx}', fontSize=8, fontName=FONT_NAME)),
-                    Paragraph(f'<font size=8 color="#374151">{isin_sorumlusu if idx == 1 else ""}</font>', 
-                              ParagraphStyle(f'AV12_{idx}', fontSize=8, fontName=FONT_NAME)),
-                    '',
-                    Paragraph(f'<font size=8 color="#374151">{bildirim_no if idx == 1 else ""}</font>', 
-                              ParagraphStyle(f'AV13_{idx}', fontSize=8, fontName=FONT_NAME))
-                ])
-        
-        # Column widths: smaller for row number, adjusted for others
-        row3_col_widths = [col_width*0.4, col_width*1.1, col_width*2, col_width*0.5, col_width*0.8, col_width*0.9, col_width*1.8, col_width*0.5, col_width*0.9]
-        
-        print(f"[DEBUG] Malzeme table - Total rows: {len(row3_alt_data)}, Data rows: {len(row3_alt_data)-1}")
-        print(f"[DEBUG] Malzeme table - Columns per row: {[len(row) for row in row3_alt_data]}")
-        
-        row3_alt_table = Table(row3_alt_data, colWidths=row3_col_widths)
-        
-        # Build table style dynamically based on number of rows
-        num_data_rows = len(row3_alt_data) - 1  # Count of data rows (excluding header)
-        last_row_idx = len(row3_alt_data) - 1  # Index of last row
-        
-        table_style_commands = [
-            # Header row styling (field names row)
-            ('SPAN', (2, 0), (3, 0)),  # Malzeme Tanımı header
-            ('SPAN', (6, 0), (7, 0)),  # İşin Sorumlusu header
-            ('BACKGROUND', (0, 0), (-1, 0), blue_bg),  # Header background - light gray/blue like other rows
-            ('GRID', (0, 0), (-1, -1), 1, blue_border),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ('LEFTPADDING', (0, 0), (-1, -1), 5),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-        ]
-        
-        # Add row-specific styling for data rows FIRST
-        for row_idx in range(1, len(row3_alt_data)):
-            table_style_commands.extend([
-                ('SPAN', (2, row_idx), (3, row_idx)),  # Malzeme Tanımı value span
-                ('BACKGROUND', (0, row_idx), (0, row_idx), blue_bg),  # Row number background
-                ('ALIGN', (0, row_idx), (0, row_idx), 'CENTER'),  # Center row number
-                ('FONTNAME', (0, row_idx), (0, row_idx), FONT_NAME_BOLD),  # Bold row number
-            ])
-        
-        # Apply white background to data cells (will be overridden for row number column)
-        table_style_commands.append(('BACKGROUND', (1, 1), (-1, -1), colors.white))
-        
-        # Span Alım Türü, İşin Sorumlusu, and Bildirim No across all data rows
-        if num_data_rows > 1:
-            table_style_commands.extend([
-                ('SPAN', (5, 1), (5, last_row_idx)),  # Alım Türü spans from row 1 to last row
-                ('SPAN', (6, 1), (7, last_row_idx)),  # İşin Sorumlusu spans from row 1 to last row
-                ('SPAN', (8, 1), (8, last_row_idx)),  # Bildirim No spans from row 1 to last row
-            ])
-        else:
-            # Single row - just span İşin Sorumlusu across its columns
-            table_style_commands.append(('SPAN', (6, 1), (7, 1)))
-        
-        row3_alt_table.setStyle(TableStyle(table_style_commands))
-        elements.append(row3_alt_table)
-        
     else:
         # Default layout for Radar and Elektronik Harp
-        # Row 1: Split into 2 sub-rows - labels and values
-        row1_data = [
-            # Sub-row 1: Labels (blue background)
-            [
-                Paragraph('<b>1. Proje No</b>', 
-                          ParagraphStyle('L1', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-                '',  # Column 1 (part of Proje No span)
-                Paragraph('<b>2. Proje Tanımı</b>', 
-                          ParagraphStyle('L2', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-                '',  # Column 3 (part of Proje Tanımı span)
-                Paragraph('<b>3. Müşteri</b>', 
-                          ParagraphStyle('L3', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-                '',  # Column 5 (part of Müşteri span)
-                Paragraph('<b>4. Proje Tipi</b>', 
-                          ParagraphStyle('L4', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-                '',  # Column 7 (part of Proje Tipi span)
-            ],
-            # Sub-row 2: Values from database (white background)
-            [
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje No (Proje kodu ve U-P" + chr(39) + "li kodu XXXX/PYYYYYYY)", "")}</font>', 
-                          ParagraphStyle('V1', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-                '',  # Column 1 (part of value span)
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tanımı ( Proje Adı)", "")}</font>', 
-                          ParagraphStyle('V2', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-                '',  # Column 3 (part of value span)
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Müşteri ( Proje Ana Sözleşmesi" + chr(39) + "nin imza makamı )", "")}</font>', 
-                          ParagraphStyle('V3', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-                '',  # Column 5 (part of value span)
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Tipi", "")}</font>', 
-                          ParagraphStyle('V4', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
-                '',  # Column 7 (part of value span)
-            ]
-        ]
-        
-        row1_table = Table(row1_data, colWidths=[col_width]*8)
-        row1_table.setStyle(TableStyle([
-            # Spans for both rows
-            # Row 0 (labels):
-            ('SPAN', (0, 0), (1, 0)),  # Proje No
-            ('SPAN', (2, 0), (3, 0)),  # Proje Tanımı
-            ('SPAN', (4, 0), (5, 0)),  # Müşteri
-            ('SPAN', (6, 0), (7, 0)),  # Proje Tipi
-            
-            # Row 1 (values):
-            ('SPAN', (0, 1), (1, 1)),  # Proje No value
-            ('SPAN', (2, 1), (3, 1)),  # Proje Tanımı value
-            ('SPAN', (4, 1), (5, 1)),  # Müşteri value
-            ('SPAN', (6, 1), (7, 1)),  # Proje Tipi value
-            
-            # Borders
-            ('GRID', (0, 0), (-1, -1), 1, blue_border),
-            
-            # Background: Row 0 (labels) blue, Row 1 (values) white
-            ('BACKGROUND', (0, 0), (-1, 0), blue_bg),  # All labels blue
-            ('BACKGROUND', (0, 1), (-1, 1), colors.white),  # All values white
-            
-            # Alignment
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ('LEFTPADDING', (0, 0), (-1, -1), 5),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-        ]))
-        elements.append(row1_table)
-        
-        # Row 2: 8 columns with different layout
+        # Row 1: Other fields
         # Columns 0-1: Proje Aşaması (2 cols)
         # Columns 2-3: Proje Süresi (2 cols)
         # Columns 4-5: İlgili Süreçler + Feragat Sorumlusu/AY Sorumlusu (under Müşteri, 2 cols total)
@@ -884,18 +697,18 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         row2_data = [
             # Sub-row 1: Labels (blue background for attribute names)
             [
-                Paragraph('<b>5. Proje Aşaması</b>', 
-                          ParagraphStyle('L5', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                Paragraph('<b>1. Proje Aşaması</b>', 
+                          ParagraphStyle('L1', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
                 '',  # Column 1 (part of Proje Aşaması span)
-                Paragraph('<b>6. Proje Süresi (ay)</b>', 
-                          ParagraphStyle('L6', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                Paragraph('<b>2. Proje Süresi (ay)</b>', 
+                          ParagraphStyle('L2', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
                 '',  # Column 3 (part of Proje Süresi span)
-                Paragraph('<b>7. İlgili Süreçler</b>', 
-                          ParagraphStyle('L7', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-                Paragraph(f'<b>{sorumlu_label}</b>', 
-                          ParagraphStyle('L8', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
-                Paragraph('<b>9. Feragat Bildirim Numarası</b>', 
-                          ParagraphStyle('L9', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                Paragraph('<b>3. İlgili Süreçler</b>', 
+                          ParagraphStyle('L3', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                Paragraph(f'<b>4. {sorumlu_label}</b>', 
+                          ParagraphStyle('L4', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
+                Paragraph('<b>5. Feragat Bildirim Numarası</b>', 
+                          ParagraphStyle('L5', fontSize=7, textColor=colors.HexColor('#1e3a8a'), fontName=FONT_NAME_BOLD)),
                 '',  # Column 7 (part of Feragat Bildirim span)
             ],
             # Sub-row 2: Values from database (white background)
@@ -906,7 +719,7 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
                 Paragraph(f'<font size=8 color="#374151">{form_data.get("Proje Süresi (ay)", "")}</font>', 
                           ParagraphStyle('V6', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
                 '',  # Column 3 (part of value span)
-                Paragraph(f'<font size=8 color="#374151">{form_data.get("İlgili Süreçler", "")}</font>', 
+                Paragraph(f'<font size=8 color="#374151">{form_data.get("İlgili Süreçler ( Hangi Süreçler Etkileniyor? )", "")}</font>', 
                           ParagraphStyle('V7', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
                 Paragraph(f'<font size=8 color="#374151">{form_data.get(sorumlu_attr, "")}</font>', 
                           ParagraphStyle('V8', fontSize=8, textColor=colors.HexColor('#374151'), fontName=FONT_NAME)),
@@ -948,6 +761,257 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             ('RIGHTPADDING', (0, 0), (-1, -1), 5),
         ]))
         elements.append(row2_table)
+    
+    # Project Information Table (header will be added later)
+    # Parse project information JSON array
+    proje_bilgileri_raw = form_data.get("Proje Bilgileri", None)
+    proje_list = []
+    
+    if proje_bilgileri_raw:
+        if isinstance(proje_bilgileri_raw, list):
+            proje_list = proje_bilgileri_raw
+        elif isinstance(proje_bilgileri_raw, str):
+            try:
+                # Try regular JSON first
+                parsed_value = json.loads(proje_bilgileri_raw)
+                if isinstance(parsed_value, list):
+                    proje_list = parsed_value
+            except json.JSONDecodeError:
+                try:
+                    # Try Python-style dict/list format
+                    parsed_value = ast.literal_eval(proje_bilgileri_raw)
+                    if isinstance(parsed_value, list):
+                        proje_list = parsed_value
+                except (ValueError, SyntaxError) as e:
+                    print(f"[DEBUG] Failed to parse Proje Bilgileri: {e}")
+                    proje_list = []
+    
+    # Header row for project table (with row number column like Malzeme)
+    # Order: Row#, Proje Kodu, Proje No, Proje Tanımı, Proje Tipi, Müşteri
+    proje_header = [
+        Paragraph('', ParagraphStyle('PBL0', fontSize=7, fontName=FONT_NAME_BOLD)),  # Row number column
+        Paragraph('<b>Proje Kodu</b>', 
+                  ParagraphStyle('PBL1', fontSize=7, textColor=colors.black, fontName=FONT_NAME_BOLD)),
+        Paragraph('', ParagraphStyle('PBL1b', fontSize=7, fontName=FONT_NAME_BOLD)),
+        Paragraph('<b>Proje No</b>', 
+                  ParagraphStyle('PBL2', fontSize=7, textColor=colors.black, fontName=FONT_NAME_BOLD)),
+        Paragraph('', ParagraphStyle('PBL2b', fontSize=7, fontName=FONT_NAME_BOLD)),
+        Paragraph('<b>Proje Tanımı</b>', 
+                  ParagraphStyle('PBL3', fontSize=7, textColor=colors.black, fontName=FONT_NAME_BOLD)),
+        Paragraph('<b>Proje Tipi</b>', 
+                  ParagraphStyle('PBL4', fontSize=7, textColor=colors.black, fontName=FONT_NAME_BOLD)),
+        Paragraph('', ParagraphStyle('PBL4b', fontSize=7, fontName=FONT_NAME_BOLD)),
+        Paragraph('<b>Müşteri</b>', 
+                  ParagraphStyle('PBL5', fontSize=7, textColor=colors.black, fontName=FONT_NAME_BOLD))
+    ]
+    
+    proje_table_data = [proje_header]
+    
+    # Add data rows
+    if len(proje_list) == 0:
+        # Empty row if no data
+        proje_table_data.append([
+            Paragraph('<b>1</b>', ParagraphStyle('PBRN1', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
+            Paragraph('', ParagraphStyle('PBV1a', fontSize=8, fontName=FONT_NAME)),
+            Paragraph('', ParagraphStyle('PBV1b', fontSize=8, fontName=FONT_NAME)),
+            Paragraph('', ParagraphStyle('PBV2a', fontSize=8, fontName=FONT_NAME)),
+            Paragraph('', ParagraphStyle('PBV2b', fontSize=8, fontName=FONT_NAME)),
+            Paragraph('', ParagraphStyle('PBV3', fontSize=8, fontName=FONT_NAME)),
+            Paragraph('', ParagraphStyle('PBV4a', fontSize=8, fontName=FONT_NAME)),
+            Paragraph('', ParagraphStyle('PBV4b', fontSize=8, fontName=FONT_NAME)),
+            Paragraph('', ParagraphStyle('PBV5', fontSize=8, fontName=FONT_NAME))
+        ])
+    else:
+        for idx, item in enumerate(proje_list, start=1):
+            proje_tipi = item.get("proje_tipi", "")
+            proje_kodu = item.get("proje_kodu_xxxx", "")
+            proje_tanimi = item.get("proje_tanimi_proje_adi", "")
+            proje_no = item.get("proje_no_u_p_li_kod_xxxx_pyyyyyy", "")
+            musteri = item.get("musteri_proje_ana_sozlesmesi_nin_imza_makami", "")
+            
+            proje_table_data.append([
+                Paragraph(f'<b>{idx}</b>', ParagraphStyle(f'PBRN{idx}', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
+                Paragraph(f'<font size=8 color="#374151">{proje_kodu}</font>', 
+                          ParagraphStyle(f'PBV1a_{idx}', fontSize=8, fontName=FONT_NAME)),
+                Paragraph('', ParagraphStyle(f'PBV1b_{idx}', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{proje_no}</font>', 
+                          ParagraphStyle(f'PBV2a_{idx}', fontSize=8, fontName=FONT_NAME)),
+                Paragraph('', ParagraphStyle(f'PBV2b_{idx}', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{proje_tanimi}</font>', 
+                          ParagraphStyle(f'PBV3_{idx}', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{proje_tipi}</font>', 
+                          ParagraphStyle(f'PBV4a_{idx}', fontSize=8, fontName=FONT_NAME)),
+                Paragraph('', ParagraphStyle(f'PBV4b_{idx}', fontSize=8, fontName=FONT_NAME)),
+                Paragraph(f'<font size=8 color="#374151">{musteri}</font>', 
+                          ParagraphStyle(f'PBV5_{idx}', fontSize=8, fontName=FONT_NAME))
+            ])
+    
+    # Column widths - must total 8.0 to match page width (row number width matches Malzeme)
+    # Order: Row#, Proje Kodu, Proje No, Proje Tanımı, Proje Tipi, Müşteri
+    proje_col_widths = [col_width*0.5, col_width*0.9, col_width*0.3, col_width*1.4, col_width*0.5, col_width*2.2, col_width*1.0, col_width*0.5, col_width*0.7]
+    
+    proje_table = Table(proje_table_data, colWidths=proje_col_widths)
+    proje_table_style = [
+        # Header row spans
+        ('SPAN', (1, 0), (2, 0)),  # Proje Kodu header
+        ('SPAN', (3, 0), (4, 0)),  # Proje No header
+        ('SPAN', (6, 0), (7, 0)),  # Proje Tipi header
+        ('GRID', (0, 0), (-1, -1), 1, blue_border),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E5E7EB')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('LEFTPADDING', (0, 0), (-1, -1), 5),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+    ]
+    
+    # Add spans for data rows
+    for i in range(1, len(proje_table_data)):
+        proje_table_style.extend([
+            ('SPAN', (1, i), (2, i)),  # Proje Kodu value span
+            ('SPAN', (3, i), (4, i)),  # Proje No value span
+            ('SPAN', (6, i), (7, i)),  # Proje Tipi value span
+            ('BACKGROUND', (0, i), (0, i), blue_bg),  # Row number background
+            ('ALIGN', (0, i), (0, i), 'CENTER'),
+            ('FONTNAME', (0, i), (0, i), FONT_NAME_BOLD),
+            ('BACKGROUND', (1, i), (-1, i), colors.white),  # Data cells white
+        ])
+    
+    # Malzeme Bilgileri Section - Only for Onaysız AY Feragati (BEFORE Proje Bilgileri)
+    if feragat_turu == "Onaysız AY Feragati":
+        section_malzeme = Table([[Paragraph('<b>MALZEME BİLGİLERİ</b>', 
+                                          ParagraphStyle('SecMalzeme', fontSize=10, alignment=1, textColor=colors.white, fontName=FONT_NAME_BOLD))]], 
+                              colWidths=[col_width*8])
+        section_malzeme.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), blue_header),
+            ('BOX', (0, 0), (-1, -1), 1.5, colors.black),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(section_malzeme)
+        
+        # Material Information Table with row numbers (Only 3 columns + row number)
+        # Parse Malzeme Bilgileri JSON array
+        malzeme_bilgileri_raw = form_data.get("Malzeme Bilgileri", None)
+        malzeme_list = []
+        
+        if malzeme_bilgileri_raw:
+            if isinstance(malzeme_bilgileri_raw, list):
+                malzeme_list = malzeme_bilgileri_raw
+            elif isinstance(malzeme_bilgileri_raw, str):
+                try:
+                    # Try regular JSON first
+                    parsed_value = json.loads(malzeme_bilgileri_raw)
+                    if isinstance(parsed_value, list):
+                        malzeme_list = parsed_value
+                except json.JSONDecodeError:
+                    try:
+                        # Try Python-style dict/list format
+                        parsed_value = ast.literal_eval(malzeme_bilgileri_raw)
+                        if isinstance(parsed_value, list):
+                            malzeme_list = parsed_value
+                    except (ValueError, SyntaxError) as e:
+                        print(f"[DEBUG] Failed to parse Malzeme Bilgileri: {e}")
+                        malzeme_list = []
+        
+        # Header row (no numbering) - 8 columns total
+        malzeme_header = [
+            Paragraph('', ParagraphStyle('MLH0', fontSize=7, fontName=FONT_NAME_BOLD)),  # Row number column
+            Paragraph('<b>Malzeme No</b>', 
+                      ParagraphStyle('ML1', fontSize=7, textColor=colors.black, fontName=FONT_NAME_BOLD)),
+            Paragraph('', ParagraphStyle('ML1b', fontSize=7, fontName=FONT_NAME_BOLD)),
+            Paragraph('<b>Malzeme Tanımı</b>', 
+                      ParagraphStyle('ML2', fontSize=7, textColor=colors.black, fontName=FONT_NAME_BOLD)),
+            Paragraph('', ParagraphStyle('ML2b', fontSize=7, fontName=FONT_NAME_BOLD)),
+            Paragraph('', ParagraphStyle('ML2c', fontSize=7, fontName=FONT_NAME_BOLD)),
+            Paragraph('', ParagraphStyle('ML2d', fontSize=7, fontName=FONT_NAME_BOLD)),
+            Paragraph('<b>Alım Adedi</b>', 
+                      ParagraphStyle('ML3', fontSize=7, textColor=colors.black, fontName=FONT_NAME_BOLD))
+        ]
+        
+        # Build data rows
+        malzeme_table_data = [malzeme_header]
+        
+        if not malzeme_list or len(malzeme_list) == 0:
+            # If no data, show one empty row
+            malzeme_table_data.append([
+                Paragraph('<b>1</b>', ParagraphStyle('MRN1', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
+                Paragraph('', ParagraphStyle('MV1a', fontSize=8, fontName=FONT_NAME)),
+                Paragraph('', ParagraphStyle('MV1b', fontSize=8, fontName=FONT_NAME)),
+                Paragraph('', ParagraphStyle('MV2a', fontSize=8, fontName=FONT_NAME)),
+                Paragraph('', ParagraphStyle('MV2b', fontSize=8, fontName=FONT_NAME)),
+                Paragraph('', ParagraphStyle('MV2c', fontSize=8, fontName=FONT_NAME)),
+                Paragraph('', ParagraphStyle('MV2d', fontSize=8, fontName=FONT_NAME)),
+                Paragraph('', ParagraphStyle('MV3', fontSize=8, fontName=FONT_NAME))
+            ])
+        else:
+            # Add all material rows
+            for idx, item in enumerate(malzeme_list, start=1):
+                malzeme_no = item.get('malzeme_no', '') if isinstance(item, dict) else ''
+                malzeme_tanimi = item.get('malzeme_tanimi', '') if isinstance(item, dict) else ''
+                alim_adedi = item.get('alim_adedi', '') if isinstance(item, dict) else ''
+                
+                malzeme_table_data.append([
+                    Paragraph(f'<b>{idx}</b>', ParagraphStyle(f'MRN{idx}', fontSize=8, fontName=FONT_NAME_BOLD, alignment=1)),
+                    Paragraph(f'<font size=8 color="#374151">{malzeme_no}</font>', 
+                              ParagraphStyle(f'MV1a_{idx}', fontSize=8, fontName=FONT_NAME)),
+                    Paragraph('', ParagraphStyle(f'MV1b_{idx}', fontSize=8, fontName=FONT_NAME)),
+                    Paragraph(f'<font size=8 color="#374151">{malzeme_tanimi}</font>', 
+                              ParagraphStyle(f'MV2a_{idx}', fontSize=8, fontName=FONT_NAME)),
+                    Paragraph('', ParagraphStyle(f'MV2b_{idx}', fontSize=8, fontName=FONT_NAME)),
+                    Paragraph('', ParagraphStyle(f'MV2c_{idx}', fontSize=8, fontName=FONT_NAME)),
+                    Paragraph('', ParagraphStyle(f'MV2d_{idx}', fontSize=8, fontName=FONT_NAME)),
+                    Paragraph(f'<font size=8 color="#374151">{alim_adedi}</font>', 
+                              ParagraphStyle(f'MV3_{idx}', fontSize=8, fontName=FONT_NAME))
+                ])
+        
+        # Column widths
+        malzeme_col_widths = [col_width*0.5, col_width*1.5, col_width*0.5, col_width*3, col_width*0.5, col_width*0.5, col_width*0.5, col_width*1]
+        
+        malzeme_table = Table(malzeme_table_data, colWidths=malzeme_col_widths)
+        
+        malzeme_table_style = [
+            # Header row styling
+            ('SPAN', (1, 0), (2, 0)),  # Malzeme No header
+            ('SPAN', (3, 0), (6, 0)),  # Malzeme Tanımı header
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E5E7EB')),
+            ('GRID', (0, 0), (-1, -1), 1, blue_border),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ]
+        
+        # Add row-specific styling for data rows
+        for row_idx in range(1, len(malzeme_table_data)):
+            malzeme_table_style.extend([
+                ('SPAN', (1, row_idx), (2, row_idx)),  # Malzeme No value span
+                ('SPAN', (3, row_idx), (6, row_idx)),  # Malzeme Tanımı value span
+                ('BACKGROUND', (0, row_idx), (0, row_idx), blue_bg),  # Row number background
+                ('ALIGN', (0, row_idx), (0, row_idx), 'CENTER'),
+                ('FONTNAME', (0, row_idx), (0, row_idx), FONT_NAME_BOLD),
+                ('BACKGROUND', (1, row_idx), (-1, row_idx), colors.white),
+            ])
+        
+        malzeme_table.setStyle(TableStyle(malzeme_table_style))
+        elements.append(malzeme_table)
+    
+    # Proje Bilgileri Section - comes after Malzeme Bilgileri (or after Section A for Uyarlama)
+    section_proje = Table([[Paragraph('<b>PROJE BİLGİLERİ</b>', 
+                                      ParagraphStyle('SecProje', fontSize=10, alignment=1, textColor=colors.white, fontName=FONT_NAME_BOLD))]], 
+                          colWidths=[col_width*8])
+    section_proje.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), blue_header),
+        ('BOX', (0, 0), (-1, -1), 1.5, colors.black),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    elements.append(section_proje)
+    
+    proje_table.setStyle(TableStyle(proje_table_style))
+    elements.append(proje_table)
     
     # Section B header - Different content based on Feragat Türü
     if feragat_turu == "Onaysız AY Feragati":
@@ -1823,8 +1887,6 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
             print("[DEBUG] No risk data found, using default 3 empty rows")
             d_risk_data = [
                 ['R.1', '', '', ''],
-                ['R.2', '', '', ''],
-                ['R.3', '', '', '']
             ]
         
         print(f"[DEBUG] Total risk rows: {len(d_risk_data)}")
@@ -2186,3 +2248,251 @@ async def download_feragat_pdf(
         raise HTTPException(status_code=500, detail=f"Veritabanı hatası: {str(pe)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF oluşturma hatası: {str(e)}")
+
+
+@router.get("/get-current-user")
+async def get_current_user(
+    current_user: User = Depends(check_authenticated)
+):
+    """Get current authenticated user information"""
+    return {
+        "username": current_user.username,
+        "email": current_user.email,
+        "name": getattr(current_user, 'name', current_user.username)
+    }
+
+
+@router.post("/onayla")
+async def onayla_feragat(
+    action_request: ActionRequest,
+    http_request: Request,
+    current_user: User = Depends(check_authenticated)
+):
+    """
+    Approve (Onayla) a feragat form step
+    
+    Parameters:
+    - job_instance_id: Job instance ID
+    - step_instance_id: Step instance ID
+    - explanation: Explanation text from user
+    - attributes: List of attribute updates with attribute_definition_id and value
+    - status: Current step status (waiting_for_acceptance, task_accepted, working)
+    """
+    try:
+        print(f"[onayla_feragat] Request: {action_request}")
+        print(f"[onayla_feragat] Step status: {action_request.status}")
+        
+        # Get cookies from the incoming request to forward to Seyir API
+        cookies = {}
+        if 'access_token' in http_request.cookies:
+            cookies['access_token'] = http_request.cookies['access_token']
+        if 'refresh_token' in http_request.cookies:
+            cookies['refresh_token'] = http_request.cookies['refresh_token']
+        
+        print(f"[onayla_feragat] Forwarding cookies: {list(cookies.keys())}")
+        
+        async with httpx.AsyncClient() as client:
+            # Handle status-based workflow
+            if action_request.status == 'waiting_for_acceptance':
+                # Step 1: Accept task
+                accept_url = f"{settings.SEYIR_BASE_URL}/client/job-steps/{action_request.step_instance_id}/accept-task"
+                print(f"[onayla_feragat] Sending accept-task request to: {accept_url}")
+                accept_response = await client.post(accept_url, cookies=cookies, timeout=30.0)
+                print(f"[onayla_feragat] Accept response status: {accept_response.status_code}")
+                
+                if accept_response.status_code not in [200, 201]:
+                    raise HTTPException(
+                        status_code=accept_response.status_code,
+                        detail=f"Accept task error: {accept_response.text}"
+                    )
+                
+                # Step 2: Start task
+                start_url = f"{settings.SEYIR_BASE_URL}/client/job-steps/{action_request.step_instance_id}/start-task"
+                print(f"[onayla_feragat] Sending start-task request to: {start_url}")
+                start_response = await client.post(start_url, cookies=cookies, timeout=30.0)
+                print(f"[onayla_feragat] Start response status: {start_response.status_code}")
+                
+                if start_response.status_code not in [200, 201]:
+                    raise HTTPException(
+                        status_code=start_response.status_code,
+                        detail=f"Start task error: {start_response.text}"
+                    )
+            
+            elif action_request.status == 'task_accepted':
+                # Step 1: Start task
+                start_url = f"{settings.SEYIR_BASE_URL}/client/job-steps/{action_request.step_instance_id}/start-task"
+                print(f"[onayla_feragat] Sending start-task request to: {start_url}")
+                start_response = await client.post(start_url, cookies=cookies, timeout=30.0)
+                print(f"[onayla_feragat] Start response status: {start_response.status_code}")
+                
+                if start_response.status_code not in [200, 201]:
+                    raise HTTPException(
+                        status_code=start_response.status_code,
+                        detail=f"Start task error: {start_response.text}"
+                    )
+            
+            # For all statuses: Complete task with attributes
+            # Convert attributes list to attributeValues dict
+            attribute_values = {}
+            for attr in action_request.attributes:
+                attribute_values[attr.attribute_definition_id] = attr.value
+            
+            print(f"[onayla_feragat] Attribute values: {attribute_values}")
+            
+            # Prepare request body for Seyir API
+            seyir_body = {
+                "attributeValues": attribute_values,
+                "selectedBranchId": None
+            }
+            
+            # Send complete request
+            complete_url = f"{settings.SEYIR_BASE_URL}/client/job-steps/{action_request.step_instance_id}/complete"
+            print(f"[onayla_feragat] Sending complete request to: {complete_url}")
+            print(f"[onayla_feragat] Request body: {seyir_body}")
+            
+            response = await client.post(
+                complete_url,
+                json=seyir_body,
+                cookies=cookies,
+                timeout=30.0
+            )
+            
+            print(f"[onayla_feragat] Complete response status: {response.status_code}")
+            print(f"[onayla_feragat] Complete response body: {response.text}")
+            
+            if response.status_code not in [200, 201]:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Complete task error: {response.text}"
+                )
+        
+        return {
+            "success": True,
+            "message": "Onay başarıyla kaydedildi",
+            "step_instance_id": action_request.step_instance_id
+        }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Onay işlemi sırasında hata: {str(e)}")
+
+
+@router.post("/serh-koy")
+async def serh_koy_feragat(
+    action_request: ActionRequest,
+    http_request: Request,
+    current_user: User = Depends(check_authenticated)
+):
+    """
+    Add annotation (Şerh Koy) to a feragat form step
+    
+    Parameters:
+    - job_instance_id: Job instance ID
+    - step_instance_id: Step instance ID
+    - explanation: Annotation/note text from user
+    - attributes: List of attribute updates with attribute_definition_id and value
+    - status: Current step status (waiting_for_acceptance, task_accepted, working)
+    """
+    try:
+        print(f"[serh_koy_feragat] Request: {action_request}")
+        print(f"[serh_koy_feragat] Step status: {action_request.status}")
+        
+        # Get cookies from the incoming request to forward to Seyir API
+        cookies = {}
+        if 'access_token' in http_request.cookies:
+            cookies['access_token'] = http_request.cookies['access_token']
+        if 'refresh_token' in http_request.cookies:
+            cookies['refresh_token'] = http_request.cookies['refresh_token']
+        
+        print(f"[serh_koy_feragat] Forwarding cookies: {list(cookies.keys())}")
+        
+        async with httpx.AsyncClient() as client:
+            # Handle status-based workflow
+            if action_request.status == 'waiting_for_acceptance':
+                # Step 1: Accept task
+                accept_url = f"{settings.SEYIR_BASE_URL}/client/job-steps/{action_request.step_instance_id}/accept-task"
+                print(f"[serh_koy_feragat] Sending accept-task request to: {accept_url}")
+                accept_response = await client.post(accept_url, cookies=cookies, timeout=30.0)
+                print(f"[serh_koy_feragat] Accept response status: {accept_response.status_code}")
+                
+                if accept_response.status_code not in [200, 201]:
+                    raise HTTPException(
+                        status_code=accept_response.status_code,
+                        detail=f"Accept task error: {accept_response.text}"
+                    )
+                
+                # Step 2: Start task
+                start_url = f"{settings.SEYIR_BASE_URL}/client/job-steps/{action_request.step_instance_id}/start-task"
+                print(f"[serh_koy_feragat] Sending start-task request to: {start_url}")
+                start_response = await client.post(start_url, cookies=cookies, timeout=30.0)
+                print(f"[serh_koy_feragat] Start response status: {start_response.status_code}")
+                
+                if start_response.status_code not in [200, 201]:
+                    raise HTTPException(
+                        status_code=start_response.status_code,
+                        detail=f"Start task error: {start_response.text}"
+                    )
+            
+            elif action_request.status == 'task_accepted':
+                # Step 1: Start task
+                start_url = f"{settings.SEYIR_BASE_URL}/client/job-steps/{action_request.step_instance_id}/start-task"
+                print(f"[serh_koy_feragat] Sending start-task request to: {start_url}")
+                start_response = await client.post(start_url, cookies=cookies, timeout=30.0)
+                print(f"[serh_koy_feragat] Start response status: {start_response.status_code}")
+                
+                if start_response.status_code not in [200, 201]:
+                    raise HTTPException(
+                        status_code=start_response.status_code,
+                        detail=f"Start task error: {start_response.text}"
+                    )
+            
+            # For all statuses: Complete task with attributes
+            # Convert attributes list to attributeValues dict
+            attribute_values = {}
+            for attr in action_request.attributes:
+                attribute_values[attr.attribute_definition_id] = attr.value
+            
+            print(f"[serh_koy_feragat] Attribute values: {attribute_values}")
+            
+            # Prepare request body for Seyir API
+            seyir_body = {
+                "attributeValues": attribute_values,
+                "selectedBranchId": None
+            }
+            
+            # Send complete request
+            complete_url = f"{settings.SEYIR_BASE_URL}/client/job-steps/{action_request.step_instance_id}/complete"
+            print(f"[serh_koy_feragat] Sending complete request to: {complete_url}")
+            print(f"[serh_koy_feragat] Request body: {seyir_body}")
+            
+            response = await client.post(
+                complete_url,
+                json=seyir_body,
+                cookies=cookies,
+                timeout=30.0
+            )
+            
+            print(f"[serh_koy_feragat] Complete response status: {response.status_code}")
+            print(f"[serh_koy_feragat] Complete response body: {response.text}")
+            
+            if response.status_code not in [200, 201]:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Complete task error: {response.text}"
+                )
+        
+        return {
+            "success": True,
+            "message": "Şerh başarıyla kaydedildi",
+            "step_instance_id": action_request.step_instance_id
+        }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Şerh koyma işlemi sırasında hata: {str(e)}")
