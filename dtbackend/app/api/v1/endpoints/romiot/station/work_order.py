@@ -1494,6 +1494,11 @@ async def track_product(
                 target_date = datetime.fromisoformat(td).date()
             except ValueError:
                 target_date = None
+        try:
+            qr_total_quantity = int(payload.get("total_quantity") or 0)
+            qr_total_packages = int(payload.get("total_packages") or 0)
+        except (TypeError, ValueError):
+            continue
         match_dict = _assemble_track_match(
             rows=[], route=[], station_meta=station_meta,
             group_id=gid, part_number=str(payload.get("part_number") or ""),
@@ -1502,8 +1507,8 @@ async def track_product(
             sector=str(payload.get("sector") or ""),
             company_from=str(payload.get("company_from") or ""),
             coating_company=None, teklif_number=str(payload.get("teklif_number") or ""),
-            total_quantity=int(payload.get("total_quantity") or 0),
-            total_packages=int(payload.get("total_packages") or 0),
+            total_quantity=qr_total_quantity,
+            total_packages=qr_total_packages,
             target_date=target_date, delivered=False, today=today,
         )
         matches.append(TrackMatch(**match_dict))
