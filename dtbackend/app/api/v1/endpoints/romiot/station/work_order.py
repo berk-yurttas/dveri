@@ -106,6 +106,39 @@ async def _route_expected_position(
     return 0 if highest_exited is None else highest_exited + 1
 
 
+def _track_package_status(
+    *,
+    has_rows: bool,
+    active_is_exit: bool | None,
+    last_is_exit: bool | None,
+    target_date,
+    today,
+) -> str:
+    """Status of a single package. `active_is_exit` is the active row's
+    station exit-flag (None when no active row); `last_is_exit` is the latest
+    exited row's station exit-flag (used only when no active row)."""
+    if not has_rows:
+        return "Henüz okutulmadı"
+    if active_is_exit is not None:
+        if active_is_exit:
+            return "Sevke Hazır"
+        if target_date is not None and target_date < today:
+            return "Gecikmiş"
+        return "İşlemde"
+    # No active row → all rows exited
+    return "Tamamlandı" if last_is_exit else "Bekliyor"
+
+
+def _track_group_status(package_statuses: list[str], *, delivered: bool) -> str:
+    """Roll up package statuses to one group status (precedence documented in plan)."""
+    if delivered or (package_statuses and all(s == "Tamamlandı" for s in package_statuses)):
+        return "Tamamlandı"
+    for status in ("Gecikmiş", "İşlemde", "Sevke Hazır", "Bekliyor"):
+        if status in package_statuses:
+            return status
+    return "Henüz okutulmadı"
+
+
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_work_order(
     work_order_data: WorkOrderCreate,
