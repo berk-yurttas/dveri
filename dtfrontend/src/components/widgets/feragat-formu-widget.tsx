@@ -297,22 +297,39 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 // Wait for all outbox queries to complete
                 await Promise.all(outboxPromises)
                 
-                // Fetch user info from Pocketbase for all assignees and representation users
-                for (const username of Array.from(assignees)) {
+                // Fetch user info from Pocketbase for all assignees and representation users in parallel
+                const userFetchPromises = Array.from(assignees).map(async (username) => {
                     try {
                         const userRes = await api.get(`/feragat-formu/get-user-info?username=${encodeURIComponent(username)}`)
                         if ((userRes as any).name) {
-                            userCache[username] = {
-                                name: (userRes as any).name || '',
+                            return {
+                                username,
+                                data: {
+                                    name: (userRes as any).name || '',
+                                }
                             }
                         } else {
-                            userCache[username] = { name: username }
+                            return {
+                                username,
+                                data: { name: username }
+                            }
                         }
                     } catch (err) {
                         console.error(`Failed to fetch user ${username}:`, err)
-                        userCache[username] = { name: username }
+                        return {
+                            username,
+                            data: { name: username }
+                        }
                     }
-                }
+                })
+                
+                // Wait for all user fetches to complete
+                const userResults = await Promise.all(userFetchPromises)
+                
+                // Build userCache from results
+                userResults.forEach(result => {
+                    userCache[result.username] = result.data
+                })
                 
                 // Build step data with full names
                 stepRows.forEach(row => {
@@ -344,7 +361,9 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                         }
                         
                         // Initialize or update step data
+                        // Prefer steps with status = 'done' when there are duplicates
                         if (!stepDataMap[gorev]) {
+                            // First time seeing this gorev, add it
                             stepDataMap[gorev] = {
                                 id: stepInstanceId,
                                 assignee: assignee,
@@ -352,6 +371,17 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                 fullName: fullName,
                                 status: status,
                                 attributes: []
+                            }
+                        } else if (status === 'done' && stepDataMap[gorev].status !== 'done') {
+                            // Replace with 'done' status step (but keep attributes)
+                            const existingAttributes = stepDataMap[gorev].attributes || []
+                            stepDataMap[gorev] = {
+                                id: stepInstanceId,
+                                assignee: assignee,
+                                completed_at: completed_at,
+                                fullName: fullName,
+                                status: status,
+                                attributes: existingAttributes
                             }
                         }
                         
@@ -1646,6 +1676,9 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                     <tbody>
                                         {['Proje Yönetici', getSorumluLabel(), 'Sorumlu Yönetici'].map((gorev, idx) => {
                                             const stepInfo = stepData[gorev] || {}
+                                            // Only show completed steps (status = 'done')
+                                            if (stepInfo.status !== 'done') return null
+                                            
                                             const fullName = stepInfo.fullName || ''
                                             const completedAt = stepInfo.completed_at || ''
                                             const tarih = completedAt ? formatDate(completedAt) : ''
@@ -1684,6 +1717,9 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         {getGorevList().length > 0 ? (
                                             getGorevList().map((gorev, idx) => {
                                                 const stepInfo = stepData[gorev] || {}
+                                                // Only show completed steps (status = 'done')
+                                                if (stepInfo.status !== 'done') return null
+                                                
                                                 const fullName = stepInfo.fullName || ''
                                                 const completedAt = stepInfo.completed_at || ''
                                                 const tarih = completedAt ? formatDate(completedAt) : ''
@@ -1729,6 +1765,18 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         {(() => {
                                             const gorev = 'REHİS Sektör Başkanı'
                                             const stepInfo = stepData[gorev] || {}
+                                            // Only show completed steps (status = 'done')
+                                            if (stepInfo.status !== 'done') {
+                                                return (
+                                                    <tr className="border-b border-black">
+                                                        <td className="border-r border-black p-2 align-top font-bold">{gorev}</td>
+                                                        <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                        <td className="border-r border-black p-2 align-top bg-gray-50"></td>
+                                                        <td className="p-2 align-top bg-gray-50"></td>
+                                                    </tr>
+                                                )
+                                            }
+                                            
                                             const fullName = stepInfo.fullName || ''
                                             const completedAt = stepInfo.completed_at || ''
                                             const tarih = completedAt ? formatDate(completedAt) : ''
