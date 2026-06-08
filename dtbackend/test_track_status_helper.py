@@ -42,6 +42,13 @@ class PackageStatusTest(unittest.TestCase):
             "İşlemde",
         )
 
+    def test_active_no_target_is_in_progress(self):
+        self.assertEqual(
+            _track_package_status(has_rows=True, active_is_exit=False,
+                                  last_is_exit=None, target_date=None, today=TODAY),
+            "İşlemde",
+        )
+
     def test_all_exited_at_exit_station_is_done(self):
         self.assertEqual(
             _track_package_status(has_rows=True, active_is_exit=None,
