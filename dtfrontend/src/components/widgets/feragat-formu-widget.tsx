@@ -761,7 +761,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     }
 
     const handleSubmitAction = async () => {
-        if (!explanation.trim()) {
+        if (actionType === 'serh' && !explanation.trim()) {
             alert('Lütfen açıklama giriniz.')
             return
         }
@@ -780,9 +780,8 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
 
         // Find the attribute definition IDs for "%Onayı" and "Açıklama"
         const onayAttr = stepInfo.attributes.find(attr => attr.attribute_name.includes('Onayı'))
-        const aciklamaAttr = stepInfo.attributes.find(attr => 
-            attr.attribute_name === 'Açıklama' || attr.attribute_name === 'Şerh Açıklaması'
-        )
+        const aciklamaAttrName = actionType === 'serh' ? 'Şerh Açıklaması' : 'Açıklama'
+        const aciklamaAttr = stepInfo.attributes.find(attr => attr.attribute_name === aciklamaAttrName)
 
         if (!onayAttr) {
             alert('Onay attribute\'u bulunamadı.')
@@ -1801,7 +1800,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
             <div className="fixed inset-0 backdrop-blur-sm bg-white/50 flex items-center justify-center z-[9999]">
                 <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
                     <h3 className="text-lg font-bold text-gray-800 mb-4">
-                        {actionType === 'onayla' ? 'Onay' : 'Şerh'} Açıklaması
+                        {actionType === 'onayla' ? 'Onay Açıklaması(Zorunlu değil)' : 'Şerh Açıklaması'}
                     </h3>
                     <textarea
                         value={explanation}
