@@ -60,19 +60,19 @@ export function ProductSearchCard({
         <div className="flex flex-col sm:flex-row gap-3 mb-3">
           <div className="flex-1">
             <label className="block text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">ASELSAN Sipariş No</label>
-            <input className={inputCls} value={orderNo} onChange={(e) => setOrderNo(e.target.value)} placeholder="SIP-2025-01-4812"
+            <input className={inputCls} value={orderNo} onChange={(e) => setOrderNo(e.target.value)} placeholder="26Y2173D43"
               onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
           </div>
           <div className="flex-1">
             <label className="block text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">Sipariş Kalem No</label>
-            <input className={inputCls} value={itemNo} onChange={(e) => setItemNo(e.target.value)} placeholder="KLM-004"
+            <input className={inputCls} value={itemNo} onChange={(e) => setItemNo(e.target.value)} placeholder="30 / 00030"
               onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
           </div>
         </div>
       ) : (
         <div className="mb-3">
           <label className="block text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">Parça Numarası</label>
-          <input className={inputCls} value={partNo} onChange={(e) => setPartNo(e.target.value)} placeholder="ASL-09-2244"
+          <input className={inputCls} value={partNo} onChange={(e) => setPartNo(e.target.value)} placeholder="MM-0009-2244"
             onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
         </div>
       )}
