@@ -36,7 +36,7 @@ class QRCodeBatchCreate(BaseModel):
     main_customer: str = Field(..., description="Ana Müşteri")
     sector: str = Field(..., description="Sektör")
     target_company: str = Field(..., description="Hedef Firma — QR'ın oluşturulduğu hedef şirket")
-    teklif_number: str = Field(..., description="Teklif Numarası")
+    teklif_number: str | None = Field(None, description="Teklif Numarası")
     pairs: list[OrderPair] = Field(..., min_length=1, description="(Sipariş No, Kalem No) çiftleri")
     part_number: str = Field(..., description="Parça Numarası")
     revision_number: str | None = Field(None, description="Revizyon Numarası")

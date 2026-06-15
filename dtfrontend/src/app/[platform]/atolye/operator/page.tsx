@@ -166,7 +166,6 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
   if (!mainCustomer) errors.push("Ana Müşteri eksik");
   if (!sector) errors.push("Sektör eksik");
   if (!companyFrom) errors.push("Gönderen Firma eksik");
-  if (!teklifNumber) errors.push("Teklif Numarası eksik");
   if (pairs.length === 0) errors.push("Sipariş bilgisi eksik");
   if (!partNumber) errors.push("Parça Numarası eksik");
 
@@ -193,7 +192,7 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
     main_customer: String(mainCustomer).trim(),
     sector: String(sector).trim(),
     company_from: String(companyFrom).trim(),
-    teklif_number: String(teklifNumber).trim(),
+    teklif_number: String(teklifNumber ?? "").trim(),
     pairs: pairs.map((p: any) => ({
       aselsan_order_number: String(p.aselsan_order_number || "").trim(),
       order_item_number: String(p.order_item_number || "").trim(),
