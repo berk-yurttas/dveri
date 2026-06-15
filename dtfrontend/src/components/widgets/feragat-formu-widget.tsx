@@ -240,79 +240,100 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                 const stepDataMap: StepDataMap = {}
                 const userCache: { [username: string]: any } = {}
                 
-                // First, collect all unique assignees and check for representation users
+                // First, collect all unique assignees and unique stepInstanceIds
                 const assignees = new Set<string>()
                 const representationUsers = new Map<string, string>() // step_instance_id -> representation_user
+                const uniqueStepInstances = new Map<string, string>() // step_instance_id -> assignee
                 
-                // Create promises for all outbox queries
-                const outboxPromises = stepRows.map(async (row) => {
+                // Collect unique stepInstanceIds and assignees
+                stepRows.forEach(row => {
                     const stepInstanceId = row[0] || ''
                     const assignee = row[3] || ''
                     
                     if (assignee) assignees.add(assignee)
+                    if (stepInstanceId && !uniqueStepInstances.has(stepInstanceId)) {
+                        uniqueStepInstances.set(stepInstanceId, assignee)
+                    }
+                })
+                
+                // Create promises for unique outbox queries only
+                const outboxPromises = Array.from(uniqueStepInstances.entries()).map(async ([stepInstanceId, assignee]) => {
+                    const outboxSql = `
+                        SELECT payload
+                        FROM outbox_events
+                        WHERE aggregate_type = 'job_step_instance'
+                        AND aggregate_id = '${stepInstanceId}'
+                        AND event_type = 'STEP_STATUS_CHANGED'
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    `
                     
-                    // Check outbox_events for representation user
-                    if (stepInstanceId) {
-                        const outboxSql = `
-                            SELECT payload
-                            FROM outbox_events
-                            WHERE aggregate_type = 'job_step_instance'
-                            AND aggregate_id = '${stepInstanceId}'
-                            AND event_type = 'STEP_STATUS_CHANGED'
-                            ORDER BY created_at DESC
-                            LIMIT 1
-                        `
-                        
-                        try {
-                            const outboxRows = await runQuery(outboxSql, seyirDbConfig)
-                            if (outboxRows.length > 0 && outboxRows[0][0]) {
-                                const payload = outboxRows[0][0]
-                                
-                                // Parse payload if it's a string
-                                let payloadObj = payload
-                                if (typeof payload === 'string') {
-                                    try {
-                                        payloadObj = parsePythonStyleJSON(payload)
-                                    } catch (e) {
-                                        console.error('Failed to parse payload:', e)
-                                    }
-                                }
-                                
-                                if (payloadObj && typeof payloadObj === 'object') {
-                                    const newStatus = payloadObj.newStatus
-                                    const changedBy = payloadObj.changedBy
-                                    
-                                    if (newStatus === 'done' && changedBy && changedBy !== assignee) {
-                                        representationUsers.set(stepInstanceId, changedBy)
-                                        assignees.add(changedBy) // Also fetch representation user's info
-                                    }
+                    try {
+                        const outboxRows = await runQuery(outboxSql, seyirDbConfig)
+                        if (outboxRows.length > 0 && outboxRows[0][0]) {
+                            const payload = outboxRows[0][0]
+                            
+                            // Parse payload if it's a string
+                            let payloadObj = payload
+                            if (typeof payload === 'string') {
+                                try {
+                                    payloadObj = parsePythonStyleJSON(payload)
+                                } catch (e) {
+                                    console.error('Failed to parse payload:', e)
                                 }
                             }
-                        } catch (err) {
-                            console.error(`Failed to fetch outbox events for ${stepInstanceId}:`, err)
+                            
+                            if (payloadObj && typeof payloadObj === 'object') {
+                                const newStatus = payloadObj.newStatus
+                                const changedBy = payloadObj.changedBy
+                                
+                                if (newStatus === 'done' && changedBy && changedBy !== assignee) {
+                                    representationUsers.set(stepInstanceId, changedBy)
+                                    assignees.add(changedBy) // Also fetch representation user's info
+                                }
+                            }
                         }
+                    } catch (err) {
+                        console.error(`Failed to fetch outbox events for ${stepInstanceId}:`, err)
                     }
                 })
                 
                 // Wait for all outbox queries to complete
                 await Promise.all(outboxPromises)
                 
-                // Fetch user info from Pocketbase for all assignees and representation users
-                for (const username of Array.from(assignees)) {
+                // Fetch user info from Pocketbase for all assignees and representation users in parallel
+                const userFetchPromises = Array.from(assignees).map(async (username) => {
                     try {
                         const userRes = await api.get(`/feragat-formu/get-user-info?username=${encodeURIComponent(username)}`)
                         if ((userRes as any).name) {
-                            userCache[username] = {
-                                name: (userRes as any).name || '',
+                            return {
+                                username,
+                                data: {
+                                    name: (userRes as any).name || '',
+                                }
                             }
                         } else {
-                            userCache[username] = { name: username }
+                            return {
+                                username,
+                                data: { name: username }
+                            }
                         }
                     } catch (err) {
                         console.error(`Failed to fetch user ${username}:`, err)
-                        userCache[username] = { name: username }
+                        return {
+                            username,
+                            data: { name: username }
+                        }
                     }
-                }
+                })
+                
+                // Wait for all user fetches to complete
+                const userResults = await Promise.all(userFetchPromises)
+                
+                // Build userCache from results
+                userResults.forEach(result => {
+                    userCache[result.username] = result.data
+                })
                 
                 // Build step data with full names
                 stepRows.forEach(row => {
@@ -344,7 +365,9 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                         }
                         
                         // Initialize or update step data
+                        // Prefer steps with status = 'done' when there are duplicates
                         if (!stepDataMap[gorev]) {
+                            // First time seeing this gorev, add it
                             stepDataMap[gorev] = {
                                 id: stepInstanceId,
                                 assignee: assignee,
@@ -352,6 +375,17 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                 fullName: fullName,
                                 status: status,
                                 attributes: []
+                            }
+                        } else if (status === 'done' && stepDataMap[gorev].status !== 'done') {
+                            // Replace with 'done' status step (but keep attributes)
+                            const existingAttributes = stepDataMap[gorev].attributes || []
+                            stepDataMap[gorev] = {
+                                id: stepInstanceId,
+                                assignee: assignee,
+                                completed_at: completed_at,
+                                fullName: fullName,
+                                status: status,
+                                attributes: existingAttributes
                             }
                         }
                         
@@ -727,7 +761,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
     }
 
     const handleSubmitAction = async () => {
-        if (!explanation.trim()) {
+        if (actionType === 'serh' && !explanation.trim()) {
             alert('Lütfen açıklama giriniz.')
             return
         }
@@ -746,9 +780,8 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
 
         // Find the attribute definition IDs for "%Onayı" and "Açıklama"
         const onayAttr = stepInfo.attributes.find(attr => attr.attribute_name.includes('Onayı'))
-        const aciklamaAttr = stepInfo.attributes.find(attr => 
-            attr.attribute_name === 'Açıklama' || attr.attribute_name === 'Şerh Açıklaması'
-        )
+        const aciklamaAttrName = actionType === 'serh' ? 'Şerh Açıklaması' : 'Açıklama'
+        const aciklamaAttr = stepInfo.attributes.find(attr => attr.attribute_name === aciklamaAttrName)
 
         if (!onayAttr) {
             alert('Onay attribute\'u bulunamadı.')
@@ -1646,17 +1679,19 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                     <tbody>
                                         {['Proje Yönetici', getSorumluLabel(), 'Sorumlu Yönetici'].map((gorev, idx) => {
                                             const stepInfo = stepData[gorev] || {}
-                                            const fullName = stepInfo.fullName || ''
-                                            const completedAt = stepInfo.completed_at || ''
+                                            const isDone = stepInfo.status === 'done'
+                                            
+                                            const fullName = isDone ? (stepInfo.fullName || '') : ''
+                                            const completedAt = isDone ? (stepInfo.completed_at || '') : ''
                                             const tarih = completedAt ? formatDate(completedAt) : ''
-                                            const imza = getSignature(gorev)
+                                            const imza = isDone ? getSignature(gorev) : ''
                                             
                                             return (
                                                 <tr key={idx} className="border-b border-gray-300">
                                                     <td className="border-r border-gray-400 p-1 font-bold bg-gray-100">{gorev}</td>
                                                     <td className="border-r border-gray-400 p-1">{fullName}</td>
                                                     <td className="border-r border-gray-400 p-1">{tarih}</td>
-                                                    <td className="p-1">{renderImzaCell(gorev, imza)}</td>
+                                                    <td className="p-1">{isDone ? renderImzaCell(gorev, imza) : ''}</td>
                                                 </tr>
                                             )
                                         })}
@@ -1684,17 +1719,19 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         {getGorevList().length > 0 ? (
                                             getGorevList().map((gorev, idx) => {
                                                 const stepInfo = stepData[gorev] || {}
-                                                const fullName = stepInfo.fullName || ''
-                                                const completedAt = stepInfo.completed_at || ''
+                                                const isDone = stepInfo.status === 'done'
+                                                
+                                                const fullName = isDone ? (stepInfo.fullName || '') : ''
+                                                const completedAt = isDone ? (stepInfo.completed_at || '') : ''
                                                 const tarih = completedAt ? formatDate(completedAt) : ''
-                                                const imza = getSignature(gorev)
+                                                const imza = isDone ? getSignature(gorev) : ''
                                                 
                                                 return (
                                                     <tr key={idx} className="border-b border-black last:border-b-0">
                                                         <td className="border-r border-black p-2 align-top">{gorev}</td>
                                                         <td className="border-r border-black p-2 align-top bg-gray-50">{fullName}</td>
                                                         <td className="border-r border-black p-2 align-top bg-gray-50">{tarih}</td>
-                                                        <td className="p-2 align-top bg-gray-50">{renderImzaCell(gorev, imza)}</td>
+                                                        <td className="p-2 align-top bg-gray-50">{isDone ? renderImzaCell(gorev, imza) : ''}</td>
                                                     </tr>
                                                 )
                                             })
@@ -1729,17 +1766,19 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
                                         {(() => {
                                             const gorev = 'REHİS Sektör Başkanı'
                                             const stepInfo = stepData[gorev] || {}
-                                            const fullName = stepInfo.fullName || ''
-                                            const completedAt = stepInfo.completed_at || ''
+                                            const isDone = stepInfo.status === 'done'
+                                            
+                                            const fullName = isDone ? (stepInfo.fullName || '') : ''
+                                            const completedAt = isDone ? (stepInfo.completed_at || '') : ''
                                             const tarih = completedAt ? formatDate(completedAt) : ''
-                                            const imza = getSignature(gorev)
+                                            const imza = isDone ? getSignature(gorev) : ''
                                             
                                             return (
                                                 <tr className="border-b border-black">
                                                     <td className="border-r border-black p-2 align-top font-bold">{gorev}</td>
                                                     <td className="border-r border-black p-2 align-top bg-gray-50">{fullName}</td>
                                                     <td className="border-r border-black p-2 align-top bg-gray-50">{tarih}</td>
-                                                    <td className="p-2 align-top bg-gray-50">{renderImzaCell(gorev, imza)}</td>
+                                                    <td className="p-2 align-top bg-gray-50">{isDone ? renderImzaCell(gorev, imza) : ''}</td>
                                                 </tr>
                                             )
                                         })()}
@@ -1761,7 +1800,7 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
             <div className="fixed inset-0 backdrop-blur-sm bg-white/50 flex items-center justify-center z-[9999]">
                 <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
                     <h3 className="text-lg font-bold text-gray-800 mb-4">
-                        {actionType === 'onayla' ? 'Onay' : 'Şerh'} Açıklaması
+                        {actionType === 'onayla' ? 'Onay Açıklaması(Zorunlu değil)' : 'Şerh Açıklaması'}
                     </h3>
                     <textarea
                         value={explanation}
