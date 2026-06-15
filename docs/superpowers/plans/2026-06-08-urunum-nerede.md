@@ -20,10 +20,10 @@
 
 ## Status vocabularies (single source of truth — used across all tasks)
 
-**Group / package status** (`TrackStatus`): `"Henüz okutulmadı"`, `"Bekliyor"`, `"İşlemde"`, `"Gecikmiş"`, `"Sevke Hazır"`, `"Tamamlandı"`.
+**Group / package status** (`TrackStatus`): `"Girişi yapılmadı"`, `"Bekliyor"`, `"İşlemde"`, `"Gecikmiş"`, `"Sevke Hazır"`, `"Tamamlandı"`.
 
 **Per-package status rules** (given that a package = all `WorkOrder` rows sharing `(group_id, package_index)`):
-- No rows at all (QR-only) → `"Henüz okutulmadı"`.
+- No rows at all (QR-only) → `"Girişi yapılmadı"`.
 - Has an active row (`exit_date is None`) at station S:
   - S `is_exit_station` → `"Sevke Hazır"`
   - else `target_date` set and `target_date < today` → `"Gecikmiş"`
@@ -32,7 +32,7 @@
   - latest row's station `is_exit_station` → `"Tamamlandı"`
   - else → `"Bekliyor"`
 
-**Group rollup precedence** (first match wins): `group_delivered` or all packages `"Tamamlandı"` → `"Tamamlandı"`; any `"Gecikmiş"` → `"Gecikmiş"`; any `"İşlemde"` → `"İşlemde"`; any `"Sevke Hazır"` → `"Sevke Hazır"`; any `"Bekliyor"` → `"Bekliyor"`; else → `"Henüz okutulmadı"`.
+**Group rollup precedence** (first match wins): `group_delivered` or all packages `"Tamamlandı"` → `"Tamamlandı"`; any `"Gecikmiş"` → `"Gecikmiş"`; any `"İşlemde"` → `"İşlemde"`; any `"Sevke Hazır"` → `"Sevke Hazır"`; any `"Bekliyor"` → `"Bekliyor"`; else → `"Girişi yapılmadı"`.
 
 **Timeline step status** (`StepStatus`): `"done"`, `"active"`, `"delayed"`, `"waiting"`.
 
@@ -147,7 +147,7 @@ class PackageStatusTest(unittest.TestCase):
         self.assertEqual(
             _track_package_status(has_rows=False, active_is_exit=None,
                                   last_is_exit=None, target_date=None, today=TODAY),
-            "Henüz okutulmadı",
+            "Girişi yapılmadı",
         )
 
     def test_active_at_exit_station_is_ready_to_ship(self):
@@ -200,7 +200,7 @@ class GroupStatusTest(unittest.TestCase):
         self.assertEqual(_track_group_status(["Sevke Hazır", "İşlemde"], delivered=False), "İşlemde")
 
     def test_all_unscanned(self):
-        self.assertEqual(_track_group_status(["Henüz okutulmadı"], delivered=False), "Henüz okutulmadı")
+        self.assertEqual(_track_group_status(["Girişi yapılmadı"], delivered=False), "Girişi yapılmadı")
 
 
 if __name__ == "__main__":
@@ -229,7 +229,7 @@ def _track_package_status(
     station exit-flag (None when no active row); `last_is_exit` is the latest
     exited row's station exit-flag (used only when no active row)."""
     if not has_rows:
-        return "Henüz okutulmadı"
+        return "Girişi yapılmadı"
     if active_is_exit is not None:
         if active_is_exit:
             return "Sevke Hazır"
@@ -247,7 +247,7 @@ def _track_group_status(package_statuses: list[str], *, delivered: bool) -> str:
     for status in ("Gecikmiş", "İşlemde", "Sevke Hazır", "Bekliyor"):
         if status in package_statuses:
             return status
-    return "Henüz okutulmadı"
+    return "Girişi yapılmadı"
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -482,7 +482,7 @@ class AssembleTest(unittest.TestCase):
 
     def test_unscanned_group_has_no_rows(self):
         match = _assemble_track_match(rows=[], route=[], station_meta=_meta(), **_common())
-        self.assertEqual(match["status"], "Henüz okutulmadı")
+        self.assertEqual(match["status"], "Girişi yapılmadı")
         self.assertIsNone(match["current_station_name"])
         self.assertFalse(match["has_route"])
         self.assertEqual(match["timeline"], [])
@@ -857,7 +857,7 @@ async def track_product(
         )
         matches.append(TrackMatch(**match_dict))
 
-    # 3b. QR-only groups (no scans → empty timeline, status Henüz okutulmadı)
+    # 3b. QR-only groups (no scans → empty timeline, status Girişi yapılmadı)
     for gid, payload in qr_only.items():
         pairs = [
             OrderPair(aselsan_order_number=str(p.get("aselsan_order_number") or ""),
@@ -943,7 +943,7 @@ git commit -m "feat(atolye): add GET /work-orders/track müşteri tracking endpo
 // Mirrors backend app/schemas/work_order.py TrackResponse.
 
 export type TrackStatus =
-  | "Henüz okutulmadı"
+  | "Girişi yapılmadı"
   | "Bekliyor"
   | "İşlemde"
   | "Gecikmiş"
@@ -1036,7 +1036,7 @@ export const STATUS_STYLES: Record<TrackStatus, { badge: string; dot: string; la
   "İşlemde":         { badge: "bg-orange-100 text-orange-800 border-orange-300", dot: "bg-[#fe9526]", label: "İşlemde" },
   "Gecikmiş":        { badge: "bg-red-100 text-red-800 border-red-300",         dot: "bg-red-600",    label: "Gecikmiş" },
   "Bekliyor":        { badge: "bg-gray-100 text-gray-700 border-gray-300",      dot: "bg-gray-400",   label: "Bekliyor" },
-  "Henüz okutulmadı":{ badge: "bg-gray-100 text-gray-600 border-gray-300",      dot: "bg-gray-400",   label: "Henüz okutulmadı" },
+  "Girişi yapılmadı":{ badge: "bg-gray-100 text-gray-600 border-gray-300",      dot: "bg-gray-400",   label: "Girişi yapılmadı" },
 };
 
 // Timeline node colors per step status.
@@ -1225,7 +1225,7 @@ export function PackageStrip({ packages }: { packages: TrackPackage[] }) {
               <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
               <span className="font-semibold">Paket {p.package_index}</span>
               <span className="opacity-70">·</span>
-              <span>{p.current_station_name ?? "Henüz okutulmadı"}</span>
+              <span>{p.current_station_name ?? "Girişi yapılmadı"}</span>
             </div>
           );
         })}
@@ -1293,7 +1293,7 @@ export function TrackResultCard({ match }: { match: TrackMatch }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.243-4.243a8 8 0 1111.314 0z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            <span className="truncate">{match.current_station_name ?? "Henüz okutulmadı"}</span>
+            <span className="truncate">{match.current_station_name ?? "Girişi yapılmadı"}</span>
           </div>
           {match.current_entry_date && (
             <div className="text-white/60 text-xs font-mono mt-1">Giriş: {fmtDateTime(match.current_entry_date)}</div>
@@ -1383,7 +1383,7 @@ export function TrackMatchList({
                 </div>
                 <div className="text-xs text-gray-500 font-mono truncate">
                   {m.pairs[0] ? `${m.pairs[0].aselsan_order_number} / ${m.pairs[0].order_item_number}` : "—"}
-                  {" · "}{m.current_station_name ?? "Henüz okutulmadı"}
+                  {" · "}{m.current_station_name ?? "Girişi yapılmadı"}
                 </div>
               </div>
               <StatusBadge status={m.status} />
@@ -1803,7 +1803,7 @@ With backend + frontend running, logged in as a müşteri user:
 3. Search by a Parça No that spans multiple groups → list → select → detail.
 4. Search a value with no match → "Kayıt Bulunamadı".
 5. Search an order belonging to **another** company → "Kayıt Bulunamadı" (isolation; never another firm's data).
-6. Query a group that has a QR but no scans yet → status "Henüz okutulmadı", empty-timeline message.
+6. Query a group that has a QR but no scans yet → status "Girişi yapılmadı", empty-timeline message.
 
 Record pass/fail for each in the task review.
 

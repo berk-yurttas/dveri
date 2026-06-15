@@ -7,7 +7,7 @@ export const STATUS_STYLES: Record<TrackStatus, { badge: string; dot: string; la
   "İşlemde":         { badge: "bg-orange-100 text-orange-800 border-orange-300", dot: "bg-[#fe9526]", label: "İşlemde" },
   "Gecikmiş":        { badge: "bg-red-100 text-red-800 border-red-300",         dot: "bg-red-600",    label: "Gecikmiş" },
   "Bekliyor":        { badge: "bg-gray-100 text-gray-700 border-gray-300",      dot: "bg-gray-400",   label: "Bekliyor" },
-  "Henüz okutulmadı":{ badge: "bg-gray-100 text-gray-600 border-gray-300",      dot: "bg-gray-400",   label: "Henüz okutulmadı" },
+  "Girişi yapılmadı":{ badge: "bg-gray-100 text-gray-600 border-gray-300",      dot: "bg-gray-400",   label: "Girişi yapılmadı" },
 };
 
 // Timeline node colors per step status.

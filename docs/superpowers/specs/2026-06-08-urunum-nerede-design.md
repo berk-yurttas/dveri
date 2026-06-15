@@ -29,7 +29,7 @@ into a single-product, search-driven visual tracker.
 - Müşteri can look up one of *their own* products by **Sipariş No + Kalem No** or
   **Parça No** and see its current station, status, and full route progress.
 - Works for orders that are QR-created but **not yet scanned** (status
-  *Henüz okutulmadı*).
+  *Girişi yapılmadı*).
 - Visual route timeline (horizontal desktop / vertical mobile) overlaying the
   planned route with actual entry/exit history.
 - Handles real-world data: multiple matching groups (selector), and multi-package
@@ -139,7 +139,7 @@ class TrackPackage(BaseModel):
     package_index: int
     total_packages: int
     quantity: int
-    current_station_name: str | None   # None / "Henüz okutulmadı" when unscanned
+    current_station_name: str | None   # None / "Girişi yapılmadı" when unscanned
     status: str                        # same status vocabulary as group
 
 class TrackMatch(BaseModel):
@@ -225,7 +225,7 @@ Status vocabulary (group-level and package-level), mapped to palette:
 
 | Status | Condition | Color |
 |--------|-----------|-------|
-| `Henüz okutulmadı` | QR exists, no `WorkOrder` scan yet (entrance_date null) | gray |
+| `Girişi yapılmadı` | QR exists, no `WorkOrder` scan yet (entrance_date null) | gray |
 | `Bekliyor` | route step not yet reached / package idle between stations | gray |
 | `İşlemde` | package active (entrance_date set, exit_date null) at a non-exit station | orange / blue-active node |
 | `Gecikmiş` | active AND `target_date` < today | red |
@@ -267,7 +267,7 @@ summary lists the distribution (e.g. *"4/6 paket Kaplama, 2 paket Boya"*).
 - order+item exact match returns the right single group (scoped to department).
 - part_number matching multiple groups returns multiple matches.
 - a different company's order is **not** returned (scoping / isolation).
-- QR-created-but-unscanned group resolves with status `Henüz okutulmadı`.
+- QR-created-but-unscanned group resolves with status `Girişi yapılmadı`.
 - delivered group is still returned with status `Tamamlandı`.
 - group with a route → timeline uses route spine + correct step statuses;
   group without a route → history-only timeline.

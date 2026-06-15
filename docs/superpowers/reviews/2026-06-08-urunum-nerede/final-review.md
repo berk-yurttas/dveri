@@ -23,4 +23,4 @@ Reviewer: most-capable-model holistic pass over the full `b2050e3..HEAD` diff, a
 No Critical or Important findings.
 
 ## Manual smoke (C1 step 4) — NOT executed
-Requires a live backend (DB) + auth server + a müşteri login, which isn't available headless in this environment. The six smoke scenarios (card visibility, order/part search, multi-match, not-found, cross-company isolation, QR-only "Henüz okutulmadı") remain to be exercised against a running environment before production sign-off.
+Requires a live backend (DB) + auth server + a müşteri login, which isn't available headless in this environment. The six smoke scenarios (card visibility, order/part search, multi-match, not-found, cross-company isolation, QR-only "Girişi yapılmadı") remain to be exercised against a running environment before production sign-off.

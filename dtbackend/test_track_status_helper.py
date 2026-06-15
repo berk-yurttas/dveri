@@ -18,7 +18,7 @@ class PackageStatusTest(unittest.TestCase):
         self.assertEqual(
             _track_package_status(has_rows=False, active_is_exit=None,
                                   last_is_exit=None, target_date=None, today=TODAY),
-            "Henüz okutulmadı",
+            "Girişi yapılmadı",
         )
 
     def test_active_at_exit_station_is_ready_to_ship(self):
@@ -78,7 +78,7 @@ class GroupStatusTest(unittest.TestCase):
         self.assertEqual(_track_group_status(["Sevke Hazır", "İşlemde"], delivered=False), "İşlemde")
 
     def test_all_unscanned(self):
-        self.assertEqual(_track_group_status(["Henüz okutulmadı"], delivered=False), "Henüz okutulmadı")
+        self.assertEqual(_track_group_status(["Girişi yapılmadı"], delivered=False), "Girişi yapılmadı")
 
 
 if __name__ == "__main__":

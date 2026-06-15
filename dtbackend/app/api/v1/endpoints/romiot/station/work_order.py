@@ -125,7 +125,7 @@ def _track_package_status(
     station exit-flag (None when no active row); `last_is_exit` is the latest
     exited row's station exit-flag (used only when no active row)."""
     if not has_rows:
-        return "Henüz okutulmadı"
+        return "Girişi yapılmadı"
     if active_is_exit is not None:
         if active_is_exit:
             return "Sevke Hazır"
@@ -143,7 +143,7 @@ def _track_group_status(package_statuses: list[str], *, delivered: bool) -> str:
     for status in ("Gecikmiş", "İşlemde", "Sevke Hazır", "Bekliyor"):
         if status in package_statuses:
             return status
-    return "Henüz okutulmadı"
+    return "Girişi yapılmadı"
 
 
 def _build_track_timeline(route, history, *, group_is_delayed: bool) -> list[dict]:
@@ -1188,7 +1188,7 @@ async def get_all_work_orders(
                     WorkOrderDetail(
                         id=synthetic_id,
                         station_id=0,
-                        station_name="Henüz okutulmadı",
+                        station_name="Girişi yapılmadı",
                         is_entry_station=False,
                         is_exit_station=False,
                         user_id=0,

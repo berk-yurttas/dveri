@@ -59,7 +59,7 @@ class AssembleTest(unittest.TestCase):
 
     def test_unscanned_group_has_no_rows(self):
         match = _assemble_track_match(rows=[], route=[], station_meta=_meta(), **_common())
-        self.assertEqual(match["status"], "Henüz okutulmadı")
+        self.assertEqual(match["status"], "Girişi yapılmadı")
         self.assertIsNone(match["current_station_name"])
         self.assertFalse(match["has_route"])
         self.assertEqual(match["timeline"], [])

@@ -28,7 +28,7 @@ export function TrackMatchList({
                 </div>
                 <div className="text-xs text-gray-500 font-mono truncate">
                   {m.pairs[0] ? `${m.pairs[0].aselsan_order_number} / ${m.pairs[0].order_item_number}` : "—"}
-                  {" · "}{m.current_station_name ?? "Henüz okutulmadı"}
+                  {" · "}{m.current_station_name ?? "Girişi yapılmadı"}
                 </div>
               </div>
               <StatusBadge status={m.status} />

@@ -1,7 +1,7 @@
 # Task B4: Package strip (frontend)
 
 ## Spec Compliance
-- Reviewer: ✅ COMPLIANT — returns null for ≤1 package; header "Paketler (N)"; chips with dot/badge/「Paket N」/separator/station (or "Henüz okutulmadı"); key=package_index; correct imports + fallback.
+- Reviewer: ✅ COMPLIANT — returns null for ≤1 package; header "Paketler (N)"; chips with dot/badge/「Paket N」/separator/station (or "Girişi yapılmadı"); key=package_index; correct imports + fallback.
 
 ## Code Quality
 - Reviewer: ✅ Approved — clean early return, stable keys, no `any`, no dead code.

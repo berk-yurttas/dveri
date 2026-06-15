@@ -2,7 +2,7 @@
 // Mirrors backend app/schemas/work_order.py TrackResponse.
 
 export type TrackStatus =
-  | "Henüz okutulmadı"
+  | "Girişi yapılmadı"
   | "Bekliyor"
   | "İşlemde"
   | "Gecikmiş"

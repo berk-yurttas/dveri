@@ -16,7 +16,7 @@ export function PackageStrip({ packages }: { packages: TrackPackage[] }) {
               <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
               <span className="font-semibold">Paket {p.package_index}</span>
               <span className="opacity-70">·</span>
-              <span>{p.current_station_name ?? "Henüz okutulmadı"}</span>
+              <span>{p.current_station_name ?? "Girişi yapılmadı"}</span>
             </div>
           );
         })}
