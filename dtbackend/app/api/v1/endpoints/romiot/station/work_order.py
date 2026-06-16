@@ -414,7 +414,7 @@ async def create_work_order(
                 WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
                 WorkOrder.package_index == work_order_data.package_index,
             )
-        )
+        ).with_for_update()
     )
     existing_wo = existing_result.scalar_one_or_none()
 
@@ -692,7 +692,7 @@ async def update_exit_date(
                 WorkOrder.work_order_group_id == update_data.work_order_group_id,
                 WorkOrder.package_index == update_data.package_index
             )
-        )
+        ).with_for_update()
     )
     work_order = work_order_result.scalar_one_or_none()
 
@@ -976,6 +976,8 @@ async def get_work_orders_by_station(
             revision_number=wo.revision_number,
             quantity=wo.quantity,
             total_quantity=wo.total_quantity,
+            entered_quantity=wo.entered_quantity,
+            exited_quantity=wo.exited_quantity,
             package_index=wo.package_index,
             total_packages=wo.total_packages,
             priority=wo.priority,
@@ -1205,6 +1207,8 @@ async def get_all_work_orders(
                     part_number=wo.part_number,
                     quantity=wo.quantity,
                     total_quantity=wo.total_quantity,
+                    entered_quantity=wo.entered_quantity,
+                    exited_quantity=wo.exited_quantity,
                     package_index=wo.package_index,
                     total_packages=wo.total_packages,
                     priority=wo.priority,
@@ -1321,6 +1325,8 @@ async def get_all_work_orders(
                         part_number=part_number,
                         quantity=quantity,
                         total_quantity=total_quantity,
+                        entered_quantity=0,
+                        exited_quantity=0,
                         package_index=package_index,
                         total_packages=total_packages,
                         priority=0,
@@ -1456,6 +1462,8 @@ async def get_all_work_orders(
         ranked_groups_cte.c.part_number,
         ranked_groups_cte.c.quantity,
         ranked_groups_cte.c.total_quantity,
+        ranked_groups_cte.c.entered_quantity,
+        ranked_groups_cte.c.exited_quantity,
         ranked_groups_cte.c.package_index,
         ranked_groups_cte.c.total_packages,
         ranked_groups_cte.c.priority,
@@ -1508,6 +1516,8 @@ async def get_all_work_orders(
             part_number=row.part_number,
             quantity=row.quantity,
             total_quantity=row.total_quantity,
+            entered_quantity=row.entered_quantity,
+            exited_quantity=row.exited_quantity,
             package_index=row.package_index,
             total_packages=row.total_packages,
             priority=row.priority,
