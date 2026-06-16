@@ -51,7 +51,10 @@ export function QuantityModal({
   if (!open || typeof document === "undefined") return null;
 
   const accent = isEntrance ? "#0f4c3a" : "#C53030";
-  const clamp = (n: number) => Math.max(1, Math.min(remaining, Math.floor(n) || 1));
+  const clamp = (n: number) => {
+    if (remaining === 0) return 0;
+    return Math.max(1, Math.min(remaining, Math.floor(n) || 1));
+  };
   const valid = value >= 1 && value <= remaining && remaining > 0;
 
   return createPortal(
