@@ -33,6 +33,7 @@ class WorkOrderBase(BaseModel):
 
 class WorkOrderCreate(WorkOrderBase):
     """Schema for creating a work order (one package at one station)"""
+    scan_quantity: int = Field(..., ge=1, description="Bu taramada girilen parça sayısı (kısmi)")
     acknowledged_route_violation: bool = Field(
         False,
         description="If True, the operator has acknowledged a route warning and the row is committed with route_violation=True",
@@ -44,6 +45,7 @@ class WorkOrderUpdateExitDate(BaseModel):
     station_id: int = Field(..., description="Station ID")
     work_order_group_id: str = Field(..., description="İş Emri Grup ID")
     package_index: int = Field(..., description="Paket sırası (1-based)")
+    scan_quantity: int = Field(..., ge=1, description="Bu taramada çıkışı yapılan parça sayısı (kısmi)")
     acknowledged_route_violation: bool = Field(
         False,
         description="If True, the operator has acknowledged a route warning",
@@ -56,6 +58,8 @@ class WorkOrder(WorkOrderBase):
     prioritized_by: int | None = None
     delivered: bool = False
     route_violation: bool = False
+    entered_quantity: int = 0
+    exited_quantity: int = 0
     entrance_date: datetime | None = None
     exit_date: datetime | None = None
 
@@ -82,6 +86,13 @@ class WorkOrderExitResponse(BaseModel):
     message: str = Field(..., description="Durum mesajı")
 
 
+class PackageStatus(BaseModel):
+    """Current piece-level progress for one package at one station (for the modal)."""
+    exists: bool = Field(..., description="Bu paket için bu atölyede satır var mı")
+    entered_quantity: int = Field(..., description="Girilen parça")
+    exited_quantity: int = Field(..., description="Çıkan parça")
+
+
 class WorkOrderList(BaseModel):
     """Schema for listing work orders"""
     id: int
@@ -97,6 +108,8 @@ class WorkOrderList(BaseModel):
     part_number: str
     revision_number: str | None = None
     quantity: int
+    entered_quantity: int = 0
+    exited_quantity: int = 0
     total_quantity: int
     package_index: int
     total_packages: int
@@ -134,6 +147,8 @@ class WorkOrderDetail(BaseModel):
     part_number: str
     revision_number: str | None = None
     quantity: int
+    entered_quantity: int = 0
+    exited_quantity: int = 0
     total_quantity: int
     package_index: int
     total_packages: int
