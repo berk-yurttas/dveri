@@ -346,6 +346,43 @@ async def _company_for_group_local(romiot_db: AsyncSession, group_id: str) -> st
     return result.scalar_one_or_none()
 
 
+# --- Partial-quantity (Kısmi Adet) helpers -------------------------------------
+# Invariant enforced by the endpoints: 0 <= exited_quantity <= entered_quantity
+# <= quantity (the package's full piece count).
+
+def _entrance_remaining(quantity: int, entered_quantity: int) -> int:
+    """Pieces of this package still allowed to be entered at this station."""
+    return max(0, quantity - entered_quantity)
+
+
+def _exit_remaining(entered_quantity: int, exited_quantity: int) -> int:
+    """Pieces entered at this station that have not yet been exited (exit cap)."""
+    return max(0, entered_quantity - exited_quantity)
+
+
+def _check_entrance_scan(scan_quantity: int, entered_quantity: int, quantity: int) -> str | None:
+    """Validate one entrance scan. Returns a Turkish error message, or None if OK."""
+    if scan_quantity < 1:
+        return "Giriş miktarı en az 1 olmalıdır"
+    if entered_quantity + scan_quantity > quantity:
+        return f"Girilen miktar paket adedini aşamaz (kalan: {_entrance_remaining(quantity, entered_quantity)})"
+    return None
+
+
+def _check_exit_scan(scan_quantity: int, entered_quantity: int, exited_quantity: int) -> str | None:
+    """Validate one exit scan. Returns a Turkish error message, or None if OK.
+
+    Enforces exited + scan <= entered (you cannot exit more than was entered)."""
+    if scan_quantity < 1:
+        return "Çıkış miktarı en az 1 olmalıdır"
+    if exited_quantity + scan_quantity > entered_quantity:
+        return (
+            "Çıkış miktarı giriş miktarını aşamaz "
+            f"(girilen: {entered_quantity}, çıkan: {exited_quantity})"
+        )
+    return None
+
+
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_work_order(
     work_order_data: WorkOrderCreate,
