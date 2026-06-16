@@ -23,6 +23,7 @@ from app.models.romiot_models import (
     WorkOrder,
     WorkOrderPair,
     WorkOrderRoute,
+    WorkOrderScan,
 )
 from app.schemas.order_pair import OrderPair
 from app.schemas.user import User
@@ -40,6 +41,7 @@ from app.schemas.work_order import (
     PaginatedWorkOrderResponse,
     TrackResponse,
     TrackMatch,
+    PackageStatus,
 )
 
 router = APIRouter()
@@ -346,6 +348,43 @@ async def _company_for_group_local(romiot_db: AsyncSession, group_id: str) -> st
     return result.scalar_one_or_none()
 
 
+# --- Partial-quantity (Kısmi Adet) helpers -------------------------------------
+# Invariant enforced by the endpoints: 0 <= exited_quantity <= entered_quantity
+# <= quantity (the package's full piece count).
+
+def _entrance_remaining(quantity: int, entered_quantity: int) -> int:
+    """Pieces of this package still allowed to be entered at this station."""
+    return max(0, quantity - entered_quantity)
+
+
+def _exit_remaining(entered_quantity: int, exited_quantity: int) -> int:
+    """Pieces entered at this station that have not yet been exited (exit cap)."""
+    return max(0, entered_quantity - exited_quantity)
+
+
+def _check_entrance_scan(scan_quantity: int, entered_quantity: int, quantity: int) -> str | None:
+    """Validate one entrance scan. Returns a Turkish error message, or None if OK."""
+    if scan_quantity < 1:
+        return "Giriş miktarı en az 1 olmalıdır"
+    if entered_quantity + scan_quantity > quantity:
+        return f"Girilen miktar paket adedini aşamaz (kalan: {_entrance_remaining(quantity, entered_quantity)})"
+    return None
+
+
+def _check_exit_scan(scan_quantity: int, entered_quantity: int, exited_quantity: int) -> str | None:
+    """Validate one exit scan. Returns a Turkish error message, or None if OK.
+
+    Enforces exited + scan <= entered (you cannot exit more than was entered)."""
+    if scan_quantity < 1:
+        return "Çıkış miktarı en az 1 olmalıdır"
+    if exited_quantity + scan_quantity > entered_quantity:
+        return (
+            "Çıkış miktarı giriş miktarını aşamaz "
+            f"(girilen: {entered_quantity}, çıkan: {exited_quantity})"
+        )
+    return None
+
+
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_work_order(
     work_order_data: WorkOrderCreate,
@@ -366,7 +405,8 @@ async def create_work_order(
         pg_user = await UserService.create_user(postgres_db, current_user.username)
     pg_user_id = pg_user.id
 
-    # Duplicate-package check (existing)
+    # Existing-row lookup (partial-quantity): a package may be re-scanned to enter
+    # more pieces, up to its full quantity. No longer a hard duplicate error.
     existing_result = await romiot_db.execute(
         select(WorkOrder).where(
             and_(
@@ -374,13 +414,16 @@ async def create_work_order(
                 WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
                 WorkOrder.package_index == work_order_data.package_index,
             )
-        )
+        ).with_for_update()
     )
-    if existing_result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Bu paket (Paket {work_order_data.package_index}/{work_order_data.total_packages}) ile işlem yapılmıştır",
-        )
+    existing_wo = existing_result.scalar_one_or_none()
+
+    already_entered = existing_wo.entered_quantity if existing_wo else 0
+    entrance_error = _check_entrance_scan(
+        work_order_data.scan_quantity, already_entered, work_order_data.quantity
+    )
+    if entrance_error:
+        raise HTTPException(status_code=400, detail=entrance_error)
 
     # Determine if this is the first scan for the group
     first_scan_check = await romiot_db.execute(
@@ -521,34 +564,55 @@ async def create_work_order(
         )
         company_from_id = cf.scalar_one_or_none()
 
-    # Create WorkOrder row. Legacy scalar columns mirror pairs[0] for back-compat.
-    first_pair = work_order_data.pairs[0]
-    new_work_order = WorkOrder(
+    # Create-or-accumulate the package row.
+    if existing_wo is not None:
+        existing_wo.entered_quantity = existing_wo.entered_quantity + work_order_data.scan_quantity
+        if work_order_data.acknowledged_route_violation:
+            existing_wo.route_violation = True
+        new_work_order = existing_wo
+    else:
+        # Legacy scalar columns mirror pairs[0] for back-compat.
+        first_pair = work_order_data.pairs[0]
+        new_work_order = WorkOrder(
+            station_id=work_order_data.station_id,
+            user_id=pg_user_id,
+            work_order_group_id=work_order_data.work_order_group_id,
+            main_customer=work_order_data.main_customer,
+            sector=work_order_data.sector,
+            company_from=work_order_data.company_from,
+            company_from_id=company_from_id,
+            teklif_number=work_order_data.teklif_number,
+            aselsan_order_number=first_pair.aselsan_order_number,
+            order_item_number=first_pair.order_item_number,
+            part_number=work_order_data.part_number,
+            revision_number=work_order_data.revision_number,
+            quantity=work_order_data.quantity,
+            total_quantity=work_order_data.total_quantity,
+            entered_quantity=work_order_data.scan_quantity,
+            exited_quantity=0,
+            package_index=work_order_data.package_index,
+            total_packages=work_order_data.total_packages,
+            target_date=work_order_data.target_date,
+            qr_code=work_order_data.qr_code,
+            qr_created_at=qr_created_at,
+            exit_date=None,
+            priority=existing_priority,
+            prioritized_by=existing_prioritized_by,
+            route_violation=work_order_data.acknowledged_route_violation,
+        )
+        romiot_db.add(new_work_order)
+
+    # Append-only audit row for this scan
+    romiot_db.add(WorkOrderScan(
         station_id=work_order_data.station_id,
-        user_id=pg_user_id,
         work_order_group_id=work_order_data.work_order_group_id,
-        main_customer=work_order_data.main_customer,
-        sector=work_order_data.sector,
-        company_from=work_order_data.company_from,
-        company_from_id=company_from_id,
-        teklif_number=work_order_data.teklif_number,
-        aselsan_order_number=first_pair.aselsan_order_number,
-        order_item_number=first_pair.order_item_number,
-        part_number=work_order_data.part_number,
-        revision_number=work_order_data.revision_number,
-        quantity=work_order_data.quantity,
-        total_quantity=work_order_data.total_quantity,
         package_index=work_order_data.package_index,
-        total_packages=work_order_data.total_packages,
-        target_date=work_order_data.target_date,
+        direction="in",
+        quantity=work_order_data.scan_quantity,
+        user_id=pg_user_id,
         qr_code=work_order_data.qr_code,
-        qr_created_at=qr_created_at,
-        exit_date=None,
-        priority=existing_priority,
-        prioritized_by=existing_prioritized_by,
-        route_violation=work_order_data.acknowledged_route_violation,
-    )
-    romiot_db.add(new_work_order)
+    ))
+
     await romiot_db.commit()
     await romiot_db.refresh(new_work_order)
 
@@ -607,7 +671,8 @@ async def create_work_order(
 async def update_exit_date(
     update_data: WorkOrderUpdateExitDate,
     current_user: User = Depends(check_authenticated),
-    romiot_db: AsyncSession = Depends(get_romiot_db)
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+    postgres_db: AsyncSession = Depends(get_postgres_db),
 ):
     """
     Find work order package by unique keys (station_id, work_order_group_id, package_index)
@@ -627,7 +692,7 @@ async def update_exit_date(
                 WorkOrder.work_order_group_id == update_data.work_order_group_id,
                 WorkOrder.package_index == update_data.package_index
             )
-        )
+        ).with_for_update()
     )
     work_order = work_order_result.scalar_one_or_none()
 
@@ -640,8 +705,14 @@ async def update_exit_date(
     if work_order.exit_date is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Bu paket (Paket {update_data.package_index}/{work_order.total_packages}) ile çıkış işlemi yapılmıştır"
+            detail=f"Bu paket (Paket {update_data.package_index}/{work_order.total_packages}) tamamen çıkış yapılmıştır"
         )
+
+    exit_error = _check_exit_scan(
+        update_data.scan_quantity, work_order.entered_quantity, work_order.exited_quantity
+    )
+    if exit_error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exit_error)
 
     # F6 route validation on exit
     route_rows_result = await romiot_db.execute(
@@ -682,10 +753,27 @@ async def update_exit_date(
                 "actual_position": this_pos,
             })
 
-    # Update exit_date with current datetime (timezone-aware)
-    work_order.exit_date = datetime.now(timezone.utc)
+    # Accumulate exited pieces; the package is "fully exited" (exit_date stamped)
+    # only when exited_quantity reaches the package's full quantity.
+    work_order.exited_quantity = work_order.exited_quantity + update_data.scan_quantity
+    if work_order.exited_quantity >= work_order.quantity:
+        work_order.exit_date = datetime.now(timezone.utc)
     if update_data.acknowledged_route_violation:
         work_order.route_violation = True
+
+    # Resolve the operator's postgres user id for the audit row
+    pg_user = await UserService.get_user_by_username(postgres_db, current_user.username)
+    if not pg_user:
+        pg_user = await UserService.create_user(postgres_db, current_user.username)
+    romiot_db.add(WorkOrderScan(
+        station_id=update_data.station_id,
+        work_order_group_id=update_data.work_order_group_id,
+        package_index=update_data.package_index,
+        direction="out",
+        quantity=update_data.scan_quantity,
+        user_id=pg_user.id,
+    ))
+
     await romiot_db.commit()
     await romiot_db.refresh(work_order)
 
@@ -785,6 +873,36 @@ async def update_exit_date(
     )
 
 
+@router.get("/package-status", response_model=PackageStatus)
+async def get_package_status(
+    station_id: int = Query(..., description="Station ID"),
+    work_order_group_id: str = Query(..., description="İş Emri Grup ID"),
+    package_index: int = Query(..., description="Paket sırası (1-based)"),
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """Current piece-level progress for one package at one station — used by the
+    operator's quantity modal to default to the remaining amount."""
+    await check_station_operator_role(station_id, current_user, romiot_db)
+    result = await romiot_db.execute(
+        select(WorkOrder).where(
+            and_(
+                WorkOrder.station_id == station_id,
+                WorkOrder.work_order_group_id == work_order_group_id,
+                WorkOrder.package_index == package_index,
+            )
+        )
+    )
+    wo = result.scalar_one_or_none()
+    if wo is None:
+        return PackageStatus(exists=False, entered_quantity=0, exited_quantity=0)
+    return PackageStatus(
+        exists=True,
+        entered_quantity=wo.entered_quantity,
+        exited_quantity=wo.exited_quantity,
+    )
+
+
 @router.get("/list/{station_id}", response_model=list[WorkOrderList])
 async def get_work_orders_by_station(
     station_id: int,
@@ -858,6 +976,8 @@ async def get_work_orders_by_station(
             revision_number=wo.revision_number,
             quantity=wo.quantity,
             total_quantity=wo.total_quantity,
+            entered_quantity=wo.entered_quantity,
+            exited_quantity=wo.exited_quantity,
             package_index=wo.package_index,
             total_packages=wo.total_packages,
             priority=wo.priority,
@@ -1087,6 +1207,8 @@ async def get_all_work_orders(
                     part_number=wo.part_number,
                     quantity=wo.quantity,
                     total_quantity=wo.total_quantity,
+                    entered_quantity=wo.entered_quantity,
+                    exited_quantity=wo.exited_quantity,
                     package_index=wo.package_index,
                     total_packages=wo.total_packages,
                     priority=wo.priority,
@@ -1203,6 +1325,8 @@ async def get_all_work_orders(
                         part_number=part_number,
                         quantity=quantity,
                         total_quantity=total_quantity,
+                        entered_quantity=0,
+                        exited_quantity=0,
                         package_index=package_index,
                         total_packages=total_packages,
                         priority=0,
@@ -1338,6 +1462,8 @@ async def get_all_work_orders(
         ranked_groups_cte.c.part_number,
         ranked_groups_cte.c.quantity,
         ranked_groups_cte.c.total_quantity,
+        ranked_groups_cte.c.entered_quantity,
+        ranked_groups_cte.c.exited_quantity,
         ranked_groups_cte.c.package_index,
         ranked_groups_cte.c.total_packages,
         ranked_groups_cte.c.priority,
@@ -1390,6 +1516,8 @@ async def get_all_work_orders(
             part_number=row.part_number,
             quantity=row.quantity,
             total_quantity=row.total_quantity,
+            entered_quantity=row.entered_quantity,
+            exited_quantity=row.exited_quantity,
             package_index=row.package_index,
             total_packages=row.total_packages,
             priority=row.priority,

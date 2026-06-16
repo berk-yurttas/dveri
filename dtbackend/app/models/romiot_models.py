@@ -47,8 +47,11 @@ class WorkOrder(PostgreSQLBase):
     part_number = Column(String(255), nullable=False)  # Parça Numarası
 
     # Quantity fields
-    quantity = Column(Integer, nullable=False)          # This package's piece count
+    quantity = Column(Integer, nullable=False)          # This package's piece count (cap)
     total_quantity = Column(Integer, nullable=False)     # Total pieces across all packages
+    # Partial-quantity tracking (Kısmi Adet): 0 <= exited_quantity <= entered_quantity <= quantity
+    entered_quantity = Column(Integer, nullable=False, server_default="0")  # pieces entered at this station
+    exited_quantity = Column(Integer, nullable=False, server_default="0")   # pieces exited at this station
 
     # Package tracking
     package_index = Column(Integer, nullable=False)      # 1-based package index
@@ -77,6 +80,21 @@ class WorkOrder(PostgreSQLBase):
 
     # relationships
     station = relationship("Station", back_populates="work_orders")
+
+
+class WorkOrderScan(PostgreSQLBase):
+    """Append-only audit log of each partial entrance/exit scan."""
+    __tablename__ = "work_order_scans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    station_id = Column(Integer, ForeignKey("stations.id"), nullable=False)
+    work_order_group_id = Column(String(50), nullable=False, index=True)
+    package_index = Column(Integer, nullable=False)
+    direction = Column(String(3), nullable=False)  # 'in' (entrance) | 'out' (exit)
+    quantity = Column(Integer, nullable=False)     # pieces in this single scan
+    user_id = Column(Integer, nullable=False, index=True)
+    qr_code = Column(String(20), nullable=True)
+    scanned_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class PriorityToken(PostgreSQLBase):
