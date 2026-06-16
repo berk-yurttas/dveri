@@ -154,6 +154,15 @@ export interface QueryConfig {
   sql: string
   visualization: VisualizationConfig
   filters: FilterConfig[]
+  tabId?: string | null  // Optional: ID of the tab this query belongs to
+}
+
+export interface TabConfig {
+  id: string
+  name: string
+  orderIndex: number
+  layoutConfig?: any[]  // Grid layout configuration for queries in this tab
+  queries: QueryConfig[]
 }
 
 export interface DatabaseConfig {
@@ -173,6 +182,7 @@ export interface ReportConfig {
   description: string
   tags: string[]
   queries: QueryConfig[]
+  tabs?: TabConfig[]  // Optional: tabs with queries
   globalFilters?: FilterConfig[]  // Filters that apply to all queries in the report
   color?: string  // Color for report card border/theme
   is_public?: boolean
@@ -253,12 +263,24 @@ export interface ReportDetail {
   created_at: string
   updated_at: string | null
   queries: QueryDetail[]
+  tabs?: TabDetail[]  // Optional: tabs with queries
   allowedDepartments?: string[]
   allowedUsers?: string[]
   dbConfig?: DatabaseConfig  // Database configuration for this report
   filterByDepartment?: boolean  // If true, automatically filter query results by user's department
   departmentFilterLevel?: string | null  // Department hierarchy level
   filterByStepDepartment?: boolean  // If true, filter by step_department column instead of department
+}
+
+export interface TabDetail {
+  id: number
+  name: string
+  orderIndex: number
+  layoutConfig?: any[]  // Grid layout configuration for queries in this tab
+  report_id: number
+  created_at: string
+  updated_at: string | null
+  queries: QueryDetail[]
 }
 
 export interface QueryDetail {
@@ -268,6 +290,7 @@ export interface QueryDetail {
   visualization: VisualizationConfig
   orderIndex?: number
   report_id?: number
+  tab_id?: number | null  // Optional: ID of the tab this query belongs to
   created_at?: string
   updated_at?: string | null
   filters: FilterDetail[]

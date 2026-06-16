@@ -183,6 +183,7 @@ class QueryConfigBase(BaseModel):
     sql: str = Field(..., description="SQL query string")
     visualization: VisualizationConfig
     order_index: int | None = Field(0, alias="orderIndex")
+    tab_id: int | None = Field(None, alias="tabId", description="Optional tab ID this query belongs to")
 
     @field_validator('sql')
     @classmethod
@@ -212,9 +213,43 @@ class QueryConfigUpdate(BaseModel):
 class QueryConfig(QueryConfigBase):
     id: int
     report_id: int
+    tab_id: int | None = Field(None, alias="tabId")
     created_at: datetime
     updated_at: datetime | None = None
     filters: list[FilterConfig] = []
+
+    class Config:
+        from_attributes = True
+
+# Tab Configuration Schemas (defined after Query schemas to avoid circular reference)
+class TabConfigBase(BaseModel):
+    name: str = Field(..., description="Tab name/title")
+    order_index: int | None = Field(0, alias="orderIndex")
+    layout_config: list[dict[str, Any]] | None = Field([], alias="layoutConfig", description="Grid layout configuration for queries in this tab")
+
+    class Config:
+        populate_by_name = True
+        from_attributes = True
+
+class TabConfigCreate(TabConfigBase):
+    id: int | None = None  # Optional ID for updating existing tabs
+    queries: list[QueryConfigCreate] | None = []
+
+class TabConfigUpdate(BaseModel):
+    name: str | None = None
+    order_index: int | None = Field(None, alias="orderIndex")
+    layout_config: list[dict[str, Any]] | None = Field(None, alias="layoutConfig")
+
+    class Config:
+        populate_by_name = True
+        from_attributes = True
+
+class TabConfig(TabConfigBase):
+    id: int
+    report_id: int
+    created_at: datetime
+    updated_at: datetime | None = None
+    queries: list[QueryConfig] = []
 
     class Config:
         from_attributes = True
@@ -242,14 +277,19 @@ class ReportBase(BaseModel):
         from_attributes = True
 
 class ReportCreate(ReportBase):
-    queries: list[QueryConfigCreate] = Field(default=[], description="List of queries (required if not isDirectLink)")
+    queries: list[QueryConfigCreate] = Field(default=[], description="List of queries (required if not isDirectLink and no tabs)")
+    tabs: list[TabConfigCreate] | None = Field(default=[], description="List of tabs with queries")
 
     @model_validator(mode='after')
     def validate_queries_and_direct_link(self):
         is_direct_link = self.is_direct_link or False
         if not is_direct_link:
-            if not self.queries or len(self.queries) == 0:
-                raise ValueError('At least one query is required when isDirectLink is false')
+            # Check if we have either queries or tabs with queries
+            has_queries = self.queries and len(self.queries) > 0
+            has_tabs_with_queries = self.tabs and len(self.tabs) > 0 and any(tab.queries and len(tab.queries) > 0 for tab in self.tabs)
+            
+            if not has_queries and not has_tabs_with_queries:
+                raise ValueError('At least one query or tab with queries is required when isDirectLink is false')
         else:
             if not self.direct_link or not self.direct_link.strip():
                 raise ValueError('directLink is required when isDirectLink is true')
@@ -290,6 +330,7 @@ class ReportFullUpdate(BaseModel):
     is_public: bool | None = None
     tags: list[str] | None = None
     queries: list[QueryConfigCreate] | None = None
+    tabs: list[TabConfigCreate] | None = None
     global_filters: list[FilterConfigCreate] | None = Field(None, alias="globalFilters")
     layout_config: list[dict[str, Any]] | None = Field(None, alias="layoutConfig")
     color: str | None = None
@@ -308,8 +349,12 @@ class ReportFullUpdate(BaseModel):
         # Only validate if is_direct_link is explicitly set
         if is_direct_link is not None:
             if not is_direct_link:
-                if not self.queries or len(self.queries) == 0:
-                    raise ValueError('At least one query is required when isDirectLink is false')
+                # Check if we have either queries or tabs with queries
+                has_queries = self.queries and len(self.queries) > 0
+                has_tabs_with_queries = self.tabs and len(self.tabs) > 0 and any(tab.queries and len(tab.queries) > 0 for tab in self.tabs)
+                
+                if not has_queries and not has_tabs_with_queries:
+                    raise ValueError('At least one query or tab with queries is required when isDirectLink is false')
             else:
                 if not self.direct_link or not self.direct_link.strip():
                     raise ValueError('directLink is required when isDirectLink is true')
@@ -334,6 +379,7 @@ class Report(ReportBase):
     created_at: datetime
     updated_at: datetime | None = None
     queries: list[QueryConfig] = []
+    tabs: list[TabConfig] = []
 
     class Config:
         from_attributes = True

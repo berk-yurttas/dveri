@@ -15,6 +15,7 @@ from app.models.postgres_models import (
     Report,
     ReportQuery,
     ReportQueryFilter,
+    ReportTab,
     ReportUser,
     User,
 )
@@ -252,40 +253,84 @@ class ReportsService:
         self.db.add(db_report)
         await self.db.flush()  # Get the report ID
 
-        # Create queries only if not a direct link report
+        # Create tabs and queries only if not a direct link report
         if not report_data.is_direct_link:
-            for query_data in report_data.queries:
-                db_query = ReportQuery(
-                    report_id=db_report.id,
-                    name=query_data.name,
-                    sql=query_data.sql,
-                    visualization_config=query_data.visualization.dict(),
-                    order_index=query_data.order_index or 0
-                )
-                self.db.add(db_query)
-                await self.db.flush()  # Get the query ID
-
-                # Create filters for this query
-                for filter_data in query_data.filters:
-                    # Handle both enum and string types
-                    filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
-
-                    db_filter = ReportQueryFilter(
-                        query_id=db_query.id,
-                        field_name=filter_data.field_name,
-                        display_name=filter_data.display_name,
-                        filter_type=filter_type_value,
-                        dropdown_query=filter_data.dropdown_query,
-                        required=filter_data.required,
-                        sql_expression=filter_data.sql_expression,
-                        depends_on=filter_data.depends_on
+            # If tabs are provided, create tabs with their queries
+            if report_data.tabs and len(report_data.tabs) > 0:
+                for tab_data in report_data.tabs:
+                    db_tab = ReportTab(
+                        report_id=db_report.id,
+                        name=tab_data.name,
+                        order_index=tab_data.order_index or 0,
+                        layout_config=tab_data.layout_config or []
                     )
-                    self.db.add(db_filter)
+                    self.db.add(db_tab)
+                    await self.db.flush()  # Get the tab ID
+
+                    # Create queries for this tab
+                    for query_data in tab_data.queries:
+                        db_query = ReportQuery(
+                            report_id=db_report.id,
+                            tab_id=db_tab.id,
+                            name=query_data.name,
+                            sql=query_data.sql,
+                            visualization_config=query_data.visualization.dict(),
+                            order_index=query_data.order_index or 0
+                        )
+                        self.db.add(db_query)
+                        await self.db.flush()  # Get the query ID
+
+                        # Create filters for this query
+                        for filter_data in query_data.filters:
+                            filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
+
+                            db_filter = ReportQueryFilter(
+                                query_id=db_query.id,
+                                field_name=filter_data.field_name,
+                                display_name=filter_data.display_name,
+                                filter_type=filter_type_value,
+                                dropdown_query=filter_data.dropdown_query,
+                                required=filter_data.required,
+                                sql_expression=filter_data.sql_expression,
+                                depends_on=filter_data.depends_on
+                            )
+                            self.db.add(db_filter)
+            
+            # Otherwise, create queries without tabs (backward compatibility)
+            else:
+                for query_data in report_data.queries:
+                    db_query = ReportQuery(
+                        report_id=db_report.id,
+                        tab_id=None,
+                        name=query_data.name,
+                        sql=query_data.sql,
+                        visualization_config=query_data.visualization.dict(),
+                        order_index=query_data.order_index or 0
+                    )
+                    self.db.add(db_query)
+                    await self.db.flush()  # Get the query ID
+
+                    # Create filters for this query
+                    for filter_data in query_data.filters:
+                        filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
+
+                        db_filter = ReportQueryFilter(
+                            query_id=db_query.id,
+                            field_name=filter_data.field_name,
+                            display_name=filter_data.display_name,
+                            filter_type=filter_type_value,
+                            dropdown_query=filter_data.dropdown_query,
+                            required=filter_data.required,
+                            sql_expression=filter_data.sql_expression,
+                            depends_on=filter_data.depends_on
+                        )
+                        self.db.add(db_filter)
 
         await self.db.commit()
 
         # Refresh and eagerly load relationships
         stmt = select(Report).options(
+            selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
             selectinload(Report.queries).selectinload(ReportQuery.filters)
         ).where(Report.id == db_report.id)
         result = await self.db.execute(stmt)
@@ -307,6 +352,7 @@ class ReportsService:
         if is_admin:
             # Admin can access all reports
             stmt = select(Report).options(
+                selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
             ).where(and_(Report.id == report_id, Report.deleted_at.is_(None)))
@@ -324,6 +370,7 @@ class ReportsService:
             dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
 
             stmt = select(Report).options(
+                selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
             ).where(
@@ -610,6 +657,7 @@ class ReportsService:
             filters.append(Report.owner_id == db_user.id)
 
         stmt = select(Report).options(
+            selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
             selectinload(Report.queries).selectinload(ReportQuery.filters)
         ).where(and_(*filters))
         result = await self.db.execute(stmt)
@@ -667,7 +715,7 @@ class ReportsService:
         # Determine if report is/will be in direct link mode
         will_be_direct_link = report_data.is_direct_link if report_data.is_direct_link is not None else db_report.is_direct_link
         
-        # If switching to or already in direct link mode, delete all queries
+        # If switching to or already in direct link mode, delete all queries and tabs
         if will_be_direct_link:
             old_db_query_ids = [q.id for q in db_report.queries]
             if old_db_query_ids:
@@ -681,10 +729,78 @@ class ReportsService:
                     ReportQuery.report_id == db_report.id
                 )
                 await self.db.execute(query_delete_stmt)
+                # Delete all tabs for this report
+                tab_delete_stmt = delete(ReportTab).where(
+                    ReportTab.report_id == db_report.id
+                )
+                await self.db.execute(tab_delete_stmt)
                 await self.db.flush()
         
-        # Update queries if provided (only if not a direct link report)
-        if report_data.queries is not None and not will_be_direct_link:
+        # Update tabs if provided (only if not a direct link report)
+        if report_data.tabs is not None and not will_be_direct_link:
+            # Delete all existing tabs and queries
+            old_db_query_ids = [q.id for q in db_report.queries]
+            if old_db_query_ids:
+                # Delete all filters for these queries
+                filter_delete_stmt = delete(ReportQueryFilter).where(
+                    ReportQueryFilter.query_id.in_(old_db_query_ids)
+                )
+                await self.db.execute(filter_delete_stmt)
+
+            # Delete all queries and tabs for this report
+            query_delete_stmt = delete(ReportQuery).where(
+                ReportQuery.report_id == db_report.id
+            )
+            await self.db.execute(query_delete_stmt)
+            
+            tab_delete_stmt = delete(ReportTab).where(
+                ReportTab.report_id == db_report.id
+            )
+            await self.db.execute(tab_delete_stmt)
+            await self.db.flush()
+
+            # Create new tabs and queries
+            for tab_data in report_data.tabs:
+                db_tab = ReportTab(
+                    report_id=db_report.id,
+                    name=tab_data.name,
+                    order_index=tab_data.order_index or 0,
+                    layout_config=tab_data.layout_config or []
+                )
+                self.db.add(db_tab)
+                await self.db.flush()  # Get the tab ID
+
+                # Create queries for this tab
+                for query_data in tab_data.queries:
+                    db_query = ReportQuery(
+                        report_id=db_report.id,
+                        tab_id=db_tab.id,
+                        name=query_data.name,
+                        sql=query_data.sql,
+                        visualization_config=query_data.visualization.dict(),
+                        order_index=query_data.order_index or 0
+                    )
+                    self.db.add(db_query)
+                    await self.db.flush()  # Get the query ID
+
+                    # Create filters for this query
+                    for filter_data in query_data.filters:
+                        filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
+
+                        db_filter = ReportQueryFilter(
+                            query_id=db_query.id,
+                            field_name=filter_data.field_name,
+                            display_name=filter_data.display_name,
+                            filter_type=filter_type_value,
+                            dropdown_query=filter_data.dropdown_query,
+                            required=filter_data.required,
+                            sql_expression=filter_data.sql_expression,
+                            depends_on=filter_data.depends_on
+                        )
+                        self.db.add(db_filter)
+        
+        # Update queries if provided (only if not a direct link report and no tabs provided)
+        elif report_data.queries is not None and not will_be_direct_link:
             # Store old query IDs from the database
             old_db_query_ids = [q.id for q in db_report.queries]
 
@@ -712,6 +828,7 @@ class ReportsService:
 
                 db_query = ReportQuery(
                     report_id=db_report.id,
+                    tab_id=None,
                     name=query_data.name,
                     sql=query_data.sql,
                     visualization_config=query_data.visualization.dict(),
@@ -760,6 +877,7 @@ class ReportsService:
 
         # Refresh and eagerly load relationships
         stmt = select(Report).options(
+            selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
             selectinload(Report.queries).selectinload(ReportQuery.filters)
         ).where(Report.id == db_report.id)
         result = await self.db.execute(stmt)

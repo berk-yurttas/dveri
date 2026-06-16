@@ -213,6 +213,7 @@ class Report(PostgreSQLBase):
     # Relationships
     platform = relationship("Platform", back_populates="reports")  # Platform relationship
     owner = relationship("User", back_populates="owned_reports")
+    tabs = relationship("ReportTab", back_populates="report", cascade="all, delete-orphan", order_by="ReportTab.order_index")
     queries = relationship("ReportQuery", back_populates="report", cascade="all, delete-orphan", order_by="ReportQuery.order_index")
     users = relationship("ReportUser", back_populates="report", cascade="all, delete-orphan")
 
@@ -220,11 +221,28 @@ class Report(PostgreSQLBase):
     is_favorite = None
 
 
+class ReportTab(PostgreSQLBase):
+    __tablename__ = "report_tabs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("reports.id"), nullable=False)
+    name = Column(String(255), nullable=False)
+    order_index = Column(Integer, default=0)
+    layout_config = Column(JSONB, default=[])  # Grid layout configuration for queries in this tab
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # relationships
+    report = relationship("Report", back_populates="tabs")
+    queries = relationship("ReportQuery", back_populates="tab", cascade="all, delete-orphan", order_by="ReportQuery.order_index")
+
+
 class ReportQuery(PostgreSQLBase):
     __tablename__ = "report_queries"
 
     id = Column(Integer, primary_key=True, index=True)
     report_id = Column(Integer, ForeignKey("reports.id"), nullable=False)
+    tab_id = Column(Integer, ForeignKey("report_tabs.id"), nullable=True)  # Optional: queries can belong to a tab
     name = Column(String(255), nullable=False)
     sql = Column(Text, nullable=False)
     visualization_config = Column(JSONB, nullable=False)
@@ -234,6 +252,7 @@ class ReportQuery(PostgreSQLBase):
 
     # relationships
     report = relationship("Report", back_populates="queries")
+    tab = relationship("ReportTab", back_populates="queries")
     filters = relationship("ReportQueryFilter", back_populates="query", cascade="all, delete-orphan")
 
     # Property for Pydantic serialization

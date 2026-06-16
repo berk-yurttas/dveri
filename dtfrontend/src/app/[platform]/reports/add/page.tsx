@@ -1442,6 +1442,7 @@ export default function AddReportPage() {
     name: '',
     description: '',
     queries: [],
+    tabs: [],  // Add tabs support
     tags: [],
     globalFilters: [],
     color: '#3B82F6',  // Default blue color
@@ -1454,6 +1455,8 @@ export default function AddReportPage() {
   })
 
   const [activeQueryIndex, setActiveQueryIndex] = useState<number>(0)
+  const [activeTabIndex, setActiveTabIndex] = useState<number>(0)
+  const [useTabsMode, setUseTabsMode] = useState<boolean>(false)  // Toggle between tabs and flat queries
   const [previewResults, setPreviewResults] = useState<Record<string, ReportPreviewResponse>>({})
   const [loadingPreview, setLoadingPreview] = useState<Record<string, boolean>>({})
   const [filterDialogOpen, setFilterDialogOpen] = useState(false)
@@ -1652,45 +1655,159 @@ export default function AddReportPage() {
       },
       filters: []
     }
-    setReport(prev => ({
-      ...prev,
-      queries: [...prev.queries, newQuery]
-    }))
-    setActiveQueryIndex(report.queries.length)
+    
+    if (useTabsMode && report.tabs && report.tabs.length > 0) {
+      // Add query to active tab
+      setReport(prev => ({
+        ...prev,
+        tabs: prev.tabs!.map((tab, index) => 
+          index === activeTabIndex 
+            ? { ...tab, queries: [...tab.queries, newQuery] }
+            : tab
+        )
+      }))
+    } else {
+      // Add query to flat queries list
+      setReport(prev => ({
+        ...prev,
+        queries: [...prev.queries, newQuery]
+      }))
+    }
+    setActiveQueryIndex(useTabsMode ? report.tabs![activeTabIndex].queries.length : report.queries.length)
   }
 
-  const updateQuery = (index: number, updates: Partial<QueryConfig>) => {
+  // Tab Management Functions
+  const addNewTab = () => {
+    const newTab = {
+      id: generateId(),
+      name: `Sekme ${(report.tabs?.length || 0) + 1}`,
+      orderIndex: (report.tabs?.length || 0),
+      queries: []
+    }
     setReport(prev => ({
       ...prev,
-      queries: prev.queries.map((query, i) =>
-        i === index ? { ...query, ...updates } : query
+      tabs: [...(prev.tabs || []), newTab]
+    }))
+    setActiveTabIndex((report.tabs?.length || 0))
+  }
+
+  const removeTab = (tabIndex: number) => {
+    if (!report.tabs) return
+    setReport(prev => ({
+      ...prev,
+      tabs: prev.tabs!.filter((_, index) => index !== tabIndex)
+    }))
+    if (activeTabIndex >= (report.tabs.length - 1)) {
+      setActiveTabIndex(Math.max(0, (report.tabs.length - 2)))
+    }
+  }
+
+  const updateTabName = (tabIndex: number, name: string) => {
+    setReport(prev => ({
+      ...prev,
+      tabs: prev.tabs!.map((tab, index) => 
+        index === tabIndex ? { ...tab, name } : tab
       )
     }))
   }
 
+  const toggleTabsMode = () => {
+    if (!useTabsMode) {
+      // Switching to tabs mode - create first tab with existing queries
+      const firstTab = {
+        id: generateId(),
+        name: 'Genel',
+        orderIndex: 0,
+        queries: [...report.queries]
+      }
+      setReport(prev => ({
+        ...prev,
+        tabs: [firstTab],
+        queries: []  // Clear flat queries when using tabs
+      }))
+      setUseTabsMode(true)
+      setActiveTabIndex(0)
+    } else {
+      // Switching back to flat mode - merge all tab queries
+      const allQueries = report.tabs?.flatMap(tab => tab.queries) || []
+      setReport(prev => ({
+        ...prev,
+        queries: allQueries,
+        tabs: []
+      }))
+      setUseTabsMode(false)
+    }
+  }
+
+  const updateQuery = (index: number, updates: Partial<QueryConfig>) => {
+    updateCurrentQueries(queries =>
+      queries.map((query, i) => i === index ? { ...query, ...updates } : query)
+    )
+  }
+
   const updateVisualization = (queryIndex: number, updates: Partial<VisualizationConfig>) => {
-    setReport(prev => ({
-      ...prev,
-      queries: prev.queries.map((query, i) =>
+    updateCurrentQueries(queries =>
+      queries.map((query, i) =>
         i === queryIndex
           ? { ...query, visualization: { ...query.visualization, ...updates } }
           : query
       )
-    }))
+    )
   }
 
   const removeQuery = (index: number) => {
-    setReport(prev => ({
-      ...prev,
-      queries: prev.queries.filter((_, i) => i !== index)
-    }))
+    if (useTabsMode && report.tabs) {
+      // Remove query from active tab
+      setReport(prev => ({
+        ...prev,
+        tabs: prev.tabs!.map((tab, tabIdx) => 
+          tabIdx === activeTabIndex
+            ? { ...tab, queries: tab.queries.filter((_, i) => i !== index) }
+            : tab
+        )
+      }))
+    } else {
+      // Remove query from flat list
+      setReport(prev => ({
+        ...prev,
+        queries: prev.queries.filter((_, i) => i !== index)
+      }))
+    }
     if (activeQueryIndex >= index && activeQueryIndex > 0) {
       setActiveQueryIndex(activeQueryIndex - 1)
     }
   }
 
+  // Helper function to get current queries (from tab or flat list)
+  const getCurrentQueries = () => {
+    if (useTabsMode && report.tabs && report.tabs[activeTabIndex]) {
+      return report.tabs[activeTabIndex].queries
+    }
+    return report.queries
+  }
+
+  // Helper function to update current queries
+  const updateCurrentQueries = (updater: (queries: QueryConfig[]) => QueryConfig[]) => {
+    if (useTabsMode && report.tabs) {
+      setReport(prev => ({
+        ...prev,
+        tabs: prev.tabs!.map((tab, tabIdx) =>
+          tabIdx === activeTabIndex
+            ? { ...tab, queries: updater(tab.queries) }
+            : tab
+        )
+      }))
+    } else {
+      setReport(prev => ({
+        ...prev,
+        queries: updater(prev.queries)
+      }))
+    }
+  }
+
   const addFilter = (queryIndex: number) => {
-    const query = report.queries[queryIndex]
+    const queries = getCurrentQueries()
+    const query = queries[queryIndex]
     const availableFields = extractFieldsFromSQL(query.sql)
 
     if (availableFields.length === 0) {
@@ -1712,7 +1829,8 @@ export default function AddReportPage() {
   }
 
   const updateFilter = (queryIndex: number, filterIndex: number, updates: Partial<FilterConfig>) => {
-    const query = report.queries[queryIndex]
+    const queries = getCurrentQueries()
+    const query = queries[queryIndex]
     const updatedFilters = query.filters.map((filter, i) =>
       i === filterIndex ? { ...filter, ...updates } : filter
     )
@@ -1720,7 +1838,8 @@ export default function AddReportPage() {
   }
 
   const removeFilter = (queryIndex: number, filterIndex: number) => {
-    const query = report.queries[queryIndex]
+    const queries = getCurrentQueries()
+    const query = queries[queryIndex]
     const updatedFilters = query.filters.filter((_, i) => i !== filterIndex)
     updateQuery(queryIndex, { filters: updatedFilters })
   }
@@ -2398,61 +2517,194 @@ export default function AddReportPage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
                   <BarChart3 className="w-4 h-4 text-blue-600" />
-                  Sorgu ve Görselleştirme ({report.queries.length})
+                  {useTabsMode ? `Sekmeler ve Sorgular (${report.tabs?.reduce((sum, tab) => sum + tab.queries.length, 0) || 0})` : `Sorgu ve Görselleştirme (${report.queries.length})`}
                 </CardTitle>
-                <Button onClick={addNewQuery} size="sm" className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white">
-                  <Plus className="w-3 h-3 mr-1" />
-                  Yeni Sorgu
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    onClick={toggleTabsMode} 
+                    size="sm" 
+                    variant="outline"
+                    className="h-8 text-xs"
+                  >
+                    {useTabsMode ? 'Sekmeleri Kaldır' : 'Sekme Ekle'}
+                  </Button>
+                  {useTabsMode ? (
+                    <Button onClick={addNewTab} size="sm" className="h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white">
+                      <Plus className="w-3 h-3 mr-1" />
+                      Yeni Sekme
+                    </Button>
+                  ) : null}
+                  <Button onClick={addNewQuery} size="sm" className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white">
+                    <Plus className="w-3 h-3 mr-1" />
+                    Yeni Sorgu
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-4">
-              {report.queries.length === 0 ? (
+              {/* Show appropriate empty state */}
+              {(!useTabsMode && report.queries.length === 0) || (useTabsMode && (!report.tabs || report.tabs.length === 0)) ? (
                 <div className="text-center py-12">
                   <div className="mx-auto w-24 h-24 bg-gradient-to-r from-blue-100 to-purple-100 rounded-full flex items-center justify-center mb-6">
                     <Database className="w-12 h-12 text-blue-500" />
                   </div>
-                  <h3 className="text-xl font-semibold text-slate-700 mb-2">Henüz Sorgu Yok</h3>
+                  <h3 className="text-xl font-semibold text-slate-700 mb-2">{useTabsMode ? 'Henüz Sekme Yok' : 'Henüz Sorgu Yok'}</h3>
                   <p className="text-slate-500 mb-6 max-w-md mx-auto">
-                    Raporunuz için ilk SQL sorgusunu ekleyin ve görselleştirme seçeneklerini yapılandırın.
+                    {useTabsMode ? 'Raporunuz için sekmeler oluşturun ve her sekmede farklı sorgular ekleyin.' : 'Raporunuz için ilk SQL sorgusunu ekleyin ve görselleştirme seçeneklerini yapılandırın.'}
                   </p>
-                  <Button onClick={addNewQuery} className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white shadow-lg">
-                    <Plus className="w-4 h-4 mr-2" />
-                    İlk Sorguyu Ekle
-                  </Button>
+                  <div className="flex gap-3 justify-center">
+                    {useTabsMode && (
+                      <Button onClick={addNewTab} className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-lg">
+                        <Plus className="w-4 h-4 mr-2" />
+                        İlk Sekmeyi Ekle
+                      </Button>
+                    )}
+                    {!useTabsMode && (
+                      <Button onClick={addNewQuery} className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white shadow-lg">
+                        <Plus className="w-4 h-4 mr-2" />
+                        İlk Sorguyu Ekle
+                      </Button>
+                    )}
+                  </div>
                 </div>
-            ) : (
-              <Tabs value={activeQueryIndex.toString()} onValueChange={(value) => setActiveQueryIndex(parseInt(value))}>
-                {/* Query Tabs */}
-                <TabsList className="grid w-full bg-slate-100 p-1 rounded-lg" style={{ gridTemplateColumns: `repeat(${report.queries.length}, minmax(0, 1fr))` }}>
-                  {report.queries.map((query, index) => (
-                    <div key={query.id} className="relative">
-                      <TabsTrigger
-                        value={index.toString()}
-                        className="w-full data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-blue-700 data-[state=active]:font-semibold data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900 transition-all overflow-hidden"
-                        title={query.name}
-                      >
-                        <span className="block truncate px-6">{query.name}</span>
-                      </TabsTrigger>
-                      {report.queries.length > 1 && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0 text-red-500 hover:bg-red-100"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            removeQuery(index)
-                          }}
+              ) : useTabsMode && report.tabs && report.tabs.length > 0 ? (
+                /* Tabs Mode UI */
+                <div className="space-y-4">
+                  {/* Tab Navigation */}
+                  <div className="flex items-center gap-2 overflow-x-auto pb-2">
+                    {report.tabs.map((tab, tabIndex) => (
+                      <div key={tab.id} className="relative flex-shrink-0">
+                        <button
+                          onClick={() => setActiveTabIndex(tabIndex)}
+                          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                            activeTabIndex === tabIndex
+                              ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-md'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
                         >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
+                          <input
+                            type="text"
+                            value={tab.name}
+                            onChange={(e) => {
+                              e.stopPropagation()
+                              updateTabName(tabIndex, e.target.value)
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className={`bg-transparent border-none outline-none w-24 ${
+                              activeTabIndex === tabIndex ? 'text-white placeholder-white/70' : 'text-gray-700'
+                            }`}
+                          />
+                          <span className="ml-2 text-xs opacity-75">({tab.queries.length})</span>
+                        </button>
+                        {report.tabs.length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              removeTab(tabIndex)
+                            }}
+                            className="absolute -top-2 -right-2 h-5 w-5 p-0 rounded-full bg-red-500 text-white hover:bg-red-600 shadow-sm"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Active Tab Content */}
+                  {report.tabs[activeTabIndex] && (
+                    <div>
+                      {report.tabs[activeTabIndex].queries.length === 0 ? (
+                        <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                          <p className="text-gray-500 mb-4">Bu sekmede henüz sorgu yok</p>
+                          <Button onClick={addNewQuery} size="sm" className="bg-green-600 hover:bg-green-700 text-white">
+                            <Plus className="w-3 h-3 mr-1" />
+                            Sorgu Ekle
+                          </Button>
+                        </div>
+                      ) : (
+                        /* Show queries without nested tabs - just render them directly */
+                        <div className="space-y-6">
+                          {report.tabs[activeTabIndex].queries.length === 1 ? (
+                            /* If only one query, show it directly without tabs */
+                            <div>
+                              {/* The query content will be rendered by the shared section below */}
+                            </div>
+                          ) : (
+                            /* Multiple queries - show with tabs */
+                            <Tabs value={activeQueryIndex.toString()} onValueChange={(value) => setActiveQueryIndex(parseInt(value))}>
+                              <TabsList className="grid w-full bg-slate-100 p-1 rounded-lg mb-4" style={{ gridTemplateColumns: `repeat(${report.tabs[activeTabIndex].queries.length}, minmax(0, 1fr))` }}>
+                                {report.tabs[activeTabIndex].queries.map((query, queryIndex) => (
+                                  <div key={query.id} className="relative">
+                                    <TabsTrigger
+                                      value={queryIndex.toString()}
+                                      className="w-full data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-blue-700 data-[state=active]:font-semibold data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900 transition-all overflow-hidden"
+                                      title={query.name}
+                                    >
+                                      <span className="block truncate max-w-[150px]">{query.name}</span>
+                                    </TabsTrigger>
+                                    {report.tabs[activeTabIndex].queries.length > 1 && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="absolute -top-2 -right-2 h-5 w-5 rounded-full p-0 text-red-500 hover:bg-red-100"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          removeQuery(queryIndex)
+                                        }}
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                ))}
+                              </TabsList>
+                            </Tabs>
+                          )}
+                        </div>
                       )}
                     </div>
-                  ))}
-                </TabsList>
+                  )}
+                </div>
+              ) : null}
+              
+              {/* Shared Query Rendering - works for both tabs mode and flat mode */}
+              {!report.isDirectLink && (getCurrentQueries().length > 0) && (
+                <Tabs value={activeQueryIndex.toString()} onValueChange={(value) => setActiveQueryIndex(parseInt(value))}>
+                  {!useTabsMode && (
+                    /* Query Tabs for flat mode only */
+                    <TabsList className="grid w-full bg-slate-100 p-1 rounded-lg" style={{ gridTemplateColumns: `repeat(${getCurrentQueries().length}, minmax(0, 1fr))` }}>
+                      {getCurrentQueries().map((query, index) => (
+                        <div key={query.id} className="relative">
+                          <TabsTrigger
+                            value={index.toString()}
+                            className="w-full data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-blue-700 data-[state=active]:font-semibold data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900 transition-all overflow-hidden"
+                            title={query.name}
+                          >
+                            <span className="block truncate px-6">{query.name}</span>
+                          </TabsTrigger>
+                          {getCurrentQueries().length > 1 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0 text-red-500 hover:bg-red-100"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                removeQuery(index)
+                              }}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </TabsList>
+                  )}
 
-                {/* Query Content */}
-                {report.queries.map((query, queryIndex) => (
+                  {/* Query Content */}
+                  {getCurrentQueries().map((query, queryIndex) => (
                   <TabsContent key={query.id} value={queryIndex.toString()} className="space-y-6">
                     {/* Three Column Layout: Query | Visualization | Filters */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

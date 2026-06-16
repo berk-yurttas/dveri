@@ -116,12 +116,24 @@ interface ReportData {
   created_at: string
   updated_at: string | null
   queries: QueryData[]
+  tabs?: TabData[]
   globalFilters?: FilterData[]
   layoutConfig?: any[]
   color?: string
   allowedDepartments?: string[]
   allowedUsers?: string[]
   dbConfig?: Record<string, any> | null
+}
+
+interface TabData {
+  id: number
+  name: string
+  orderIndex: number
+  layoutConfig?: any[]
+  report_id: number
+  created_at: string
+  updated_at: string | null
+  queries: QueryData[]
 }
 
 interface QueryData {
@@ -233,6 +245,7 @@ export default function ReportDetailPage() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [authorizedDepartments, setAuthorizedDepartments] = useState<string[]>([])
   const [authorizedUsers, setAuthorizedUsers] = useState<string[]>([])
+  const [activeTab, setActiveTab] = useState<number | null>(null)
 
   // Debounce timeout refs for each filter
   const debounceTimeouts = useRef<{ [key: string]: NodeJS.Timeout }>({})
@@ -279,6 +292,63 @@ export default function ReportDetailPage() {
         minH: 2, // Minimum 2 rows (≈240px)
       }
     })
+  }
+
+  // Get queries to display based on active tab or all queries
+  const getDisplayQueries = (): QueryData[] => {
+    if (!report) return []
+    
+    // If report has tabs and active tab is set, return queries from that tab
+    if (report.tabs && report.tabs.length > 0 && activeTab !== null) {
+      const tab = report.tabs.find(t => t.id === activeTab)
+      return tab?.queries || []
+    }
+    
+    // Otherwise return all queries (backward compatibility)
+    return report.queries
+  }
+
+  // Handle tab change
+  const handleTabChange = (tabId: number) => {
+    if (!report || !report.tabs) return
+    
+    setActiveTab(tabId)
+    
+    const tab = report.tabs.find(t => t.id === tabId)
+    if (!tab) return
+    
+    // Update layout for this tab
+    if (tab.layoutConfig && tab.layoutConfig.length > 0) {
+      const validQueryIds = new Set(tab.queries.map(q => q.id.toString()))
+      const validatedLayout = tab.layoutConfig
+        .filter((layout: any) => validQueryIds.has(layout.i.toString()))
+        .map((layout: any) => ({
+          ...layout,
+          w: Math.max(layout.w || 2, 1),
+          h: Math.max(layout.h || 4, 2),
+          minW: 1,
+          minH: 2
+        }))
+      
+      if (validatedLayout.length === tab.queries.length) {
+        setGridLayout(validatedLayout)
+      } else {
+        setGridLayout(generateDefaultLayout(tab.queries))
+      }
+    } else {
+      setGridLayout(generateDefaultLayout(tab.queries))
+    }
+    
+    // Execute queries for this tab if they haven't been executed yet
+    const tabQueries = tab.queries
+    const unexecutedQueries = tabQueries.filter(q => !queryResults[q.id])
+    
+    if (unexecutedQueries.length > 0) {
+      // Execute queries that haven't been run yet
+      unexecutedQueries.forEach(query => {
+        executeQueryWithFilters(query, report.id, filters, 1, 200)
+      })
+    }
   }
 
   // Handle layout change
@@ -961,8 +1031,20 @@ export default function ReportDetailPage() {
 
   // Execute all queries with initial empty filters - send separate requests for each query
   const executeAllQueries = async (reportData: ReportData, initialFilters: FilterState) => {
+    // Get queries to execute based on tabs
+    let queriesToExecute: QueryData[] = []
+    
+    if (reportData.tabs && reportData.tabs.length > 0 && activeTab !== null) {
+      // If report has tabs, execute queries from the active tab
+      const tab = reportData.tabs.find(t => t.id === activeTab)
+      queriesToExecute = tab?.queries || []
+    } else {
+      // Otherwise execute all queries (backward compatibility)
+      queriesToExecute = reportData.queries
+    }
+    
     // Execute each query individually in parallel
-    const queryPromises = reportData.queries.map(query => 
+    const queryPromises = queriesToExecute.map(query => 
       executeQueryWithFilters(query, reportData.id, initialFilters, 1, 200)
     )
 
@@ -1078,32 +1160,62 @@ export default function ReportDetailPage() {
 
         // Initialize grid layout FIRST before setting report state
         // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
-        if (reportData.layoutConfig && reportData.layoutConfig.length > 0) {
-          // Validate and fix layout config - ensure all entries have valid query IDs
-          const validQueryIds = new Set(reportData.queries.map(q => q.id.toString()))
-          const validatedLayout = reportData.layoutConfig
-            .filter((layout: any) => validQueryIds.has(layout.i.toString()))
-            .map((layout: any) => ({
-              ...layout,
-              // Ensure minimum dimensions to prevent invisible widgets
-              w: Math.max(layout.w || 2, 1),
-              h: Math.max(layout.h || 4, 2),
-              minW: 1,
-              minH: 2
-            }))
-
-          // If we have valid layout for all queries, use it, otherwise regenerate
-          if (validatedLayout.length === reportData.queries.length) {
-            setGridLayout(validatedLayout)
+        // Initialize active tab if report has tabs
+        if (reportData.tabs && reportData.tabs.length > 0) {
+          const sortedTabs = [...reportData.tabs].sort((a, b) => a.orderIndex - b.orderIndex)
+          setActiveTab(sortedTabs[0].id)
+          
+          // Initialize layout for first tab
+          const firstTab = sortedTabs[0]
+          if (firstTab.layoutConfig && firstTab.layoutConfig.length > 0) {
+            const validQueryIds = new Set(firstTab.queries.map(q => q.id.toString()))
+            const validatedLayout = firstTab.layoutConfig
+              .filter((layout: any) => validQueryIds.has(layout.i.toString()))
+              .map((layout: any) => ({
+                ...layout,
+                w: Math.max(layout.w || 2, 1),
+                h: Math.max(layout.h || 4, 2),
+                minW: 1,
+                minH: 2
+              }))
+            
+            if (validatedLayout.length === firstTab.queries.length) {
+              setGridLayout(validatedLayout)
+            } else {
+              setGridLayout(generateDefaultLayout(firstTab.queries))
+            }
           } else {
-            setGridLayout(generateDefaultLayout(reportData.queries))
+            setGridLayout(generateDefaultLayout(firstTab.queries))
           }
         } else {
-          const savedLayout = localStorage.getItem(`report_layout_${reportData.id}`)
-          if (savedLayout) {
-            setGridLayout(JSON.parse(savedLayout))
+          // No tabs - use report-level layout (backward compatibility)
+          if (reportData.layoutConfig && reportData.layoutConfig.length > 0) {
+            // Validate and fix layout config - ensure all entries have valid query IDs
+            const validQueryIds = new Set(reportData.queries.map(q => q.id.toString()))
+            const validatedLayout = reportData.layoutConfig
+              .filter((layout: any) => validQueryIds.has(layout.i.toString()))
+              .map((layout: any) => ({
+                ...layout,
+                // Ensure minimum dimensions to prevent invisible widgets
+                w: Math.max(layout.w || 2, 1),
+                h: Math.max(layout.h || 4, 2),
+                minW: 1,
+                minH: 2
+              }))
+
+            // If we have valid layout for all queries, use it, otherwise regenerate
+            if (validatedLayout.length === reportData.queries.length) {
+              setGridLayout(validatedLayout)
+            } else {
+              setGridLayout(generateDefaultLayout(reportData.queries))
+            }
           } else {
-            setGridLayout(generateDefaultLayout(reportData.queries))
+            const savedLayout = localStorage.getItem(`report_layout_${reportData.id}`)
+            if (savedLayout) {
+              setGridLayout(JSON.parse(savedLayout))
+            } else {
+              setGridLayout(generateDefaultLayout(reportData.queries))
+            }
           }
         }
 
@@ -3090,6 +3202,27 @@ export default function ReportDetailPage() {
         />
       )}
 
+      {/* Tabs Navigation */}
+      {report.tabs && report.tabs.length > 0 && (
+        <div className="bg-white rounded-lg shadow-md border border-gray-200 mb-4">
+          <div className="flex items-center gap-1 px-2 py-2 overflow-x-auto">
+            {[...report.tabs].sort((a, b) => a.orderIndex - b.orderIndex).map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {tab.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Queries */}
       {isLayoutEditMode && (
         <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-2">
@@ -3116,7 +3249,7 @@ export default function ReportDetailPage() {
         compactType="vertical"
         preventCollision={false}
       >
-        {report.queries.map((query) => {
+        {getDisplayQueries().map((query) => {
           const Icon = VISUALIZATION_ICONS[query.visualization.type] || Table
           const queryState = queryResults[query.id]
 
