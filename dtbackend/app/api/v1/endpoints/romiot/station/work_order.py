@@ -671,7 +671,8 @@ async def create_work_order(
 async def update_exit_date(
     update_data: WorkOrderUpdateExitDate,
     current_user: User = Depends(check_authenticated),
-    romiot_db: AsyncSession = Depends(get_romiot_db)
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+    postgres_db: AsyncSession = Depends(get_postgres_db),
 ):
     """
     Find work order package by unique keys (station_id, work_order_group_id, package_index)
@@ -704,8 +705,14 @@ async def update_exit_date(
     if work_order.exit_date is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Bu paket (Paket {update_data.package_index}/{work_order.total_packages}) ile çıkış işlemi yapılmıştır"
+            detail=f"Bu paket (Paket {update_data.package_index}/{work_order.total_packages}) tamamen çıkış yapılmıştır"
         )
+
+    exit_error = _check_exit_scan(
+        update_data.scan_quantity, work_order.entered_quantity, work_order.exited_quantity
+    )
+    if exit_error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exit_error)
 
     # F6 route validation on exit
     route_rows_result = await romiot_db.execute(
@@ -746,10 +753,27 @@ async def update_exit_date(
                 "actual_position": this_pos,
             })
 
-    # Update exit_date with current datetime (timezone-aware)
-    work_order.exit_date = datetime.now(timezone.utc)
+    # Accumulate exited pieces; the package is "fully exited" (exit_date stamped)
+    # only when exited_quantity reaches the package's full quantity.
+    work_order.exited_quantity = work_order.exited_quantity + update_data.scan_quantity
+    if work_order.exited_quantity >= work_order.quantity:
+        work_order.exit_date = datetime.now(timezone.utc)
     if update_data.acknowledged_route_violation:
         work_order.route_violation = True
+
+    # Resolve the operator's postgres user id for the audit row
+    pg_user = await UserService.get_user_by_username(postgres_db, current_user.username)
+    if not pg_user:
+        pg_user = await UserService.create_user(postgres_db, current_user.username)
+    romiot_db.add(WorkOrderScan(
+        station_id=update_data.station_id,
+        work_order_group_id=update_data.work_order_group_id,
+        package_index=update_data.package_index,
+        direction="out",
+        quantity=update_data.scan_quantity,
+        user_id=pg_user.id,
+    ))
+
     await romiot_db.commit()
     await romiot_db.refresh(work_order)
 
