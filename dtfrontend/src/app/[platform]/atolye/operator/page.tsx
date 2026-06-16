@@ -427,6 +427,9 @@ export default function OperatorPage() {
 
   const handleQRCodeScan = useCallback(
     async (qrCodeData: string) => {
+      // Don't start a new scan while the quantity modal is open (the keyboard
+      // scanner path is already paused; this also guards direct/test callers).
+      if (quantityModalOpenRef.current) return;
       if (!stationId) {
         setError("Atölye ID bulunamadı");
         return;
