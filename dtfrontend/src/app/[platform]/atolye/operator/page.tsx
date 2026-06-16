@@ -9,6 +9,7 @@ import { EntryStationBadge } from "@/components/atolye/EntryStationBadge";
 import { RoutePickerModal } from "@/components/atolye/RoutePickerModal";
 import { RouteWarningModal } from "@/components/atolye/RouteWarningModal";
 import QRCodeSVG from "react-qr-code";
+import { QuantityModal } from "@/components/atolye/QuantityModal";
 
 type Mode = "entrance" | "exit" | null;
 
@@ -31,6 +32,12 @@ interface QRCodeData {
   package_index: number;
   total_packages: number;
   target_date: string | null;
+}
+
+interface PackageStatus {
+  exists: boolean;
+  entered_quantity: number;
+  exited_quantity: number;
 }
 
 // Parse a structured FastAPI error body (api throws ApiError whose message is
@@ -142,7 +149,7 @@ interface WorkOrderQrCode {
 }
 
 // Map QR code data to API payload
-const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
+const mapQRCodeToApi = (qrCodeData: any, stationId: number, scanQuantity: number): any => {
   if (!qrCodeData || typeof qrCodeData !== "object") {
     throw new Error("QR kod verisi geçersiz veya boş");
   }
@@ -203,11 +210,12 @@ const mapQRCodeToApi = (qrCodeData: any, stationId: number): any => {
     package_index: packageIndexNum,
     total_packages: totalPackagesNum,
     target_date: targetDate || null,
+    scan_quantity: scanQuantity,
   };
 };
 
 // Map QR code data to exit payload
-const mapQRCodeToExitApi = (qrCodeData: any, stationId: number): any => {
+const mapQRCodeToExitApi = (qrCodeData: any, stationId: number, scanQuantity: number): any => {
   if (!qrCodeData || typeof qrCodeData !== "object") {
     throw new Error("QR kod verisi geçersiz veya boş");
   }
@@ -222,6 +230,7 @@ const mapQRCodeToExitApi = (qrCodeData: any, stationId: number): any => {
     station_id: stationId,
     work_order_group_id: String(workOrderGroupId).trim(),
     package_index: typeof packageIndex === "number" ? packageIndex : Number(packageIndex),
+    scan_quantity: scanQuantity,
   };
 };
 
@@ -258,6 +267,21 @@ export default function OperatorPage() {
     allDone: boolean;
     message: string;
   } | null>(null);
+
+  // Quantity modal (partial scan). Holds the resolved QR + current package counters.
+  const [quantityModal, setQuantityModal] = useState<{
+    mode: "entrance" | "exit";
+    parsedData: QRCodeData;
+    entered: number;
+    exited: number;
+  } | null>(null);
+  const [quantityModalLoading, setQuantityModalLoading] = useState(false);
+  // Ref mirror of "is a quantity modal open" so the global scanner handler can
+  // bail out without being re-created on every modal toggle.
+  const quantityModalOpenRef = useRef(false);
+  useEffect(() => {
+    quantityModalOpenRef.current = quantityModal !== null;
+  }, [quantityModal]);
 
   // Simplified work order table state
   const [groupedWorkOrders, setGroupedWorkOrders] = useState<GroupedWorkOrder[]>([]);
@@ -449,96 +473,45 @@ export default function OperatorPage() {
           return;
         }
 
-        if (mode === "entrance") {
-          let payload;
+        if (mode === "entrance" || mode === "exit") {
+          // Fetch current per-package progress, then open the quantity modal.
+          const packageIndex = parsedData.package_index;
+          let status: PackageStatus;
           try {
-            payload = mapQRCodeToApi(parsedData, stationId);
-          } catch (mappingError: any) {
-            console.error("Mapping error:", mappingError);
-            setError(mappingError.message || "QR kod verisi işlenirken hata oluştu");
-            return;
-          }
-
-          let response: WorkOrderCreateResponse;
-          try {
-            response = await api.post<WorkOrderCreateResponse>("/romiot/station/work-orders/", payload);
-          } catch (postError: any) {
-            // F6: a 400 whose detail is a route-deviation object opens the warning modal.
-            const detail = parseDetail(postError);
-            if (detail && typeof detail === "object" && (detail.type === "route_off" || detail.type === "route_out_of_order")) {
-              setRouteWarning({ message: detail.message, pendingPayload: payload, mode: "entrance" });
-              return;
-            }
-            throw postError;
-          }
-
-          setError(null);
-          setScanProgress({
-            groupId: response.work_order.work_order_group_id,
-            scanned: response.packages_scanned,
-            total: response.total_packages,
-            allDone: response.all_scanned,
-            message: response.message,
-          });
-
-          if (response.all_scanned) {
-            setSuccessMessage(response.message);
-            setTimeout(() => setScanProgress(null), 5000);
-          }
-
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          await fetchWorkOrders();
-          setQRCodeInput("");
-
-          // F5/F6: the very first scan of a group prompts the operator to define
-          // the route. Suspend scanning until the route is saved or cancelled.
-          if (response.is_first_scan_for_group) {
-            setRoutePickerGroupId(response.work_order.work_order_group_id);
-            setRoutePickerOpen(true);
-            setMode(null);
-          }
-        } else if (mode === "exit") {
-          let payload;
-          try {
-            payload = mapQRCodeToExitApi(parsedData, stationId);
-          } catch (mappingError: any) {
-            console.error("Mapping error:", mappingError);
-            setError(mappingError.message || "QR kod verisi işlenirken hata oluştu");
-            return;
-          }
-
-          let response: WorkOrderExitResponse;
-          try {
-            response = await api.post<WorkOrderExitResponse>(
-              "/romiot/station/work-orders/update-exit-date",
-              payload
+            status = await api.get<PackageStatus>(
+              `/romiot/station/work-orders/package-status?station_id=${stationId}` +
+                `&work_order_group_id=${encodeURIComponent(parsedData.work_order_group_id)}` +
+                `&package_index=${packageIndex}`,
+              undefined,
+              { useCache: false }
             );
-          } catch (postError: any) {
-            // F6: a 400 whose detail is a route-deviation object opens the warning modal.
-            const detail = parseDetail(postError);
-            if (detail && typeof detail === "object" && (detail.type === "route_off" || detail.type === "route_out_of_order")) {
-              setRouteWarning({ message: detail.message, pendingPayload: payload, mode: "exit" });
-              return;
-            }
-            throw postError;
+          } catch (statusError: any) {
+            setError(statusError?.message || "Paket durumu alınamadı");
+            return;
           }
 
-          setError(null);
-          setScanProgress({
-            groupId: response.work_order.work_order_group_id,
-            scanned: response.packages_exited,
-            total: response.total_packages,
-            allDone: response.all_exited,
-            message: response.message,
+          const cap = Number(parsedData.quantity) || 0;
+          const remaining =
+            mode === "entrance"
+              ? Math.max(0, cap - status.entered_quantity)
+              : Math.max(0, status.entered_quantity - status.exited_quantity);
+
+          if (remaining === 0) {
+            setError(
+              mode === "entrance"
+                ? `Bu paket tamamen girildi (Paket ${packageIndex})`
+                : `Çıkışı yapılacak parça yok (Paket ${packageIndex})`
+            );
+            setQRCodeInput("");
+            return;
+          }
+
+          setQuantityModal({
+            mode,
+            parsedData,
+            entered: status.entered_quantity,
+            exited: status.exited_quantity,
           });
-
-          if (response.all_exited) {
-            setSuccessMessage(response.message);
-            setTimeout(() => setScanProgress(null), 5000);
-          }
-
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          await fetchWorkOrders();
           setQRCodeInput("");
         }
       } catch (err: any) {
@@ -611,6 +584,102 @@ export default function OperatorPage() {
     [mode, stationId, fetchWorkOrders]
   );
 
+  const handleQuantityConfirm = useCallback(
+    async (scanQuantity: number) => {
+      if (!quantityModal || !stationId) return;
+      const { mode: scanMode, parsedData } = quantityModal;
+      setError(null);
+      setSuccessMessage(null);
+      setQuantityModalLoading(true);
+      try {
+        if (scanMode === "entrance") {
+          let payload;
+          try {
+            payload = mapQRCodeToApi(parsedData, stationId, scanQuantity);
+          } catch (mappingError: any) {
+            setError(mappingError.message || "QR kod verisi işlenirken hata oluştu");
+            return;
+          }
+          let response: WorkOrderCreateResponse;
+          try {
+            response = await api.post<WorkOrderCreateResponse>("/romiot/station/work-orders/", payload);
+          } catch (postError: any) {
+            const detail = parseDetail(postError);
+            if (detail && typeof detail === "object" && (detail.type === "route_off" || detail.type === "route_out_of_order")) {
+              setRouteWarning({ message: detail.message, pendingPayload: payload, mode: "entrance" });
+              setQuantityModal(null);
+              return;
+            }
+            throw postError;
+          }
+          setScanProgress({
+            groupId: response.work_order.work_order_group_id,
+            scanned: response.packages_scanned,
+            total: response.total_packages,
+            allDone: response.all_scanned,
+            message: response.message,
+          });
+          if (response.all_scanned) {
+            setSuccessMessage(response.message);
+            setTimeout(() => setScanProgress(null), 5000);
+          }
+          setQuantityModal(null);
+          await fetchWorkOrders();
+          if (response.is_first_scan_for_group) {
+            setRoutePickerGroupId(response.work_order.work_order_group_id);
+            setRoutePickerOpen(true);
+            setMode(null);
+          }
+        } else {
+          let payload;
+          try {
+            payload = mapQRCodeToExitApi(parsedData, stationId, scanQuantity);
+          } catch (mappingError: any) {
+            setError(mappingError.message || "QR kod verisi işlenirken hata oluştu");
+            return;
+          }
+          let response: WorkOrderExitResponse;
+          try {
+            response = await api.post<WorkOrderExitResponse>("/romiot/station/work-orders/update-exit-date", payload);
+          } catch (postError: any) {
+            const detail = parseDetail(postError);
+            if (detail && typeof detail === "object" && (detail.type === "route_off" || detail.type === "route_out_of_order")) {
+              setRouteWarning({ message: detail.message, pendingPayload: payload, mode: "exit" });
+              setQuantityModal(null);
+              return;
+            }
+            throw postError;
+          }
+          setScanProgress({
+            groupId: response.work_order.work_order_group_id,
+            scanned: response.packages_exited,
+            total: response.total_packages,
+            allDone: response.all_exited,
+            message: response.message,
+          });
+          if (response.all_exited) {
+            setSuccessMessage(response.message);
+            setTimeout(() => setScanProgress(null), 5000);
+          }
+          setQuantityModal(null);
+          await fetchWorkOrders();
+        }
+      } catch (err: any) {
+        const detail = parseDetail(err);
+        if (detail && typeof detail === "string") {
+          setError(detail);
+        } else if (detail && typeof detail === "object" && detail.message) {
+          setError(detail.message);
+        } else {
+          setError(err?.message || "İşlem sırasında bir hata oluştu");
+        }
+      } finally {
+        setQuantityModalLoading(false);
+      }
+    },
+    [quantityModal, stationId, fetchWorkOrders]
+  );
+
   // Expose test function to window for console testing
   useEffect(() => {
     (window as any).testQRCodeScan = (qrCodeData: string | object) => {
@@ -641,6 +710,9 @@ export default function OperatorPage() {
     }
 
     const handleKeyPress = (e: KeyboardEvent) => {
+      // While the quantity modal is open, let keystrokes reach its input and
+      // don't let a stray scanner Enter re-fire a scan.
+      if (quantityModalOpenRef.current) return;
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
         return;
@@ -1564,6 +1636,23 @@ export default function OperatorPage() {
           }
         }}
       />
+
+      {/* Partial-quantity modal shown after each scan */}
+      {quantityModal && (
+        <QuantityModal
+          open={!!quantityModal}
+          mode={quantityModal.mode}
+          partNumber={`${quantityModal.parsedData.part_number}${quantityModal.parsedData.revision_number ? "/" + quantityModal.parsedData.revision_number : ""}`}
+          packageIndex={quantityModal.parsedData.package_index}
+          totalPackages={quantityModal.parsedData.total_packages}
+          quantity={Number(quantityModal.parsedData.quantity) || 0}
+          enteredQuantity={quantityModal.entered}
+          exitedQuantity={quantityModal.exited}
+          loading={quantityModalLoading}
+          onConfirm={handleQuantityConfirm}
+          onCancel={() => setQuantityModal(null)}
+        />
+      )}
     </div>
   );
 }
