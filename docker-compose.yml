@@ -152,7 +152,23 @@ services:
       - dtbackend
     env_file:
       - dtfrontend/.env
+    # --- Runtime hardening (defense-in-depth; the real fix is the patched Next.js) ---
+    user: "1000:1000"                 # never run as root (the image's `node` user)
+    read_only: true                   # immutable root fs: blocks dropping miners/binaries
+    tmpfs:                            # the only writable paths the standalone server needs
+      - /tmp
+      - /app/.next/cache
+    security_opt:
+      - no-new-privileges:true        # block setuid privilege escalation
+    cap_drop:
+      - ALL                           # drop all Linux capabilities
+    pids_limit: 256                   # cap fork bombs / process flooding
+    mem_limit: 1g                     # cap memory (starves a cryptominer)
+    cpus: 2.0                         # cap CPU (a miner can no longer peg every core)
     restart: unless-stopped
+    # NOTE: also restrict egress at the network/firewall layer. This attack pulled the
+    # miner from 221.156.167.200:9090 and beaconed to 141.95.72.59:443 — an outbound
+    # allowlist (only your backend/APIs) would have blocked both.
 volumes:
   postgres_data:
   clickhouse_data:
