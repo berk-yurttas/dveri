@@ -873,6 +873,36 @@ async def update_exit_date(
     )
 
 
+@router.get("/package-status", response_model=PackageStatus)
+async def get_package_status(
+    station_id: int = Query(..., description="Station ID"),
+    work_order_group_id: str = Query(..., description="İş Emri Grup ID"),
+    package_index: int = Query(..., description="Paket sırası (1-based)"),
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """Current piece-level progress for one package at one station — used by the
+    operator's quantity modal to default to the remaining amount."""
+    await check_station_operator_role(station_id, current_user, romiot_db)
+    result = await romiot_db.execute(
+        select(WorkOrder).where(
+            and_(
+                WorkOrder.station_id == station_id,
+                WorkOrder.work_order_group_id == work_order_group_id,
+                WorkOrder.package_index == package_index,
+            )
+        )
+    )
+    wo = result.scalar_one_or_none()
+    if wo is None:
+        return PackageStatus(exists=False, entered_quantity=0, exited_quantity=0)
+    return PackageStatus(
+        exists=True,
+        entered_quantity=wo.entered_quantity,
+        exited_quantity=wo.exited_quantity,
+    )
+
+
 @router.get("/list/{station_id}", response_model=list[WorkOrderList])
 async def get_work_orders_by_station(
     station_id: int,
