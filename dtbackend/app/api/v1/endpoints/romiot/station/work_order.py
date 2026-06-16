@@ -23,6 +23,7 @@ from app.models.romiot_models import (
     WorkOrder,
     WorkOrderPair,
     WorkOrderRoute,
+    WorkOrderScan,
 )
 from app.schemas.order_pair import OrderPair
 from app.schemas.user import User
@@ -40,6 +41,7 @@ from app.schemas.work_order import (
     PaginatedWorkOrderResponse,
     TrackResponse,
     TrackMatch,
+    PackageStatus,
 )
 
 router = APIRouter()
@@ -403,7 +405,8 @@ async def create_work_order(
         pg_user = await UserService.create_user(postgres_db, current_user.username)
     pg_user_id = pg_user.id
 
-    # Duplicate-package check (existing)
+    # Existing-row lookup (partial-quantity): a package may be re-scanned to enter
+    # more pieces, up to its full quantity. No longer a hard duplicate error.
     existing_result = await romiot_db.execute(
         select(WorkOrder).where(
             and_(
@@ -413,11 +416,14 @@ async def create_work_order(
             )
         )
     )
-    if existing_result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Bu paket (Paket {work_order_data.package_index}/{work_order_data.total_packages}) ile işlem yapılmıştır",
-        )
+    existing_wo = existing_result.scalar_one_or_none()
+
+    already_entered = existing_wo.entered_quantity if existing_wo else 0
+    entrance_error = _check_entrance_scan(
+        work_order_data.scan_quantity, already_entered, work_order_data.quantity
+    )
+    if entrance_error:
+        raise HTTPException(status_code=400, detail=entrance_error)
 
     # Determine if this is the first scan for the group
     first_scan_check = await romiot_db.execute(
@@ -558,34 +564,55 @@ async def create_work_order(
         )
         company_from_id = cf.scalar_one_or_none()
 
-    # Create WorkOrder row. Legacy scalar columns mirror pairs[0] for back-compat.
-    first_pair = work_order_data.pairs[0]
-    new_work_order = WorkOrder(
+    # Create-or-accumulate the package row.
+    if existing_wo is not None:
+        existing_wo.entered_quantity = existing_wo.entered_quantity + work_order_data.scan_quantity
+        if work_order_data.acknowledged_route_violation:
+            existing_wo.route_violation = True
+        new_work_order = existing_wo
+    else:
+        # Legacy scalar columns mirror pairs[0] for back-compat.
+        first_pair = work_order_data.pairs[0]
+        new_work_order = WorkOrder(
+            station_id=work_order_data.station_id,
+            user_id=pg_user_id,
+            work_order_group_id=work_order_data.work_order_group_id,
+            main_customer=work_order_data.main_customer,
+            sector=work_order_data.sector,
+            company_from=work_order_data.company_from,
+            company_from_id=company_from_id,
+            teklif_number=work_order_data.teklif_number,
+            aselsan_order_number=first_pair.aselsan_order_number,
+            order_item_number=first_pair.order_item_number,
+            part_number=work_order_data.part_number,
+            revision_number=work_order_data.revision_number,
+            quantity=work_order_data.quantity,
+            total_quantity=work_order_data.total_quantity,
+            entered_quantity=work_order_data.scan_quantity,
+            exited_quantity=0,
+            package_index=work_order_data.package_index,
+            total_packages=work_order_data.total_packages,
+            target_date=work_order_data.target_date,
+            qr_code=work_order_data.qr_code,
+            qr_created_at=qr_created_at,
+            exit_date=None,
+            priority=existing_priority,
+            prioritized_by=existing_prioritized_by,
+            route_violation=work_order_data.acknowledged_route_violation,
+        )
+        romiot_db.add(new_work_order)
+
+    # Append-only audit row for this scan
+    romiot_db.add(WorkOrderScan(
         station_id=work_order_data.station_id,
-        user_id=pg_user_id,
         work_order_group_id=work_order_data.work_order_group_id,
-        main_customer=work_order_data.main_customer,
-        sector=work_order_data.sector,
-        company_from=work_order_data.company_from,
-        company_from_id=company_from_id,
-        teklif_number=work_order_data.teklif_number,
-        aselsan_order_number=first_pair.aselsan_order_number,
-        order_item_number=first_pair.order_item_number,
-        part_number=work_order_data.part_number,
-        revision_number=work_order_data.revision_number,
-        quantity=work_order_data.quantity,
-        total_quantity=work_order_data.total_quantity,
         package_index=work_order_data.package_index,
-        total_packages=work_order_data.total_packages,
-        target_date=work_order_data.target_date,
+        direction="in",
+        quantity=work_order_data.scan_quantity,
+        user_id=pg_user_id,
         qr_code=work_order_data.qr_code,
-        qr_created_at=qr_created_at,
-        exit_date=None,
-        priority=existing_priority,
-        prioritized_by=existing_prioritized_by,
-        route_violation=work_order_data.acknowledged_route_violation,
-    )
-    romiot_db.add(new_work_order)
+    ))
+
     await romiot_db.commit()
     await romiot_db.refresh(new_work_order)
 
