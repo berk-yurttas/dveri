@@ -34,7 +34,7 @@ def _build_payload_item(
         "ActualEndDate": work_order.exit_date.isoformat() if work_order.exit_date else None,
         "PlannedQuantity": work_order.quantity,
         "WorkOrderAmount": work_order.total_quantity,
-        "ActualQuantity": work_order.quantity if work_order.exit_date else 0,
+        "ActualQuantity": work_order.exited_quantity,
         "MES_CreatedDate": work_order.qr_created_at.isoformat() if work_order.qr_created_at else None,
         "NeedDate": work_order.target_date.isoformat() if work_order.target_date else None,
         "AselsanSectorCode": work_order.sector,
