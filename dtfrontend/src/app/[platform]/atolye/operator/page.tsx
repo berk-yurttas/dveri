@@ -63,6 +63,8 @@ interface WorkOrder {
   pairs: OrderPair[];
   quantity: number;
   total_quantity: number;
+  entered_quantity: number;
+  exited_quantity: number;
   package_index: number;
   total_packages: number;
   target_date: string | null;
@@ -89,6 +91,8 @@ interface WorkOrderDetail {
   revision_number: string;
   quantity: number;
   total_quantity: number;
+  entered_quantity: number;
+  exited_quantity: number;
   package_index: number;
   total_packages: number;
   priority: number;
@@ -620,7 +624,7 @@ export default function OperatorPage() {
             scanned: response.packages_scanned,
             total: response.total_packages,
             allDone: response.all_scanned,
-            message: response.message,
+            message: `${response.message} · Paket ${response.work_order.package_index}: girilen ${response.work_order.entered_quantity}/${response.work_order.quantity}`,
           });
           if (response.all_scanned) {
             setSuccessMessage(response.message);
@@ -658,7 +662,7 @@ export default function OperatorPage() {
             scanned: response.packages_exited,
             total: response.total_packages,
             allDone: response.all_exited,
-            message: response.message,
+            message: `${response.message} · Paket ${response.work_order.package_index}: çıkan ${response.work_order.exited_quantity}/${response.work_order.quantity}`,
           });
           if (response.all_exited) {
             setSuccessMessage(response.message);
@@ -1353,7 +1357,9 @@ export default function OperatorPage() {
                                         <div className="flex items-center justify-between mb-1">
                                           <div className="flex items-center gap-2">
                                             <span className="w-5 h-5 bg-[#0f4c3a] text-white rounded-full flex items-center justify-center text-xs font-bold">{entry.package_index}</span>
-                                            <span className="text-gray-500">Paket {entry.package_index}/{entry.total_packages} ({entry.quantity} parça)</span>
+                                            <span className="text-gray-500">
+                                              Paket {entry.package_index}/{entry.total_packages} — Girilen {entry.entered_quantity}/{entry.quantity}, Çıkan {entry.exited_quantity}/{entry.quantity}
+                                            </span>
                                           </div>
                                           {entry.exit_date ? (
                                             <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs">Çıkış Yapıldı</span>
