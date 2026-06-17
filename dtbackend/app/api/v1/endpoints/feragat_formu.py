@@ -2294,19 +2294,19 @@ async def onayla_feragat(
         async with httpx.AsyncClient() as client:
             # Handle status-based workflow
             if action_request.status == 'waiting_for_acceptance':
-                # Step 1: Accept task
-                accept_url = f"{settings.SEYIR_BASE_URL}/client/job-steps/{action_request.step_instance_id}/accept-task"
-                print(f"[onayla_feragat] Sending accept-task request to: {accept_url}")
-                accept_response = await client.post(accept_url, cookies=cookies, timeout=30.0)
-                print(f"[onayla_feragat] Accept response status: {accept_response.status_code}")
+                # # Step 1: Accept task
+                # accept_url = f"{settings.SEYIR_BASE_URL}/client/job-steps/{action_request.step_instance_id}/accept-task"
+                # print(f"[onayla_feragat] Sending accept-task request to: {accept_url}")
+                #   = await client.post(accept_url, cookies=cookies, timeout=30.0)
+                # print(f"[onayla_feragat] Accept response status: {accept_response.status_code}")
                 
-                if accept_response.status_code not in [200, 201]:
-                    raise HTTPException(
-                        status_code=accept_response.status_code,
-                        detail=f"Accept task error: {accept_response.text}"
-                    )
+                # if accept_response.status_code not in [200, 201]:
+                #     raise HTTPException(
+                #         status_code=accept_response.status_code,
+                #         detail=f"Accept task error: {accept_response.text}"
+                #     )
                 
-                # Step 2: Start task
+                # Step 2: Start task  
                 start_url = f"{settings.SEYIR_BASE_URL}/client/job-steps/{action_request.step_instance_id}/start-task"
                 print(f"[onayla_feragat] Sending start-task request to: {start_url}")
                 start_response = await client.post(start_url, cookies=cookies, timeout=30.0)
