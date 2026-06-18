@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/appShell/
 import { Button } from "@/components/appShell/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/appShell/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/appShell/ui/dialog"
-import { Plus, Trash2, Database, BarChart3, PieChart, LineChart, Table, Calendar, Filter, Hash, Type, List, Play, Loader2, ArrowLeft, ChevronDown, ChevronRight } from "lucide-react"
+import { Plus, Trash2, Database, BarChart3, PieChart, LineChart, Table, Calendar, Filter, Hash, Type, List, Play, Loader2, ArrowLeft, ChevronDown, ChevronRight, Pencil } from "lucide-react"
 import { reportsService } from '@/services/reports'
 import { platformService } from '@/services/platform'
 import { ReportPreviewResponse, SavedReport, DatabaseConfig } from '@/types/reports'
@@ -1085,6 +1085,7 @@ export default function EditReportPage() {
     name: '',
     description: '',
     queries: [],
+    tabs: [],  // Add tabs support
     tags: [],
     globalFilters: [],
     layoutConfig: [],
@@ -1096,6 +1097,9 @@ export default function EditReportPage() {
   const [originalReport, setOriginalReport] = useState<SavedReport | null>(null)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [activeQueryIndex, setActiveQueryIndex] = useState<number>(0)
+  const [activeTabIndex, setActiveTabIndex] = useState<number>(0)
+  const [useTabsMode, setUseTabsMode] = useState<boolean>(false)  // Detect tabs from loaded report
+  const [editingTabIndex, setEditingTabIndex] = useState<number | null>(null)  // Track which tab is being renamed
   const [previewResults, setPreviewResults] = useState<Record<string, ReportPreviewResponse>>({})
   const [loadingPreview, setLoadingPreview] = useState<Record<string, boolean>>({})
   const [filterDialogOpen, setFilterDialogOpen] = useState(false)
@@ -1190,7 +1194,14 @@ export default function EditReportPage() {
         setIsInitialLoading(true)
         const reportData = await reportsService.getReportById(reportId)
         setOriginalReport(reportData)
-        
+
+        // Detect if report uses tabs
+        const hasTabs = (reportData as any).tabs && (reportData as any).tabs.length > 0
+        setUseTabsMode(hasTabs)
+        if (hasTabs) {
+          setActiveTabIndex(0)  // Set first tab as active
+        }
+
         // Convert SavedReport to ReportConfig format, preserving layoutConfig
         const convertedReport: ReportConfig & { layoutConfig?: any[] } = {
           name: reportData.name,
@@ -1203,7 +1214,32 @@ export default function EditReportPage() {
           isDirectLink: (reportData as any).isDirectLink || false,
           directLink: (reportData as any).directLink || '',
           dbConfig: (reportData as any).dbConfig,  // Preserve the database configuration
-          queries: reportData.queries.map((query, index) => ({
+          filterByDepartment: (reportData as any).filterByDepartment || false,  // Preserve the department filter setting
+          departmentFilterLevel: (reportData as any).departmentFilterLevel || null,  // Preserve the department filter level
+          filterByStepDepartment: (reportData as any).filterByStepDepartment || false,  // Preserve the step_department filter setting
+          tabs: hasTabs ? (reportData as any).tabs.map((tab: any) => ({
+            id: tab.id?.toString() || generateId(),
+            name: tab.name,
+            orderIndex: tab.orderIndex || 0,
+            layoutConfig: tab.layoutConfig || [],
+            queries: tab.queries.map((query: any) => ({
+              id: query.id?.toString() || generateId(),
+              name: query.name,
+              sql: query.sql,
+              visualization: query.visualization,
+              filters: query.filters.map((filter: any) => ({
+                id: filter.id?.toString() || generateId(),
+                fieldName: filter.fieldName,
+                displayName: filter.displayName,
+                type: filter.type,
+                dropdownQuery: filter.dropdownQuery || undefined,
+                required: filter.required,
+                sqlExpression: filter.sqlExpression || undefined,
+                dependsOn: filter.dependsOn || undefined
+              }))
+            }))
+          })) : [],
+          queries: !hasTabs ? reportData.queries.map((query, index) => ({
             id: query.id?.toString() || generateId(),
             name: query.name,
             sql: query.sql,
@@ -1218,10 +1254,13 @@ export default function EditReportPage() {
               sqlExpression: filter.sqlExpression || undefined,
               dependsOn: filter.dependsOn || undefined
             }))
-          }))
+          })) : []
         }
 
         setReport(convertedReport)
+        
+        // Reset query index to 0
+        setActiveQueryIndex(0)
         
         // Set the selected database name from the report's db_config
         if (convertedReport.dbConfig) {
@@ -1356,11 +1395,11 @@ export default function EditReportPage() {
   const addNewQuery = () => {
     const newQuery: QueryConfig = {
       id: generateId(),
-      name: `Sorgu ${report.queries.length + 1}`,
+      name: `Sorgu ${getCurrentQueries().length + 1}`,
       sql: '',
       visualization: {
         type: 'table',
-        title: `Sorgu ${report.queries.length + 1} Grafiği`,
+        title: `Sorgu ${getCurrentQueries().length + 1} Grafiği`,
         showLegend: true,
         colors: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'],
         chartOptions: {
@@ -1379,53 +1418,167 @@ export default function EditReportPage() {
       filters: []
     }
 
-    setReport(prev => {
-      const newQueries = [...prev.queries, newQuery]
-
-      // Add a default layout entry for the new query
-      const newLayoutEntry = {
-        i: newQuery.id,
-        x: (prev.queries.length % 2) * 2, // Alternate left/right (2 columns each)
-        y: Math.floor(prev.queries.length / 2) * 4, // Stack vertically
-        w: 2, // 2 columns width
-        h: 4, // 4 rows height
-        minW: 1,
-        minH: 2
-      }
-
-      return {
+    if (useTabsMode && report.tabs && report.tabs.length > 0) {
+      // Add query to active tab
+      setReport(prev => ({
         ...prev,
-        queries: newQueries,
-        layoutConfig: [...(prev.layoutConfig || []), newLayoutEntry]
-      }
-    })
-    setActiveQueryIndex(report.queries.length)
+        tabs: prev.tabs!.map((tab, index) => 
+          index === activeTabIndex 
+            ? { ...tab, queries: [...tab.queries, newQuery] }
+            : tab
+        )
+      }))
+    } else {
+      // Add query to flat queries list
+      setReport(prev => {
+        const newQueries = [...prev.queries, newQuery]
+
+        // Add a default layout entry for the new query
+        const newLayoutEntry = {
+          i: newQuery.id,
+          x: (prev.queries.length % 2) * 2, // Alternate left/right (2 columns each)
+          y: Math.floor(prev.queries.length / 2) * 4, // Stack vertically
+          w: 2, // 2 columns width
+          h: 4, // 4 rows height
+          minW: 1,
+          minH: 2
+        }
+
+        return {
+          ...prev,
+          queries: newQueries,
+          layoutConfig: [...(prev.layoutConfig || []), newLayoutEntry]
+        }
+      })
+    }
+    setActiveQueryIndex(useTabsMode ? report.tabs![activeTabIndex].queries.length : report.queries.length)
   }
 
-  const updateQuery = (index: number, updates: Partial<QueryConfig>) => {
+  // Helper function to get current queries (from tab or flat list)
+  const getCurrentQueries = () => {
+    if (useTabsMode && report.tabs && report.tabs[activeTabIndex]) {
+      return report.tabs[activeTabIndex].queries
+    }
+    return report.queries
+  }
+
+  // Helper function to update current queries
+  const updateCurrentQueries = (updater: (queries: QueryConfig[]) => QueryConfig[]) => {
+    if (useTabsMode && report.tabs) {
+      setReport(prev => ({
+        ...prev,
+        tabs: prev.tabs!.map((tab, tabIdx) =>
+          tabIdx === activeTabIndex
+            ? { ...tab, queries: updater(tab.queries) }
+            : tab
+        )
+      }))
+    } else {
+      setReport(prev => ({
+        ...prev,
+        queries: updater(prev.queries)
+      }))
+    }
+  }
+
+  // Tab Management Functions
+  const addNewTab = () => {
+    const newTab = {
+      id: generateId(),
+      name: `Sekme ${(report.tabs?.length || 0) + 1}`,
+      orderIndex: (report.tabs?.length || 0),
+      queries: []
+    }
     setReport(prev => ({
       ...prev,
-      queries: prev.queries.map((query, i) =>
-        i === index ? { ...query, ...updates } : query
+      tabs: [...(prev.tabs || []), newTab]
+    }))
+    setActiveTabIndex((report.tabs?.length || 0))
+  }
+
+  const removeTab = (tabIndex: number) => {
+    if (!report.tabs) return
+    setReport(prev => ({
+      ...prev,
+      tabs: prev.tabs!.filter((_, index) => index !== tabIndex)
+    }))
+    if (activeTabIndex >= (report.tabs.length - 1)) {
+      setActiveTabIndex(Math.max(0, (report.tabs.length - 2)))
+    }
+  }
+
+  const updateTabName = (tabIndex: number, name: string) => {
+    setReport(prev => ({
+      ...prev,
+      tabs: prev.tabs!.map((tab, index) => 
+        index === tabIndex ? { ...tab, name } : tab
       )
     }))
   }
 
+  const toggleTabsMode = () => {
+    if (!useTabsMode) {
+      // Switching to tabs mode - create first tab with existing queries
+      const firstTab = {
+        id: generateId(),
+        name: 'Genel',
+        orderIndex: 0,
+        queries: [...report.queries]
+      }
+      setReport(prev => ({
+        ...prev,
+        tabs: [firstTab],
+        queries: []  // Clear flat queries when using tabs
+      }))
+      setUseTabsMode(true)
+      setActiveTabIndex(0)
+    } else {
+      // Switching back to flat mode - merge all tab queries
+      const allQueries = report.tabs?.flatMap(tab => tab.queries) || []
+      setReport(prev => ({
+        ...prev,
+        queries: allQueries,
+        tabs: []
+      }))
+      setUseTabsMode(false)
+    }
+  }
+
+  const updateQuery = (index: number, updates: Partial<QueryConfig>) => {
+    updateCurrentQueries(queries =>
+      queries.map((query, i) => i === index ? { ...query, ...updates } : query)
+    )
+  }
+
   const updateVisualization = (queryIndex: number, updates: Partial<VisualizationConfig>) => {
-    setReport(prev => ({
-      ...prev,
-      queries: prev.queries.map((query, i) =>
+    updateCurrentQueries(queries =>
+      queries.map((query, i) =>
         i === queryIndex
           ? { ...query, visualization: { ...query.visualization, ...updates } }
           : query
       )
-    }))
+    )
   }
 
   const removeQuery = (index: number) => {
-    setReport(prev => {
-      const queryToRemove = prev.queries[index]
-      const newQueries = prev.queries.filter((_, i) => i !== index)
+    if (useTabsMode && report.tabs) {
+      // Remove query from active tab
+      setReport(prev => ({
+        ...prev,
+        tabs: prev.tabs!.map((tab, tabIdx) => 
+          tabIdx === activeTabIndex
+            ? { ...tab, queries: tab.queries.filter((_, i) => i !== index) }
+            : tab
+        )
+      }))
+      if (activeQueryIndex >= index && activeQueryIndex > 0) {
+        setActiveQueryIndex(activeQueryIndex - 1)
+      }
+    } else {
+      // Remove query from flat list
+      setReport(prev => {
+        const queryToRemove = prev.queries[index]
+        const newQueries = prev.queries.filter((_, i) => i !== index)
 
       // Also remove the layout entry for this query
       const newLayoutConfig = (prev.layoutConfig || []).filter(
@@ -1441,10 +1594,11 @@ export default function EditReportPage() {
     if (activeQueryIndex >= index && activeQueryIndex > 0) {
       setActiveQueryIndex(activeQueryIndex - 1)
     }
+    }
   }
 
   const addFilter = (queryIndex: number) => {
-    const query = report.queries[queryIndex]
+    const query = getCurrentQueries()[queryIndex]
     const availableFields = extractFieldsFromSQL(query.sql)
 
     if (availableFields.length === 0) {
@@ -1460,13 +1614,17 @@ export default function EditReportPage() {
       required: false
     }
 
-    updateQuery(queryIndex, {
-      filters: [...query.filters, newFilter]
-    })
+    updateCurrentQueries(queries =>
+      queries.map((q, i) =>
+        i === queryIndex
+          ? { ...q, filters: [...q.filters, newFilter] }
+          : q
+      )
+    )
   }
 
   const updateFilter = (queryIndex: number, filterIndex: number, updates: Partial<FilterConfig>) => {
-    const query = report.queries[queryIndex]
+    const query = getCurrentQueries()[queryIndex]
     const updatedFilters = query.filters.map((filter, i) =>
       i === filterIndex ? { ...filter, ...updates } : filter
     )
@@ -1474,7 +1632,7 @@ export default function EditReportPage() {
   }
 
   const removeFilter = (queryIndex: number, filterIndex: number) => {
-    const query = report.queries[queryIndex]
+    const query = getCurrentQueries()[queryIndex]
     const updatedFilters = query.filters.filter((_, i) => i !== filterIndex)
     updateQuery(queryIndex, { filters: updatedFilters })
   }
@@ -1682,13 +1840,22 @@ export default function EditReportPage() {
         return
       }
     } else {
-      // Normal mode: validate queries
-      if (report.queries.length === 0) {
+      // Normal mode: validate queries (check both flat queries and tabs)
+      const hasQueries = useTabsMode 
+        ? report.tabs && report.tabs.length > 0 && report.tabs.some(tab => tab.queries.length > 0)
+        : report.queries.length > 0
+      
+      if (!hasQueries) {
         alert('En az bir sorgu ekleyin.')
         return
       }
 
-      for (const query of report.queries) {
+      // Validate SQL for all queries (in tabs or flat)
+      const allQueries = useTabsMode 
+        ? report.tabs?.flatMap(tab => tab.queries) || []
+        : report.queries
+      
+      for (const query of allQueries) {
         if (!query.sql.trim()) {
           alert(`"${query.name}" sorgusu için SQL yazın.`)
           return
@@ -1701,15 +1868,48 @@ export default function EditReportPage() {
       const { layoutConfig, ...reportWithoutLayout } = report
 
       // Clean query and filter IDs (remove non-integer IDs as they're client-side only)
-      const cleanedReport = {
+      const cleanedReport: any = {
         ...reportWithoutLayout,
-        queries: reportWithoutLayout.queries.map((query: any) => {
+      }
+
+      // Clean tabs if using tabs mode
+      if (useTabsMode && reportWithoutLayout.tabs) {
+        cleanedReport.tabs = reportWithoutLayout.tabs.map((tab: any) => {
+          const { id: tabId, ...tabWithoutId } = tab
+          const cleanedTab: any = {
+            ...tabWithoutId,
+            queries: tab.queries.map((query: any) => {
+              const { id: queryId, ...queryWithoutId } = query
+              const cleanedQuery: any = {
+                ...queryWithoutId,
+                filters: query.filters.map((filter: any) => {
+                  const { id, ...filterWithoutId } = filter
+                  if (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) {
+                    return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
+                  }
+                  return filterWithoutId
+                })
+              }
+              if (typeof queryId === 'number' || (typeof queryId === 'string' && /^\d+$/.test(queryId))) {
+                cleanedQuery.id = typeof queryId === 'number' ? queryId : parseInt(queryId, 10)
+              }
+              return cleanedQuery
+            })
+          }
+          if (typeof tabId === 'number' || (typeof tabId === 'string' && /^\d+$/.test(tabId))) {
+            cleanedTab.id = typeof tabId === 'number' ? tabId : parseInt(tabId, 10)
+          }
+          return cleanedTab
+        })
+        cleanedReport.queries = []
+      } else {
+        // Clean flat queries
+        cleanedReport.queries = reportWithoutLayout.queries.map((query: any) => {
           const { id: queryId, ...queryWithoutId } = query
           const cleanedQuery: any = {
             ...queryWithoutId,
             filters: query.filters.map((filter: any) => {
               const { id, ...filterWithoutId } = filter
-              // Only include id if it's a valid integer (existing filter from backend)
               const isValidFilterId = typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))
               if (isValidFilterId) {
                 return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
@@ -1717,23 +1917,24 @@ export default function EditReportPage() {
               return filterWithoutId
             })
           }
-          // Only include query id if it's a valid integer (existing query from backend)
           const isValidQueryId = typeof queryId === 'number' || (typeof queryId === 'string' && /^\d+$/.test(queryId))
           if (isValidQueryId) {
             cleanedQuery.id = typeof queryId === 'number' ? queryId : parseInt(queryId, 10)
           }
           return cleanedQuery
-        }),
-        globalFilters: reportWithoutLayout.globalFilters?.map((filter: any) => {
-          const { id, ...filterWithoutId } = filter
-          // Only include id if it's a valid integer (existing filter from backend)
-          const isValidFilterId = typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))
-          if (isValidFilterId) {
-            return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
-          }
-          return filterWithoutId
-        }) || []
+        })
+        cleanedReport.tabs = []
       }
+
+      // Clean global filters
+      cleanedReport.globalFilters = reportWithoutLayout.globalFilters?.map((filter: any) => {
+        const { id, ...filterWithoutId } = filter
+        const isValidFilterId = typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))
+        if (isValidFilterId) {
+          return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
+        }
+        return filterWithoutId
+      }) || []
 
       // Send the updated report to the backend using the full update endpoint
       console.log('Updating report:', cleanedReport)
@@ -1750,7 +1951,7 @@ export default function EditReportPage() {
     }
   }
 
-  const currentQuery = report.queries[activeQueryIndex]
+  const currentQuery = getCurrentQueries()[activeQueryIndex]
   const availableFields = currentQuery ? extractFieldsFromSQL(currentQuery.sql) : []
 
   if (isInitialLoading) {
@@ -1865,6 +2066,68 @@ export default function EditReportPage() {
                     </Label>
                   </div>
                 </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="filterByDepartment" className="text-sm">Departman Filtresi</Label>
+                  <div className="flex items-center space-x-2 h-9">
+                    <Checkbox
+                      id="filterByDepartment"
+                      checked={report.filterByDepartment || false}
+                      onCheckedChange={(checked) => setReport(prev => ({ ...prev, filterByDepartment: !!checked }))}
+                    />
+                    <Label htmlFor="filterByDepartment" className="text-sm font-normal cursor-pointer">
+                      Kullanıcının Departmanına Göre Filtrele
+                    </Label>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Etkinleştirildiğinde, rapor sorguları otomatik olarak kullanıcının departmanına göre filtrelenecektir
+                  </p>
+                </div>
+                
+                {/* Step Department Filter Checkbox */}
+                {report.filterByDepartment && (
+                  <div className="space-y-2">
+                    <Label htmlFor="filterByStepDepartment" className="text-sm">Kolon Seçimi</Label>
+                    <div className="flex items-center space-x-2 h-9">
+                      <Checkbox
+                        id="filterByStepDepartment"
+                        checked={report.filterByStepDepartment || false}
+                        onCheckedChange={(checked) => setReport(prev => ({ ...prev, filterByStepDepartment: !!checked }))}
+                      />
+                      <Label htmlFor="filterByStepDepartment" className="text-sm font-normal cursor-pointer">
+                        step_department Kolonunu Kullan (department yerine)
+                      </Label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Etkinleştirildiğinde, "department" kolonu yerine "step_department" kolonu kullanılır
+                    </p>
+                  </div>
+                )}
+                
+                {/* Department Filter Level Dropdown */}
+                {report.filterByDepartment && (
+                  <div className="space-y-2">
+                    <Label htmlFor="departmentFilterLevel" className="text-sm">
+                      Departman Seviyesi
+                    </Label>
+                    <Select
+                      id="departmentFilterLevel"
+                      value={report.departmentFilterLevel || ''}
+                      onValueChange={(value) => setReport(prev => ({ ...prev, departmentFilterLevel: value || null }))}
+                      className="h-9"
+                    >
+                      <option value="">Tam Hiyerarşi (Tüm Seviyeler)</option>
+                      <option value="sektor">Sektör</option>
+                      <option value="direktorluk">Direktörlük</option>
+                      <option value="mudurluk">Müdürlük</option>
+                      <option value="birim">Birim</option>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Hangi departman seviyesine göre filtreleme yapılacağını seçin. 
+                      Örneğin "Direktörlük" seçerseniz, kullanıcının direktörlüğündeki tüm veriler görünür.
+                    </p>
+                  </div>
+                )}
                 
                 {/* Database Selection */}
                 {!report.isDirectLink && availableDatabases.length > 0 && (
@@ -2087,16 +2350,89 @@ export default function EditReportPage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-slate-800 text-base">
                   <BarChart3 className="w-4 h-4 text-blue-600" />
-                  Sorgu ve Görselleştirme ({report.queries.length})
+                  Sorgu ve Görselleştirme ({getCurrentQueries().length})
                 </CardTitle>
-                <Button onClick={addNewQuery} size="sm" className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white">
-                  <Plus className="w-3 h-3 mr-1" />
-                  Yeni Sorgu
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={toggleTabsMode} size="sm" variant="outline" className="h-8 text-xs">
+                    {useTabsMode ? 'Sekme Kaldır' : 'Sekme Ekle'}
+                  </Button>
+                  <Button onClick={addNewQuery} size="sm" className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white">
+                    <Plus className="w-3 h-3 mr-1" />
+                    Yeni Sorgu
+                  </Button>
+                </div>
               </div>
+              
+              {/* Tab Management UI */}
+              {useTabsMode && report.tabs && report.tabs.length > 0 && (
+                <div className="flex items-center gap-2 px-4 pb-4 border-b flex-wrap">
+                  {report.tabs.map((tab, tabIndex) => (
+                    <div key={tab.id} className="flex items-center gap-1">
+                      {editingTabIndex === tabIndex ? (
+                        // Edit mode: show input
+                        <input
+                          type="text"
+                          value={tab.name}
+                          onChange={(e) => updateTabName(tabIndex, e.target.value)}
+                          onBlur={() => setEditingTabIndex(null)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              setEditingTabIndex(null)
+                            }
+                          }}
+                          autoFocus
+                          className="px-3 py-1.5 rounded text-sm font-medium border-2 border-blue-500 outline-none w-32"
+                        />
+                      ) : (
+                        // View mode: show button with tab name
+                        <>
+                          <button
+                            onClick={() => {
+                              setActiveTabIndex(tabIndex)
+                              setActiveQueryIndex(0)
+                            }}
+                            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                              activeTabIndex === tabIndex
+                                ? 'bg-blue-500 text-white'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            }`}
+                          >
+                            {tab.name}
+                          </button>
+                          <button
+                            onClick={() => setEditingTabIndex(tabIndex)}
+                            className="p-1 hover:bg-blue-100 rounded text-blue-600"
+                            title="Sekme adını düzenle"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        </>
+                      )}
+                      {report.tabs!.length > 1 && (
+                        <button
+                          onClick={() => removeTab(tabIndex)}
+                          className="p-1 hover:bg-red-100 rounded text-red-600"
+                          title="Sekmeyi sil"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <Button
+                    onClick={addNewTab}
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    Yeni Sekme
+                  </Button>
+                </div>
+              )}
             </CardHeader>
             <CardContent className="p-4">
-              {report.queries.length === 0 ? (
+              {getCurrentQueries().length === 0 ? (
                 <div className="text-center py-12">
                   <div className="mx-auto w-24 h-24 bg-gradient-to-r from-blue-100 to-purple-100 rounded-full flex items-center justify-center mb-6">
                     <Database className="w-12 h-12 text-blue-500" />
@@ -2113,8 +2449,8 @@ export default function EditReportPage() {
             ) : (
               <Tabs value={activeQueryIndex.toString()} onValueChange={(value) => setActiveQueryIndex(parseInt(value))}>
                 {/* Query Tabs */}
-                <TabsList className="grid w-full bg-slate-100 p-1 rounded-lg" style={{ gridTemplateColumns: `repeat(${report.queries.length}, minmax(0, 1fr))` }}>
-                  {report.queries.map((query, index) => (
+                <TabsList className="grid w-full bg-slate-100 p-1 rounded-lg" style={{ gridTemplateColumns: `repeat(${getCurrentQueries().length}, minmax(0, 1fr))` }}>
+                  {getCurrentQueries().map((query, index) => (
                     <div key={query.id} className="relative">
                       <TabsTrigger
                         value={index.toString()}
@@ -2123,7 +2459,7 @@ export default function EditReportPage() {
                       >
                         <span className="block truncate px-6">{query.name}</span>
                       </TabsTrigger>
-                      {report.queries.length > 1 && (
+                      {getCurrentQueries().length > 1 && (
                         <button
                           type="button"
                           className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0 text-red-500 hover:bg-red-100 bg-white border border-red-200 shadow-sm z-10 flex items-center justify-center transition-colors"
@@ -2140,7 +2476,7 @@ export default function EditReportPage() {
                 </TabsList>
 
                 {/* Query Content */}
-                {report.queries.map((query, queryIndex) => (
+                {getCurrentQueries().map((query, queryIndex) => (
                   <TabsContent key={query.id} value={queryIndex.toString()} className="space-y-6">
                     {/* Three Column Layout: Query | Visualization | Filters */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

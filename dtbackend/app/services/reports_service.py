@@ -15,6 +15,7 @@ from app.models.postgres_models import (
     Report,
     ReportQuery,
     ReportQueryFilter,
+    ReportTab,
     ReportUser,
     User,
 )
@@ -244,45 +245,92 @@ class ReportsService:
             allowed_users=report_data.allowed_users or [],
             is_direct_link=report_data.is_direct_link or False,
             direct_link=report_data.direct_link,
-            db_config=report_data.db_config
+            db_config=report_data.db_config,
+            filter_by_department=report_data.filter_by_department or False,
+            department_filter_level=report_data.department_filter_level,
+            filter_by_step_department=report_data.filter_by_step_department or False
         )
         self.db.add(db_report)
         await self.db.flush()  # Get the report ID
 
-        # Create queries only if not a direct link report
+        # Create tabs and queries only if not a direct link report
         if not report_data.is_direct_link:
-            for query_data in report_data.queries:
-                db_query = ReportQuery(
-                    report_id=db_report.id,
-                    name=query_data.name,
-                    sql=query_data.sql,
-                    visualization_config=query_data.visualization.dict(),
-                    order_index=query_data.order_index or 0
-                )
-                self.db.add(db_query)
-                await self.db.flush()  # Get the query ID
-
-                # Create filters for this query
-                for filter_data in query_data.filters:
-                    # Handle both enum and string types
-                    filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
-
-                    db_filter = ReportQueryFilter(
-                        query_id=db_query.id,
-                        field_name=filter_data.field_name,
-                        display_name=filter_data.display_name,
-                        filter_type=filter_type_value,
-                        dropdown_query=filter_data.dropdown_query,
-                        required=filter_data.required,
-                        sql_expression=filter_data.sql_expression,
-                        depends_on=filter_data.depends_on
+            # If tabs are provided, create tabs with their queries
+            if report_data.tabs and len(report_data.tabs) > 0:
+                for tab_data in report_data.tabs:
+                    db_tab = ReportTab(
+                        report_id=db_report.id,
+                        name=tab_data.name,
+                        order_index=tab_data.order_index or 0,
+                        layout_config=tab_data.layout_config or []
                     )
-                    self.db.add(db_filter)
+                    self.db.add(db_tab)
+                    await self.db.flush()  # Get the tab ID
+
+                    # Create queries for this tab
+                    for query_data in tab_data.queries:
+                        db_query = ReportQuery(
+                            report_id=db_report.id,
+                            tab_id=db_tab.id,
+                            name=query_data.name,
+                            sql=query_data.sql,
+                            visualization_config=query_data.visualization.dict(),
+                            order_index=query_data.order_index or 0
+                        )
+                        self.db.add(db_query)
+                        await self.db.flush()  # Get the query ID
+
+                        # Create filters for this query
+                        for filter_data in query_data.filters:
+                            filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
+
+                            db_filter = ReportQueryFilter(
+                                query_id=db_query.id,
+                                field_name=filter_data.field_name,
+                                display_name=filter_data.display_name,
+                                filter_type=filter_type_value,
+                                dropdown_query=filter_data.dropdown_query,
+                                required=filter_data.required,
+                                sql_expression=filter_data.sql_expression,
+                                depends_on=filter_data.depends_on
+                            )
+                            self.db.add(db_filter)
+            
+            # Otherwise, create queries without tabs (backward compatibility)
+            else:
+                for query_data in report_data.queries:
+                    db_query = ReportQuery(
+                        report_id=db_report.id,
+                        tab_id=None,
+                        name=query_data.name,
+                        sql=query_data.sql,
+                        visualization_config=query_data.visualization.dict(),
+                        order_index=query_data.order_index or 0
+                    )
+                    self.db.add(db_query)
+                    await self.db.flush()  # Get the query ID
+
+                    # Create filters for this query
+                    for filter_data in query_data.filters:
+                        filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
+
+                        db_filter = ReportQueryFilter(
+                            query_id=db_query.id,
+                            field_name=filter_data.field_name,
+                            display_name=filter_data.display_name,
+                            filter_type=filter_type_value,
+                            dropdown_query=filter_data.dropdown_query,
+                            required=filter_data.required,
+                            sql_expression=filter_data.sql_expression,
+                            depends_on=filter_data.depends_on
+                        )
+                        self.db.add(db_filter)
 
         await self.db.commit()
 
         # Refresh and eagerly load relationships
         stmt = select(Report).options(
+            selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
             selectinload(Report.queries).selectinload(ReportQuery.filters)
         ).where(Report.id == db_report.id)
         result = await self.db.execute(stmt)
@@ -304,6 +352,7 @@ class ReportsService:
         if is_admin:
             # Admin can access all reports
             stmt = select(Report).options(
+                selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
             ).where(and_(Report.id == report_id, Report.deleted_at.is_(None)))
@@ -321,6 +370,7 @@ class ReportsService:
             dept_prefixes_array = cast(dept_prefixes, ARRAY(String))
 
             stmt = select(Report).options(
+                selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
                 joinedload(Report.owner)
             ).where(
@@ -580,6 +630,12 @@ class ReportsService:
             db_report.direct_link = report_data.direct_link
         if report_data.db_config is not None:
             db_report.db_config = report_data.db_config
+        if report_data.filter_by_department is not None:
+            db_report.filter_by_department = report_data.filter_by_department
+        if report_data.department_filter_level is not None:
+            db_report.department_filter_level = report_data.department_filter_level
+        if report_data.filter_by_step_department is not None:
+            db_report.filter_by_step_department = report_data.filter_by_step_department
 
         await self.db.commit()
 
@@ -601,6 +657,7 @@ class ReportsService:
             filters.append(Report.owner_id == db_user.id)
 
         stmt = select(Report).options(
+            selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
             selectinload(Report.queries).selectinload(ReportQuery.filters)
         ).where(and_(*filters))
         result = await self.db.execute(stmt)
@@ -632,6 +689,12 @@ class ReportsService:
             db_report.direct_link = report_data.direct_link
         if report_data.db_config is not None:
             db_report.db_config = report_data.db_config
+        if report_data.filter_by_department is not None:
+            db_report.filter_by_department = report_data.filter_by_department
+        if report_data.department_filter_level is not None:
+            db_report.department_filter_level = report_data.department_filter_level
+        if report_data.filter_by_step_department is not None:
+            db_report.filter_by_step_department = report_data.filter_by_step_department
 
         # Update global filters if provided
         if report_data.global_filters is not None:
@@ -652,7 +715,7 @@ class ReportsService:
         # Determine if report is/will be in direct link mode
         will_be_direct_link = report_data.is_direct_link if report_data.is_direct_link is not None else db_report.is_direct_link
         
-        # If switching to or already in direct link mode, delete all queries
+        # If switching to or already in direct link mode, delete all queries and tabs
         if will_be_direct_link:
             old_db_query_ids = [q.id for q in db_report.queries]
             if old_db_query_ids:
@@ -666,10 +729,78 @@ class ReportsService:
                     ReportQuery.report_id == db_report.id
                 )
                 await self.db.execute(query_delete_stmt)
+                # Delete all tabs for this report
+                tab_delete_stmt = delete(ReportTab).where(
+                    ReportTab.report_id == db_report.id
+                )
+                await self.db.execute(tab_delete_stmt)
                 await self.db.flush()
         
-        # Update queries if provided (only if not a direct link report)
-        if report_data.queries is not None and not will_be_direct_link:
+        # Update tabs if provided (only if not a direct link report)
+        if report_data.tabs is not None and not will_be_direct_link:
+            # Delete all existing tabs and queries
+            old_db_query_ids = [q.id for q in db_report.queries]
+            if old_db_query_ids:
+                # Delete all filters for these queries
+                filter_delete_stmt = delete(ReportQueryFilter).where(
+                    ReportQueryFilter.query_id.in_(old_db_query_ids)
+                )
+                await self.db.execute(filter_delete_stmt)
+
+            # Delete all queries and tabs for this report
+            query_delete_stmt = delete(ReportQuery).where(
+                ReportQuery.report_id == db_report.id
+            )
+            await self.db.execute(query_delete_stmt)
+            
+            tab_delete_stmt = delete(ReportTab).where(
+                ReportTab.report_id == db_report.id
+            )
+            await self.db.execute(tab_delete_stmt)
+            await self.db.flush()
+
+            # Create new tabs and queries
+            for tab_data in report_data.tabs:
+                db_tab = ReportTab(
+                    report_id=db_report.id,
+                    name=tab_data.name,
+                    order_index=tab_data.order_index or 0,
+                    layout_config=tab_data.layout_config or []
+                )
+                self.db.add(db_tab)
+                await self.db.flush()  # Get the tab ID
+
+                # Create queries for this tab
+                for query_data in tab_data.queries:
+                    db_query = ReportQuery(
+                        report_id=db_report.id,
+                        tab_id=db_tab.id,
+                        name=query_data.name,
+                        sql=query_data.sql,
+                        visualization_config=query_data.visualization.dict(),
+                        order_index=query_data.order_index or 0
+                    )
+                    self.db.add(db_query)
+                    await self.db.flush()  # Get the query ID
+
+                    # Create filters for this query
+                    for filter_data in query_data.filters:
+                        filter_type_value = filter_data.type.value if hasattr(filter_data.type, 'value') else filter_data.type
+
+                        db_filter = ReportQueryFilter(
+                            query_id=db_query.id,
+                            field_name=filter_data.field_name,
+                            display_name=filter_data.display_name,
+                            filter_type=filter_type_value,
+                            dropdown_query=filter_data.dropdown_query,
+                            required=filter_data.required,
+                            sql_expression=filter_data.sql_expression,
+                            depends_on=filter_data.depends_on
+                        )
+                        self.db.add(db_filter)
+        
+        # Update queries if provided (only if not a direct link report and no tabs provided)
+        elif report_data.queries is not None and not will_be_direct_link:
             # Store old query IDs from the database
             old_db_query_ids = [q.id for q in db_report.queries]
 
@@ -697,6 +828,7 @@ class ReportsService:
 
                 db_query = ReportQuery(
                     report_id=db_report.id,
+                    tab_id=None,
                     name=query_data.name,
                     sql=query_data.sql,
                     visualization_config=query_data.visualization.dict(),
@@ -745,6 +877,7 @@ class ReportsService:
 
         # Refresh and eagerly load relationships
         stmt = select(Report).options(
+            selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
             selectinload(Report.queries).selectinload(ReportQuery.filters)
         ).where(Report.id == db_report.id)
         result = await self.db.execute(stmt)
@@ -1010,7 +1143,7 @@ class ReportsService:
 
         return new_sql
 
-    async def execute_query(self, query: ReportQuery, filter_values: list[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Platform | None = None, global_filters: list[dict[str, Any]] = None, db_config: dict[str, Any] | None = None) -> QueryExecutionResult:
+    async def execute_query(self, query: ReportQuery, filter_values: list[FilterValue] = None, limit: int = 1000, page_size: int = None, page_limit: int = None, sort_by: str = None, sort_direction: str = None, visualization_type: str = None, platform: Platform | None = None, global_filters: list[dict[str, Any]] = None, db_config: dict[str, Any] | None = None, filter_by_department: bool = False, user_department: str | None = None, department_filter_level: str | None = None, filter_by_step_department: bool = False) -> QueryExecutionResult:
         """Execute a single query with optional filters
 
         Args:
@@ -1025,6 +1158,10 @@ class ReportsService:
             platform: Platform instance for database connection (optional, falls back to clickhouse_client)
             global_filters: Global filters from the report that apply to all queries
             db_config: Database configuration from report (overrides platform db_config)
+            filter_by_department: If True, automatically filter results by user's department
+            user_department: User's department for automatic filtering
+            department_filter_level: Department hierarchy level to filter by ('sektor', 'direktorluk', 'mudurluk', 'birim', or None for full)
+            filter_by_step_department: If True, filter by step_department column instead of department column
         """
         t0 = time.time()
         print(f"\n[PERF] Starting execute_query for query_id={query.id}")
@@ -1071,6 +1208,86 @@ class ReportsService:
             t1 = time.time()
             sql = self.apply_filters_to_query(sql, all_filters, filter_values or [], db_type)
             print(f"[PERF] Apply filters: {(time.time() - t1) * 1000:.2f}ms")
+
+            # Apply department filtering if enabled
+            t1 = time.time()
+            if filter_by_department and user_department:
+                # Determine which column to filter by
+                column_name = "step_department" if filter_by_step_department else "department"
+                
+                # Inject department filter into the query based on the selected hierarchy level
+                # Department structure: A_B_C_D_E where:
+                # - A is root
+                # - B is Sektör (sector)
+                # - C is Direktörlük (directorate)
+                # - D is Müdürlük (department)
+                # - E is Birim (unit)
+                
+                dept_parts = user_department.split('_')
+                
+                # Determine which department level to filter by
+                if department_filter_level:
+                    # Map level names to position in hierarchy (0-indexed)
+                    level_map = {
+                        'sektor': 2,        # A_B (up to position 2)
+                        'direktorluk': 3,   # A_B_C (up to position 3)
+                        'mudurluk': 4,      # A_B_C_D (up to position 4)
+                        'birim': 5          # A_B_C_D_E (up to position 5, or full)
+                    }
+                    
+                    level_position = level_map.get(department_filter_level.lower())
+                    
+                    if level_position and len(dept_parts) >= level_position:
+                        # Get the department up to the specified level
+                        filtered_dept = '_'.join(dept_parts[:level_position])
+                    else:
+                        # If level not recognized or user doesn't have that level, use full department
+                        filtered_dept = user_department
+                else:
+                    # No level specified, use full user department hierarchy
+                    # Build list of all parent departments for flexible matching
+                    dept_hierarchy = []
+                    current = ""
+                    for part in dept_parts:
+                        current = f"{current}_{part}" if current else part
+                        dept_hierarchy.append(current)
+                    filtered_dept = None  # Will use hierarchy list instead
+                
+                # Create SQL condition - uses the selected column name (department or step_department)
+                if filtered_dept:
+                    # Single level filtering - match column that starts with the specified level
+                    if db_type.lower() in ["postgresql", "mssql"]:
+                        dept_filter_clause = f"{column_name} LIKE '{filtered_dept}%'"
+                    else:
+                        # ClickHouse uses LIKE
+                        dept_filter_clause = f"{column_name} LIKE '{filtered_dept}%'"
+                else:
+                    # Full hierarchy filtering - match any parent level
+                    dept_conditions = []
+                    for dept in dept_hierarchy:
+                        if db_type.lower() in ["postgresql", "mssql"]:
+                            dept_conditions.append(f"{column_name} LIKE '{dept}%'")
+                        else:
+                            dept_conditions.append(f"{column_name} LIKE '{dept}%'")
+                    dept_filter_clause = " OR ".join(dept_conditions)
+                
+                # Inject the department filter into the query
+                if "WHERE" in sql.upper():
+                    # If there's already a WHERE clause, add the department filter with AND
+                    sql = sql + f" AND ({dept_filter_clause})"
+                else:
+                    # If no WHERE clause exists, add one
+                    # We need to be careful here - check if there's a GROUP BY, ORDER BY, or LIMIT
+                    import re
+                    # Find position to insert WHERE clause (before GROUP BY, HAVING, ORDER BY, or LIMIT)
+                    match = re.search(r'\s+(GROUP\s+BY|HAVING|ORDER\s+BY|LIMIT)\s+', sql, re.IGNORECASE)
+                    if match:
+                        insert_pos = match.start()
+                        sql = sql[:insert_pos] + f" WHERE ({dept_filter_clause})" + sql[insert_pos:]
+                    else:
+                        # No GROUP BY, ORDER BY, or LIMIT - just append
+                        sql = sql + f" WHERE ({dept_filter_clause})"
+            print(f"[PERF] Apply department filter: {(time.time() - t1) * 1000:.2f}ms")
 
             # Apply sorting if provided
             t1 = time.time()
@@ -1382,7 +1599,11 @@ class ReportsService:
                     query.visualization_config.get('type', 'table'),
                     platform=platform,
                     global_filters=report.global_filters or [],
-                    db_config=report_db_config
+                    db_config=report_db_config,
+                    filter_by_department=report.filter_by_department or False,
+                    user_department=user.department,
+                    department_filter_level=report.department_filter_level,
+                    filter_by_step_department=report.filter_by_step_department or False
                 )
                 results.append(result)
             else:
@@ -1396,7 +1617,11 @@ class ReportsService:
                         query.visualization_config.get('type', 'table'),
                         platform=platform,
                         global_filters=report.global_filters or [],
-                        db_config=report_db_config
+                        db_config=report_db_config,
+                        filter_by_department=report.filter_by_department or False,
+                        user_department=user.department,
+                        department_filter_level=report.department_filter_level,
+                        filter_by_step_department=report.filter_by_step_department or False
                     )
                     tasks.append(task)
                 
