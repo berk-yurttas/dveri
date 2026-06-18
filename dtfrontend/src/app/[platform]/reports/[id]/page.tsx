@@ -3203,7 +3203,7 @@ export default function ReportDetailPage() {
       )}
 
       {/* Tabs Navigation */}
-      {report.tabs && report.tabs.length > 0 && (
+      {report.tabs && report.tabs.length > 1 && (
         <div className="bg-white rounded-lg shadow-md border border-gray-200 mb-4">
           <div className="flex items-center gap-1 px-2 py-2 overflow-x-auto">
             {[...report.tabs].sort((a, b) => a.orderIndex - b.orderIndex).map((tab) => (

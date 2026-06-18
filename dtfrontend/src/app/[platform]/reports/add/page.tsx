@@ -2072,13 +2072,22 @@ export default function AddReportPage() {
         return
       }
     } else {
-      // Normal mode: validate queries
-      if (report.queries.length === 0) {
+      // Normal mode: validate queries (check both flat queries and tabs)
+      const hasQueries = useTabsMode 
+        ? report.tabs && report.tabs.length > 0 && report.tabs.some(tab => tab.queries.length > 0)
+        : report.queries.length > 0
+      
+      if (!hasQueries) {
         alert('En az bir sorgu ekleyin.')
         return
       }
 
-      for (const query of report.queries) {
+      // Validate SQL for all queries (in tabs or flat)
+      const allQueries = useTabsMode 
+        ? report.tabs?.flatMap(tab => tab.queries) || []
+        : report.queries
+      
+      for (const query of allQueries) {
         if (!query.sql.trim()) {
           alert(`"${query.name}" sorgusu için SQL yazın.`)
           return
@@ -2094,9 +2103,47 @@ export default function AddReportPage() {
       }
 
       // Clean query and filter IDs (remove non-integer IDs as they're client-side only)
-      const cleanedReport = {
+      const cleanedReport: any = {
         ...reportToSave,
-        queries: reportToSave.queries.map((query: any) => {
+      }
+
+      // Clean tabs if using tabs mode
+      if (useTabsMode && reportToSave.tabs) {
+        cleanedReport.tabs = reportToSave.tabs.map((tab: any) => {
+          const { id: tabId, ...tabWithoutId } = tab
+          const cleanedTab: any = {
+            ...tabWithoutId,
+            queries: tab.queries.map((query: any) => {
+              const { id: queryId, ...queryWithoutId } = query
+              const cleanedQuery: any = {
+                ...queryWithoutId,
+                filters: query.filters.map((filter: any) => {
+                  const { id, ...filterWithoutId } = filter
+                  // Only include id if it's a valid integer
+                  if (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) {
+                    return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
+                  }
+                  return filterWithoutId
+                })
+              }
+              // Only include query id if it's a valid integer
+              if (typeof queryId === 'number' || (typeof queryId === 'string' && /^\d+$/.test(queryId))) {
+                cleanedQuery.id = typeof queryId === 'number' ? queryId : parseInt(queryId, 10)
+              }
+              return cleanedQuery
+            })
+          }
+          // Only include tab id if it's a valid integer
+          if (typeof tabId === 'number' || (typeof tabId === 'string' && /^\d+$/.test(tabId))) {
+            cleanedTab.id = typeof tabId === 'number' ? tabId : parseInt(tabId, 10)
+          }
+          return cleanedTab
+        })
+        // Clear queries array when using tabs
+        cleanedReport.queries = []
+      } else {
+        // Clean flat queries
+        cleanedReport.queries = reportToSave.queries.map((query: any) => {
           const { id: queryId, ...queryWithoutId } = query
           const cleanedQuery: any = {
             ...queryWithoutId,
@@ -2114,16 +2161,20 @@ export default function AddReportPage() {
             cleanedQuery.id = typeof queryId === 'number' ? queryId : parseInt(queryId, 10)
           }
           return cleanedQuery
-        }),
-        globalFilters: reportToSave.globalFilters?.map((filter: any) => {
-          const { id, ...filterWithoutId } = filter
-          // Only include id if it's a valid integer (existing filter from backend)
-          if (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) {
-            return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
-          }
-          return filterWithoutId
-        }) || []
+        })
+        // Clear tabs array when using flat queries
+        cleanedReport.tabs = []
       }
+
+      // Clean global filters
+      cleanedReport.globalFilters = reportToSave.globalFilters?.map((filter: any) => {
+        const { id, ...filterWithoutId } = filter
+        // Only include id if it's a valid integer (existing filter from backend)
+        if (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) {
+          return { ...filterWithoutId, id: typeof id === 'number' ? id : parseInt(id, 10) }
+        }
+        return filterWithoutId
+      }) || []
 
       // Send the report to the backend
       console.log('Saving report:', cleanedReport)
@@ -2154,7 +2205,7 @@ export default function AddReportPage() {
     }
   }
 
-  const currentQuery = report.queries[activeQueryIndex]
+  const currentQuery = getCurrentQueries()[activeQueryIndex]
   const availableFields = currentQuery ? extractFieldsFromSQL(currentQuery.sql) : []
 
   return (
