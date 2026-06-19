@@ -52,13 +52,42 @@ router.post('/attack', (req, res) => {
     if (!game.pendingMoves) {
       game.pendingMoves = {};
     }
-    if (!game.pendingMoves[1] && req.body.role === 'attack') {
-      game.pendingMoves[1] = { moveId };
-    } else if (!game.pendingMoves[2] && req.body.role === 'defense') {
-      game.pendingMoves[2] = { moveId };
+
+    const role = req.body.role;
+    if (role !== 'attack' && role !== 'defense') {
+      return res.status(400).json({ error: 'Geçersiz rol. role attack veya defense olmalı.' });
     }
+
+    // Round-aware move validation to prevent stale/spam clicks from causing server errors.
+    const isOddRound = game.currentRound % 2 === 1;
+    const validAttackDeck = isOddRound ? game.playerCards : game.secondPlayerCards;
+    const validDefenseDeck = isOddRound ? game.secondPlayerCards : game.playerCards;
+    const cardExistsInDeck = (deck, id) => deck.some((card) => card._id?.toString() === id);
+
+    if (role === 'attack' && !cardExistsInDeck(validAttackDeck, moveId)) {
+      return res.status(409).json({ error: 'Geçersiz veya eski tur saldırı kartı. Lütfen tekrar kart seçin.' });
+    }
+    if (role === 'defense' && !cardExistsInDeck(validDefenseDeck, moveId)) {
+      return res.status(409).json({ error: 'Geçersiz veya eski tur savunma kartı. Lütfen tekrar kart seçin.' });
+    }
+
+    if (!game.pendingMoves[1] && role === 'attack') {
+      game.pendingMoves[1] = { moveId };
+    } else if (!game.pendingMoves[2] && role === 'defense') {
+      game.pendingMoves[2] = { moveId };
+    } else {
+      // Ignore duplicate submissions for same round/role instead of mutating state.
+      return res.status(202).json({ message: 'Hamleniz alındı, diğer oyuncu bekleniyor.' });
+    }
+
     if (game.pendingMoves[1] && game.pendingMoves[2]) {
-      const result = game.playTurn(game.pendingMoves[1].moveId, game.pendingMoves[2].moveId);
+      let result;
+      try {
+        result = game.playTurn(game.pendingMoves[1].moveId, game.pendingMoves[2].moveId);
+      } catch (moveErr) {
+        game.pendingMoves = {};
+        return res.status(409).json({ error: moveErr.message || 'Hamle işlenemedi. Lütfen tekrar deneyin.' });
+      }
       game.pendingMoves = {};
 
       const responseData = {

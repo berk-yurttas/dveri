@@ -4,11 +4,6 @@ import { useNavigate } from 'react-router-dom';
 const Home = () => {
   const navigate = useNavigate();
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    navigate('/login');
-  };
-
   // VS Player butonuna tıklayınca /match'e,
   // VS Computer butonuna tıklayınca /game'e yönlendiriyoruz.
   const goToPlayer = () => {

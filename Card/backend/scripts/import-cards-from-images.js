@@ -40,23 +40,26 @@ function toCardName(fileName) {
 
 function parseStatsFromFileName(fileName, defaults) {
   const base = path.basename(fileName, path.extname(fileName)).trim();
-  const match = base.match(/^(.*)_([0-9]+)_([0-9]+)_([0-9]+)$/);
+  // Optional joker suffix "Y" at end, e.g. Name_90_80_70Y
+  const match = base.match(/^(.*)_([0-9]+)_([0-9]+)_([0-9]+)(Y)?$/i);
   if (!match) {
     return {
       name: toCardName(fileName),
       attack: defaults.attack,
       defense: defaults.defense,
       health: defaults.health,
+      joker: false,
       parsed: false,
     };
   }
 
-  const [, rawName, rawAttack, rawDefense, rawHealth] = match;
+  const [, rawName, rawAttack, rawDefense, rawHealth, jokerFlag] = match;
   return {
     name: rawName.trim(),
     attack: Number(rawAttack),
     defense: Number(rawDefense),
     health: Number(rawHealth),
+    joker: !!jokerFlag,
     parsed: true,
   };
 }
@@ -115,7 +118,7 @@ async function main() {
       await client.query(
         `INSERT INTO cards (name, attack, defense, health, joker, image_url)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [parsed.name, parsed.attack, parsed.defense, parsed.health, false, imageUrl]
+        [parsed.name, parsed.attack, parsed.defense, parsed.health, parsed.joker, imageUrl]
       );
     }
 
