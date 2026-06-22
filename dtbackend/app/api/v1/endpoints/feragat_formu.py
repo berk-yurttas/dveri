@@ -9,6 +9,8 @@ import ast
 from typing import Any
 from datetime import datetime
 
+from sqlalchemy import null
+
 import httpx
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, Request
@@ -410,7 +412,9 @@ async def create_feragat_pdf(job_instance_id: str) -> bytes:
         for attr_name, attr_job_step_id in form_data_meta.items():
             if attr_job_step_id == job_step_id and (attr_name == "Şerh Açıklaması" or attr_name == "Açıklama"):
                 explanation = form_data.get(attr_name, "")
-                break
+                if explanation is not None and explanation != '':
+                    explanation = extract_value(explanation)
+                    break
         
         # Format signature with explanation if exists
         if explanation:

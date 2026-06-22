@@ -641,6 +641,7 @@ class ReportsService:
 
         # Refresh and eagerly load relationships
         stmt = select(Report).options(
+            selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
             selectinload(Report.queries).selectinload(ReportQuery.filters)
         ).where(Report.id == db_report.id)
         result = await self.db.execute(stmt)

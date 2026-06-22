@@ -506,8 +506,10 @@ export function FeragatFormuWidget({ widgetId }: FeragatFormuWidgetProps) {
         for (const attr of data) {
             if (attr.job_step_instance_id === jobStepId && 
                 (attr.name === 'Şerh Açıklaması' || attr.name === 'Açıklama')) {
-                explanation = extractValue(attr.value)
-                break
+                if (attr.value != null && attr.value != '') {
+                    explanation = extractValue(attr.value)
+                    break
+                }
             }
         }
         

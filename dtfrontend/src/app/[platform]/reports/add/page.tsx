@@ -1697,7 +1697,7 @@ export default function AddReportPage() {
       ...prev,
       tabs: prev.tabs!.filter((_, index) => index !== tabIndex)
     }))
-    if (activeTabIndex >= (report.tabs.length - 1)) {
+    if (report.tabs && activeTabIndex >= (report.tabs.length - 1)) {
       setActiveTabIndex(Math.max(0, (report.tabs.length - 2)))
     }
   }
@@ -2647,7 +2647,7 @@ export default function AddReportPage() {
                           />
                           <span className="ml-2 text-xs opacity-75">({tab.queries.length})</span>
                         </button>
-                        {report.tabs.length > 1 && (
+                        {report.tabs && report.tabs.length > 1 && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -2696,7 +2696,7 @@ export default function AddReportPage() {
                                     >
                                       <span className="block truncate max-w-[150px]">{query.name}</span>
                                     </TabsTrigger>
-                                    {report.tabs[activeTabIndex].queries.length > 1 && (
+                                    {report.tabs && report.tabs[activeTabIndex].queries.length > 1 && (
                                       <Button
                                         variant="ghost"
                                         size="sm"

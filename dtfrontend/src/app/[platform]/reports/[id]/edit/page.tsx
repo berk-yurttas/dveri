@@ -1502,7 +1502,7 @@ export default function EditReportPage() {
       ...prev,
       tabs: prev.tabs!.filter((_, index) => index !== tabIndex)
     }))
-    if (activeTabIndex >= (report.tabs.length - 1)) {
+    if (report.tabs && activeTabIndex >= (report.tabs.length - 1)) {
       setActiveTabIndex(Math.max(0, (report.tabs.length - 2)))
     }
   }
