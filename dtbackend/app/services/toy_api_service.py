@@ -149,3 +149,45 @@ async def _push_one_work_order(db, work_order, integration) -> bool:
     )
     work_order.sent = ok
     return ok
+
+
+async def push_and_sync(work_order_id: int) -> None:
+    """Background entrypoint dispatched after a scan. Owns its own session.
+
+    Pushes the current row's state to Toy and records `sent`, then sweeps up to
+    20 `sent=false` rows for the SAME company (oldest first) and re-pushes them.
+    Idempotent on Toy's side (upsert by Mes_OrderId). Never raises."""
+    try:
+        async with RomiotAsyncSessionLocal() as db:
+            work_order = await db.get(WorkOrder, work_order_id)
+            if work_order is None:
+                return
+            station = await db.get(Station, work_order.station_id)
+            if station is None:
+                return
+            integration_result = await db.execute(
+                select(CompanyIntegration).where(CompanyIntegration.company == station.company)
+            )
+            integration = integration_result.scalar_one_or_none()
+            if not (integration and integration.api_url and integration.api_key):
+                return
+
+            await _push_one_work_order(db, work_order, integration)
+
+            unsent_result = await db.execute(
+                select(WorkOrder)
+                .join(Station, WorkOrder.station_id == Station.id)
+                .where(
+                    Station.company == integration.company,
+                    WorkOrder.sent == False,  # noqa: E712 — SQLAlchemy boolean comparison
+                    WorkOrder.id != work_order.id,
+                )
+                .order_by(WorkOrder.id)
+                .limit(20)
+            )
+            for row in unsent_result.scalars().all():
+                await _push_one_work_order(db, row, integration)
+
+            await db.commit()
+    except Exception as exc:
+        logger.error("push_and_sync failed for work_order_id=%s: %s", work_order_id, exc)
