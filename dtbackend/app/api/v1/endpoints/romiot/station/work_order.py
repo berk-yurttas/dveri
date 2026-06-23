@@ -27,7 +27,7 @@ from app.models.romiot_models import (
 )
 from app.schemas.order_pair import OrderPair
 from app.schemas.user import User
-from app.services.toy_api_service import send_production_order
+from app.services.toy_api_service import push_and_sync
 from app.services.user_service import UserService
 from app.schemas.work_order import (
     WorkOrder as WorkOrderSchema,
@@ -641,16 +641,9 @@ async def create_work_order(
         )
         integration = integration_result.scalar_one_or_none()
         if integration and integration.api_url and integration.api_key:
-            pairs = await _pairs_for_group(romiot_db, work_order_data.work_order_group_id)
-            subcontractor_id = None
-            if new_work_order.company_from_id is not None:
-                code_row = await romiot_db.execute(
-                    select(Company.code).where(Company.id == new_work_order.company_from_id)
-                )
-                subcontractor_id = code_row.scalar_one_or_none()
-            asyncio.create_task(send_production_order(
-                new_work_order, this_station, integration.api_url, integration.api_key, this_station.company, pairs, subcontractor_id,
-            ))
+            # push_and_sync reloads station/pairs/subcontractor by id in its own
+            # session, then sweeps unsent rows for this company.
+            asyncio.create_task(push_and_sync(new_work_order.id))
 
     # Attach pairs (canonical list from DB) before validating — the response
     # schema requires a non-empty `pairs`, which is not an ORM column.
@@ -756,6 +749,10 @@ async def update_exit_date(
     # Accumulate exited pieces; the package is "fully exited" (exit_date stamped)
     # only when exited_quantity reaches the package's full quantity.
     work_order.exited_quantity = work_order.exited_quantity + update_data.scan_quantity
+    # exited_quantity is sent to Toy as ActualQuantity, so every exit scan changes
+    # the delivered state — mark the row unsent so the push below (and the
+    # piggyback sweep) re-deliver the updated quantity/exit event.
+    work_order.sent = False
     if work_order.exited_quantity >= work_order.quantity:
         work_order.exit_date = datetime.now(timezone.utc)
     if update_data.acknowledged_route_violation:
@@ -850,16 +847,7 @@ async def update_exit_date(
         )
         exit_integration = exit_integration_result.scalar_one_or_none()
         if exit_integration and exit_integration.api_url and exit_integration.api_key:
-            pairs = await _pairs_for_group(romiot_db, work_order.work_order_group_id)
-            subcontractor_id = None
-            if work_order.company_from_id is not None:
-                code_row = await romiot_db.execute(
-                    select(Company.code).where(Company.id == work_order.company_from_id)
-                )
-                subcontractor_id = code_row.scalar_one_or_none()
-            asyncio.create_task(
-                send_production_order(work_order, exit_station_obj, exit_integration.api_url, exit_integration.api_key, exit_station_obj.company, pairs, subcontractor_id)
-            )
+            asyncio.create_task(push_and_sync(work_order.id))
 
     pairs_for_response = await _pairs_for_group(romiot_db, work_order.work_order_group_id)
     work_order_schema = _work_order_to_schema(work_order, pairs_for_response)
