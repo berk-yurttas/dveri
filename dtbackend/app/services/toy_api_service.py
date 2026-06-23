@@ -41,7 +41,9 @@ def _build_payload_item(
     }
 
 
-async def _post_one(api_url: str, api_key: str, payload: dict, work_order_id: int) -> None:
+async def _post_one(api_url: str, api_key: str, payload: dict, work_order_id: int) -> bool:
+    """POST one payload. Returns True on a 2xx response, False on a non-2xx
+    response or any exception. Never raises."""
     try:
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.post(
@@ -54,8 +56,11 @@ async def _post_one(api_url: str, api_key: str, payload: dict, work_order_id: in
                     "Mekasan API error %s for work_order_id=%s: %s",
                     response.status_code, work_order_id, response.text,
                 )
+                return False
+            return True
     except Exception as exc:
         logger.error("Mekasan API call failed for work_order_id=%s: %s", work_order_id, exc)
+        return False
 
 
 async def send_production_order(
@@ -66,7 +71,7 @@ async def send_production_order(
     company: str,
     pairs: list[OrderPair],
     subcontractor_id: str | None = None,
-) -> None:
+) -> bool:
     """
     Fire-and-forget Mekasan push.
 
@@ -80,23 +85,25 @@ async def send_production_order(
         different kalem_no) — the primary multi-pair case. Sipariş-no alone
         would collide there.
 
-    Never raises — logs and swallows.
+    Returns True only if every POST succeeded, False otherwise.
     """
     if not pairs:
         logger.warning("send_production_order skipped: empty pairs for work_order_id=%s", work_order.id)
-        return
+        return False
 
     base_id = f"{work_order.work_order_group_id}-{station.id}"
 
     if len(pairs) == 1:
         item = _build_payload_item(work_order, station, pairs[0], base_id, subcontractor_id, company)
-        await _post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id)
-        return
+        return await _post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id)
 
-    # Multi-pair: N independent POSTs in parallel
+    # Multi-pair: N independent POSTs in parallel. All-or-nothing: True only if
+    # every pair POST succeeded. Re-pushing already-delivered pairs is safe
+    # because Toy upserts by Mes_OrderId.
     tasks = []
     for pair in pairs:
         mes_order_id = f"{base_id}-{pair.aselsan_order_number}-{pair.order_item_number}"
         item = _build_payload_item(work_order, station, pair, mes_order_id, subcontractor_id, company)
         tasks.append(_post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id))
-    await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks)
+    return all(results)
