@@ -73,6 +73,10 @@ class WorkOrder(PostgreSQLBase):
     delivered = Column(Boolean, nullable=False, server_default="false")
     # Whether operator overrode a route warning when this row was committed
     route_violation = Column(Boolean, nullable=False, server_default="false")
+    # Whether the row's CURRENT state has been delivered to the Toy/Mekasan API.
+    # Reset to false whenever the state changes (row created, exit_date filled);
+    # set true when a push of the current state succeeds. Drives piggyback retry.
+    sent = Column(Boolean, nullable=False, server_default="false")
 
     # Timestamps
     entrance_date = Column(DateTime(timezone=True), server_default=func.now())
