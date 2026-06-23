@@ -1,7 +1,7 @@
 """add work_orders.sent (Toy API delivery flag)
 
 Revision ID: b1c2d3e4f5a6
-Revises: 08be09af3bfd
+Revises: 1a2b3c4d5e6f
 Create Date: 2026-06-11 10:00:00.000000
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = 'b1c2d3e4f5a6'
-down_revision = '08be09af3bfd'
+down_revision = '1a2b3c4d5e6f'
 branch_labels = None
 depends_on = None
 
