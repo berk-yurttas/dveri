@@ -2,7 +2,15 @@ import asyncio
 import logging
 
 import httpx
+from sqlalchemy import select
 
+from app.core.database import RomiotAsyncSessionLocal
+from app.models.romiot_models import (
+    Company,
+    CompanyIntegration,
+    Station,
+    WorkOrder,
+)
 from app.schemas.order_pair import OrderPair
 
 logger = logging.getLogger(__name__)
@@ -107,3 +115,37 @@ async def send_production_order(
         tasks.append(_post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id))
     results = await asyncio.gather(*tasks)
     return all(results)
+
+
+async def _resolve_pairs(db, work_order_group_id: str) -> list[OrderPair]:
+    """Canonical pairs for a group. Delegates to the endpoint's `_pairs_for_group`
+    via a lazy import — a top-level import would be circular (the endpoint module
+    imports this service)."""
+    from app.api.v1.endpoints.romiot.station.work_order import _pairs_for_group
+    return await _pairs_for_group(db, work_order_group_id)
+
+
+async def _resolve_subcontractor_id(db, company_from_id) -> str | None:
+    """Company.code for the row's company_from_id (sent as SubcontractorID).
+    Short-circuits to None when the row has no company_from_id."""
+    if company_from_id is None:
+        return None
+    result = await db.execute(select(Company.code).where(Company.id == company_from_id))
+    return result.scalar_one_or_none()
+
+
+async def _push_one_work_order(db, work_order, integration) -> bool:
+    """Reload a row's station/pairs/subcontractor, push the current state, and
+    record `sent`. Returns the push result. Assumes `integration` (api_url,
+    api_key, company) is the integration for the row's company."""
+    station = await db.get(Station, work_order.station_id)
+    if station is None:
+        return False
+    pairs = await _resolve_pairs(db, work_order.work_order_group_id)
+    subcontractor_id = await _resolve_subcontractor_id(db, work_order.company_from_id)
+    ok = await send_production_order(
+        work_order, station, integration.api_url, integration.api_key,
+        integration.company, pairs, subcontractor_id,
+    )
+    work_order.sent = ok
+    return ok
