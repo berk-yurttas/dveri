@@ -2621,7 +2621,7 @@ export default function PlatformHome() {
       {platformCode === 'romiot' && (
         <>
           <div
-            className="fixed pointer-events-auto z-10 cursor-pointer"
+            className="fixed pointer-events-none -z-10"
             style={{
               width: '420px',
               height: '500px',
@@ -2633,8 +2633,6 @@ export default function PlatformHome() {
               top: '100px',
               left: '-100px',
             }}
-            onMouseMove={handleRomiotMove}
-            onMouseLeave={handleRomiotLeave}
           ></div>
 
           {/* Tooltip */}
@@ -2675,7 +2673,7 @@ export default function PlatformHome() {
           )}
 
           <div
-            className="fixed pointer-events-none z-10"
+            className="fixed pointer-events-none -z-10"
             style={{
               width: '420px',
               height: '500px',
@@ -2687,14 +2685,7 @@ export default function PlatformHome() {
               bottom: '200px',
               right: '-100px',
             }}
-          >
-            {/* Right top hover area */}
-            <div
-              className="absolute top-0 right-0 w-20 h-20 pointer-events-auto cursor-pointer"
-              onMouseEnter={handleRomiotHover}
-              onMouseLeave={handleRomiotLeave}
-            ></div>
-          </div>
+          ></div>
         </>
       )}
 
