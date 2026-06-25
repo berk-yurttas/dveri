@@ -149,6 +149,48 @@ class AssembleMatchesTest(unittest.TestCase):
         self.assertEqual(m.total_packages, 1)
         self.assertEqual(m.work_order_group_id, "26Y2173D43-00030")
 
+    def test_date_typed_actual_start_does_not_crash_sorting(self):
+        # pyodbc may return datetime.date for a SQL DATE column; the tiebreak
+        # sort must not crash comparing date vs datetime.max.
+        rows = [
+            _row(mg="5", start=date(2026, 6, 1), end=None, need=datetime(2026, 7, 1)),
+            _row(mg="5", start=None, end=None),
+        ]
+        matches = assemble_matches(rows, hedef_firma="Bosan",
+                                   company_name_by_code={}, today=date(2026, 6, 25))
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(len(matches[0].timeline), 2)
+
+    def test_exit_active_not_overdue_is_sevke_hazir(self):
+        rows = [
+            _row(op="Kaplama", mg="1", start=datetime(2026, 6, 1), end=datetime(2026, 6, 2)),
+            _row(op="Sevkiyat", mg="2", start=datetime(2026, 6, 3), end=None, need=datetime(2026, 7, 1)),
+        ]
+        m = assemble_matches(rows, hedef_firma="Bosan",
+                             company_name_by_code={}, today=date(2026, 6, 25))[0]
+        self.assertEqual(m.status, "Sevke Hazır")
+
+    def test_active_non_exit_is_islemde(self):
+        rows = [
+            _row(op="Kaplama", mg="1", start=datetime(2026, 6, 1), end=None, need=datetime(2026, 7, 1)),
+            _row(op="Sevkiyat", mg="2", start=None, end=None),
+        ]
+        m = assemble_matches(rows, hedef_firma="Bosan",
+                             company_name_by_code={}, today=date(2026, 6, 25))[0]
+        self.assertEqual(m.status, "İşlemde")
+
+    def test_company_from_falls_back_to_code_when_unresolved(self):
+        rows = [_row(sub="9999")]
+        m = assemble_matches(rows, hedef_firma="Bosan",
+                             company_name_by_code={}, today=date(2026, 6, 25))[0]
+        self.assertEqual(m.company_from, "9999")
+
+    def test_total_quantity_falls_back_to_planned_when_amount_zero(self):
+        rows = [_row(amount=0)]  # _row default PlannedQuantity=3
+        m = assemble_matches(rows, hedef_firma="Bosan",
+                             company_name_by_code={}, today=date(2026, 6, 25))[0]
+        self.assertEqual(m.total_quantity, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -85,6 +85,14 @@ def _to_date(value) -> date | None:
     return None
 
 
+def _as_datetime(value) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    return None
+
+
 def _step_status(start, end, need_date: date | None, today: date) -> str:
     if end is not None:
         return "done"
@@ -101,7 +109,7 @@ def _sort_key(row) -> tuple:
         order = (0, int(raw))
     except (TypeError, ValueError):
         order = (1, str(raw or ""))
-    start = row.get("ActualStartDate") or datetime.max
+    start = _as_datetime(row.get("ActualStartDate")) or datetime.max
     return (order, start)
 
 
@@ -112,7 +120,7 @@ def _int_or_zero(value) -> int:
         return 0
 
 
-def _build_one_match(rows: list[dict], *, hedef_firma, company_name_by_code, today) -> TrackMatch:
+def _build_one_match(rows: list[dict], *, hedef_firma: str, company_name_by_code: dict, today: date) -> TrackMatch:
     ordered = sorted(rows, key=_sort_key)
     first = ordered[0]
     need_date = _to_date(first.get("NeedDate"))
@@ -154,7 +162,12 @@ def _build_one_match(rows: list[dict], *, hedef_firma, company_name_by_code, tod
     else:
         status = "Girişi yapılmadı"
 
-    all_dates = [d for r in ordered for d in (r.get("ActualStartDate"), r.get("ActualEndDate")) if d is not None]
+    all_dates = [
+        dt
+        for r in ordered
+        for v in (r.get("ActualStartDate"), r.get("ActualEndDate"))
+        if (dt := _as_datetime(v)) is not None
+    ]
     last_updated = max(all_dates) if all_dates else None
 
     sub_code = str(first.get("SubcontractorID") or "")
