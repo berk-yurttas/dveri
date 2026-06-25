@@ -292,6 +292,18 @@ class TrackMesEndpointTest(unittest.TestCase):
         self.assertEqual(resp.matches, [])
         svc.assert_awaited_once()
 
+    def test_service_value_error_returns_400(self):
+        with patch("app.api.v1.endpoints.romiot.station.work_order.track_from_mes",
+                   new=AsyncMock(side_effect=ValueError("Geçersiz SQL tanımlayıcısı: 'bad;name'"))):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(track_product_mes(
+                    hedef_firma="Bosan", order_number="A", order_item_number="B",
+                    part_number=None, current_user=self._user(["atolye:musteri"]),
+                    romiot_db=_FakeSession([]),
+                ))
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("Geçersiz", ctx.exception.detail)
+
 
 if __name__ == "__main__":
     unittest.main()
