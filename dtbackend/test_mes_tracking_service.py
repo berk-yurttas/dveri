@@ -79,5 +79,76 @@ class BuildTrackQueryTest(unittest.TestCase):
             )
 
 
+from datetime import datetime, date
+
+from app.services.mes_tracking_service import assemble_matches
+
+
+def _row(order="26Y2173D43", item="00030", op="Kaplama", mg="2",
+         start=None, end=None, need=None, product="MM-0009-2244",
+         rev="A", sub="1001", amount=9):
+    return {
+        "AselsanOrderCode": order, "WorkOrderItemNo": item,
+        "ProductCode": product, "RevisionNo": rev,
+        "OperationDesc": op, "Mes_MachineGroup": mg, "OperationCode": "OP",
+        "OrderStatus": None,
+        "ActualStartDate": start, "ActualEndDate": end, "NeedDate": need,
+        "AselsanSectorCode": "RF", "SubcontractorID": sub,
+        "WorkOrderAmount": amount, "PlannedQuantity": 3,
+    }
+
+
+class AssembleMatchesTest(unittest.TestCase):
+    def test_two_pairs_yield_two_matches(self):
+        rows = [_row(item="00030"), _row(item="00040")]
+        matches = assemble_matches(rows, hedef_firma="Bosan",
+                                   company_name_by_code={}, today=date(2026, 6, 25))
+        self.assertEqual(len(matches), 2)
+
+    def test_single_pair_with_two_ops_one_match_two_steps_in_order(self):
+        rows = [
+            _row(op="Boya", mg="3", start=datetime(2026, 6, 2)),
+            _row(op="Kaplama", mg="1", start=datetime(2026, 6, 1), end=datetime(2026, 6, 2)),
+        ]
+        matches = assemble_matches(rows, hedef_firma="Bosan",
+                                   company_name_by_code={}, today=date(2026, 6, 25))
+        self.assertEqual(len(matches), 1)
+        steps = matches[0].timeline
+        self.assertEqual([s.station_name for s in steps], ["Kaplama", "Boya"])
+        self.assertEqual(steps[0].status, "done")
+        self.assertEqual(steps[1].status, "active")
+        self.assertTrue(steps[-1].is_exit_station)
+
+    def test_all_ops_done_is_tamamlandi(self):
+        rows = [_row(start=datetime(2026, 6, 1), end=datetime(2026, 6, 2))]
+        m = assemble_matches(rows, hedef_firma="Bosan",
+                             company_name_by_code={}, today=date(2026, 6, 25))[0]
+        self.assertEqual(m.status, "Tamamlandı")
+
+    def test_active_and_overdue_is_gecikmis(self):
+        rows = [_row(start=datetime(2026, 6, 1), end=None, need=datetime(2026, 6, 10))]
+        m = assemble_matches(rows, hedef_firma="Bosan",
+                             company_name_by_code={}, today=date(2026, 6, 25))[0]
+        self.assertEqual(m.status, "Gecikmiş")
+
+    def test_nothing_started_is_girisi_yapilmadi(self):
+        rows = [_row(start=None, end=None)]
+        m = assemble_matches(rows, hedef_firma="Bosan",
+                             company_name_by_code={}, today=date(2026, 6, 25))[0]
+        self.assertEqual(m.status, "Girişi yapılmadı")
+        self.assertIsNone(m.current_station_name)
+
+    def test_company_from_resolved_from_subcontractor_id(self):
+        rows = [_row(sub="1001")]
+        m = assemble_matches(rows, hedef_firma="Bosan",
+                             company_name_by_code={"1001": "ASELSAN REHİS"},
+                             today=date(2026, 6, 25))[0]
+        self.assertEqual(m.company_from, "ASELSAN REHİS")
+        self.assertEqual(m.coating_company, "Bosan")
+        self.assertEqual(m.packages, [])
+        self.assertEqual(m.total_packages, 1)
+        self.assertEqual(m.work_order_group_id, "26Y2173D43-00030")
+
+
 if __name__ == "__main__":
     unittest.main()

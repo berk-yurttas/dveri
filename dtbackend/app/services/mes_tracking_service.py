@@ -5,6 +5,10 @@ Reads Mes_ProductionOrders_<company> per Hedef Firma (configured in the
 TrackResponse shape. pyodbc reads run in a worker thread (pyodbc is sync).
 """
 import re
+from datetime import date, datetime
+
+from app.schemas.order_pair import OrderPair
+from app.schemas.work_order import TrackMatch, TrackResponse, TrackTimelineStep
 
 # Identifier safety: table/column names are interpolated into SQL (they cannot
 # be pyodbc bind parameters), so they must be strictly alphanumeric/underscore.
@@ -69,3 +73,126 @@ def build_track_query(
         f"WHERE {' AND '.join(clauses)}"
     )
     return sql, params
+
+
+def _to_date(value) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return None
+
+
+def _step_status(start, end, need_date: date | None, today: date) -> str:
+    if end is not None:
+        return "done"
+    if start is not None:
+        if need_date is not None and need_date < today:
+            return "delayed"
+        return "active"
+    return "waiting"
+
+
+def _sort_key(row) -> tuple:
+    raw = row.get("Mes_MachineGroup")
+    try:
+        order = (0, int(raw))
+    except (TypeError, ValueError):
+        order = (1, str(raw or ""))
+    start = row.get("ActualStartDate") or datetime.max
+    return (order, start)
+
+
+def _int_or_zero(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _build_one_match(rows: list[dict], *, hedef_firma, company_name_by_code, today) -> TrackMatch:
+    ordered = sorted(rows, key=_sort_key)
+    first = ordered[0]
+    need_date = _to_date(first.get("NeedDate"))
+
+    steps: list[TrackTimelineStep] = []
+    for i, row in enumerate(ordered):
+        start = row.get("ActualStartDate")
+        end = row.get("ActualEndDate")
+        steps.append(TrackTimelineStep(
+            position=i + 1,
+            station_id=i + 1,
+            station_name=str(row.get("OperationDesc") or "—"),
+            is_exit_station=(i == len(ordered) - 1),
+            status=_step_status(start, end, _to_date(row.get("NeedDate")), today),
+            entry_date=start,
+            exit_date=end,
+        ))
+
+    # current location: last active step, else last done step, else None
+    active = [s for s in steps if s.status in ("active", "delayed")]
+    done = [s for s in steps if s.status == "done"]
+    if active:
+        current = active[-1]
+        current_name, current_entry = current.station_name, current.entry_date
+    elif done:
+        current_name, current_entry = done[-1].station_name, None
+    else:
+        current_name, current_entry = None, None
+
+    # group status rollup
+    if steps and all(s.status == "done" for s in steps):
+        status = "Tamamlandı"
+    elif any(s.status == "delayed" for s in steps):
+        status = "Gecikmiş"
+    elif active and steps[-1].status == "active" and steps[-1].is_exit_station:
+        status = "Sevke Hazır"
+    elif active:
+        status = "İşlemde"
+    else:
+        status = "Girişi yapılmadı"
+
+    all_dates = [d for r in ordered for d in (r.get("ActualStartDate"), r.get("ActualEndDate")) if d is not None]
+    last_updated = max(all_dates) if all_dates else None
+
+    sub_code = str(first.get("SubcontractorID") or "")
+    company_from = company_name_by_code.get(sub_code) or sub_code
+
+    return TrackMatch(
+        work_order_group_id=f"{first.get('AselsanOrderCode')}-{first.get('WorkOrderItemNo')}",
+        part_number=str(first.get("ProductCode") or ""),
+        revision_number=(str(first["RevisionNo"]) if first.get("RevisionNo") else None),
+        pairs=[OrderPair(
+            aselsan_order_number=str(first.get("AselsanOrderCode") or ""),
+            order_item_number=str(first.get("WorkOrderItemNo") or ""),
+        )],
+        main_customer="",
+        sector=str(first.get("AselsanSectorCode") or ""),
+        company_from=company_from,
+        coating_company=hedef_firma,
+        teklif_number="",
+        total_quantity=_int_or_zero(first.get("WorkOrderAmount")) or _int_or_zero(first.get("PlannedQuantity")),
+        total_packages=1,
+        target_date=need_date,
+        current_station_name=current_name,
+        current_entry_date=current_entry,
+        status=status,
+        last_updated=last_updated,
+        has_route=len(steps) > 1,
+        timeline=steps,
+        packages=[],
+    )
+
+
+def assemble_matches(rows: list[dict], *, hedef_firma: str, company_name_by_code: dict, today: date) -> list[TrackMatch]:
+    """Group MES rows by (AselsanOrderCode, WorkOrderItemNo) → one TrackMatch each."""
+    groups: dict[tuple, list[dict]] = {}
+    for row in rows:
+        key = (row.get("AselsanOrderCode"), row.get("WorkOrderItemNo"))
+        groups.setdefault(key, []).append(row)
+    return [
+        _build_one_match(grp, hedef_firma=hedef_firma, company_name_by_code=company_name_by_code, today=today)
+        for grp in groups.values()
+    ]
