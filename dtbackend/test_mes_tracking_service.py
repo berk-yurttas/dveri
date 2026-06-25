@@ -244,5 +244,54 @@ class TrackFromMesTest(unittest.TestCase):
         mock_fetch.assert_awaited_once()
 
 
+from fastapi import HTTPException
+
+from app.api.v1.endpoints.romiot.station.work_order import track_product_mes
+
+
+class TrackMesEndpointTest(unittest.TestCase):
+    def _user(self, roles):
+        return SimpleNamespace(role=roles, department="ASELSAN")
+
+    def test_non_musteri_role_403(self):
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(track_product_mes(
+                hedef_firma="Bosan", order_number=None, order_item_number=None,
+                part_number="X", current_user=self._user(["atolye:operator"]),
+                romiot_db=_FakeSession([]),
+            ))
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_missing_hedef_firma_400(self):
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(track_product_mes(
+                hedef_firma="", order_number="A", order_item_number="B",
+                part_number=None, current_user=self._user(["atolye:musteri"]),
+                romiot_db=_FakeSession([]),
+            ))
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_missing_search_params_400(self):
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(track_product_mes(
+                hedef_firma="Bosan", order_number=None, order_item_number=None,
+                part_number=None, current_user=self._user(["atolye:musteri"]),
+                romiot_db=_FakeSession([]),
+            ))
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_delegates_to_service_on_valid_request(self):
+        from app.schemas.work_order import TrackResponse
+        with patch("app.api.v1.endpoints.romiot.station.work_order.track_from_mes",
+                   new=AsyncMock(return_value=TrackResponse(matches=[]))) as svc:
+            resp = asyncio.run(track_product_mes(
+                hedef_firma="Bosan", order_number="A", order_item_number="B",
+                part_number=None, current_user=self._user(["atolye:musteri"]),
+                romiot_db=_FakeSession([]),
+            ))
+        self.assertEqual(resp.matches, [])
+        svc.assert_awaited_once()
+
+
 if __name__ == "__main__":
     unittest.main()
