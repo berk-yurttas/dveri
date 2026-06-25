@@ -224,9 +224,12 @@ def _rows_via_pyodbc(sql: str, params: list) -> list[dict]:
     conn = get_aflow_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute(sql, params)
-        columns = [d[0] for d in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        try:
+            cursor.execute(sql, params)
+            columns = [d[0] for d in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        finally:
+            cursor.close()
     finally:
         conn.close()
 
@@ -273,6 +276,7 @@ async def track_from_mes(
         part_number=part_number,
     )
     rows = await _fetch_rows(sql, params)
+    logger.debug("AFLOW %s returned %d rows for hedef_firma=%s", config.table_name, len(rows), hedef_firma)
     if not rows:
         return TrackResponse(matches=[])
 

@@ -234,13 +234,14 @@ class TrackFromMesTest(unittest.TestCase):
         session = _FakeSession([_FakeResult([config]), _FakeResult(company_rows)])
         fake_rows = [_row(sub="1001")]
         with patch("app.services.mes_tracking_service._fetch_rows",
-                   new=AsyncMock(return_value=fake_rows)):
+                   new=AsyncMock(return_value=fake_rows)) as mock_fetch:
             resp = asyncio.run(track_from_mes(
                 session, hedef_firma="Bosan", order_number="26Y2173D43",
                 order_item_number="00030", part_number=None,
             ))
         self.assertEqual(len(resp.matches), 1)
         self.assertEqual(resp.matches[0].company_from, "ASELSAN REHİS")
+        mock_fetch.assert_awaited_once()
 
 
 if __name__ == "__main__":
