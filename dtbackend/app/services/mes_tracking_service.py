@@ -44,7 +44,11 @@ def build_track_query(
     clauses: list[str] = ["1 = 1"]
     params: list = []
 
-    if filter_column and filter_value is not None:
+    if filter_column:
+        if filter_value is None:
+            raise ValueError(
+                f"filter_column {filter_column!r} ayarlı ama filter_value boş (None)"
+            )
         col = _validate_identifier(filter_column)
         clauses.append(f"{col} = ?")
         params.append(filter_value)

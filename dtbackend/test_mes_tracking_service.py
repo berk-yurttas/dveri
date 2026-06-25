@@ -59,6 +59,25 @@ class BuildTrackQueryTest(unittest.TestCase):
                 order_number=None, order_item_number=None, part_number="X",
             )
 
+    def test_no_search_criteria_yields_no_search_predicates(self):
+        sql, params = build_track_query(
+            table_name="Mes_ProductionOrders_bosan",
+            filter_column=None, filter_value=None,
+            order_number=None, order_item_number=None, part_number=None,
+        )
+        self.assertNotIn("AselsanOrderCode = ?", sql)
+        self.assertNotIn("ProductCode LIKE", sql)
+        self.assertIn("IsDeleted = 0 OR IsDeleted IS NULL", sql)
+        self.assertEqual(params, [])
+
+    def test_filter_column_without_value_raises(self):
+        with self.assertRaises(ValueError):
+            build_track_query(
+                table_name="Mes_ProductionOrders_bosan",
+                filter_column="SourceCompany", filter_value=None,
+                order_number=None, order_item_number=None, part_number="X",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
