@@ -192,5 +192,56 @@ class AssembleMatchesTest(unittest.TestCase):
         self.assertEqual(m.total_quantity, 3)
 
 
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+
+class _FakeResult:
+    def __init__(self, rows):
+        self._rows = rows
+    def scalar_one_or_none(self):
+        return self._rows[0] if self._rows else None
+    def all(self):
+        return self._rows
+
+
+class _FakeSession:
+    """Minimal async session: returns queued results per execute() call."""
+    def __init__(self, results):
+        self._results = list(results)
+    async def execute(self, *_args, **_kwargs):
+        return self._results.pop(0)
+
+
+class TrackFromMesTest(unittest.TestCase):
+    def test_missing_config_returns_empty_matches(self):
+        from app.services.mes_tracking_service import track_from_mes
+        session = _FakeSession([_FakeResult([])])  # no config row
+        resp = asyncio.run(track_from_mes(
+            session, hedef_firma="Yok", order_number=None,
+            order_item_number=None, part_number="X",
+        ))
+        self.assertEqual(resp.matches, [])
+
+    def test_happy_path_returns_assembled_match(self):
+        from app.services.mes_tracking_service import track_from_mes
+        config = SimpleNamespace(
+            company="Bosan", table_name="Mes_ProductionOrders_bosan",
+            filter_column=None, filter_value=None,
+        )
+        company_rows = [("1001", "ASELSAN REHİS")]
+        session = _FakeSession([_FakeResult([config]), _FakeResult(company_rows)])
+        fake_rows = [_row(sub="1001")]
+        with patch("app.services.mes_tracking_service._fetch_rows",
+                   new=AsyncMock(return_value=fake_rows)):
+            resp = asyncio.run(track_from_mes(
+                session, hedef_firma="Bosan", order_number="26Y2173D43",
+                order_item_number="00030", part_number=None,
+            ))
+        self.assertEqual(len(resp.matches), 1)
+        self.assertEqual(resp.matches[0].company_from, "ASELSAN REHİS")
+
+
 if __name__ == "__main__":
     unittest.main()

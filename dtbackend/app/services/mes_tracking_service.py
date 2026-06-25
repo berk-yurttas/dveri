@@ -4,11 +4,19 @@ Reads Mes_ProductionOrders_<company> per Hedef Firma (configured in the
 `urunum_nerede_mes_sources` Postgres table) and assembles the existing
 TrackResponse shape. pyodbc reads run in a worker thread (pyodbc is sync).
 """
+import asyncio
+import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
+from sqlalchemy import select
+
+from app.core.database import get_aflow_connection
+from app.models.romiot_models import Company, UrunumNeredeMesSource
 from app.schemas.order_pair import OrderPair
 from app.schemas.work_order import TrackMatch, TrackResponse, TrackTimelineStep
+
+logger = logging.getLogger(__name__)
 
 # Identifier safety: table/column names are interpolated into SQL (they cannot
 # be pyodbc bind parameters), so they must be strictly alphanumeric/underscore.
@@ -209,3 +217,71 @@ def assemble_matches(rows: list[dict], *, hedef_firma: str, company_name_by_code
         _build_one_match(grp, hedef_firma=hedef_firma, company_name_by_code=company_name_by_code, today=today)
         for grp in groups.values()
     ]
+
+
+def _rows_via_pyodbc(sql: str, params: list) -> list[dict]:
+    """Sync pyodbc read against AFLOW. Returns list of column→value dicts."""
+    conn = get_aflow_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql, params)
+        columns = [d[0] for d in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+async def _fetch_rows(sql: str, params: list) -> list[dict]:
+    """Run the sync pyodbc read in a worker thread (pyodbc is blocking)."""
+    return await asyncio.to_thread(_rows_via_pyodbc, sql, params)
+
+
+async def _resolve_company_names(romiot_db, codes: set[str]) -> dict[str, str]:
+    if not codes:
+        return {}
+    result = await romiot_db.execute(
+        select(Company.code, Company.name).where(Company.code.in_(codes))
+    )
+    return {str(code): name for code, name in result.all()}
+
+
+async def track_from_mes(
+    romiot_db,
+    *,
+    hedef_firma: str,
+    order_number: str | None,
+    order_item_number: str | None,
+    part_number: str | None,
+) -> TrackResponse:
+    """Resolve the Hedef Firma's MES config, query AFLOW, assemble TrackResponse.
+
+    Missing config row → empty matches (not an error). Raises ValueError when a
+    configured identifier is unsafe (endpoint maps to HTTP 400)."""
+    config_result = await romiot_db.execute(
+        select(UrunumNeredeMesSource).where(UrunumNeredeMesSource.company == hedef_firma)
+    )
+    config = config_result.scalar_one_or_none()
+    if config is None:
+        return TrackResponse(matches=[])
+
+    sql, params = build_track_query(
+        table_name=config.table_name,
+        filter_column=config.filter_column,
+        filter_value=config.filter_value,
+        order_number=order_number,
+        order_item_number=order_item_number,
+        part_number=part_number,
+    )
+    rows = await _fetch_rows(sql, params)
+    if not rows:
+        return TrackResponse(matches=[])
+
+    codes = {str(r.get("SubcontractorID")) for r in rows if r.get("SubcontractorID") is not None}
+    company_name_by_code = await _resolve_company_names(romiot_db, codes)
+
+    today = datetime.now(timezone.utc).date()
+    matches = assemble_matches(
+        rows, hedef_firma=hedef_firma,
+        company_name_by_code=company_name_by_code, today=today,
+    )
+    return TrackResponse(matches=matches)
