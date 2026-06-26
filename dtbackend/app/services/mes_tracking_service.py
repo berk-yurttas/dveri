@@ -112,11 +112,15 @@ def _step_status(start, end, need_date: date | None, today: date) -> str:
 
 
 def _sort_key(row) -> tuple:
-    raw = row.get("Mes_MachineGroup")
+    op_code = row.get("OperationCode")
     try:
-        order = (0, int(raw))
+        order = (0, int(op_code))
     except (TypeError, ValueError):
-        order = (1, str(raw or ""))
+        raw = row.get("Mes_MachineGroup")
+        try:
+            order = (1, int(raw))
+        except (TypeError, ValueError):
+            order = (2, str(raw or ""))
     start = _as_datetime(row.get("ActualStartDate")) or datetime.max
     return (order, start)
 
