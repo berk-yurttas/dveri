@@ -31,6 +31,7 @@ def _build_payload_item(
         "Mes_ProductCode": work_order.part_number,
         "RevisionNo": work_order.revision_number,
         "Mes_MachineGroup": str(station.station_order_code) if station.station_order_code is not None else None,
+        "OperationCode": str(station.station_order_code) if station.station_order_code is not None else None,
         "OperationDesc": station.name,
         "Mes_OrderId": mes_order_id,
         "SubcontractorWorkOrderNo": work_order.work_order_group_id,
