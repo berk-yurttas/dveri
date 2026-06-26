@@ -135,7 +135,7 @@ export default function UrunumNeredePage() {
             <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">Son Sorgular</div>
             <div className="flex flex-wrap gap-2">
               {recent.map((r, i) => (
-                <button key={i} type="button" onClick={() => { setHedefFirma(r.hedefFirma); runSearch(r.query, r.hedefFirma); }}
+                <button key={i} type="button" onClick={() => { const firma = r.hedefFirma ?? ""; setHedefFirma(firma); runSearch(r.query, firma); }}
                   className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs hover:border-[#fe9526] hover:text-[#0f4c3a] transition-colors cursor-pointer">
                   <span className="font-mono font-semibold">{r.label}</span>
                   <span className="text-gray-400">{r.sub}</span>

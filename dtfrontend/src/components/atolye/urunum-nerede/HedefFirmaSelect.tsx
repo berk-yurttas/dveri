@@ -13,10 +13,11 @@ export function HedefFirmaSelect({
 }) {
   return (
     <div className="mb-3">
-      <label className="block text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">
+      <label htmlFor="hedef-firma-select" className="block text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">
         Hedef Firma
       </label>
       <select
+        id="hedef-firma-select"
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
