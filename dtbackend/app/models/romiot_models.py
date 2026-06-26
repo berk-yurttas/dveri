@@ -165,6 +165,24 @@ class WorkOrderLinkDirectory(PostgreSQLBase):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class UrunumNeredeMesSource(PostgreSQLBase):
+    """Per-Hedef-Firma source mapping for the 'Ürünüm Nerede?' tracker.
+
+    Maps a Hedef Firma (target/coating company, matching
+    `company_integrations.company`) to its external MES table in AFLOW and an
+    optional single-column equality filter. Read by mes_tracking_service.
+    """
+    __tablename__ = "urunum_nerede_mes_sources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company = Column(String(255), nullable=False, unique=True, index=True)
+    table_name = Column(String(255), nullable=False)
+    filter_column = Column(String(128), nullable=True)
+    filter_value = Column(String(512), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class WorkOrderPair(PostgreSQLBase):
     """One (Sipariş No, Kalem No) pair belonging to a work order group.
 

@@ -28,6 +28,7 @@ from app.models.romiot_models import (
 from app.schemas.order_pair import OrderPair
 from app.schemas.user import User
 from app.services.toy_api_service import push_and_sync
+from app.services.mes_tracking_service import track_from_mes
 from app.services.user_service import UserService
 from app.schemas.work_order import (
     WorkOrder as WorkOrderSchema,
@@ -1657,6 +1658,43 @@ async def track_product(
         matches.append(TrackMatch(**match_dict))
 
     return TrackResponse(matches=matches)
+
+
+@router.get("/track-mes", response_model=TrackResponse)
+async def track_product_mes(
+    hedef_firma: str = Query(..., description="Hedef Firma"),
+    order_number: str | None = Query(None, description="ASELSAN Sipariş No"),
+    order_item_number: str | None = Query(None, description="Sipariş Kalem No"),
+    part_number: str | None = Query(None, description="Parça Numarası"),
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """Müşteri product tracker reading from the external MES (AFLOW) source
+    configured per Hedef Firma. Same TrackResponse shape as /track."""
+    role_values = current_user.role if isinstance(current_user.role, list) else []
+    if "atolye:musteri" not in role_values:
+        raise HTTPException(status_code=403, detail="Bu sayfa yalnızca müşteri kullanıcıları içindir.")
+
+    if not (hedef_firma or "").strip():
+        raise HTTPException(status_code=400, detail="Hedef Firma seçilmelidir.")
+
+    has_order = bool(order_number and order_item_number)
+    if not has_order and not part_number:
+        raise HTTPException(
+            status_code=400,
+            detail="Sipariş No + Kalem No veya Parça No girilmelidir.",
+        )
+
+    try:
+        return await track_from_mes(
+            romiot_db,
+            hedef_firma=hedef_firma.strip(),
+            order_number=order_number if has_order else None,
+            order_item_number=order_item_number if has_order else None,
+            part_number=part_number,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/companies", response_model=list[str])

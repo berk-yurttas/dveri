@@ -9,12 +9,13 @@ import { TrackMatchList } from "@/components/atolye/urunum-nerede/TrackMatchList
 import { TrackResultCard } from "@/components/atolye/urunum-nerede/TrackResultCard";
 import { RouteTimeline } from "@/components/atolye/urunum-nerede/RouteTimeline";
 import { PackageStrip } from "@/components/atolye/urunum-nerede/PackageStrip";
+import { HedefFirmaSelect } from "@/components/atolye/urunum-nerede/HedefFirmaSelect";
 
 type View = "idle" | "loading" | "notfound" | "list" | "result";
 
 const RECENT_KEY = "urunum_nerede_recent";
 
-interface RecentItem { label: string; sub: string; query: TrackQuery; }
+interface RecentItem { label: string; sub: string; query: TrackQuery; hedefFirma: string; }
 
 export default function UrunumNeredePage() {
   const { user, loading } = useUser();
@@ -23,6 +24,8 @@ export default function UrunumNeredePage() {
   const [selected, setSelected] = useState<TrackMatch | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<RecentItem[]>([]);
+  const [companies, setCompanies] = useState<string[]>([]);
+  const [hedefFirma, setHedefFirma] = useState("");
 
   const isMusteri =
     Array.isArray(user?.role) && user.role.some((r) => typeof r === "string" && r === "atolye:musteri");
@@ -34,6 +37,13 @@ export default function UrunumNeredePage() {
     } catch { /* ignore */ }
   }, []);
 
+  useEffect(() => {
+    api
+      .get<string[]>("/romiot/station/company-integration/companies", undefined, { useCache: true })
+      .then((list) => setCompanies(Array.isArray(list) ? list : []))
+      .catch(() => setCompanies([]));
+  }, []);
+
   const pushRecent = (item: RecentItem) => {
     setRecent((prev) => {
       const next = [item, ...prev.filter((p) => p.label !== item.label)].slice(0, 5);
@@ -42,12 +52,17 @@ export default function UrunumNeredePage() {
     });
   };
 
-  const runSearch = async (q: TrackQuery) => {
+  const runSearch = async (q: TrackQuery, firma: string = hedefFirma) => {
+    if (!firma) {
+      setError("Lütfen önce bir Hedef Firma seçin.");
+      return;
+    }
     setError(null);
     setView("loading");
     setSelected(null);
     try {
       const params = new URLSearchParams();
+      params.set("hedef_firma", firma);
       if (q.method === "order") {
         params.set("order_number", q.order_number);
         params.set("order_item_number", q.order_item_number);
@@ -55,7 +70,7 @@ export default function UrunumNeredePage() {
         params.set("part_number", q.part_number);
       }
       const res = await api.get<TrackResponse>(
-        `/romiot/station/work-orders/track?${params.toString()}`,
+        `/romiot/station/work-orders/track-mes?${params.toString()}`,
         undefined,
         { useCache: false }
       );
@@ -71,7 +86,7 @@ export default function UrunumNeredePage() {
       }
       if (found.length > 0) {
         const label = q.method === "order" ? `${q.order_number} / ${q.order_item_number}` : q.part_number;
-        pushRecent({ label, sub: found[0].part_number, query: q });
+        pushRecent({ label, sub: found[0].part_number, query: q, hedefFirma: firma });
       }
     } catch {
       setError("Sorgu sırasında bir hata oluştu. Lütfen tekrar deneyin.");
@@ -111,7 +126,8 @@ export default function UrunumNeredePage() {
         )}
 
         <div className="mb-5">
-          <ProductSearchCard loading={view === "loading"} onSearch={runSearch} />
+          <HedefFirmaSelect companies={companies} value={hedefFirma} onChange={setHedefFirma} disabled={view === "loading"} />
+          <ProductSearchCard loading={view === "loading"} onSearch={(q) => runSearch(q)} />
         </div>
 
         {recent.length > 0 && view === "idle" && (
@@ -119,7 +135,7 @@ export default function UrunumNeredePage() {
             <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-2">Son Sorgular</div>
             <div className="flex flex-wrap gap-2">
               {recent.map((r, i) => (
-                <button key={i} type="button" onClick={() => runSearch(r.query)}
+                <button key={i} type="button" onClick={() => { const firma = r.hedefFirma ?? ""; setHedefFirma(firma); runSearch(r.query, firma); }}
                   className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs hover:border-[#fe9526] hover:text-[#0f4c3a] transition-colors cursor-pointer">
                   <span className="font-mono font-semibold">{r.label}</span>
                   <span className="text-gray-400">{r.sub}</span>
