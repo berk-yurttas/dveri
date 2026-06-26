@@ -10,6 +10,7 @@ from app.models.romiot_models import (
     CompanyIntegration,
     Station,
     WorkOrder,
+    WorkOrderRoute,
 )
 from app.schemas.order_pair import OrderPair
 
@@ -44,6 +45,40 @@ def _build_payload_item(
         "PlannedQuantity": work_order.quantity,
         "WorkOrderAmount": work_order.total_quantity,
         "ActualQuantity": work_order.exited_quantity,
+        "MES_CreatedDate": work_order.qr_created_at.isoformat() if work_order.qr_created_at else None,
+        "NeedDate": work_order.target_date.isoformat() if work_order.target_date else None,
+        "AselsanSectorCode": work_order.sector,
+    }
+
+
+def _build_placeholder_item(
+    work_order,
+    station,
+    pair: OrderPair,
+    mes_order_id: str,
+    subcontractor_id: str | None,
+    source_company: str,
+) -> dict:
+    """Same shape as _build_payload_item but with no actual dates and zero quantity.
+    Used to pre-populate unscanned route stations so the MES sees the full planned route."""
+    return {
+        "AselsanOrderCode": pair.aselsan_order_number,
+        "WorkOrderItemNo": pair.order_item_number,
+        "ProductCode": work_order.part_number,
+        "Mes_ProductCode": work_order.part_number,
+        "RevisionNo": work_order.revision_number,
+        "Mes_MachineGroup": str(station.station_order_code) if station.station_order_code is not None else None,
+        "OperationCode": str(station.station_order_code) if station.station_order_code is not None else None,
+        "OperationDesc": station.name,
+        "Mes_OrderId": mes_order_id,
+        "SubcontractorWorkOrderNo": work_order.work_order_group_id,
+        "SubcontractorID": subcontractor_id,
+        "SourceCompany": source_company,
+        "ActualStartDate": None,
+        "ActualEndDate": None,
+        "PlannedQuantity": work_order.quantity,
+        "WorkOrderAmount": work_order.total_quantity,
+        "ActualQuantity": 0,
         "MES_CreatedDate": work_order.qr_created_at.isoformat() if work_order.qr_created_at else None,
         "NeedDate": work_order.target_date.isoformat() if work_order.target_date else None,
         "AselsanSectorCode": work_order.sector,
@@ -152,6 +187,66 @@ async def _push_one_work_order(db, work_order, integration) -> bool:
     return ok
 
 
+async def _push_route_placeholders(
+    db,
+    work_order,
+    integration,
+    pairs: list[OrderPair],
+    subcontractor_id: str | None,
+) -> None:
+    """Push placeholder records for unscanned route stations after a real scan.
+
+    Only stations with no existing WorkOrder row (i.e. not yet touched by any
+    package) receive a placeholder. Uses the same Mes_OrderId format as the real
+    scan so Toy API upserts when the actual scan arrives later. Never raises."""
+    route_result = await db.execute(
+        select(WorkOrderRoute.station_id)
+        .where(WorkOrderRoute.work_order_group_id == work_order.work_order_group_id)
+        .order_by(WorkOrderRoute.position)
+    )
+    route_station_ids = [row[0] for row in route_result.all()]
+    if not route_station_ids:
+        return
+
+    scanned_result = await db.execute(
+        select(WorkOrder.station_id)
+        .where(
+            WorkOrder.work_order_group_id == work_order.work_order_group_id,
+            WorkOrder.station_id.in_(route_station_ids),
+        )
+        .distinct()
+    )
+    scanned_ids = {row[0] for row in scanned_result.all()}
+    unscanned_ids = [sid for sid in route_station_ids if sid not in scanned_ids]
+    if not unscanned_ids:
+        return
+
+    tasks = []
+    for station_id in unscanned_ids:
+        station = await db.get(Station, station_id)
+        if station is None:
+            continue
+        base_id = f"{work_order.work_order_group_id}-{station.id}"
+        if len(pairs) == 1:
+            item = _build_placeholder_item(work_order, station, pairs[0], base_id, subcontractor_id, integration.company)
+            tasks.append(_post_one(integration.api_url, integration.api_key, {"company": integration.company, "data": [item]}, work_order.id))
+        else:
+            for pair in pairs:
+                mes_order_id = f"{base_id}-{pair.aselsan_order_number}-{pair.order_item_number}"
+                item = _build_placeholder_item(work_order, station, pair, mes_order_id, subcontractor_id, integration.company)
+                tasks.append(_post_one(integration.api_url, integration.api_key, {"company": integration.company, "data": [item]}, work_order.id))
+
+    if not tasks:
+        return
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    failures = sum(1 for r in results if r is False or isinstance(r, Exception))
+    if failures:
+        logger.warning(
+            "route placeholder push: %d/%d failed for group=%s",
+            failures, len(tasks), work_order.work_order_group_id,
+        )
+
+
 async def push_and_sync(work_order_id: int) -> None:
     """Background entrypoint dispatched after a scan. Owns its own session.
 
@@ -174,6 +269,10 @@ async def push_and_sync(work_order_id: int) -> None:
                 return
 
             await _push_one_work_order(db, work_order, integration)
+
+            pairs = await _resolve_pairs(db, work_order.work_order_group_id)
+            subcontractor_id = await _resolve_subcontractor_id(db, work_order.company_from_id)
+            await _push_route_placeholders(db, work_order, integration, pairs, subcontractor_id)
 
             unsent_result = await db.execute(
                 select(WorkOrder)
