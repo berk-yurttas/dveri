@@ -191,6 +191,16 @@ class AssembleMatchesTest(unittest.TestCase):
                              company_name_by_code={}, today=date(2026, 6, 25))[0]
         self.assertEqual(m.total_quantity, 3)
 
+    def test_rows_with_null_order_or_item_are_skipped(self):
+        rows = [
+            {**_row(), "AselsanOrderCode": None},
+            {**_row(), "WorkOrderItemNo": None},
+            _row(),
+        ]
+        matches = assemble_matches(rows, hedef_firma="Bosan",
+                                   company_name_by_code={}, today=date(2026, 6, 25))
+        self.assertEqual(len(matches), 1)
+
 
 import asyncio
 from types import SimpleNamespace

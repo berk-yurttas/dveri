@@ -211,7 +211,11 @@ def assemble_matches(rows: list[dict], *, hedef_firma: str, company_name_by_code
     """Group MES rows by (AselsanOrderCode, WorkOrderItemNo) → one TrackMatch each."""
     groups: dict[tuple, list[dict]] = {}
     for row in rows:
-        key = (row.get("AselsanOrderCode"), row.get("WorkOrderItemNo"))
+        order = row.get("AselsanOrderCode")
+        item = row.get("WorkOrderItemNo")
+        if not order or not item:
+            continue
+        key = (order, item)
         groups.setdefault(key, []).append(row)
     return [
         _build_one_match(grp, hedef_firma=hedef_firma, company_name_by_code=company_name_by_code, today=today)
