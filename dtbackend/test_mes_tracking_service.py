@@ -191,6 +191,16 @@ class AssembleMatchesTest(unittest.TestCase):
                              company_name_by_code={}, today=date(2026, 6, 25))[0]
         self.assertEqual(m.total_quantity, 3)
 
+    def test_operation_code_int_takes_priority_over_mes_machine_group(self):
+        rows = [
+            {**_row(op="Boya",    mg="1"), "OperationCode": "20"},
+            {**_row(op="Kaplama", mg="2"), "OperationCode": "10"},
+        ]
+        matches = assemble_matches(rows, hedef_firma="Bosan",
+                                   company_name_by_code={}, today=date(2026, 6, 25))
+        steps = matches[0].timeline
+        self.assertEqual([s.station_name for s in steps], ["Kaplama", "Boya"])
+
     def test_rows_with_null_order_or_item_are_skipped(self):
         rows = [
             {**_row(), "AselsanOrderCode": None},
