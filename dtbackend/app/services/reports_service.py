@@ -762,17 +762,23 @@ class ReportsService:
 
             # Create new tabs and queries
             for tab_data in report_data.tabs:
+                # Track mapping of old query IDs to new query IDs for layout remapping
+                old_to_new_query_map = {}
+                
                 db_tab = ReportTab(
                     report_id=db_report.id,
                     name=tab_data.name,
                     order_index=tab_data.order_index or 0,
-                    layout_config=tab_data.layout_config or []
+                    layout_config=[]  # Will update after creating queries
                 )
                 self.db.add(db_tab)
                 await self.db.flush()  # Get the tab ID
 
                 # Create queries for this tab
                 for query_data in tab_data.queries:
+                    # Store the incoming ID (from frontend) before creating new query
+                    incoming_query_id = str(query_data.id) if query_data.id else None
+                    
                     db_query = ReportQuery(
                         report_id=db_report.id,
                         tab_id=db_tab.id,
@@ -783,6 +789,10 @@ class ReportsService:
                     )
                     self.db.add(db_query)
                     await self.db.flush()  # Get the query ID
+                    
+                    # Map incoming ID to new database ID
+                    if incoming_query_id:
+                        old_to_new_query_map[incoming_query_id] = str(db_query.id)
 
                     # Create filters for this query
                     for filter_data in query_data.filters:
@@ -799,6 +809,21 @@ class ReportsService:
                             depends_on=filter_data.depends_on
                         )
                         self.db.add(db_filter)
+                
+                # Update layout_config with new query IDs
+                if tab_data.layout_config and old_to_new_query_map:
+                    updated_layout = []
+                    for layout_item in tab_data.layout_config:
+                        if isinstance(layout_item, dict):
+                            old_id = str(layout_item.get('i', ''))
+                            if old_id in old_to_new_query_map:
+                                # Remap the ID to the new query ID
+                                layout_item = dict(layout_item)  # Make a copy
+                                layout_item['i'] = old_to_new_query_map[old_id]
+                            updated_layout.append(layout_item)
+                    db_tab.layout_config = updated_layout
+                else:
+                    db_tab.layout_config = tab_data.layout_config or []
         
         # Update queries if provided (only if not a direct link report and no tabs provided)
         elif report_data.queries is not None and not will_be_direct_link:

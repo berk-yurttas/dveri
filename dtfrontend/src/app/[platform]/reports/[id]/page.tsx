@@ -362,12 +362,61 @@ export default function ReportDetailPage() {
 
     setIsSavingLayout(true)
     try {
-      // Save layout to backend
-      await reportsService.updateReport(report.id.toString(), {
-        layoutConfig: gridLayout
-      })
+      // If report has tabs, save to the active tab's layoutConfig
+      if (report.tabs && report.tabs.length > 0 && activeTab !== null) {
+        // Update the specific tab's layoutConfig
+        const updatedTabs = report.tabs.map(tab => {
+          if (tab.id === activeTab) {
+            return {
+              ...tab,
+              layoutConfig: gridLayout
+            }
+          }
+          return tab
+        })
+
+        // Send the full update to the backend
+        await reportsService.updateReportFull(report.id.toString(), {
+          tabs: updatedTabs.map(tab => ({
+            id: tab.id,
+            name: tab.name,
+            orderIndex: tab.orderIndex,
+            layoutConfig: tab.layoutConfig,
+            queries: tab.queries.map(q => ({
+              id: q.id,
+              name: q.name,
+              sql: q.sql,
+              visualization: q.visualization,
+              orderIndex: q.orderIndex,
+              filters: q.filters || []
+            }))
+          }))
+        })
+
+        // Update local state with the updated tabs
+        setReport({
+          ...report,
+          tabs: updatedTabs
+        })
+      } else {
+        // No tabs - save to report level (backward compatibility)
+        await reportsService.updateReport(report.id.toString(), {
+          layoutConfig: gridLayout
+        })
+        
+        // Update local state with the updated layoutConfig
+        setReport({
+          ...report,
+          layoutConfig: gridLayout
+        })
+      }
+
       // Also keep in localStorage as backup
-      localStorage.setItem(`report_layout_${report.id}`, JSON.stringify(gridLayout))
+      const storageKey = activeTab !== null 
+        ? `report_layout_${report.id}_tab_${activeTab}` 
+        : `report_layout_${report.id}`
+      localStorage.setItem(storageKey, JSON.stringify(gridLayout))
+      
       setIsLayoutEditMode(false)
     } catch (error) {
       console.error('Error saving layout:', error)
@@ -379,16 +428,28 @@ export default function ReportDetailPage() {
   // Cancel layout editing
   const handleCancelLayoutEdit = () => {
     // Restore original layout
-    // Priority: 1. Report data from DB, 2. localStorage, 3. Default layout
     if (report) {
-      if (report.layoutConfig && report.layoutConfig.length > 0) {
-        setGridLayout(report.layoutConfig)
+      // If report has tabs and active tab is set
+      if (report.tabs && report.tabs.length > 0 && activeTab !== null) {
+        const tab = report.tabs.find(t => t.id === activeTab)
+        if (tab) {
+          if (tab.layoutConfig && tab.layoutConfig.length > 0) {
+            setGridLayout(tab.layoutConfig)
+          } else {
+            setGridLayout(generateDefaultLayout(tab.queries))
+          }
+        }
       } else {
-        const savedLayout = localStorage.getItem(`report_layout_${report.id}`)
-        if (savedLayout) {
-          setGridLayout(JSON.parse(savedLayout))
+        // No tabs - use report-level layout (backward compatibility)
+        if (report.layoutConfig && report.layoutConfig.length > 0) {
+          setGridLayout(report.layoutConfig)
         } else {
-          setGridLayout(generateDefaultLayout(report.queries))
+          const savedLayout = localStorage.getItem(`report_layout_${report.id}`)
+          if (savedLayout) {
+            setGridLayout(JSON.parse(savedLayout))
+          } else {
+            setGridLayout(generateDefaultLayout(report.queries))
+          }
         }
       }
     }
@@ -1168,22 +1229,15 @@ export default function ReportDetailPage() {
           // Initialize layout for first tab
           const firstTab = sortedTabs[0]
           if (firstTab.layoutConfig && firstTab.layoutConfig.length > 0) {
-            const validQueryIds = new Set(firstTab.queries.map(q => q.id.toString()))
-            const validatedLayout = firstTab.layoutConfig
-              .filter((layout: any) => validQueryIds.has(layout.i.toString()))
-              .map((layout: any) => ({
-                ...layout,
-                w: Math.max(layout.w || 2, 1),
-                h: Math.max(layout.h || 4, 2),
-                minW: 1,
-                minH: 2
-              }))
-            
-            if (validatedLayout.length === firstTab.queries.length) {
-              setGridLayout(validatedLayout)
-            } else {
-              setGridLayout(generateDefaultLayout(firstTab.queries))
-            }
+            // Use saved layout with proper structure (backend ensures IDs are correct)
+            const validatedLayout = firstTab.layoutConfig.map((layout: any) => ({
+              ...layout,
+              w: Math.max(layout.w || 2, 1),
+              h: Math.max(layout.h || 4, 2),
+              minW: 1,
+              minH: 2
+            }))
+            setGridLayout(validatedLayout)
           } else {
             setGridLayout(generateDefaultLayout(firstTab.queries))
           }
@@ -1338,7 +1392,30 @@ export default function ReportDetailPage() {
     }
   }, [reportId])
 
+  // Handle tab switching - update layout when active tab changes
+  useEffect(() => {
+    if (!report || !report.tabs || report.tabs.length === 0 || activeTab === null) {
+      return
+    }
 
+    const tab = report.tabs.find(t => t.id === activeTab)
+    if (!tab) return
+
+    // Update the grid layout for the active tab
+    if (tab.layoutConfig && tab.layoutConfig.length > 0) {
+      // Use saved layout with proper structure (backend ensures IDs are correct)
+      const validatedLayout = tab.layoutConfig.map((layout: any) => ({
+        ...layout,
+        w: Math.max(layout.w || 2, 1),
+        h: Math.max(layout.h || 4, 2),
+        minW: 1,
+        minH: 2
+      }))
+      setGridLayout(validatedLayout)
+    } else {
+      setGridLayout(generateDefaultLayout(tab.queries))
+    }
+  }, [activeTab, report])
 
   // Helper function to clear nested table states for a specific query
   const clearNestedStatesForQuery = (queryId: number) => {
