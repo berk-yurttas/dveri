@@ -73,6 +73,10 @@ class WorkOrder(PostgreSQLBase):
     delivered = Column(Boolean, nullable=False, server_default="false")
     # Whether operator overrode a route warning when this row was committed
     route_violation = Column(Boolean, nullable=False, server_default="false")
+    # Whether the row's CURRENT state has been delivered to the Toy/Mekasan API.
+    # Reset to false whenever the state changes (row created, exit_date filled);
+    # set true when a push of the current state succeeds. Drives piggyback retry.
+    sent = Column(Boolean, nullable=False, server_default="false")
 
     # Timestamps
     entrance_date = Column(DateTime(timezone=True), server_default=func.now())
@@ -157,6 +161,24 @@ class WorkOrderLinkDirectory(PostgreSQLBase):
     id = Column(Integer, primary_key=True, index=True)
     company = Column(String(255), nullable=False, unique=True, index=True)
     root_directory = Column(String(1024), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class UrunumNeredeMesSource(PostgreSQLBase):
+    """Per-Hedef-Firma source mapping for the 'Ürünüm Nerede?' tracker.
+
+    Maps a Hedef Firma (target/coating company, matching
+    `company_integrations.company`) to its external MES table in AFLOW and an
+    optional single-column equality filter. Read by mes_tracking_service.
+    """
+    __tablename__ = "urunum_nerede_mes_sources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company = Column(String(255), nullable=False, unique=True, index=True)
+    table_name = Column(String(255), nullable=False)
+    filter_column = Column(String(128), nullable=True)
+    filter_value = Column(String(512), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

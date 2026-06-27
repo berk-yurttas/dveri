@@ -2,7 +2,16 @@ import asyncio
 import logging
 
 import httpx
+from sqlalchemy import select
 
+from app.core.database import RomiotAsyncSessionLocal
+from app.models.romiot_models import (
+    Company,
+    CompanyIntegration,
+    Station,
+    WorkOrder,
+    WorkOrderRoute,
+)
 from app.schemas.order_pair import OrderPair
 
 logger = logging.getLogger(__name__)
@@ -23,6 +32,7 @@ def _build_payload_item(
         "Mes_ProductCode": work_order.part_number,
         "RevisionNo": work_order.revision_number,
         "Mes_MachineGroup": str(station.station_order_code) if station.station_order_code is not None else None,
+        "OperationCode": str(station.station_order_code) if station.station_order_code is not None else None,
         "OperationDesc": station.name,
         "Mes_OrderId": mes_order_id,
         "SubcontractorWorkOrderNo": work_order.work_order_group_id,
@@ -41,7 +51,43 @@ def _build_payload_item(
     }
 
 
-async def _post_one(api_url: str, api_key: str, payload: dict, work_order_id: int) -> None:
+def _build_placeholder_item(
+    work_order,
+    station,
+    pair: OrderPair,
+    mes_order_id: str,
+    subcontractor_id: str | None,
+    source_company: str,
+) -> dict:
+    """Same shape as _build_payload_item but with no actual dates and zero quantity.
+    Used to pre-populate unscanned route stations so the MES sees the full planned route."""
+    return {
+        "AselsanOrderCode": pair.aselsan_order_number,
+        "WorkOrderItemNo": pair.order_item_number,
+        "ProductCode": work_order.part_number,
+        "Mes_ProductCode": work_order.part_number,
+        "RevisionNo": work_order.revision_number,
+        "Mes_MachineGroup": str(station.station_order_code) if station.station_order_code is not None else None,
+        "OperationCode": str(station.station_order_code) if station.station_order_code is not None else None,
+        "OperationDesc": station.name,
+        "Mes_OrderId": mes_order_id,
+        "SubcontractorWorkOrderNo": work_order.work_order_group_id,
+        "SubcontractorID": subcontractor_id,
+        "SourceCompany": source_company,
+        "ActualStartDate": None,
+        "ActualEndDate": None,
+        "PlannedQuantity": work_order.quantity,
+        "WorkOrderAmount": work_order.total_quantity,
+        "ActualQuantity": 0,
+        "MES_CreatedDate": work_order.qr_created_at.isoformat() if work_order.qr_created_at else None,
+        "NeedDate": work_order.target_date.isoformat() if work_order.target_date else None,
+        "AselsanSectorCode": work_order.sector,
+    }
+
+
+async def _post_one(api_url: str, api_key: str, payload: dict, work_order_id: int) -> bool:
+    """POST one payload. Returns True on a 2xx response, False on a non-2xx
+    response or any exception. Never raises."""
     try:
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.post(
@@ -54,8 +100,11 @@ async def _post_one(api_url: str, api_key: str, payload: dict, work_order_id: in
                     "Mekasan API error %s for work_order_id=%s: %s",
                     response.status_code, work_order_id, response.text,
                 )
+                return False
+            return True
     except Exception as exc:
         logger.error("Mekasan API call failed for work_order_id=%s: %s", work_order_id, exc)
+        return False
 
 
 async def send_production_order(
@@ -66,7 +115,7 @@ async def send_production_order(
     company: str,
     pairs: list[OrderPair],
     subcontractor_id: str | None = None,
-) -> None:
+) -> bool:
     """
     Fire-and-forget Mekasan push.
 
@@ -80,23 +129,165 @@ async def send_production_order(
         different kalem_no) — the primary multi-pair case. Sipariş-no alone
         would collide there.
 
-    Never raises — logs and swallows.
+    Returns True only if every POST succeeded, False otherwise.
     """
     if not pairs:
         logger.warning("send_production_order skipped: empty pairs for work_order_id=%s", work_order.id)
-        return
+        return False
 
     base_id = f"{work_order.work_order_group_id}-{station.id}"
 
     if len(pairs) == 1:
         item = _build_payload_item(work_order, station, pairs[0], base_id, subcontractor_id, company)
-        await _post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id)
-        return
+        return await _post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id)
 
-    # Multi-pair: N independent POSTs in parallel
+    # Multi-pair: N independent POSTs in parallel. All-or-nothing: True only if
+    # every pair POST succeeded. Re-pushing already-delivered pairs is safe
+    # because Toy upserts by Mes_OrderId.
     tasks = []
     for pair in pairs:
         mes_order_id = f"{base_id}-{pair.aselsan_order_number}-{pair.order_item_number}"
         item = _build_payload_item(work_order, station, pair, mes_order_id, subcontractor_id, company)
         tasks.append(_post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id))
-    await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks)
+    return all(results)
+
+
+async def _resolve_pairs(db, work_order_group_id: str) -> list[OrderPair]:
+    """Canonical pairs for a group. Delegates to the endpoint's `_pairs_for_group`
+    via a lazy import — a top-level import would be circular (the endpoint module
+    imports this service)."""
+    from app.api.v1.endpoints.romiot.station.work_order import _pairs_for_group
+    return await _pairs_for_group(db, work_order_group_id)
+
+
+async def _resolve_subcontractor_id(db, company_from_id) -> str | None:
+    """Company.code for the row's company_from_id (sent as SubcontractorID).
+    Short-circuits to None when the row has no company_from_id."""
+    if company_from_id is None:
+        return None
+    result = await db.execute(select(Company.code).where(Company.id == company_from_id))
+    return result.scalar_one_or_none()
+
+
+async def _push_one_work_order(db, work_order, integration) -> bool:
+    """Reload a row's station/pairs/subcontractor, push the current state, and
+    record `sent`. Returns the push result. Assumes `integration` (api_url,
+    api_key, company) is the integration for the row's company."""
+    station = await db.get(Station, work_order.station_id)
+    if station is None:
+        return False
+    pairs = await _resolve_pairs(db, work_order.work_order_group_id)
+    subcontractor_id = await _resolve_subcontractor_id(db, work_order.company_from_id)
+    ok = await send_production_order(
+        work_order, station, integration.api_url, integration.api_key,
+        integration.company, pairs, subcontractor_id,
+    )
+    work_order.sent = ok
+    return ok
+
+
+async def _push_route_placeholders(
+    db,
+    work_order,
+    integration,
+    pairs: list[OrderPair],
+    subcontractor_id: str | None,
+) -> None:
+    """Push placeholder records for unscanned route stations after a real scan.
+
+    Only stations with no existing WorkOrder row (i.e. not yet touched by any
+    package) receive a placeholder. Uses the same Mes_OrderId format as the real
+    scan so Toy API upserts when the actual scan arrives later. Never raises."""
+    route_result = await db.execute(
+        select(WorkOrderRoute.station_id)
+        .where(WorkOrderRoute.work_order_group_id == work_order.work_order_group_id)
+        .order_by(WorkOrderRoute.position)
+    )
+    route_station_ids = [row[0] for row in route_result.all()]
+    if not route_station_ids:
+        return
+
+    scanned_result = await db.execute(
+        select(WorkOrder.station_id)
+        .where(
+            WorkOrder.work_order_group_id == work_order.work_order_group_id,
+            WorkOrder.station_id.in_(route_station_ids),
+        )
+        .distinct()
+    )
+    scanned_ids = {row[0] for row in scanned_result.all()}
+    unscanned_ids = [sid for sid in route_station_ids if sid not in scanned_ids]
+    if not unscanned_ids:
+        return
+
+    tasks = []
+    for station_id in unscanned_ids:
+        station = await db.get(Station, station_id)
+        if station is None:
+            continue
+        base_id = f"{work_order.work_order_group_id}-{station.id}"
+        if len(pairs) == 1:
+            item = _build_placeholder_item(work_order, station, pairs[0], base_id, subcontractor_id, integration.company)
+            tasks.append(_post_one(integration.api_url, integration.api_key, {"company": integration.company, "data": [item]}, work_order.id))
+        else:
+            for pair in pairs:
+                mes_order_id = f"{base_id}-{pair.aselsan_order_number}-{pair.order_item_number}"
+                item = _build_placeholder_item(work_order, station, pair, mes_order_id, subcontractor_id, integration.company)
+                tasks.append(_post_one(integration.api_url, integration.api_key, {"company": integration.company, "data": [item]}, work_order.id))
+
+    if not tasks:
+        return
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    failures = sum(1 for r in results if r is False or isinstance(r, Exception))
+    if failures:
+        logger.warning(
+            "route placeholder push: %d/%d failed for group=%s",
+            failures, len(tasks), work_order.work_order_group_id,
+        )
+
+
+async def push_and_sync(work_order_id: int) -> None:
+    """Background entrypoint dispatched after a scan. Owns its own session.
+
+    Pushes the current row's state to Toy and records `sent`, then sweeps up to
+    20 `sent=false` rows for the SAME company (oldest first) and re-pushes them.
+    Idempotent on Toy's side (upsert by Mes_OrderId). Never raises."""
+    try:
+        async with RomiotAsyncSessionLocal() as db:
+            work_order = await db.get(WorkOrder, work_order_id)
+            if work_order is None:
+                return
+            station = await db.get(Station, work_order.station_id)
+            if station is None:
+                return
+            integration_result = await db.execute(
+                select(CompanyIntegration).where(CompanyIntegration.company == station.company)
+            )
+            integration = integration_result.scalar_one_or_none()
+            if not (integration and integration.api_url and integration.api_key):
+                return
+
+            await _push_one_work_order(db, work_order, integration)
+
+            pairs = await _resolve_pairs(db, work_order.work_order_group_id)
+            subcontractor_id = await _resolve_subcontractor_id(db, work_order.company_from_id)
+            await _push_route_placeholders(db, work_order, integration, pairs, subcontractor_id)
+
+            unsent_result = await db.execute(
+                select(WorkOrder)
+                .join(Station, WorkOrder.station_id == Station.id)
+                .where(
+                    Station.company == integration.company,
+                    WorkOrder.sent == False,  # noqa: E712 — SQLAlchemy boolean comparison
+                    WorkOrder.id != work_order.id,
+                )
+                .order_by(WorkOrder.id)
+                .limit(20)
+            )
+            for row in unsent_result.scalars().all():
+                await _push_one_work_order(db, row, integration)
+
+            await db.commit()
+    except Exception as exc:
+        logger.error("push_and_sync failed for work_order_id=%s: %s", work_order_id, exc)
