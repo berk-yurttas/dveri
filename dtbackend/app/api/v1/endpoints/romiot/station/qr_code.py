@@ -75,6 +75,7 @@ async def _resolve_pairs(romiot_db: AsyncSession, data_dict: dict) -> list[dict]
     ]
 
 
+
 def generate_short_code(length: int = 12) -> str:
     """
     Generate a short alphanumeric code for QR compression.
