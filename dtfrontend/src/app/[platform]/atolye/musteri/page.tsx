@@ -22,9 +22,25 @@ interface BatchQRResponse {
   expires_at: string | null;
 }
 
+interface MultiGroupResult {
+  work_order_group_id: string;
+  pair: { aselsan_order_number: string; order_item_number: string };
+  total_packages: number;
+  total_quantity: number;
+  packages: PackageInfo[];
+}
+
+interface MultiBatchResponse {
+  groups: MultiGroupResult[];
+  expires_at: string | null;
+}
+
 interface OrderPair {
   aselsan_order_number: string;
   order_item_number: string;
+  // Multiple-mode only; ignored in single mode.
+  quantity?: number;
+  package_quantity?: number;
 }
 
 interface BarcodeFormData {
@@ -107,6 +123,16 @@ export default function MusteriPage() {
   const [generatedBatch, setGeneratedBatch] = useState<BatchQRResponse | null>(null);
   const [selectedPackageIndex, setSelectedPackageIndex] = useState<number>(0);
   const qrCodeRef = useRef<HTMLDivElement | null>(null);
+  const [qrMode, setQrMode] = useState<"single" | "multiple">("single");
+  const [generatedMulti, setGeneratedMulti] = useState<MultiBatchResponse | null>(null);
+  const [selectedMultiGroup, setSelectedMultiGroup] = useState<number>(0);
+
+  // The single/multiple choice only exists with 2+ pairs.
+  useEffect(() => {
+    if (barcodeFormData.pairs.length < 2 && qrMode !== "single") {
+      setQrMode("single");
+    }
+  }, [barcodeFormData.pairs.length, qrMode]);
 
   const handleGenerateBarcode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -480,6 +506,32 @@ export default function MusteriPage() {
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Malzemeler *</label>
+                {barcodeFormData.pairs.length > 1 && (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setQrMode("single")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                        qrMode === "single"
+                          ? "bg-[#0f4c3a] text-white border-[#0f4c3a]"
+                          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                      }`}
+                    >
+                      Tek QR (birleşik)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQrMode("multiple")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                        qrMode === "multiple"
+                          ? "bg-[#0f4c3a] text-white border-[#0f4c3a]"
+                          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                      }`}
+                    >
+                      Her Sipariş/Kalem No için ayrı QR
+                    </button>
+                  </div>
+                )}
                 <div className="space-y-2">
                   {barcodeFormData.pairs.map((pair, idx) => {
                     const errors = validatePair(pair, barcodeFormData.pairs, idx, barcodeFormData.main_customer);
