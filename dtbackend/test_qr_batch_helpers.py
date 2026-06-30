@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from app.api.v1.endpoints.romiot.station.qr_code import (
     _authorize_batch_creation,
     _build_group_packages,
+    _check_item_packaging,
     _compute_package_quantities,
     _generate_unique_code,
 )
@@ -203,3 +204,12 @@ class AuthorizeBatchCreationTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             self._run(self._user(["atolye:musteri"]), db, "TGT")
         self.assertEqual(ctx.exception.status_code, 400)
+
+
+class CheckItemPackagingTest(unittest.TestCase):
+    def test_ok_when_parti_le_quantity(self):
+        self.assertIsNone(_check_item_packaging(quantity=10, package_quantity=3))
+
+    def test_rejected_when_parti_gt_quantity(self):
+        msg = _check_item_packaging(quantity=2, package_quantity=3)
+        self.assertIsNotNone(msg)

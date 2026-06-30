@@ -17,12 +17,16 @@ from app.models.romiot_models import (
     WorkOrderPair,
     WorkOrderRoute,
 )
+from app.schemas.order_pair import OrderPair
 from app.schemas.qr_code import (
     QRCodeBatchCreate,
     QRCodeBatchResponse,
     QRCodeDataCreate,
     QRCodeDataResponse,
     QRCodeDataRetrieve,
+    QRCodeMultiBatchCreate,
+    QRCodeMultiBatchResponse,
+    QRCodeMultiGroupResult,
     QRCodePackageInfo,
 )
 from app.schemas.user import User
@@ -249,6 +253,13 @@ async def _authorize_batch_creation(current_user, romiot_db: AsyncSession, submi
     return sender
 
 
+def _check_item_packaging(quantity: int, package_quantity: int) -> str | None:
+    """None if the per-pair parti split is valid, else an error message."""
+    if package_quantity > quantity:
+        return "Paket sayısı toplam parça sayısından büyük olamaz"
+    return None
+
+
 @router.post("/generate", response_model=QRCodeDataResponse, status_code=status.HTTP_201_CREATED)
 async def generate_qr_code(
     qr_data: QRCodeDataCreate,
@@ -381,6 +392,71 @@ async def generate_qr_code_batch(
         packages=packages,
         expires_at=expires_at,
     )
+
+
+@router.post("/generate-batch-multi", response_model=QRCodeMultiBatchResponse, status_code=status.HTTP_201_CREATED)
+async def generate_qr_code_batch_multi(
+    batch_data: QRCodeMultiBatchCreate,
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """Generate one independent work order group per (Sipariş No, Kalem No) pair,
+    each with its own quantity + parti. Shared header fields apply to every group.
+    Atomic: any failure rolls back the whole batch."""
+    submitted_target = batch_data.target_company.strip()
+    sender = await _authorize_batch_creation(current_user, romiot_db, submitted_target)
+
+    for item in batch_data.items:
+        msg = _check_item_packaging(item.quantity, item.package_quantity)
+        if msg:
+            raise HTTPException(status_code=400, detail=msg)
+
+    expires_at = datetime.now(timezone.utc) + timedelta(days=365)
+    payload_base = {
+        "main_customer": batch_data.main_customer,
+        "sector": batch_data.sector,
+        "company_from": sender.name,
+        "company_from_id": sender.id,
+        "teklif_number": batch_data.teklif_number,
+        "part_number": batch_data.part_number,
+        "revision_number": batch_data.revision_number,
+        "target_date": batch_data.target_date.isoformat(),
+    }
+
+    groups: list[QRCodeMultiGroupResult] = []
+    try:
+        for item in batch_data.items:
+            work_order_group_id = generate_work_order_group_id()
+            pair_dicts = [{
+                "aselsan_order_number": item.aselsan_order_number,
+                "order_item_number": item.order_item_number,
+            }]
+            packages = await _build_group_packages(
+                romiot_db,
+                work_order_group_id=work_order_group_id,
+                pairs=pair_dicts,
+                payload_base=payload_base,
+                total_quantity=item.quantity,
+                total_packages=item.package_quantity,
+                target_company=submitted_target,
+                expires_at=expires_at,
+            )
+            groups.append(QRCodeMultiGroupResult(
+                work_order_group_id=work_order_group_id,
+                pair=OrderPair(
+                    aselsan_order_number=item.aselsan_order_number,
+                    order_item_number=item.order_item_number,
+                ),
+                total_packages=item.package_quantity,
+                total_quantity=item.quantity,
+                packages=packages,
+            ))
+    except HTTPException:
+        await romiot_db.rollback()
+        raise
+
+    await romiot_db.commit()
+    return QRCodeMultiBatchResponse(groups=groups, expires_at=expires_at)
 
 
 @router.get("/retrieve/{code}", response_model=QRCodeDataRetrieve)

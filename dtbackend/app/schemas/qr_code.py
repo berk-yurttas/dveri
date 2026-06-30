@@ -57,3 +57,39 @@ class QRCodeBatchResponse(BaseModel):
     total_quantity: int
     packages: list[QRCodePackageInfo]
     expires_at: datetime | None = None
+
+
+class MultiQRPairItem(BaseModel):
+    """One pair with its own quantity + package split, for multi-QR mode."""
+    aselsan_order_number: str = Field(..., min_length=1, max_length=255)
+    order_item_number: str = Field(..., min_length=1, max_length=255)
+    quantity: int = Field(..., gt=0, description="Bu çiftin sipariş miktarı")
+    package_quantity: int = Field(1, gt=0, description="Bu çiftin parti sayısı")
+
+
+class QRCodeMultiBatchCreate(BaseModel):
+    """Multi-QR creation: shared header + per-pair quantity/parti. Each item
+    becomes its own work order group."""
+    model_config = {"extra": "forbid"}
+
+    main_customer: str = Field(..., description="Ana Müşteri")
+    sector: str = Field(..., description="Sektör")
+    target_company: str = Field(..., description="Hedef Firma")
+    teklif_number: str | None = Field(None, description="Teklif Numarası")
+    part_number: str = Field(..., description="Parça Numarası")
+    revision_number: str | None = Field(None, description="Revizyon Numarası")
+    target_date: date = Field(..., description="Hedef Bitirme Tarihi")
+    items: list[MultiQRPairItem] = Field(..., min_length=1)
+
+
+class QRCodeMultiGroupResult(BaseModel):
+    work_order_group_id: str
+    pair: OrderPair
+    total_packages: int
+    total_quantity: int
+    packages: list[QRCodePackageInfo]
+
+
+class QRCodeMultiBatchResponse(BaseModel):
+    groups: list[QRCodeMultiGroupResult]
+    expires_at: datetime | None = None
