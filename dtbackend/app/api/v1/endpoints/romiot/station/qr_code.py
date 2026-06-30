@@ -161,6 +161,61 @@ async def _generate_unique_code(romiot_db: AsyncSession, retries: int = 5) -> st
     return None
 
 
+async def _build_group_packages(
+    romiot_db: AsyncSession,
+    *,
+    work_order_group_id: str,
+    pairs: list[dict],
+    payload_base: dict,
+    total_quantity: int,
+    total_packages: int,
+    target_company: str,
+    expires_at,
+) -> list[QRCodePackageInfo]:
+    """Create one work order group: persist its pair rows and one QRCodeData
+    record per package. `payload_base` carries the shared header fields
+    (main_customer, sector, company_from[/_id], teklif_number, part_number,
+    revision_number, target_date). Returns the package list. Raises
+    HTTPException(500) if a unique code can't be generated — callers roll back.
+    Does NOT commit."""
+    for idx, p in enumerate(pairs):
+        romiot_db.add(
+            WorkOrderPair(
+                work_order_group_id=work_order_group_id,
+                idx=idx,
+                aselsan_order_number=p["aselsan_order_number"],
+                order_item_number=p["order_item_number"],
+            )
+        )
+
+    quantities = _compute_package_quantities(total_quantity, total_packages)
+    packages: list[QRCodePackageInfo] = []
+    for i, pkg_qty in enumerate(quantities, start=1):
+        qr_data = {
+            **payload_base,
+            "work_order_group_id": work_order_group_id,
+            "pairs": pairs,
+            "quantity": pkg_qty,
+            "total_quantity": total_quantity,
+            "package_index": i,
+            "total_packages": total_packages,
+        }
+        code = await _generate_unique_code(romiot_db)
+        if not code:
+            raise HTTPException(
+                status_code=500,
+                detail=f"QR kod oluşturulamadı (paket {i}). Lütfen tekrar deneyin.",
+            )
+        romiot_db.add(QRCodeData(
+            code=code,
+            data=json.dumps(qr_data),
+            company=target_company,
+            expires_at=expires_at,
+        ))
+        packages.append(QRCodePackageInfo(code=code, package_index=i, quantity=pkg_qty))
+    return packages
+
+
 @router.post("/generate", response_model=QRCodeDataResponse, status_code=status.HTTP_201_CREATED)
 async def generate_qr_code(
     qr_data: QRCodeDataCreate,
