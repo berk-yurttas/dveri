@@ -298,12 +298,13 @@ export default function MusteriPage() {
     pkg: PackageInfo,
     qrSize: number,
     totalQuantity: number,
-    totalPackages: number
+    totalPackages: number,
+    pairs: OrderPair[]
   ) => {
-    const pairsRowHtml = barcodeFormData.pairs.length === 1
+    const pairsRowHtml = pairs.length === 1
       ? `
-        <tr><td style="border:1px solid #d1d5db; padding:6px; font-weight:600;">${barcodeFormData.main_customer} Sipariş Numarası</td><td style="border:1px solid #d1d5db; padding:6px;">${totalPackages > 1 ? barcodeFormData.pairs[0].aselsan_order_number + "_" + pkg.package_index : barcodeFormData.pairs[0].aselsan_order_number}</td></tr>
-        <tr><td style="border:1px solid #d1d5db; padding:6px; font-weight:600;">Sipariş Kalem Numarası</td><td style="border:1px solid #d1d5db; padding:6px;">${barcodeFormData.pairs[0].order_item_number}</td></tr>
+        <tr><td style="border:1px solid #d1d5db; padding:6px; font-weight:600;">${barcodeFormData.main_customer} Sipariş Numarası</td><td style="border:1px solid #d1d5db; padding:6px;">${totalPackages > 1 ? pairs[0].aselsan_order_number + "_" + pkg.package_index : pairs[0].aselsan_order_number}</td></tr>
+        <tr><td style="border:1px solid #d1d5db; padding:6px; font-weight:600;">Sipariş Kalem Numarası</td><td style="border:1px solid #d1d5db; padding:6px;">${pairs[0].order_item_number}</td></tr>
       `
       : `
         <tr>
@@ -315,7 +316,7 @@ export default function MusteriPage() {
                 <th style="border:1px solid #d1d5db; padding:4px; font-weight:600; text-align:left;">Kalem No</th>
               </tr></thead>
               <tbody>
-                ${barcodeFormData.pairs.map(p => `
+                ${pairs.map(p => `
                   <tr>
                     <td style="border:1px solid #d1d5db; padding:4px;">${p.aselsan_order_number}</td>
                     <td style="border:1px solid #d1d5db; padding:4px;">${p.order_item_number}</td>
@@ -389,7 +390,7 @@ export default function MusteriPage() {
               <style>${printPageStyles}</style>
             </head>
             <body>
-              ${buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)}
+              ${buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages, barcodeFormData.pairs)}
             </body>
           </html>
         `);
@@ -416,7 +417,7 @@ export default function MusteriPage() {
 
         const packagesHtml = results
           .map(({ svgMarkup, pkg }) =>
-            buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)
+            buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages, barcodeFormData.pairs)
           )
           .join("");
 
@@ -437,6 +438,33 @@ export default function MusteriPage() {
         setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
       })
       .catch((err) => console.error("Error rendering QR codes for print:", err));
+  };
+
+  const handlePrintAllMulti = () => {
+    if (!generatedMulti) return;
+    const qrSize = 200;
+    const renderPromises = generatedMulti.groups.flatMap((g, gi) =>
+      g.packages.map((pkg, pi) =>
+        getQrSvgMarkup(`qr-multi-${gi}-${pi}`, qrSize).then((svgMarkup) => ({
+          svgMarkup, pkg, group: g,
+        }))
+      )
+    );
+    Promise.all(renderPromises)
+      .then((results) => {
+        const printWindow = window.open("", "_blank");
+        if (!printWindow) return;
+        const packagesHtml = results
+          .map(({ svgMarkup, pkg, group }) =>
+            buildPackageCardHtml(svgMarkup, pkg, qrSize, group.total_quantity, group.total_packages, [group.pair])
+          )
+          .join("");
+        printWindow.document.write(`<!DOCTYPE html><html><head><title>QR Kodlar</title><style>${printPageStyles}</style></head><body>${packagesHtml}</body></html>`);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+      })
+      .catch((err) => console.error("Error rendering multi QR codes for print:", err));
   };
 
   if (!isMusteri && !isYonetici) {
@@ -928,6 +956,67 @@ export default function MusteriPage() {
                       Bu QR Kodu Yazdır
                     </button>
                   </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {generatedMulti && (
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Oluşturulan QR Kodlar</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {generatedMulti.groups.length} ayrı iş emri oluşturuldu
+                </p>
+              </div>
+              <button
+                onClick={handlePrintAllMulti}
+                className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+              >
+                Tümünü Yazdır
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-6">
+              {generatedMulti.groups.map((g, gi) => (
+                <button
+                  key={gi}
+                  onClick={() => setSelectedMultiGroup(gi)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    selectedMultiGroup === gi ? "bg-[#0f4c3a] text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  {g.pair.aselsan_order_number} / {g.pair.order_item_number}
+                </button>
+              ))}
+            </div>
+
+            {generatedMulti.groups.map((g, gi) => (
+              <div key={gi} className={gi === selectedMultiGroup ? "block" : "hidden"}>
+                <p className="text-sm text-gray-600 mb-3">
+                  İş Emri: {g.work_order_group_id} — {g.total_packages} paket, toplam {g.total_quantity} parça
+                </p>
+                <div className="flex flex-col gap-6">
+                  {g.packages.map((pkg, pi) => (
+                    <div key={pi} className="border-2 border-gray-300 p-6 rounded-lg bg-gray-50">
+                      <div className="flex flex-col items-center">
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-[#0f4c3a] text-white mb-2">
+                          Paket {pkg.package_index} / {g.total_packages}
+                        </span>
+                        <div
+                          id={`qr-multi-${gi}-${pi}`}
+                          className="w-full max-w-md flex items-center justify-center bg-white p-4 rounded-lg"
+                        >
+                          <QRCodeSVG value={pkg.code} size={300} level="H" />
+                        </div>
+                        <p className="mt-2 text-sm text-gray-700">
+                          {g.pair.aselsan_order_number}{g.total_packages > 1 ? `_${pkg.package_index}` : ""} / {g.pair.order_item_number} — {pkg.quantity}/{g.total_quantity}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
