@@ -5,11 +5,13 @@ session is mocked. Run with:
 import asyncio
 import json
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 
 from app.api.v1.endpoints.romiot.station.qr_code import (
+    _authorize_batch_creation,
     _build_group_packages,
     _compute_package_quantities,
     _generate_unique_code,
@@ -152,3 +154,52 @@ class BuildGroupPackagesTest(unittest.TestCase):
                 expires_at=None,
             ))
         self.assertEqual(ctx.exception.status_code, 500)
+
+
+class AuthorizeBatchCreationTest(unittest.TestCase):
+    def _user(self, roles):
+        return SimpleNamespace(role=roles)
+
+    def _db_integration(self, exists: bool):
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = "id" if exists else None
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=result)
+        return db
+
+    def _run(self, user, db, target):
+        sender = SimpleNamespace(id="cmp1", name="ACME")
+        with patch(
+            "app.api.v1.endpoints.romiot.station.qr_code.require_user_company",
+            AsyncMock(return_value=sender),
+        ):
+            return asyncio.run(_authorize_batch_creation(user, db, target))
+
+    def test_musteri_ok_when_integration_exists(self):
+        db = self._db_integration(True)
+        sender = self._run(self._user(["atolye:musteri"]), db, "TGT")
+        self.assertEqual(sender.name, "ACME")
+
+    def test_no_create_role_rejected(self):
+        db = self._db_integration(True)
+        with self.assertRaises(HTTPException) as ctx:
+            self._run(self._user(["atolye:operator"]), db, "TGT")
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_empty_target_rejected(self):
+        db = self._db_integration(True)
+        with self.assertRaises(HTTPException) as ctx:
+            self._run(self._user(["atolye:musteri"]), db, "   ")
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_yonetici_only_locked_to_own_company(self):
+        db = self._db_integration(True)
+        with self.assertRaises(HTTPException) as ctx:
+            self._run(self._user(["atolye:yonetici"]), db, "OTHERCO")
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_unknown_target_rejected(self):
+        db = self._db_integration(False)
+        with self.assertRaises(HTTPException) as ctx:
+            self._run(self._user(["atolye:musteri"]), db, "TGT")
+        self.assertEqual(ctx.exception.status_code, 400)

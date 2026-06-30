@@ -216,6 +216,40 @@ async def _build_group_packages(
     return packages
 
 
+async def _authorize_batch_creation(current_user, romiot_db: AsyncSession, submitted_target: str):
+    """Shared guard for both batch endpoints: requires müşteri/yönetici role,
+    a non-empty target that exists in company_integrations, and locks
+    yönetici-only callers to their own company. Returns the sender company
+    object (with `.name` and `.id`). Raises HTTPException on any failure."""
+    sender = await require_user_company(current_user, romiot_db)
+    role_values = current_user.role if isinstance(current_user.role, list) else []
+    is_musteri = "atolye:musteri" in role_values
+    is_yonetici = "atolye:yonetici" in role_values
+    if not (is_musteri or is_yonetici):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir.",
+        )
+
+    target = submitted_target.strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="Hedef firma boş olamaz.")
+
+    if is_yonetici and not is_musteri and target != sender.name:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu hedef firma için QR kod oluşturma yetkiniz yok.",
+        )
+
+    integration_check = await romiot_db.execute(
+        select(CompanyIntegration.id).where(CompanyIntegration.company == target).limit(1)
+    )
+    if integration_check.scalar_one_or_none() is None:
+        raise HTTPException(status_code=400, detail="Hedef firma bulunamadı")
+
+    return sender
+
+
 @router.post("/generate", response_model=QRCodeDataResponse, status_code=status.HTTP_201_CREATED)
 async def generate_qr_code(
     qr_data: QRCodeDataCreate,
