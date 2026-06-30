@@ -133,6 +133,15 @@ def generate_work_order_group_id() -> str:
     return f"WO-{date_str}-{random_part}"
 
 
+def _compute_package_quantities(total_quantity: int, total_packages: int) -> list[int]:
+    """Split `total_quantity` across `total_packages` packages, giving the
+    remainder to the earliest packages. e.g. (10, 3) -> [4, 3, 3]. Pure: no DB.
+    Single-mode and multi-mode share this so package math can't drift."""
+    base_qty = total_quantity // total_packages
+    remainder = total_quantity % total_packages
+    return [base_qty + (1 if i <= remainder else 0) for i in range(1, total_packages + 1)]
+
+
 @router.post("/generate", response_model=QRCodeDataResponse, status_code=status.HTTP_201_CREATED)
 async def generate_qr_code(
     qr_data: QRCodeDataCreate,
