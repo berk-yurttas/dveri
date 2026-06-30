@@ -265,6 +265,7 @@ export default function MusteriPage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600; width: 45%;">Ana Müşteri</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.main_customer}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.sector}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${userOwnCompany}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${isYonetici && !isMusteri ? userOwnCompany : barcodeFormData.target_company}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.teklif_number}</td></tr>
           ${pairsRowHtml}
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.part_number}${barcodeFormData.revision_number ? "/" + barcodeFormData.revision_number : ""}</td></tr>
@@ -715,6 +716,10 @@ export default function MusteriPage() {
                           <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">Gönderen Firma</td>
                             <td className="py-2 px-3 text-gray-900">{userOwnCompany}</td>
+                          </tr>
+                          <tr className="border-b border-gray-200">
+                            <td className="py-2 px-3 font-semibold text-gray-700">Hedef Firma</td>
+                            <td className="py-2 px-3 text-gray-900">{isYonetici && !isMusteri ? userOwnCompany : barcodeFormData.target_company}</td>
                           </tr>
                           <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">Teklif Numarası</td>
