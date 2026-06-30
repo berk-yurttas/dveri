@@ -131,6 +131,7 @@ export default function WorkOrdersPage() {
   const [isAselsanSatinalma, setIsAselsanSatinalma] = useState(false);
   const [userCompany, setUserCompany] = useState<string>("");
   const [expandedWorkOrders, setExpandedWorkOrders] = useState<Set<string>>(new Set());
+  const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
 
   // Own company is resolved from the pairing-backed /my-company endpoint,
   // not from the PocketBase department/company fields.
@@ -844,6 +845,48 @@ export default function WorkOrdersPage() {
     }
   };
 
+  // A group is deletable only when the caller created it (company_from) and no
+  // package has been scanned yet — fully-unscanned groups have only synthetic
+  // entries (entrance_date === null). Mirrors the backend guard.
+  const isGroupDeletable = (wo: GroupedWorkOrder): boolean =>
+    (isMusteri || isYonetici) &&
+    wo.company_from === userCompany &&
+    wo.entries.length > 0 &&
+    wo.entries.every((e) => e.entrance_date === null);
+
+  const handleDeleteGroup = async (wo: GroupedWorkOrder) => {
+    const label = `${wo.part_number}${wo.revision_number ? `/${wo.revision_number}` : ""}`;
+    if (!window.confirm(`${label} iş emri ve tüm QR kodları kalıcı olarak silinecek. Emin misiniz?`)) {
+      return;
+    }
+    try {
+      setDeletingGroupId(wo.work_order_group_id);
+      setError(null);
+      await api.delete(`/romiot/station/qr-code/group/${encodeURIComponent(wo.work_order_group_id)}`);
+      setExpandedWorkOrders((prev) => {
+        const next = new Set(prev);
+        next.delete(wo.work_order_group_id);
+        return next;
+      });
+      await fetchWorkOrders();
+    } catch (err: any) {
+      let msg = "İş emri silinirken hata oluştu";
+      if (err instanceof ApiError) {
+        try {
+          msg = JSON.parse(err.message).detail || msg;
+        } catch {
+          msg = err.message || msg;
+        }
+      }
+      setError(msg);
+      // The group may have been scanned between render and click — refetch so the
+      // row (and its now-removed delete button) reflects current state.
+      await fetchWorkOrders();
+    } finally {
+      setDeletingGroupId(null);
+    }
+  };
+
   // Access check
   if (!isYonetici && !isOperator && !isSatinalma && !isMusteri) {
     return (
@@ -1225,6 +1268,19 @@ export default function WorkOrdersPage() {
                                       className="px-4 py-2 text-sm font-medium text-[#0f4c3a] border border-[#0f4c3a] hover:bg-[#0f4c3a]/10 rounded-lg transition-colors"
                                     >
                                       {routeExistsByGroup[wo.work_order_group_id] ? "Rota Düzenle" : "Rota Tanımla"}
+                                    </button>
+                                  )}
+                                  {isGroupDeletable(wo) && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteGroup(wo);
+                                      }}
+                                      disabled={deletingGroupId === wo.work_order_group_id}
+                                      className="px-4 py-2 text-sm font-medium text-red-700 border border-red-300 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      {deletingGroupId === wo.work_order_group_id ? "Siliniyor..." : "İş Emrini Sil"}
                                     </button>
                                   )}
                                 </div>
