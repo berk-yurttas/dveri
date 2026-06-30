@@ -76,6 +76,43 @@ async def _resolve_pairs(romiot_db: AsyncSession, data_dict: dict) -> list[dict]
 
 
 
+def check_group_deletable(
+    *,
+    role_values: list[str],
+    payload_company_froms: list[str],
+    scanned_count: int,
+    caller_company: str,
+) -> None:
+    """Authorize + guard deletion of an unscanned work order group.
+
+    Raises HTTPException (403/409) when deletion is not allowed; returns None when
+    it is. Pure decision logic — the caller loads the group's qr rows (and 404s on
+    an empty group) before calling this.
+
+    Rules:
+      - caller must hold atolye:musteri or atolye:yonetici (else 403),
+      - every qr payload's company_from must equal the caller's company — i.e. the
+        caller's company created the group (else 403),
+      - the group must be fully unscanned: zero work_orders rows (else 409).
+    """
+    has_create_role = "atolye:musteri" in role_values or "atolye:yonetici" in role_values
+    if not has_create_role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu işlem için müşteri veya yönetici yetkisi gereklidir.",
+        )
+    if any(cf != caller_company for cf in payload_company_froms):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu iş emrini silme yetkiniz yok.",
+        )
+    if scanned_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Bu iş emri okutulmaya başlandığı için silinemez.",
+        )
+
+
 def generate_short_code(length: int = 12) -> str:
     """
     Generate a short alphanumeric code for QR compression.
