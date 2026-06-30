@@ -144,7 +144,7 @@ export default function MusteriPage() {
       setError("Hedef Firma zorunludur");
       return;
     }
-    if (barcodeFormData.quantity <= 0) {
+    if (qrMode === "single" && barcodeFormData.quantity <= 0) {
       setError("Toplam sipariş miktarı 0'dan büyük olmalıdır");
       return;
     }
@@ -166,6 +166,24 @@ export default function MusteriPage() {
       return;
     }
 
+    if (qrMode === "multiple") {
+      const qtyErrors: string[] = [];
+      barcodeFormData.pairs.forEach((p, i) => {
+        const q = p.quantity ?? 0;
+        const pk = p.package_quantity ?? 0;
+        if (q <= 0) qtyErrors.push(`Satır ${i + 1}: Miktar 0'dan büyük olmalı`);
+        if (pk <= 0) qtyErrors.push(`Satır ${i + 1}: Parti 0'dan büyük olmalı`);
+        if (q > 0 && pk > 0 && pk > q) qtyErrors.push(`Satır ${i + 1}: Parti, miktardan büyük olamaz`);
+      });
+      if (qtyErrors.length > 0) {
+        setError(qtyErrors.join("; "));
+        return;
+      }
+    } else if (barcodeFormData.quantity <= 0) {
+      // single mode keeps its existing total-quantity guard (already checked above);
+      // no-op here, retained for clarity.
+    }
+
     // Validate target_date is at least 7 days from today
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -180,6 +198,32 @@ export default function MusteriPage() {
     try {
       setLoading(true);
       setError(null);
+
+      if (qrMode === "multiple") {
+        const multiPayload = {
+          main_customer: barcodeFormData.main_customer,
+          sector: barcodeFormData.sector,
+          target_company: effectiveTarget,
+          teklif_number: barcodeFormData.teklif_number.trim() || null,
+          part_number: barcodeFormData.part_number,
+          revision_number: barcodeFormData.revision_number,
+          target_date: barcodeFormData.target_date,
+          items: barcodeFormData.pairs.map((p) => ({
+            aselsan_order_number: p.aselsan_order_number.trim(),
+            order_item_number: p.order_item_number.trim(),
+            quantity: p.quantity ?? 0,
+            package_quantity: (p.package_quantity ?? 0) > 0 ? p.package_quantity : 1,
+          })),
+        };
+        const multiResponse = await api.post<MultiBatchResponse>(
+          "/romiot/station/qr-code/generate-batch-multi",
+          multiPayload
+        );
+        setGeneratedMulti(multiResponse);
+        setGeneratedBatch(null);
+        setSelectedMultiGroup(0);
+        return;
+      }
 
       const effectivePackageQuantity =
         barcodeFormData.package_quantity > 0 ? barcodeFormData.package_quantity : 1;
@@ -207,6 +251,7 @@ export default function MusteriPage() {
         payload
       );
 
+      setGeneratedMulti(null);
       setGeneratedBatch(response);
       setSelectedPackageIndex(0);
     } catch (err: any) {
