@@ -141,6 +141,7 @@ class WorkOrderDetail(BaseModel):
     sector: str
     company_from: str
     company_from_id: int | None = None
+    company_to: str | None = Field(None, description="Hedef Firma (QR kodun oluşturulduğu firma)")
     teklif_number: str
     pairs: list[OrderPair]
     pair_count: int = Field(..., description="Toplam çift sayısı (collapsed row badge'i için denormalize)")

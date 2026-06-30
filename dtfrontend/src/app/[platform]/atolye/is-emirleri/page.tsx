@@ -28,6 +28,7 @@ interface WorkOrderDetail {
   main_customer: string;
   sector: string;
   company_from: string;
+  company_to?: string | null;
   teklif_number: string;
   pairs: OrderPair[];
   pair_count: number;
@@ -60,6 +61,7 @@ interface GroupedWorkOrder {
   main_customer: string;
   sector: string;
   company_from: string;
+  company_to?: string | null;
   teklif_number: string;
   pairs: OrderPair[];
   pair_count: number;
@@ -368,6 +370,7 @@ export default function WorkOrdersPage() {
           main_customer: order.main_customer,
           sector: order.sector,
           company_from: order.company_from,
+          company_to: order.company_to,
           teklif_number: order.teklif_number,
           pairs: order.pairs ?? [],
           pair_count: order.pair_count ?? (order.pairs ? order.pairs.length : 0),
@@ -778,6 +781,7 @@ export default function WorkOrdersPage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600; width: 45%;">Ana Müşteri</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.main_customer}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.sector}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.company_from}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.company_to ?? ""}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.teklif_number}</td></tr>
           ${wo.pair_count <= 1
             ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${wo.main_customer} Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.total_packages > 1 ? (wo.pairs[0]?.aselsan_order_number ?? "-") + "_" + pkg.package_index : (wo.pairs[0]?.aselsan_order_number ?? "-")}</td></tr>
@@ -1484,6 +1488,10 @@ export default function WorkOrdersPage() {
                               <tr className="border-b border-gray-200">
                                 <td className="py-2 pr-3 font-medium text-gray-600">Gönderen Firma</td>
                                 <td className="py-2 text-gray-900">{wo.company_from}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Hedef Firma</td>
+                                <td className="py-2 text-gray-900">{wo.company_to ?? ""}</td>
                               </tr>
                               <tr className="border-b border-gray-200">
                                 <td className="py-2 pr-3 font-medium text-gray-600">Teklif Numarası</td>

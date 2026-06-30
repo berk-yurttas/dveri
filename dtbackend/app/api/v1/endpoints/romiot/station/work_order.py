@@ -349,6 +349,25 @@ async def _company_for_group_local(romiot_db: AsyncSession, group_id: str) -> st
     return result.scalar_one_or_none()
 
 
+async def _target_companies_for_groups(romiot_db: AsyncSession) -> dict[str, str]:
+    """Map work_order_group_id -> QRCodeData.company (Hedef Firma).
+
+    The target company is not stored on the WorkOrder table; it only lives as the
+    `company` column of the QR row the group was generated under. There is no
+    group_id column on qr_code_data, so we parse it out of the JSON payload.
+    """
+    result = await romiot_db.execute(select(QRCodeData.data, QRCodeData.company))
+    mapping: dict[str, str] = {}
+    for data, company in result:
+        try:
+            gid = str(json.loads(data).get("work_order_group_id") or "").strip()
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if gid and gid not in mapping:
+            mapping[gid] = company
+    return mapping
+
+
 # --- Partial-quantity (Kısmi Adet) helpers -------------------------------------
 # Invariant enforced by the endpoints: 0 <= exited_quantity <= entered_quantity
 # <= quantity (the package's full piece count).
@@ -1164,6 +1183,7 @@ async def get_all_work_orders(
         scanned_work_orders = scanned_result.scalars().all()
 
         scanned_group_ids = {wo.work_order_group_id for wo in scanned_work_orders}
+        target_company_map = await _target_companies_for_groups(romiot_db)
         user_ids = list({wo.user_id for wo in scanned_work_orders if wo.user_id is not None})
         user_map: dict[int, str | None] = {}
         if user_ids:
@@ -1190,6 +1210,7 @@ async def get_all_work_orders(
                     main_customer=wo.main_customer,
                     sector=wo.sector,
                     company_from=wo.company_from,
+                    company_to=target_company_map.get(wo.work_order_group_id),
                     teklif_number=wo.teklif_number,
                     pairs=wo_pairs,
                     pair_count=len(wo_pairs),
@@ -1308,6 +1329,7 @@ async def get_all_work_orders(
                         main_customer=str(payload.get("main_customer") or ""),
                         sector=str(payload.get("sector") or ""),
                         company_from=company_from,
+                        company_to=qr_row.company,
                         teklif_number=str(payload.get("teklif_number") or "MKS-000000"),
                         pairs=qr_pairs,
                         pair_count=len(qr_pairs),
@@ -1483,6 +1505,9 @@ async def get_all_work_orders(
     # Build station exit flag map
     station_exit_map = {station.id: station.is_exit_station for station in stations}
 
+    # Hedef Firma per group (sourced from the QR row, not the WorkOrder table)
+    target_company_map = await _target_companies_for_groups(romiot_db)
+
     # Build detailed work order list from SQL rows
     detailed_work_orders = []
     for row in paginated_work_orders:
@@ -1499,6 +1524,7 @@ async def get_all_work_orders(
             main_customer=row.main_customer,
             sector=row.sector,
             company_from=row.company_from,
+            company_to=target_company_map.get(row.work_order_group_id),
             teklif_number=row.teklif_number,
             pairs=row_pairs,
             pair_count=len(row_pairs),
