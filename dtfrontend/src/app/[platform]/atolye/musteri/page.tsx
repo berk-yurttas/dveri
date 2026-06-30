@@ -591,6 +591,38 @@ export default function MusteriPage() {
                             required
                           />
                         </div>
+                        {qrMode === "multiple" && (
+                          <>
+                            <div className="w-28">
+                              <input
+                                type="number"
+                                min="1"
+                                value={pair.quantity || ""}
+                                onChange={(e) => {
+                                  const next = [...barcodeFormData.pairs];
+                                  next[idx] = { ...next[idx], quantity: parseInt(e.target.value) || 0 };
+                                  setBarcodeFormData({ ...barcodeFormData, pairs: next });
+                                }}
+                                placeholder="Miktar"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                              />
+                            </div>
+                            <div className="w-28">
+                              <input
+                                type="number"
+                                min="1"
+                                value={pair.package_quantity || ""}
+                                onChange={(e) => {
+                                  const next = [...barcodeFormData.pairs];
+                                  next[idx] = { ...next[idx], package_quantity: parseInt(e.target.value) || 0 };
+                                  setBarcodeFormData({ ...barcodeFormData, pairs: next });
+                                }}
+                                placeholder="Parti"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                              />
+                            </div>
+                          </>
+                        )}
                         {barcodeFormData.pairs.length > 1 && (
                           <button
                             type="button"
@@ -648,33 +680,37 @@ export default function MusteriPage() {
                   required
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Toplam Sipariş Miktarı *</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={barcodeFormData.quantity || ""}
-                  onChange={(e) => setBarcodeFormData({ ...barcodeFormData, quantity: parseInt(e.target.value) || 0 })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Parti Sayısı</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={barcodeFormData.package_quantity || ""}
-                  onChange={(e) => setBarcodeFormData({ ...barcodeFormData, package_quantity: parseInt(e.target.value) || 0 })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                  placeholder="Bölmek istediğiniz parti sayısı"
-                />
-                {barcodeFormData.quantity > 0 && barcodeFormData.package_quantity > 0 && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    {barcodeFormData.package_quantity} adet QR kod oluşturulacak
-                  </p>
-                )}
-              </div>
+              {qrMode === "single" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Toplam Sipariş Miktarı *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={barcodeFormData.quantity || ""}
+                    onChange={(e) => setBarcodeFormData({ ...barcodeFormData, quantity: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    required
+                  />
+                </div>
+              )}
+              {qrMode === "single" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Parti Sayısı</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={barcodeFormData.package_quantity || ""}
+                    onChange={(e) => setBarcodeFormData({ ...barcodeFormData, package_quantity: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    placeholder="Bölmek istediğiniz parti sayısı"
+                  />
+                  {barcodeFormData.quantity > 0 && barcodeFormData.package_quantity > 0 && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      {barcodeFormData.package_quantity} adet QR kod oluşturulacak
+                    </p>
+                  )}
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Bitirme Tarihi *</label>
                 <DateInput
