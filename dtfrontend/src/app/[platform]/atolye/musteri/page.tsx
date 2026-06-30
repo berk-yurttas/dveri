@@ -179,9 +179,6 @@ export default function MusteriPage() {
         setError(qtyErrors.join("; "));
         return;
       }
-    } else if (barcodeFormData.quantity <= 0) {
-      // single mode keeps its existing total-quantity guard (already checked above);
-      // no-op here, retained for clarity.
     }
 
     // Validate target_date is at least 7 days from today
