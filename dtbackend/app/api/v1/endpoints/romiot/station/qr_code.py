@@ -5,13 +5,19 @@ import string
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints.romiot.station.company_resolver import require_user_company
 from app.core.auth import check_authenticated
 from app.core.database import get_romiot_db
-from app.models.romiot_models import CompanyIntegration, QRCodeData, WorkOrderPair
+from app.models.romiot_models import (
+    CompanyIntegration,
+    QRCodeData,
+    WorkOrder,
+    WorkOrderPair,
+    WorkOrderRoute,
+)
 from app.schemas.qr_code import (
     QRCodeBatchCreate,
     QRCodeBatchResponse,
@@ -140,6 +146,19 @@ def _compute_package_quantities(total_quantity: int, total_packages: int) -> lis
     base_qty = total_quantity // total_packages
     remainder = total_quantity % total_packages
     return [base_qty + (1 if i <= remainder else 0) for i in range(1, total_packages + 1)]
+
+
+async def _generate_unique_code(romiot_db: AsyncSession, retries: int = 5) -> str | None:
+    """A 12-char short code not currently present in qr_code_data, or None after
+    `retries` collisions. Shared by both batch endpoints."""
+    for _ in range(retries):
+        candidate = generate_short_code(12)
+        existing = await romiot_db.execute(
+            select(QRCodeData).where(QRCodeData.code == candidate)
+        )
+        if not existing.scalar_one_or_none():
+            return candidate
+    return None
 
 
 @router.post("/generate", response_model=QRCodeDataResponse, status_code=status.HTTP_201_CREATED)
@@ -456,3 +475,66 @@ async def get_qr_codes_by_work_order_group(
         })
 
     return response_items
+
+
+@router.delete("/group/{work_order_group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_work_order_group(
+    work_order_group_id: str,
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """Delete an unscanned work order group (all its QR codes) created by the
+    caller's company.
+
+    Müşteri/yönetici only. Blocked once any package has been scanned (a work_orders
+    row exists). Removes the group's qr_code_data, work_order_pairs and any
+    work_order_routes rows in one transaction. See check_group_deletable for rules.
+    """
+    role_values = current_user.role if isinstance(current_user.role, list) else []
+    caller_company = (await require_user_company(current_user, romiot_db)).name
+
+    # qr_code_data has no group column; the id lives in the JSON `data`.
+    qr_rows = (
+        await romiot_db.execute(
+            select(QRCodeData).where(
+                text("data::jsonb ->> 'work_order_group_id' = :gid")
+            ),
+            {"gid": work_order_group_id},
+        )
+    ).scalars().all()
+    if not qr_rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="İş emri bulunamadı")
+
+    payload_company_froms: list[str] = []
+    for row in qr_rows:
+        try:
+            payload = json.loads(row.data)
+        except (json.JSONDecodeError, ValueError):
+            payload = {}
+        payload_company_froms.append(str(payload.get("company_from") or "").strip())
+
+    scanned_count = (
+        await romiot_db.execute(
+            select(func.count())
+            .select_from(WorkOrder)
+            .where(WorkOrder.work_order_group_id == work_order_group_id)
+        )
+    ).scalar_one()
+
+    check_group_deletable(
+        role_values=role_values,
+        payload_company_froms=payload_company_froms,
+        scanned_count=scanned_count,
+        caller_company=caller_company,
+    )
+
+    await romiot_db.execute(
+        delete(WorkOrderRoute).where(WorkOrderRoute.work_order_group_id == work_order_group_id)
+    )
+    await romiot_db.execute(
+        delete(WorkOrderPair).where(WorkOrderPair.work_order_group_id == work_order_group_id)
+    )
+    for row in qr_rows:
+        await romiot_db.delete(row)
+    await romiot_db.commit()
+    return None
