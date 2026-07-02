@@ -91,6 +91,7 @@ class PackageStatus(BaseModel):
     exists: bool = Field(..., description="Bu paket için bu atölyede satır var mı")
     entered_quantity: int = Field(..., description="Girilen parça")
     exited_quantity: int = Field(..., description="Çıkan parça")
+    available_to_enter: int = Field(..., description="Şu an bu istasyonda girilebilecek azami parça (akış limiti)")
 
 
 class WorkOrderList(BaseModel):
