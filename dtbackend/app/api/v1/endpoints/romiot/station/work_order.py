@@ -396,8 +396,11 @@ def _entrance_cap(*, quantity: int, prev_exited: int | None, is_flow_gated: bool
 
 def _check_flow_entrance(scan_quantity: int, entered_quantity: int, prev_exited: int):
     """Decide a flow-gated (downstream) entrance scan. Returns one of:
-      ("warn", 0)       — nothing has exited the previous station yet; caller
-                          raises the soft, acknowledgeable route_out_of_order.
+      ("warn", 0)       — nothing is available to pull forward right now: either
+                          the previous station has exited nothing yet, OR every
+                          piece it exited was already entered here. The caller
+                          raises the soft, acknowledgeable route_out_of_order and
+                          picks the exact message from prev_exited.
       ("error", msg)    — scan exceeds what is available; caller raises hard 400.
       ("ok", remaining) — allowed.
     """
@@ -524,9 +527,13 @@ async def create_work_order(
                 prev_name = (await romiot_db.execute(
                     select(Station.name).where(Station.id == prev_station_id)
                 )).scalar_one_or_none() or "önceki istasyon"
+                if prev_exited <= 0:
+                    warn_msg = f"Önceki istasyondan ({prev_name}) henüz çıkış yapılmadı. Yine de devam etmek istiyor musunuz?"
+                else:
+                    warn_msg = f"Önceki istasyondan ({prev_name}) çıkan parçaların tümü bu istasyona girildi. Yine de devam etmek istiyor musunuz?"
                 raise HTTPException(status_code=400, detail={
                     "type": "route_out_of_order",
-                    "message": f"Önceki istasyondan ({prev_name}) çıkış yapılmış parça yok. Yine de devam etmek istiyor musunuz?",
+                    "message": warn_msg,
                     "expected_position": this_pos - 1,
                     "actual_position": this_pos,
                 })

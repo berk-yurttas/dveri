@@ -92,6 +92,9 @@ class FlowEntranceCheckTest(unittest.TestCase):
     def test_ok_partial(self):
         self.assertEqual(_check_flow_entrance(50, 20, 88), ("ok", 68))
 
+    def test_ok_scan_equals_remaining_after_partial(self):
+        self.assertEqual(_check_flow_entrance(68, 20, 88), ("ok", 68))
+
     def test_warn_when_nothing_exited_previous(self):
         outcome, _ = _check_flow_entrance(1, 0, 0)
         self.assertEqual(outcome, "warn")

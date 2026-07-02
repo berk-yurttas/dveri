@@ -512,7 +512,9 @@ export default function OperatorPage() {
                 ? `Çıkışı yapılacak parça yok (Paket ${packageIndex})`
                 : status.entered_quantity >= cap
                   ? `Bu paket tamamen girildi (Paket ${packageIndex})`
-                  : `Önceki istasyondan çıkış yapılmış parça yok (Paket ${packageIndex})`
+                  : status.entered_quantity === 0
+                    ? `Önceki istasyondan çıkış yapılmadı (Paket ${packageIndex})`
+                    : `Önceki istasyondan çıkan parçaların tümü girildi (Paket ${packageIndex})`
             );
             setQRCodeInput("");
             return;
