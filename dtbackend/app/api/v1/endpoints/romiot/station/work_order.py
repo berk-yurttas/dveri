@@ -88,32 +88,63 @@ def _work_order_to_schema(work_order: WorkOrder, pairs: list[OrderPair]) -> Work
     return WorkOrderSchema.model_validate(work_order)
 
 
+def _next_route_position(all_positions: list[int], exited_positions: set[int]) -> int:
+    """Lowest route position whose station this package has NOT yet exited.
+
+    Pure decision behind `_route_expected_position`. `all_positions` is the
+    ordered list of the current route's positions; `exited_positions` are the
+    positions whose station this package has already exited. Returns the first
+    (lowest) position not in `exited_positions`, or `len(exited_positions)` once
+    every route station has been exited (a position past the end of the route).
+
+    "Lowest not-yet-exited" — rather than "highest exited + 1" — keeps a
+    legitimate forward scan valid after a yönetici edits the route. An edit
+    renumbers positions, and a completed station can end up at a higher index
+    than the operator's real next step; "highest exited + 1" would then point
+    past that step and wrongly reject the scan as out-of-route.
+    """
+    for pos in all_positions:
+        if pos not in exited_positions:
+            return pos
+    return len(exited_positions)
+
+
 async def _route_expected_position(
     romiot_db: AsyncSession,
     work_order_group_id: str,
     package_index: int,
 ) -> int:
-    """Return the position the NEXT scan should be at for this package.
+    """Return the position the NEXT entrance scan should be at for this package:
+    the lowest route position whose station the package has not yet exited.
 
-    Highest route position whose station this package has exited + 1; 0 if
-    the package has never exited any route station.
+    Derived from the CURRENT route positions, so it stays correct after a
+    yönetici edits the route. See `_next_route_position` for why "lowest
+    not-yet-exited" is used instead of "highest exited + 1".
     """
-    result = await romiot_db.execute(
-        select(WorkOrderRoute.position)
-        .join(WorkOrder, and_(
-            WorkOrder.station_id == WorkOrderRoute.station_id,
-            WorkOrder.work_order_group_id == WorkOrderRoute.work_order_group_id,
-            WorkOrder.package_index == package_index,
-        ))
-        .where(
-            WorkOrderRoute.work_order_group_id == work_order_group_id,
-            WorkOrder.exit_date.is_not(None),
+    exited_positions = {
+        pos
+        for (pos,) in await romiot_db.execute(
+            select(WorkOrderRoute.position)
+            .join(WorkOrder, and_(
+                WorkOrder.station_id == WorkOrderRoute.station_id,
+                WorkOrder.work_order_group_id == WorkOrderRoute.work_order_group_id,
+                WorkOrder.package_index == package_index,
+            ))
+            .where(
+                WorkOrderRoute.work_order_group_id == work_order_group_id,
+                WorkOrder.exit_date.is_not(None),
+            )
         )
-        .order_by(WorkOrderRoute.position.desc())
-        .limit(1)
-    )
-    highest_exited = result.scalar_one_or_none()
-    return 0 if highest_exited is None else highest_exited + 1
+    }
+    all_positions = [
+        pos
+        for (pos,) in await romiot_db.execute(
+            select(WorkOrderRoute.position)
+            .where(WorkOrderRoute.work_order_group_id == work_order_group_id)
+            .order_by(WorkOrderRoute.position)
+        )
+    ]
+    return _next_route_position(all_positions, exited_positions)
 
 
 def _track_package_status(
