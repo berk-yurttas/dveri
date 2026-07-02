@@ -88,65 +88,6 @@ def _work_order_to_schema(work_order: WorkOrder, pairs: list[OrderPair]) -> Work
     return WorkOrderSchema.model_validate(work_order)
 
 
-def _next_route_position(all_positions: list[int], exited_positions: set[int]) -> int:
-    """Lowest route position whose station this package has NOT yet exited.
-
-    Pure decision behind `_route_expected_position`. `all_positions` is the
-    ordered list of the current route's positions; `exited_positions` are the
-    positions whose station this package has already exited. Returns the first
-    (lowest) position not in `exited_positions`, or `len(exited_positions)` once
-    every route station has been exited (a position past the end of the route).
-
-    "Lowest not-yet-exited" — rather than "highest exited + 1" — keeps a
-    legitimate forward scan valid after a yönetici edits the route. An edit
-    renumbers positions, and a completed station can end up at a higher index
-    than the operator's real next step; "highest exited + 1" would then point
-    past that step and wrongly reject the scan as out-of-route.
-    """
-    for pos in all_positions:
-        if pos not in exited_positions:
-            return pos
-    return len(exited_positions)
-
-
-async def _route_expected_position(
-    romiot_db: AsyncSession,
-    work_order_group_id: str,
-    package_index: int,
-) -> int:
-    """Return the position the NEXT entrance scan should be at for this package:
-    the lowest route position whose station the package has not yet exited.
-
-    Derived from the CURRENT route positions, so it stays correct after a
-    yönetici edits the route. See `_next_route_position` for why "lowest
-    not-yet-exited" is used instead of "highest exited + 1".
-    """
-    exited_positions = {
-        pos
-        for (pos,) in await romiot_db.execute(
-            select(WorkOrderRoute.position)
-            .join(WorkOrder, and_(
-                WorkOrder.station_id == WorkOrderRoute.station_id,
-                WorkOrder.work_order_group_id == WorkOrderRoute.work_order_group_id,
-                WorkOrder.package_index == package_index,
-            ))
-            .where(
-                WorkOrderRoute.work_order_group_id == work_order_group_id,
-                WorkOrder.exit_date.is_not(None),
-            )
-        )
-    }
-    all_positions = [
-        pos
-        for (pos,) in await romiot_db.execute(
-            select(WorkOrderRoute.position)
-            .where(WorkOrderRoute.work_order_group_id == work_order_group_id)
-            .order_by(WorkOrderRoute.position)
-        )
-    ]
-    return _next_route_position(all_positions, exited_positions)
-
-
 def _track_package_status(
     *,
     has_rows: bool,
@@ -544,7 +485,10 @@ async def create_work_order(
                 this_station.company,
             )
 
-    # F6: route validation (only for groups WITH a route; grandfathered skipped)
+    # F6: route validation — flow-aware (cross-station partial flow). For a group
+    # WITH a route, a downstream station may only pull forward pieces that have
+    # EXITED the previous route station. No-route groups and acknowledged
+    # overrides skip this and rely on the quantity cap checked above.
     route_rows_result = await romiot_db.execute(
         select(WorkOrderRoute.position, WorkOrderRoute.station_id)
         .where(WorkOrderRoute.work_order_group_id == work_order_data.work_order_group_id)
@@ -552,9 +496,6 @@ async def create_work_order(
     )
     route_rows = route_rows_result.all()
     if route_rows and not work_order_data.acknowledged_route_violation:
-        expected_pos = await _route_expected_position(
-            romiot_db, work_order_data.work_order_group_id, work_order_data.package_index,
-        )
         this_pos = next((r.position for r in route_rows if r.station_id == work_order_data.station_id), None)
 
         if this_pos is None:
@@ -562,41 +503,39 @@ async def create_work_order(
                 "type": "route_off",
                 "message": "Bu atölye iş emrinin rotasında yok. Yine de devam etmek istiyor musunuz?",
             })
-        if this_pos != expected_pos:
-            expected_station_name_result = await romiot_db.execute(
-                select(Station.name)
-                .join(WorkOrderRoute, WorkOrderRoute.station_id == Station.id)
-                .where(
-                    WorkOrderRoute.work_order_group_id == work_order_data.work_order_group_id,
-                    WorkOrderRoute.position == expected_pos,
-                )
+        if this_pos >= 1:
+            # Flow gate: cap at the previous route station's exited count. Lock
+            # that row so two concurrent entrances can't both pull it forward.
+            prev_station_id = next(r.station_id for r in route_rows if r.position == this_pos - 1)
+            prev_row = (await romiot_db.execute(
+                select(WorkOrder).where(
+                    and_(
+                        WorkOrder.station_id == prev_station_id,
+                        WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
+                        WorkOrder.package_index == work_order_data.package_index,
+                    )
+                ).with_for_update()
+            )).scalar_one_or_none()
+            prev_exited = prev_row.exited_quantity if prev_row else 0
+            outcome, info = _check_flow_entrance(
+                work_order_data.scan_quantity, already_entered, prev_exited
             )
-            expected_name = expected_station_name_result.scalar_one_or_none() or "—"
-            raise HTTPException(status_code=400, detail={
-                "type": "route_out_of_order",
-                "message": f"Sıradaki atölye: {expected_name} (pozisyon {expected_pos + 1}). Yine de devam etmek istiyor musunuz?",
-                "expected_position": expected_pos,
-                "actual_position": this_pos,
-            })
+            if outcome == "warn":
+                prev_name = (await romiot_db.execute(
+                    select(Station.name).where(Station.id == prev_station_id)
+                )).scalar_one_or_none() or "önceki istasyon"
+                raise HTTPException(status_code=400, detail={
+                    "type": "route_out_of_order",
+                    "message": f"Önceki istasyondan ({prev_name}) çıkış yapılmış parça yok. Yine de devam etmek istiyor musunuz?",
+                    "expected_position": this_pos - 1,
+                    "actual_position": this_pos,
+                })
+            if outcome == "error":
+                raise HTTPException(status_code=400, detail=info)
 
-    # Active-at-other-station check (existing)
-    active_at_other_result = await romiot_db.execute(
-        select(WorkOrder.station_id, Station.name)
-        .join(Station, WorkOrder.station_id == Station.id)
-        .where(
-            and_(
-                WorkOrder.work_order_group_id == work_order_data.work_order_group_id,
-                WorkOrder.station_id != work_order_data.station_id,
-                WorkOrder.exit_date.is_(None),
-            )
-        ).limit(1)
-    )
-    active_at_other = active_at_other_result.first()
-    if active_at_other:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Bu iş emri grubu şu anda \"{active_at_other[1]}\" atölyesinde aktif. Önce mevcut atölyeden çıkış yapılmalıdır.",
-        )
+    # Cross-station partial flow: the group-level active-at-other-station mutex
+    # was removed. The flow gate in the F6 block above is the between-station
+    # guard (a package may legitimately be active at several stations at once).
 
     # Inherit priority (existing)
     existing_priority = 0
@@ -793,44 +732,10 @@ async def update_exit_date(
     if exit_error:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exit_error)
 
-    # F6 route validation on exit
-    route_rows_result = await romiot_db.execute(
-        select(WorkOrderRoute.position, WorkOrderRoute.station_id)
-        .where(WorkOrderRoute.work_order_group_id == update_data.work_order_group_id)
-        .order_by(WorkOrderRoute.position)
-    )
-    route_rows = route_rows_result.all()
-    if route_rows and not update_data.acknowledged_route_violation:
-        # Expected exit position = whatever position the package is currently at
-        # (highest non-exited entry); fallback to per-package expected position - 1
-        current_entry_result = await romiot_db.execute(
-            select(WorkOrderRoute.position)
-            .join(WorkOrder, and_(
-                WorkOrder.station_id == WorkOrderRoute.station_id,
-                WorkOrder.work_order_group_id == WorkOrderRoute.work_order_group_id,
-                WorkOrder.package_index == update_data.package_index,
-            ))
-            .where(
-                WorkOrderRoute.work_order_group_id == update_data.work_order_group_id,
-                WorkOrder.exit_date.is_(None),
-            )
-            .order_by(WorkOrderRoute.position.desc())
-            .limit(1)
-        )
-        expected_exit_pos = current_entry_result.scalar_one_or_none()
-        this_pos = next((r.position for r in route_rows if r.station_id == update_data.station_id), None)
-        if expected_exit_pos is not None and this_pos != expected_exit_pos:
-            if this_pos is None:
-                raise HTTPException(status_code=400, detail={
-                    "type": "route_off",
-                    "message": "Bu atölye iş emrinin rotasında yok. Yine de devam etmek istiyor musunuz?",
-                })
-            raise HTTPException(status_code=400, detail={
-                "type": "route_out_of_order",
-                "message": "Çıkış pozisyonu sıralı değil. Yine de devam etmek istiyor musunuz?",
-                "expected_position": expected_exit_pos,
-                "actual_position": this_pos,
-            })
+    # Cross-station partial flow: no exit-side route-order check. A package may
+    # legitimately sit at several route stations at once, so exiting the pieces
+    # still at an earlier station is valid. `_check_exit_scan` (exited + scan <=
+    # entered) above is the only exit guard.
 
     # Accumulate exited pieces; the package is "fully exited" (exit_date stamped)
     # only when exited_quantity reaches the package's full quantity.
@@ -952,11 +857,13 @@ async def get_package_status(
     station_id: int = Query(..., description="Station ID"),
     work_order_group_id: str = Query(..., description="İş Emri Grup ID"),
     package_index: int = Query(..., description="Paket sırası (1-based)"),
+    quantity: int = Query(..., ge=0, description="Paket adedi (cap, QR'dan)"),
     current_user: User = Depends(check_authenticated),
     romiot_db: AsyncSession = Depends(get_romiot_db),
 ):
-    """Current piece-level progress for one package at one station — used by the
-    operator's quantity modal to default to the remaining amount."""
+    """Current piece-level progress + the live entrance cap for one package at one
+    station. `available_to_enter` reflects cross-station flow: at a routed
+    downstream station it is bounded by the previous station's exited count."""
     await check_station_operator_role(station_id, current_user, romiot_db)
     result = await romiot_db.execute(
         select(WorkOrder).where(
@@ -968,12 +875,37 @@ async def get_package_status(
         )
     )
     wo = result.scalar_one_or_none()
-    if wo is None:
-        return PackageStatus(exists=False, entered_quantity=0, exited_quantity=0)
+    entered = wo.entered_quantity if wo else 0
+    exited = wo.exited_quantity if wo else 0
+
+    # Entrance cap: flow-gated (routed downstream) -> previous station's exited count.
+    route_rows = (await romiot_db.execute(
+        select(WorkOrderRoute.position, WorkOrderRoute.station_id)
+        .where(WorkOrderRoute.work_order_group_id == work_order_group_id)
+        .order_by(WorkOrderRoute.position)
+    )).all()
+    this_pos = next((r.position for r in route_rows if r.station_id == station_id), None)
+    is_flow_gated = bool(route_rows) and this_pos is not None and this_pos >= 1
+    prev_exited: int | None = None
+    if is_flow_gated:
+        prev_station_id = next(r.station_id for r in route_rows if r.position == this_pos - 1)
+        prev_row = (await romiot_db.execute(
+            select(WorkOrder).where(
+                and_(
+                    WorkOrder.station_id == prev_station_id,
+                    WorkOrder.work_order_group_id == work_order_group_id,
+                    WorkOrder.package_index == package_index,
+                )
+            )
+        )).scalar_one_or_none()
+        prev_exited = prev_row.exited_quantity if prev_row else 0
+
+    entrance_cap = _entrance_cap(quantity=quantity, prev_exited=prev_exited, is_flow_gated=is_flow_gated)
     return PackageStatus(
-        exists=True,
-        entered_quantity=wo.entered_quantity,
-        exited_quantity=wo.exited_quantity,
+        exists=wo is not None,
+        entered_quantity=entered,
+        exited_quantity=exited,
+        available_to_enter=_available_to_enter(entrance_cap, entered),
     )
 
 
