@@ -9,6 +9,9 @@ from app.api.v1.endpoints.romiot.station.work_order import (
     _exit_remaining,
     _check_entrance_scan,
     _check_exit_scan,
+    _available_to_enter,
+    _entrance_cap,
+    _check_flow_entrance,
 )
 
 
@@ -58,6 +61,54 @@ class ExitScanCheckTest(unittest.TestCase):
 
     def test_exit_exceeds_remaining_rejected(self):
         self.assertIsNotNone(_check_exit_scan(scan_quantity=3, entered_quantity=8, exited_quantity=6))
+
+
+class AvailableToEnterTest(unittest.TestCase):
+    def test_basic(self):
+        self.assertEqual(_available_to_enter(88, 0), 88)
+
+    def test_partial(self):
+        self.assertEqual(_available_to_enter(88, 20), 68)
+
+    def test_never_negative(self):
+        self.assertEqual(_available_to_enter(88, 100), 0)
+
+
+class EntranceCapTest(unittest.TestCase):
+    def test_flow_gated_uses_prev_exited(self):
+        self.assertEqual(_entrance_cap(quantity=488, prev_exited=88, is_flow_gated=True), 88)
+
+    def test_flow_gated_none_prev_is_zero(self):
+        self.assertEqual(_entrance_cap(quantity=488, prev_exited=None, is_flow_gated=True), 0)
+
+    def test_not_flow_gated_uses_quantity(self):
+        self.assertEqual(_entrance_cap(quantity=488, prev_exited=88, is_flow_gated=False), 488)
+
+
+class FlowEntranceCheckTest(unittest.TestCase):
+    def test_ok_within_available(self):
+        self.assertEqual(_check_flow_entrance(88, 0, 88), ("ok", 88))
+
+    def test_ok_partial(self):
+        self.assertEqual(_check_flow_entrance(50, 20, 88), ("ok", 68))
+
+    def test_warn_when_nothing_exited_previous(self):
+        outcome, _ = _check_flow_entrance(1, 0, 0)
+        self.assertEqual(outcome, "warn")
+
+    def test_warn_when_all_already_pulled_forward(self):
+        outcome, _ = _check_flow_entrance(1, 88, 88)
+        self.assertEqual(outcome, "warn")
+
+    def test_error_when_over_available(self):
+        outcome, msg = _check_flow_entrance(89, 0, 88)
+        self.assertEqual(outcome, "error")
+        self.assertIn("88", msg)
+
+    def test_error_over_available_after_partial(self):
+        outcome, msg = _check_flow_entrance(70, 20, 88)
+        self.assertEqual(outcome, "error")
+        self.assertIn("68", msg)
 
 
 if __name__ == "__main__":

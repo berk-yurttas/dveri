@@ -436,6 +436,41 @@ def _check_exit_scan(scan_quantity: int, entered_quantity: int, exited_quantity:
     return None
 
 
+def _available_to_enter(entrance_cap: int, entered_quantity: int) -> int:
+    """Pieces still enterable at this station right now, given the entrance cap
+    (never negative). The cap is the package quantity at the entry/no-route/
+    off-route case, or the previous route station's exited count when flow-gated."""
+    return max(0, entrance_cap - entered_quantity)
+
+
+def _entrance_cap(*, quantity: int, prev_exited: int | None, is_flow_gated: bool) -> int:
+    """Max pieces enterable at this station. Flow-gated (routed, downstream)
+    stations are capped at the previous route station's exited count; everything
+    else (entry station, no route, off-route, acknowledged override) at the
+    package quantity."""
+    if is_flow_gated:
+        return prev_exited or 0
+    return quantity
+
+
+def _check_flow_entrance(scan_quantity: int, entered_quantity: int, prev_exited: int):
+    """Decide a flow-gated (downstream) entrance scan. Returns one of:
+      ("warn", 0)       — nothing has exited the previous station yet; caller
+                          raises the soft, acknowledgeable route_out_of_order.
+      ("error", msg)    — scan exceeds what is available; caller raises hard 400.
+      ("ok", remaining) — allowed.
+    """
+    remaining = _available_to_enter(prev_exited, entered_quantity)
+    if remaining <= 0:
+        return ("warn", 0)
+    if scan_quantity > remaining:
+        return (
+            "error",
+            f"Girilen miktar önceki istasyondan çıkan adedi aşamaz (kalan: {remaining})",
+        )
+    return ("ok", remaining)
+
+
 @router.post("/", response_model=WorkOrderCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_work_order(
     work_order_data: WorkOrderCreate,
