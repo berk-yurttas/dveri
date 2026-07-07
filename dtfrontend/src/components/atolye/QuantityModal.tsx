@@ -12,6 +12,7 @@ interface QuantityModalProps {
   quantity: number;          // package full piece count (cap)
   enteredQuantity: number;   // pieces already entered at this station
   exitedQuantity: number;    // pieces already exited at this station
+  entranceRemaining?: number; // entrance: max pieces enterable now (flow cap). Falls back to quantity-entered.
   loading?: boolean;
   onConfirm: (scanQuantity: number) => void;
   onCancel: () => void;
@@ -26,13 +27,14 @@ export function QuantityModal({
   quantity,
   enteredQuantity,
   exitedQuantity,
+  entranceRemaining,
   loading,
   onConfirm,
   onCancel,
 }: QuantityModalProps) {
   const isEntrance = mode === "entrance";
   const remaining = isEntrance
-    ? Math.max(0, quantity - enteredQuantity)
+    ? (entranceRemaining ?? Math.max(0, quantity - enteredQuantity))
     : Math.max(0, enteredQuantity - exitedQuantity);
 
   const [value, setValue] = useState<number>(remaining);

@@ -1,23 +1,32 @@
 import json
-import math
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints.romiot.station.company_resolver import require_user_company
 from app.core.auth import check_authenticated
 from app.core.database import get_romiot_db
-from app.models.romiot_models import CompanyIntegration, QRCodeData, WorkOrderPair
+from app.models.romiot_models import (
+    CompanyIntegration,
+    QRCodeData,
+    WorkOrder,
+    WorkOrderPair,
+    WorkOrderRoute,
+)
+from app.schemas.order_pair import OrderPair
 from app.schemas.qr_code import (
     QRCodeBatchCreate,
     QRCodeBatchResponse,
     QRCodeDataCreate,
     QRCodeDataResponse,
     QRCodeDataRetrieve,
+    QRCodeMultiBatchCreate,
+    QRCodeMultiBatchResponse,
+    QRCodeMultiGroupResult,
     QRCodePackageInfo,
 )
 from app.schemas.user import User
@@ -75,6 +84,44 @@ async def _resolve_pairs(romiot_db: AsyncSession, data_dict: dict) -> list[dict]
     ]
 
 
+
+def check_group_deletable(
+    *,
+    role_values: list[str],
+    payload_company_froms: list[str],
+    scanned_count: int,
+    caller_company: str,
+) -> None:
+    """Authorize + guard deletion of an unscanned work order group.
+
+    Raises HTTPException (403/409) when deletion is not allowed; returns None when
+    it is. Pure decision logic — the caller loads the group's qr rows (and 404s on
+    an empty group) before calling this.
+
+    Rules:
+      - caller must hold atolye:musteri or atolye:yonetici (else 403),
+      - every qr payload's company_from must equal the caller's company — i.e. the
+        caller's company created the group (else 403),
+      - the group must be fully unscanned: zero work_orders rows (else 409).
+    """
+    has_create_role = "atolye:musteri" in role_values or "atolye:yonetici" in role_values
+    if not has_create_role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu işlem için müşteri veya yönetici yetkisi gereklidir.",
+        )
+    if any(cf != caller_company for cf in payload_company_froms):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu iş emrini silme yetkiniz yok.",
+        )
+    if scanned_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Bu iş emri okutulmaya başlandığı için silinemez.",
+        )
+
+
 def generate_short_code(length: int = 12) -> str:
     """
     Generate a short alphanumeric code for QR compression.
@@ -93,6 +140,124 @@ def generate_work_order_group_id() -> str:
     date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     random_part = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
     return f"WO-{date_str}-{random_part}"
+
+
+def _compute_package_quantities(total_quantity: int, total_packages: int) -> list[int]:
+    """Split `total_quantity` across `total_packages` packages, giving the
+    remainder to the earliest packages. e.g. (10, 3) -> [4, 3, 3]. Pure: no DB.
+    Single-mode and multi-mode share this so package math can't drift."""
+    base_qty = total_quantity // total_packages
+    remainder = total_quantity % total_packages
+    return [base_qty + (1 if i <= remainder else 0) for i in range(1, total_packages + 1)]
+
+
+async def _generate_unique_code(romiot_db: AsyncSession, retries: int = 5) -> str | None:
+    """A 12-char short code not currently present in qr_code_data, or None after
+    `retries` collisions. Shared by both batch endpoints."""
+    for _ in range(retries):
+        candidate = generate_short_code(12)
+        existing = await romiot_db.execute(
+            select(QRCodeData).where(QRCodeData.code == candidate)
+        )
+        if not existing.scalar_one_or_none():
+            return candidate
+    return None
+
+
+async def _build_group_packages(
+    romiot_db: AsyncSession,
+    *,
+    work_order_group_id: str,
+    pairs: list[dict],
+    payload_base: dict,
+    total_quantity: int,
+    total_packages: int,
+    target_company: str,
+    expires_at,
+) -> list[QRCodePackageInfo]:
+    """Create one work order group: persist its pair rows and one QRCodeData
+    record per package. `payload_base` carries the shared header fields
+    (main_customer, sector, company_from[/_id], teklif_number, part_number,
+    revision_number, target_date). Returns the package list. Raises
+    HTTPException(500) if a unique code can't be generated — callers roll back.
+    Does NOT commit."""
+    for idx, p in enumerate(pairs):
+        romiot_db.add(
+            WorkOrderPair(
+                work_order_group_id=work_order_group_id,
+                idx=idx,
+                aselsan_order_number=p["aselsan_order_number"],
+                order_item_number=p["order_item_number"],
+            )
+        )
+
+    quantities = _compute_package_quantities(total_quantity, total_packages)
+    packages: list[QRCodePackageInfo] = []
+    for i, pkg_qty in enumerate(quantities, start=1):
+        qr_data = {
+            **payload_base,
+            "work_order_group_id": work_order_group_id,
+            "pairs": pairs,
+            "quantity": pkg_qty,
+            "total_quantity": total_quantity,
+            "package_index": i,
+            "total_packages": total_packages,
+        }
+        code = await _generate_unique_code(romiot_db)
+        if not code:
+            raise HTTPException(
+                status_code=500,
+                detail=f"QR kod oluşturulamadı (paket {i}). Lütfen tekrar deneyin.",
+            )
+        romiot_db.add(QRCodeData(
+            code=code,
+            data=json.dumps(qr_data),
+            company=target_company,
+            expires_at=expires_at,
+        ))
+        packages.append(QRCodePackageInfo(code=code, package_index=i, quantity=pkg_qty))
+    return packages
+
+
+async def _authorize_batch_creation(current_user, romiot_db: AsyncSession, submitted_target: str):
+    """Shared guard for both batch endpoints: requires müşteri/yönetici role,
+    a non-empty target that exists in company_integrations, and locks
+    yönetici-only callers to their own company. Returns the sender company
+    object (with `.name` and `.id`). Raises HTTPException on any failure."""
+    sender = await require_user_company(current_user, romiot_db)
+    role_values = current_user.role if isinstance(current_user.role, list) else []
+    is_musteri = "atolye:musteri" in role_values
+    is_yonetici = "atolye:yonetici" in role_values
+    if not (is_musteri or is_yonetici):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir.",
+        )
+
+    target = submitted_target.strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="Hedef firma boş olamaz.")
+
+    if is_yonetici and not is_musteri and target != sender.name:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu hedef firma için QR kod oluşturma yetkiniz yok.",
+        )
+
+    integration_check = await romiot_db.execute(
+        select(CompanyIntegration.id).where(CompanyIntegration.company == target).limit(1)
+    )
+    if integration_check.scalar_one_or_none() is None:
+        raise HTTPException(status_code=400, detail="Hedef firma bulunamadı")
+
+    return sender
+
+
+def _check_item_packaging(quantity: int, package_quantity: int) -> str | None:
+    """None if the per-pair parti split is valid, else an error message."""
+    if package_quantity > quantity:
+        return "Paket sayısı toplam parça sayısından büyük olamaz"
+    return None
 
 
 @router.post("/generate", response_model=QRCodeDataResponse, status_code=status.HTTP_201_CREATED)
@@ -174,39 +339,9 @@ async def generate_qr_code_batch(
     F1: target validated against company_integrations.
     F3: payload carries pairs[], persisted into work_order_pairs.
     """
-    sender = await require_user_company(current_user, romiot_db)
-    sender_company = sender.name
-    role_values = current_user.role if isinstance(current_user.role, list) else []
-    is_musteri = "atolye:musteri" in role_values
-    is_yonetici = "atolye:yonetici" in role_values
-    has_create_role = is_musteri or is_yonetici
-
-    if not has_create_role:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="QR kod oluşturma yetkisi yok. Müşteri veya yönetici rolü gereklidir.",
-        )
-
     submitted_target = batch_data.target_company.strip()
-    if not submitted_target:
-        raise HTTPException(status_code=400, detail="Hedef firma boş olamaz.")
+    sender = await _authorize_batch_creation(current_user, romiot_db, submitted_target)
 
-    # F1.4: yönetici-only locks target to own company
-    if is_yonetici and not is_musteri:
-        if submitted_target != sender_company:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Bu hedef firma için QR kod oluşturma yetkiniz yok.",
-            )
-
-    # F1: target must exist in company_integrations
-    integration_check = await romiot_db.execute(
-        select(CompanyIntegration.id).where(CompanyIntegration.company == submitted_target).limit(1)
-    )
-    if integration_check.scalar_one_or_none() is None:
-        raise HTTPException(status_code=400, detail="Hedef firma bulunamadı")
-
-    # Package math (unchanged)
     total_quantity = batch_data.quantity
     total_packages = batch_data.package_quantity
     if total_packages > total_quantity:
@@ -215,76 +350,38 @@ async def generate_qr_code_batch(
             detail="Paket sayısı toplam parça sayısından büyük olamaz",
         )
 
-    base_qty = total_quantity // total_packages
-    remainder = total_quantity % total_packages
-
     work_order_group_id = generate_work_order_group_id()
     expires_at = datetime.now(timezone.utc) + timedelta(days=365)
 
-    # Persist pairs once for this group
     pair_dicts = [
         {"aselsan_order_number": p.aselsan_order_number, "order_item_number": p.order_item_number}
         for p in batch_data.pairs
     ]
-    for idx, p in enumerate(pair_dicts):
-        romiot_db.add(
-            WorkOrderPair(
-                work_order_group_id=work_order_group_id,
-                idx=idx,
-                aselsan_order_number=p["aselsan_order_number"],
-                order_item_number=p["order_item_number"],
-            )
-        )
+    payload_base = {
+        "main_customer": batch_data.main_customer,
+        "sector": batch_data.sector,
+        "company_from": sender.name,
+        "company_from_id": sender.id,
+        "teklif_number": batch_data.teklif_number,
+        "part_number": batch_data.part_number,
+        "revision_number": batch_data.revision_number,
+        "target_date": batch_data.target_date.isoformat(),
+    }
 
-    packages: list[QRCodePackageInfo] = []
-    for i in range(1, total_packages + 1):
-        pkg_qty = base_qty + (1 if i <= remainder else 0)
-
-        qr_data = {
-            "work_order_group_id": work_order_group_id,
-            "main_customer": batch_data.main_customer,
-            "sector": batch_data.sector,
-            "company_from": sender_company,
-            "company_from_id": sender.id,
-            "teklif_number": batch_data.teklif_number,
-            "pairs": pair_dicts,
-            "part_number": batch_data.part_number,
-            "revision_number": batch_data.revision_number,
-            "quantity": pkg_qty,
-            "total_quantity": total_quantity,
-            "package_index": i,
-            "total_packages": total_packages,
-            "target_date": batch_data.target_date.isoformat(),
-        }
-
-        data_json = json.dumps(qr_data)
-
-        # Unique short code (5 retries)
-        code = None
-        for _ in range(5):
-            candidate = generate_short_code(12)
-            existing = await romiot_db.execute(
-                select(QRCodeData).where(QRCodeData.code == candidate)
-            )
-            if not existing.scalar_one_or_none():
-                code = candidate
-                break
-
-        if not code:
-            await romiot_db.rollback()
-            raise HTTPException(
-                status_code=500,
-                detail=f"QR kod oluşturulamadı (paket {i}). Lütfen tekrar deneyin.",
-            )
-
-        romiot_db.add(QRCodeData(
-            code=code,
-            data=data_json,
-            company=submitted_target,
+    try:
+        packages = await _build_group_packages(
+            romiot_db,
+            work_order_group_id=work_order_group_id,
+            pairs=pair_dicts,
+            payload_base=payload_base,
+            total_quantity=total_quantity,
+            total_packages=total_packages,
+            target_company=submitted_target,
             expires_at=expires_at,
-        ))
-
-        packages.append(QRCodePackageInfo(code=code, package_index=i, quantity=pkg_qty))
+        )
+    except HTTPException:
+        await romiot_db.rollback()
+        raise
 
     await romiot_db.commit()
 
@@ -295,6 +392,71 @@ async def generate_qr_code_batch(
         packages=packages,
         expires_at=expires_at,
     )
+
+
+@router.post("/generate-batch-multi", response_model=QRCodeMultiBatchResponse, status_code=status.HTTP_201_CREATED)
+async def generate_qr_code_batch_multi(
+    batch_data: QRCodeMultiBatchCreate,
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """Generate one independent work order group per (Sipariş No, Kalem No) pair,
+    each with its own quantity + parti. Shared header fields apply to every group.
+    Atomic: any failure rolls back the whole batch."""
+    submitted_target = batch_data.target_company.strip()
+    sender = await _authorize_batch_creation(current_user, romiot_db, submitted_target)
+
+    for item in batch_data.items:
+        msg = _check_item_packaging(item.quantity, item.package_quantity)
+        if msg:
+            raise HTTPException(status_code=400, detail=msg)
+
+    expires_at = datetime.now(timezone.utc) + timedelta(days=365)
+    payload_base = {
+        "main_customer": batch_data.main_customer,
+        "sector": batch_data.sector,
+        "company_from": sender.name,
+        "company_from_id": sender.id,
+        "teklif_number": batch_data.teklif_number,
+        "part_number": batch_data.part_number,
+        "revision_number": batch_data.revision_number,
+        "target_date": batch_data.target_date.isoformat(),
+    }
+
+    groups: list[QRCodeMultiGroupResult] = []
+    try:
+        for item in batch_data.items:
+            work_order_group_id = generate_work_order_group_id()
+            pair_dicts = [{
+                "aselsan_order_number": item.aselsan_order_number,
+                "order_item_number": item.order_item_number,
+            }]
+            packages = await _build_group_packages(
+                romiot_db,
+                work_order_group_id=work_order_group_id,
+                pairs=pair_dicts,
+                payload_base=payload_base,
+                total_quantity=item.quantity,
+                total_packages=item.package_quantity,
+                target_company=submitted_target,
+                expires_at=expires_at,
+            )
+            groups.append(QRCodeMultiGroupResult(
+                work_order_group_id=work_order_group_id,
+                pair=OrderPair(
+                    aselsan_order_number=item.aselsan_order_number,
+                    order_item_number=item.order_item_number,
+                ),
+                total_packages=item.package_quantity,
+                total_quantity=item.quantity,
+                packages=packages,
+            ))
+    except HTTPException:
+        await romiot_db.rollback()
+        raise
+
+    await romiot_db.commit()
+    return QRCodeMultiBatchResponse(groups=groups, expires_at=expires_at)
 
 
 @router.get("/retrieve/{code}", response_model=QRCodeDataRetrieve)
@@ -409,3 +571,66 @@ async def get_qr_codes_by_work_order_group(
         })
 
     return response_items
+
+
+@router.delete("/group/{work_order_group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_work_order_group(
+    work_order_group_id: str,
+    current_user: User = Depends(check_authenticated),
+    romiot_db: AsyncSession = Depends(get_romiot_db),
+):
+    """Delete an unscanned work order group (all its QR codes) created by the
+    caller's company.
+
+    Müşteri/yönetici only. Blocked once any package has been scanned (a work_orders
+    row exists). Removes the group's qr_code_data, work_order_pairs and any
+    work_order_routes rows in one transaction. See check_group_deletable for rules.
+    """
+    role_values = current_user.role if isinstance(current_user.role, list) else []
+    caller_company = (await require_user_company(current_user, romiot_db)).name
+
+    # qr_code_data has no group column; the id lives in the JSON `data`.
+    qr_rows = (
+        await romiot_db.execute(
+            select(QRCodeData).where(
+                text("data::jsonb ->> 'work_order_group_id' = :gid")
+            ),
+            {"gid": work_order_group_id},
+        )
+    ).scalars().all()
+    if not qr_rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="İş emri bulunamadı")
+
+    payload_company_froms: list[str] = []
+    for row in qr_rows:
+        try:
+            payload = json.loads(row.data)
+        except (json.JSONDecodeError, ValueError):
+            payload = {}
+        payload_company_froms.append(str(payload.get("company_from") or "").strip())
+
+    scanned_count = (
+        await romiot_db.execute(
+            select(func.count())
+            .select_from(WorkOrder)
+            .where(WorkOrder.work_order_group_id == work_order_group_id)
+        )
+    ).scalar_one()
+
+    check_group_deletable(
+        role_values=role_values,
+        payload_company_froms=payload_company_froms,
+        scanned_count=scanned_count,
+        caller_company=caller_company,
+    )
+
+    await romiot_db.execute(
+        delete(WorkOrderRoute).where(WorkOrderRoute.work_order_group_id == work_order_group_id)
+    )
+    await romiot_db.execute(
+        delete(WorkOrderPair).where(WorkOrderPair.work_order_group_id == work_order_group_id)
+    )
+    for row in qr_rows:
+        await romiot_db.delete(row)
+    await romiot_db.commit()
+    return None

@@ -28,6 +28,7 @@ interface WorkOrderDetail {
   main_customer: string;
   sector: string;
   company_from: string;
+  company_to?: string | null;
   teklif_number: string;
   pairs: OrderPair[];
   pair_count: number;
@@ -60,6 +61,7 @@ interface GroupedWorkOrder {
   main_customer: string;
   sector: string;
   company_from: string;
+  company_to?: string | null;
   teklif_number: string;
   pairs: OrderPair[];
   pair_count: number;
@@ -131,6 +133,7 @@ export default function WorkOrdersPage() {
   const [isAselsanSatinalma, setIsAselsanSatinalma] = useState(false);
   const [userCompany, setUserCompany] = useState<string>("");
   const [expandedWorkOrders, setExpandedWorkOrders] = useState<Set<string>>(new Set());
+  const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
 
   // Own company is resolved from the pairing-backed /my-company endpoint,
   // not from the PocketBase department/company fields.
@@ -367,6 +370,7 @@ export default function WorkOrdersPage() {
           main_customer: order.main_customer,
           sector: order.sector,
           company_from: order.company_from,
+          company_to: order.company_to,
           teklif_number: order.teklif_number,
           pairs: order.pairs ?? [],
           pair_count: order.pair_count ?? (order.pairs ? order.pairs.length : 0),
@@ -777,6 +781,7 @@ export default function WorkOrdersPage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600; width: 45%;">Ana Müşteri</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.main_customer}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.sector}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.company_from}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.company_to ?? ""}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.teklif_number}</td></tr>
           ${wo.pair_count <= 1
             ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${wo.main_customer} Sipariş Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${wo.total_packages > 1 ? (wo.pairs[0]?.aselsan_order_number ?? "-") + "_" + pkg.package_index : (wo.pairs[0]?.aselsan_order_number ?? "-")}</td></tr>
@@ -841,6 +846,48 @@ export default function WorkOrdersPage() {
       setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
     } catch (err) {
       console.error("Error printing all QR codes:", err);
+    }
+  };
+
+  // A group is deletable only when the caller created it (company_from) and no
+  // package has been scanned yet — fully-unscanned groups have only synthetic
+  // entries (entrance_date === null). Mirrors the backend guard.
+  const isGroupDeletable = (wo: GroupedWorkOrder): boolean =>
+    (isMusteri || isYonetici) &&
+    wo.company_from === userCompany &&
+    wo.entries.length > 0 &&
+    wo.entries.every((e) => e.entrance_date === null);
+
+  const handleDeleteGroup = async (wo: GroupedWorkOrder) => {
+    const label = `${wo.part_number}${wo.revision_number ? `/${wo.revision_number}` : ""}`;
+    if (!window.confirm(`${label} iş emri ve tüm QR kodları kalıcı olarak silinecek. Emin misiniz?`)) {
+      return;
+    }
+    try {
+      setDeletingGroupId(wo.work_order_group_id);
+      setError(null);
+      await api.delete(`/romiot/station/qr-code/group/${encodeURIComponent(wo.work_order_group_id)}`);
+      setExpandedWorkOrders((prev) => {
+        const next = new Set(prev);
+        next.delete(wo.work_order_group_id);
+        return next;
+      });
+      await fetchWorkOrders();
+    } catch (err: any) {
+      let msg = "İş emri silinirken hata oluştu";
+      if (err instanceof ApiError) {
+        try {
+          msg = JSON.parse(err.message).detail || msg;
+        } catch {
+          msg = err.message || msg;
+        }
+      }
+      setError(msg);
+      // The group may have been scanned between render and click — refetch so the
+      // row (and its now-removed delete button) reflects current state.
+      await fetchWorkOrders();
+    } finally {
+      setDeletingGroupId(null);
     }
   };
 
@@ -1227,6 +1274,19 @@ export default function WorkOrdersPage() {
                                       {routeExistsByGroup[wo.work_order_group_id] ? "Rota Düzenle" : "Rota Tanımla"}
                                     </button>
                                   )}
+                                  {isGroupDeletable(wo) && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteGroup(wo);
+                                      }}
+                                      disabled={deletingGroupId === wo.work_order_group_id}
+                                      className="px-4 py-2 text-sm font-medium text-red-700 border border-red-300 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      {deletingGroupId === wo.work_order_group_id ? "Siliniyor..." : "İş Emrini Sil"}
+                                    </button>
+                                  )}
                                 </div>
                               )}
 
@@ -1428,6 +1488,10 @@ export default function WorkOrdersPage() {
                               <tr className="border-b border-gray-200">
                                 <td className="py-2 pr-3 font-medium text-gray-600">Gönderen Firma</td>
                                 <td className="py-2 text-gray-900">{wo.company_from}</td>
+                              </tr>
+                              <tr className="border-b border-gray-200">
+                                <td className="py-2 pr-3 font-medium text-gray-600">Hedef Firma</td>
+                                <td className="py-2 text-gray-900">{wo.company_to ?? ""}</td>
                               </tr>
                               <tr className="border-b border-gray-200">
                                 <td className="py-2 pr-3 font-medium text-gray-600">Teklif Numarası</td>

@@ -12,7 +12,7 @@ if not os.environ.get('ODBCSYSINI'):
 # PostgreSQL (for metadata) - Async
 postgres_engine = create_async_engine(
     settings.postgres_database_url,
-    echo=True,
+    echo=settings.SQL_ECHO,
     pool_pre_ping=True
 )
 
@@ -36,7 +36,7 @@ async def get_postgres_db():
 # RomIOT PostgreSQL Database - Async
 romiot_postgres_engine = create_async_engine(
     settings.romiot_postgres_database_url,
-    echo=True,
+    echo=settings.SQL_ECHO,
     pool_pre_ping=True
 )
 

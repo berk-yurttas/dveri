@@ -38,4 +38,4 @@ COPY dtbackend .
 EXPOSE 3000
 
 # Run alembic migrations and then start the application
-CMD ["sh", "-c", "alembic upgrade head && alembic -c alembic_romiot.ini upgrade head && uvicorn main:app --host 0.0.0.0 --port 3000 --reload"]
+CMD ["sh", "-c", "alembic upgrade head && alembic -c alembic_romiot.ini upgrade head && uvicorn main:app --host 0.0.0.0 --port 3000 --reload --log-level ${LOG_LEVEL:-warning}"]

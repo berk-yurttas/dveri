@@ -22,9 +22,25 @@ interface BatchQRResponse {
   expires_at: string | null;
 }
 
+interface MultiGroupResult {
+  work_order_group_id: string;
+  pair: { aselsan_order_number: string; order_item_number: string };
+  total_packages: number;
+  total_quantity: number;
+  packages: PackageInfo[];
+}
+
+interface MultiBatchResponse {
+  groups: MultiGroupResult[];
+  expires_at: string | null;
+}
+
 interface OrderPair {
   aselsan_order_number: string;
   order_item_number: string;
+  // Multiple-mode only; ignored in single mode.
+  quantity?: number;
+  package_quantity?: number;
 }
 
 interface BarcodeFormData {
@@ -107,6 +123,16 @@ export default function MusteriPage() {
   const [generatedBatch, setGeneratedBatch] = useState<BatchQRResponse | null>(null);
   const [selectedPackageIndex, setSelectedPackageIndex] = useState<number>(0);
   const qrCodeRef = useRef<HTMLDivElement | null>(null);
+  const [qrMode, setQrMode] = useState<"single" | "multiple">("single");
+  const [generatedMulti, setGeneratedMulti] = useState<MultiBatchResponse | null>(null);
+  const [selectedMultiGroup, setSelectedMultiGroup] = useState<number>(0);
+
+  // The single/multiple choice only exists with 2+ pairs.
+  useEffect(() => {
+    if (barcodeFormData.pairs.length < 2 && qrMode !== "single") {
+      setQrMode("single");
+    }
+  }, [barcodeFormData.pairs.length, qrMode]);
 
   const handleGenerateBarcode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,7 +144,7 @@ export default function MusteriPage() {
       setError("Hedef Firma zorunludur");
       return;
     }
-    if (barcodeFormData.quantity <= 0) {
+    if (qrMode === "single" && barcodeFormData.quantity <= 0) {
       setError("Toplam sipariş miktarı 0'dan büyük olmalıdır");
       return;
     }
@@ -140,6 +166,21 @@ export default function MusteriPage() {
       return;
     }
 
+    if (qrMode === "multiple") {
+      const qtyErrors: string[] = [];
+      barcodeFormData.pairs.forEach((p, i) => {
+        const q = p.quantity ?? 0;
+        const pk = p.package_quantity ?? 0;
+        if (q <= 0) qtyErrors.push(`Satır ${i + 1}: Miktar 0'dan büyük olmalı`);
+        if (pk <= 0) qtyErrors.push(`Satır ${i + 1}: Parti 0'dan büyük olmalı`);
+        if (q > 0 && pk > 0 && pk > q) qtyErrors.push(`Satır ${i + 1}: Parti, miktardan büyük olamaz`);
+      });
+      if (qtyErrors.length > 0) {
+        setError(qtyErrors.join("; "));
+        return;
+      }
+    }
+
     // Validate target_date is at least 7 days from today
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -154,6 +195,32 @@ export default function MusteriPage() {
     try {
       setLoading(true);
       setError(null);
+
+      if (qrMode === "multiple") {
+        const multiPayload = {
+          main_customer: barcodeFormData.main_customer,
+          sector: barcodeFormData.sector,
+          target_company: effectiveTarget,
+          teklif_number: barcodeFormData.teklif_number.trim() || null,
+          part_number: barcodeFormData.part_number,
+          revision_number: barcodeFormData.revision_number,
+          target_date: barcodeFormData.target_date,
+          items: barcodeFormData.pairs.map((p) => ({
+            aselsan_order_number: p.aselsan_order_number.trim(),
+            order_item_number: p.order_item_number.trim(),
+            quantity: p.quantity ?? 0,
+            package_quantity: (p.package_quantity ?? 0) > 0 ? p.package_quantity : 1,
+          })),
+        };
+        const multiResponse = await api.post<MultiBatchResponse>(
+          "/romiot/station/qr-code/generate-batch-multi",
+          multiPayload
+        );
+        setGeneratedMulti(multiResponse);
+        setGeneratedBatch(null);
+        setSelectedMultiGroup(0);
+        return;
+      }
 
       const effectivePackageQuantity =
         barcodeFormData.package_quantity > 0 ? barcodeFormData.package_quantity : 1;
@@ -181,6 +248,7 @@ export default function MusteriPage() {
         payload
       );
 
+      setGeneratedMulti(null);
       setGeneratedBatch(response);
       setSelectedPackageIndex(0);
     } catch (err: any) {
@@ -227,12 +295,13 @@ export default function MusteriPage() {
     pkg: PackageInfo,
     qrSize: number,
     totalQuantity: number,
-    totalPackages: number
+    totalPackages: number,
+    pairs: OrderPair[]
   ) => {
-    const pairsRowHtml = barcodeFormData.pairs.length === 1
+    const pairsRowHtml = pairs.length === 1
       ? `
-        <tr><td style="border:1px solid #d1d5db; padding:6px; font-weight:600;">${barcodeFormData.main_customer} Sipariş Numarası</td><td style="border:1px solid #d1d5db; padding:6px;">${totalPackages > 1 ? barcodeFormData.pairs[0].aselsan_order_number + "_" + pkg.package_index : barcodeFormData.pairs[0].aselsan_order_number}</td></tr>
-        <tr><td style="border:1px solid #d1d5db; padding:6px; font-weight:600;">Sipariş Kalem Numarası</td><td style="border:1px solid #d1d5db; padding:6px;">${barcodeFormData.pairs[0].order_item_number}</td></tr>
+        <tr><td style="border:1px solid #d1d5db; padding:6px; font-weight:600;">${barcodeFormData.main_customer} Sipariş Numarası</td><td style="border:1px solid #d1d5db; padding:6px;">${totalPackages > 1 ? pairs[0].aselsan_order_number + "_" + pkg.package_index : pairs[0].aselsan_order_number}</td></tr>
+        <tr><td style="border:1px solid #d1d5db; padding:6px; font-weight:600;">Sipariş Kalem Numarası</td><td style="border:1px solid #d1d5db; padding:6px;">${pairs[0].order_item_number}</td></tr>
       `
       : `
         <tr>
@@ -244,7 +313,7 @@ export default function MusteriPage() {
                 <th style="border:1px solid #d1d5db; padding:4px; font-weight:600; text-align:left;">Kalem No</th>
               </tr></thead>
               <tbody>
-                ${barcodeFormData.pairs.map(p => `
+                ${pairs.map(p => `
                   <tr>
                     <td style="border:1px solid #d1d5db; padding:4px;">${p.aselsan_order_number}</td>
                     <td style="border:1px solid #d1d5db; padding:4px;">${p.order_item_number}</td>
@@ -265,6 +334,7 @@ export default function MusteriPage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600; width: 45%;">Ana Müşteri</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.main_customer}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Sektör</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.sector}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Gönderen Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${userOwnCompany}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${isYonetici && !isMusteri ? userOwnCompany : barcodeFormData.target_company}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.teklif_number}</td></tr>
           ${pairsRowHtml}
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.part_number}${barcodeFormData.revision_number ? "/" + barcodeFormData.revision_number : ""}</td></tr>
@@ -317,7 +387,7 @@ export default function MusteriPage() {
               <style>${printPageStyles}</style>
             </head>
             <body>
-              ${buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)}
+              ${buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages, barcodeFormData.pairs)}
             </body>
           </html>
         `);
@@ -344,7 +414,7 @@ export default function MusteriPage() {
 
         const packagesHtml = results
           .map(({ svgMarkup, pkg }) =>
-            buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages)
+            buildPackageCardHtml(svgMarkup, pkg, qrSize, generatedBatch.total_quantity, generatedBatch.total_packages, barcodeFormData.pairs)
           )
           .join("");
 
@@ -365,6 +435,33 @@ export default function MusteriPage() {
         setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
       })
       .catch((err) => console.error("Error rendering QR codes for print:", err));
+  };
+
+  const handlePrintAllMulti = () => {
+    if (!generatedMulti) return;
+    const qrSize = 200;
+    const renderPromises = generatedMulti.groups.flatMap((g, gi) =>
+      g.packages.map((pkg, pi) =>
+        getQrSvgMarkup(`qr-multi-${gi}-${pi}`, qrSize).then((svgMarkup) => ({
+          svgMarkup, pkg, group: g,
+        }))
+      )
+    );
+    Promise.all(renderPromises)
+      .then((results) => {
+        const printWindow = window.open("", "_blank");
+        if (!printWindow) return;
+        const packagesHtml = results
+          .map(({ svgMarkup, pkg, group }) =>
+            buildPackageCardHtml(svgMarkup, pkg, qrSize, group.total_quantity, group.total_packages, [group.pair])
+          )
+          .join("");
+        printWindow.document.write(`<!DOCTYPE html><html><head><title>QR Kodlar</title><style>${printPageStyles}</style></head><body>${packagesHtml}</body></html>`);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+      })
+      .catch((err) => console.error("Error rendering multi QR codes for print:", err));
   };
 
   if (!isMusteri && !isYonetici) {
@@ -479,6 +576,32 @@ export default function MusteriPage() {
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Malzemeler *</label>
+                {barcodeFormData.pairs.length > 1 && (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setQrMode("single")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                        qrMode === "single"
+                          ? "bg-[#0f4c3a] text-white border-[#0f4c3a]"
+                          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                      }`}
+                    >
+                      Tek QR (birleşik)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQrMode("multiple")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                        qrMode === "multiple"
+                          ? "bg-[#0f4c3a] text-white border-[#0f4c3a]"
+                          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                      }`}
+                    >
+                      Her Sipariş/Kalem No için ayrı QR
+                    </button>
+                  </div>
+                )}
                 <div className="space-y-2">
                   {barcodeFormData.pairs.map((pair, idx) => {
                     const errors = validatePair(pair, barcodeFormData.pairs, idx, barcodeFormData.main_customer);
@@ -538,6 +661,38 @@ export default function MusteriPage() {
                             required
                           />
                         </div>
+                        {qrMode === "multiple" && (
+                          <>
+                            <div className="w-28">
+                              <input
+                                type="number"
+                                min="1"
+                                value={pair.quantity || ""}
+                                onChange={(e) => {
+                                  const next = [...barcodeFormData.pairs];
+                                  next[idx] = { ...next[idx], quantity: parseInt(e.target.value) || 0 };
+                                  setBarcodeFormData({ ...barcodeFormData, pairs: next });
+                                }}
+                                placeholder="Miktar"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                              />
+                            </div>
+                            <div className="w-28">
+                              <input
+                                type="number"
+                                min="1"
+                                value={pair.package_quantity || ""}
+                                onChange={(e) => {
+                                  const next = [...barcodeFormData.pairs];
+                                  next[idx] = { ...next[idx], package_quantity: parseInt(e.target.value) || 0 };
+                                  setBarcodeFormData({ ...barcodeFormData, pairs: next });
+                                }}
+                                placeholder="Parti"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                              />
+                            </div>
+                          </>
+                        )}
                         {barcodeFormData.pairs.length > 1 && (
                           <button
                             type="button"
@@ -595,33 +750,37 @@ export default function MusteriPage() {
                   required
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Toplam Sipariş Miktarı *</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={barcodeFormData.quantity || ""}
-                  onChange={(e) => setBarcodeFormData({ ...barcodeFormData, quantity: parseInt(e.target.value) || 0 })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Parti Sayısı</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={barcodeFormData.package_quantity || ""}
-                  onChange={(e) => setBarcodeFormData({ ...barcodeFormData, package_quantity: parseInt(e.target.value) || 0 })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                  placeholder="Bölmek istediğiniz parti sayısı"
-                />
-                {barcodeFormData.quantity > 0 && barcodeFormData.package_quantity > 0 && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    {barcodeFormData.package_quantity} adet QR kod oluşturulacak
-                  </p>
-                )}
-              </div>
+              {qrMode === "single" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Toplam Sipariş Miktarı *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={barcodeFormData.quantity || ""}
+                    onChange={(e) => setBarcodeFormData({ ...barcodeFormData, quantity: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    required
+                  />
+                </div>
+              )}
+              {qrMode === "single" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Parti Sayısı</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={barcodeFormData.package_quantity || ""}
+                    onChange={(e) => setBarcodeFormData({ ...barcodeFormData, package_quantity: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    placeholder="Bölmek istediğiniz parti sayısı"
+                  />
+                  {barcodeFormData.quantity > 0 && barcodeFormData.package_quantity > 0 && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      {barcodeFormData.package_quantity} adet QR kod oluşturulacak
+                    </p>
+                  )}
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Hedef Bitirme Tarihi *</label>
                 <DateInput
@@ -717,6 +876,10 @@ export default function MusteriPage() {
                             <td className="py-2 px-3 text-gray-900">{userOwnCompany}</td>
                           </tr>
                           <tr className="border-b border-gray-200">
+                            <td className="py-2 px-3 font-semibold text-gray-700">Hedef Firma</td>
+                            <td className="py-2 px-3 text-gray-900">{isYonetici && !isMusteri ? userOwnCompany : barcodeFormData.target_company}</td>
+                          </tr>
+                          <tr className="border-b border-gray-200">
                             <td className="py-2 px-3 font-semibold text-gray-700">Teklif Numarası</td>
                             <td className="py-2 px-3 text-gray-900">{barcodeFormData.teklif_number}</td>
                           </tr>
@@ -790,6 +953,67 @@ export default function MusteriPage() {
                       Bu QR Kodu Yazdır
                     </button>
                   </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {generatedMulti && (
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Oluşturulan QR Kodlar</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {generatedMulti.groups.length} ayrı iş emri oluşturuldu
+                </p>
+              </div>
+              <button
+                onClick={handlePrintAllMulti}
+                className="px-4 py-2 bg-[#0f4c3a] hover:bg-[#0a3a2c] text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+              >
+                Tümünü Yazdır
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-6">
+              {generatedMulti.groups.map((g, gi) => (
+                <button
+                  key={gi}
+                  onClick={() => setSelectedMultiGroup(gi)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    selectedMultiGroup === gi ? "bg-[#0f4c3a] text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  {g.pair.aselsan_order_number} / {g.pair.order_item_number}
+                </button>
+              ))}
+            </div>
+
+            {generatedMulti.groups.map((g, gi) => (
+              <div key={gi} className={gi === selectedMultiGroup ? "block" : "hidden"}>
+                <p className="text-sm text-gray-600 mb-3">
+                  İş Emri: {g.work_order_group_id} — {g.total_packages} paket, toplam {g.total_quantity} parça
+                </p>
+                <div className="flex flex-col gap-6">
+                  {g.packages.map((pkg, pi) => (
+                    <div key={pi} className="border-2 border-gray-300 p-6 rounded-lg bg-gray-50">
+                      <div className="flex flex-col items-center">
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-[#0f4c3a] text-white mb-2">
+                          Paket {pkg.package_index} / {g.total_packages}
+                        </span>
+                        <div
+                          id={`qr-multi-${gi}-${pi}`}
+                          className="w-full max-w-md flex items-center justify-center bg-white p-4 rounded-lg"
+                        >
+                          <QRCodeSVG value={pkg.code} size={300} level="H" />
+                        </div>
+                        <p className="mt-2 text-sm text-gray-700">
+                          {g.pair.aselsan_order_number}{g.total_packages > 1 ? `_${pkg.package_index}` : ""} / {g.pair.order_item_number} — {pkg.quantity}/{g.total_quantity}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}

@@ -38,6 +38,7 @@ interface PackageStatus {
   exists: boolean;
   entered_quantity: number;
   exited_quantity: number;
+  available_to_enter: number;
 }
 
 // Parse a structured FastAPI error body (api throws ApiError whose message is
@@ -278,6 +279,7 @@ export default function OperatorPage() {
     parsedData: QRCodeData;
     entered: number;
     exited: number;
+    availableToEnter: number;
   } | null>(null);
   const [quantityModalLoading, setQuantityModalLoading] = useState(false);
   // Ref mirror of "is a quantity modal open" so the global scanner handler can
@@ -488,7 +490,8 @@ export default function OperatorPage() {
             status = await api.get<PackageStatus>(
               `/romiot/station/work-orders/package-status?station_id=${stationId}` +
                 `&work_order_group_id=${encodeURIComponent(parsedData.work_order_group_id)}` +
-                `&package_index=${packageIndex}`,
+                `&package_index=${packageIndex}` +
+                `&quantity=${Number(parsedData.quantity) || 0}`,
               undefined,
               { useCache: false }
             );
@@ -500,14 +503,18 @@ export default function OperatorPage() {
           const cap = Number(parsedData.quantity) || 0;
           const remaining =
             mode === "entrance"
-              ? Math.max(0, cap - status.entered_quantity)
+              ? status.available_to_enter
               : Math.max(0, status.entered_quantity - status.exited_quantity);
 
           if (remaining === 0) {
             setError(
-              mode === "entrance"
-                ? `Bu paket tamamen girildi (Paket ${packageIndex})`
-                : `Çıkışı yapılacak parça yok (Paket ${packageIndex})`
+              mode === "exit"
+                ? `Çıkışı yapılacak parça yok (Paket ${packageIndex})`
+                : status.entered_quantity >= cap
+                  ? `Bu paket tamamen girildi (Paket ${packageIndex})`
+                  : status.entered_quantity === 0
+                    ? `Önceki istasyondan çıkış yapılmadı (Paket ${packageIndex})`
+                    : `Önceki istasyondan çıkan parçaların tümü girildi (Paket ${packageIndex})`
             );
             setQRCodeInput("");
             return;
@@ -518,6 +525,7 @@ export default function OperatorPage() {
             parsedData,
             entered: status.entered_quantity,
             exited: status.exited_quantity,
+            availableToEnter: status.available_to_enter,
           });
           setQRCodeInput("");
         }
@@ -1657,6 +1665,7 @@ export default function OperatorPage() {
           quantity={Number(quantityModal.parsedData.quantity) || 0}
           enteredQuantity={quantityModal.entered}
           exitedQuantity={quantityModal.exited}
+          entranceRemaining={quantityModal.availableToEnter}
           loading={quantityModalLoading}
           onConfirm={handleQuantityConfirm}
           onCancel={() => setQuantityModal(null)}

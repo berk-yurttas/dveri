@@ -99,6 +99,14 @@ class Settings(BaseSettings):
     OPENPROJECT_TALEP_SAHIBI_CUSTOM_FIELD_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_TALEP_SAHIBI_CUSTOM_FIELD_ID", "3")))
     OPENPROJECT_BIRIM_CUSTOM_FIELD_ID: int = Field(default_factory=lambda: int(os.getenv("OPENPROJECT_BIRIM_CUSTOM_FIELD_ID", "4")))
 
+    # Logging
+    LOG_LEVEL: str = Field(
+        default_factory=lambda: os.getenv("LOG_LEVEL", "warning")
+    )
+    SQL_ECHO: bool = Field(
+        default_factory=lambda: os.getenv("SQL_ECHO", "false").lower() in {"1", "true", "yes", "on"}
+    )
+
     # CSuite weekly history scheduler
     CSUITE_HISTORY_SCHEDULER_ENABLED: bool = Field(
         default_factory=lambda: os.getenv("CSUITE_HISTORY_SCHEDULER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}

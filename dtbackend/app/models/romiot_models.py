@@ -183,6 +183,7 @@ class UrunumNeredeMesSource(PostgreSQLBase):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+
 class WorkOrderPair(PostgreSQLBase):
     """One (Sipariş No, Kalem No) pair belonging to a work order group.
 
