@@ -35,7 +35,8 @@ import {
   XCircle,
   FileDown,
   Maximize2,
-  Shield
+  Shield,
+  FileCode
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
@@ -224,6 +225,7 @@ export default function ReportDetailPage() {
   const [searchTerms, setSearchTerms] = useState<{ [key: string]: string }>({})
   const [dropdownOpen, setDropdownOpen] = useState<{ [key: string]: boolean }>({})
   const [isExporting, setIsExporting] = useState(false)
+  const [isExportingSql, setIsExportingSql] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSettingsDropdownOpen, setIsSettingsDropdownOpen] = useState(false)
@@ -1739,6 +1741,31 @@ export default function ReportDetailPage() {
     }
   };
 
+  // Export report (report + tabs + queries + filters) as a transferable SQL script
+  const exportReportSql = async () => {
+    if (!report) return
+
+    try {
+      setIsExportingSql(true)
+      const sql = await reportsService.exportReportSql(String(report.id))
+
+      const blob = new Blob([sql], { type: 'application/sql' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `report_${report.id}_transfer.sql`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Failed to export report SQL:', err)
+      alert('Rapor aktarım scripti oluşturulurken hata oluştu.')
+    } finally {
+      setIsExportingSql(false)
+    }
+  }
+
   // Excel export functionality with chart images
   const exportToExcel = async () => {
     if (!report) return
@@ -3187,6 +3214,26 @@ export default function ReportDetailPage() {
                   <RefreshCw className="h-3 w-3" />
                   Yenile
                 </button>
+                {Array.isArray(user?.role) && user.role.includes('odak:admin') && (
+                  <button
+                    onClick={exportReportSql}
+                    disabled={isExportingSql}
+                    title="Raporu SQL script olarak dışa aktar (başka bir sisteme taşımak için)"
+                    className="flex items-center gap-1.5 bg-slate-700 text-white px-2.5 py-1 text-xs rounded-md hover:bg-slate-800 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    {isExportingSql ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Aktarılıyor...
+                      </>
+                    ) : (
+                      <>
+                        <FileCode className="h-3 w-3" />
+                        Raporu Aktar
+                      </>
+                    )}
+                  </button>
+                )}
                 <button
                   onClick={exportToExcel}
                   disabled={isExporting || Object.keys(queryResults).length === 0 || Object.values(queryResults).every(q => !q.result)}

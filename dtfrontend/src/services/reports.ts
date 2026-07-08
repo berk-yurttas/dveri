@@ -150,5 +150,13 @@ export const reportsService = {
    */
   async toggleFavorite(reportId: string): Promise<{ is_favorite: boolean }> {
     return api.post<{ is_favorite: boolean }>(`/reports/${reportId}/favorite`, {})
+  },
+
+  /**
+   * Export a report (with its tabs, queries and filters) as a transferable
+   * SQL script. Restricted to users with the 'odak:admin' role.
+   */
+  async exportReportSql(reportId: string): Promise<string> {
+    return api.get<string>(`/reports/${reportId}/export-sql`, undefined, { useCache: false })
   }
 }

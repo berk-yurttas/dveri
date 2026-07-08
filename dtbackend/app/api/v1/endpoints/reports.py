@@ -1,9 +1,10 @@
+import io
 import re
 import time
 
 from clickhouse_driver import Client
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import check_authenticated
@@ -477,6 +478,40 @@ async def delete_report(
         return PlainTextResponse("Aradığınız Rapor Bulunamadı veya Erişim İzniniz Yok", status_code=404)
 
     return {"message": "Report deleted successfully"}
+
+
+@router.get("/{report_id}/export-sql")
+async def export_report_sql(
+    report_id: int,
+    current_user: User = Depends(check_authenticated),
+    db: AsyncSession = Depends(get_postgres_db)
+):
+    """
+    Export a report (with its tabs, queries and filters) as a downloadable
+    PostgreSQL script that can be used to transfer the report into another
+    dt_report system. Restricted to users with the 'odak:admin' role.
+    """
+    is_export_admin = any((role or "").lower() == "odak:admin" for role in (current_user.role or []))
+    if not is_export_admin:
+        raise HTTPException(status_code=403, detail="Bu işlem için yetkiniz yok")
+
+    service = ReportsService(db)
+    sql_script = await service.export_report_transfer_sql(report_id)
+
+    if sql_script is None:
+        return PlainTextResponse("Aradığınız Rapor Bulunamadı", status_code=404)
+
+    sql_bytes = sql_script.encode("utf-8")
+    filename = f"report_{report_id}_transfer.sql"
+
+    return StreamingResponse(
+        io.BytesIO(sql_bytes),
+        media_type="application/sql",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Content-Length": str(len(sql_bytes))
+        }
+    )
 
 
 @router.post("/{report_id}/favorite")

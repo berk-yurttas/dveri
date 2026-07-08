@@ -393,6 +393,31 @@ class ReportsService:
 
         return report
 
+    async def get_report_for_export(self, report_id: int) -> Report | None:
+        """
+        Fetch a report (regardless of owner/visibility) with all tabs, queries
+        and filters eagerly loaded. Intended for admin-only export/transfer
+        functionality where the caller has already been authorized upstream.
+        """
+        stmt = select(Report).options(
+            selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
+            selectinload(Report.queries).selectinload(ReportQuery.filters),
+            joinedload(Report.owner)
+        ).where(and_(Report.id == report_id, Report.deleted_at.is_(None)))
+
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def export_report_transfer_sql(self, report_id: int) -> str | None:
+        """Build a portable SQL script that transfers a report to another system."""
+        report = await self.get_report_for_export(report_id)
+        if not report:
+            return None
+
+        from app.services.report_export_service import generate_report_transfer_sql
+
+        return generate_report_transfer_sql(report)
+
     async def get_reports(self, user: UserSchema, skip: int = 0, limit: int = 100, my_reports_only: bool = False) -> list[Report]:
         db_user = await UserService.get_user_by_username(self.db, user.username)
         if not db_user:
