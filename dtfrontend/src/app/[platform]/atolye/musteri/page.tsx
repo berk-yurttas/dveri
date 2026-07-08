@@ -337,7 +337,7 @@ export default function MusteriPage() {
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Firma</td><td style="border: 1px solid #d1d5db; padding: 6px;">${isYonetici && !isMusteri ? userOwnCompany : barcodeFormData.target_company}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Teklif Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.teklif_number}</td></tr>
           ${pairsRowHtml}
-          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">${barcodeFormData.main_customer} Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.part_number}${barcodeFormData.revision_number ? "/" + barcodeFormData.revision_number : ""}</td></tr>
+          <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Parça Numarası</td><td style="border: 1px solid #d1d5db; padding: 6px;">${barcodeFormData.part_number}${barcodeFormData.revision_number ? "/" + barcodeFormData.revision_number : ""}</td></tr>
           <tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Toplam Sipariş Miktarı</td><td style="border: 1px solid #d1d5db; padding: 6px;">${pkg.quantity}/${totalQuantity}</td></tr>
           ${barcodeFormData.target_date ? `<tr><td style="border: 1px solid #d1d5db; padding: 6px; font-weight: 600;">Hedef Bitirme Tarihi</td><td style="border: 1px solid #d1d5db; padding: 6px;">${new Date(barcodeFormData.target_date).toLocaleDateString("tr-TR")}</td></tr>` : ""}
         </tbody>
@@ -729,7 +729,7 @@ export default function MusteriPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">{barcodeFormData.main_customer} Parça Numarası *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Parça Numarası *</label>
                 <input
                   type="text"
                   value={barcodeFormData.part_number}
@@ -922,7 +922,7 @@ export default function MusteriPage() {
                             </tr>
                           )}
                           <tr className="border-b border-gray-200">
-                            <td className="py-2 px-3 font-semibold text-gray-700">{barcodeFormData.main_customer} Parça Numarası</td>
+                            <td className="py-2 px-3 font-semibold text-gray-700">Parça Numarası</td>
                             <td className="py-2 px-3 text-gray-900">{barcodeFormData.part_number}{barcodeFormData.revision_number ? `/${barcodeFormData.revision_number}` : ""}</td>
                           </tr>
                           <tr className="border-b border-gray-200">
