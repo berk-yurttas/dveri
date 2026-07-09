@@ -54,33 +54,34 @@ const SQL = {
         SELECT "NAME1" as company FROM mes_production."tokadb_acik_sas"
         WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') group by "NAME1"
     `,
-    getDijitalSkorAll: `SELECT AVG("Toplam Puan")::numeric AS value FROM puantaj.genel_skor`,
-    getDijitalSkorByFirma: (firma: string) => `SELECT AVG("Toplam Puan")::numeric AS value FROM puantaj.genel_skor LEFT JOIN mes_production.company_mapping ON puantaj.genel_skor."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'puantaj.genel_skor' WHERE mes_production.company_mapping."key" = '${firma}'`,
+    getDijitalSkorAll: `SELECT AVG("Toplam Puan")::numeric AS value FROM mes_production.dijital_puantaj_genel_skor`,
+    getDijitalSkorByFirma: (firma: string) => 
+        `SELECT AVG("Toplam Puan")::numeric AS value 
+        FROM mes_production.dijital_puantaj_genel_skor 
+        LEFT JOIN mes_production.company_mapping ON mes_production.dijital_puantaj_genel_skor."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.dijital_puantaj_genel_skor'
+        WHERE mes_production.company_mapping."key" = '${firma}'`,
     getCncAll: `
         SELECT count(*) as "Toplam", "Eksen Sayısı"
-        FROM mes_production.altyapi
+        FROM mes_production.altyapi2
         GROUP BY "Eksen Sayısı"
         ORDER BY "Eksen Sayısı"
     `,
     getCncByFirma: (firma: string) => `
         SELECT count(*) as "Toplam", "Eksen Sayısı"
-        FROM mes_production.altyapi
+        FROM mes_production.altyapi2
         WHERE "Firma" = '${firma}'
         GROUP BY "Eksen Sayısı"
         ORDER BY "Eksen Sayısı"
     `,
     getCmmAll: `
         SELECT count(*) as "Toplam"
-        FROM mes_production.get_detailed_machines
-        WHERE "EksenSayisi" NOT IN ('Kart Dizgi Alt Yapisi', 'Kablo Üretim Alt Yapisi')
-          AND ("Tip" ILIKE '%cmm%' AND "TezgahAdi" ILIKE '%cmm%' OR "TezgahNo" ILIKE '%cmm%')
+        FROM mes_production.altyapi2
+        WHERE "Tip" = 'CMM'
     `,
     getCmmByFirma: (firma: string) => `
         SELECT count(*) as "Toplam"
-        FROM mes_production.get_detailed_machines
-        LEFT JOIN mes_production.company_mapping ON mes_production.get_detailed_machines."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.get_detailed_machines' 
-        WHERE mes_production.company_mapping."key" = '${firma}' AND "EksenSayisi" NOT IN ('Kart Dizgi Alt Yapisi', 'Kablo Üretim Alt Yapisi')
-          AND ("Tip" ILIKE '%cmm%' AND "TezgahAdi" ILIKE '%cmm%' OR "TezgahNo" ILIKE '%cmm%')
+        FROM mes_production.altyapi2
+        WHERE "Firma" = '${firma}' AND "Tip" = 'CMM'
     `,
     getDizgiHattiAll: `
         SELECT count(*) as "Toplam"
@@ -119,9 +120,9 @@ const SQL = {
         (SELECT SUM("TTPRICE_USD") as value "second" FROM mes_production."tokadb_acik_sas" WHERE "NAME1" = '${firma}') as b
     `,
     getAltYapiCompaniesCount: `SELECT SUM("Toplam") from mes_production.mes_machines_v3`,
-    getTotalCompaniesCount: `SELECT COUNT(*) FROM mes_production.altyapi`,
-    getAltYapiCompaniesCountByFirma: (firma: string) => `SELECT COUNT(DISTINCT "Tezgah Adı") FROM mes_production.altyapi WHERE "Firma" = '${firma}'`,
-    getTotalCompaniesCountByFirma: (firma: string) => `SELECT COUNT(*) FROM mes_production.altyapi WHERE "Firma" = '${firma}'`,
+    getTotalCompaniesCount: `SELECT COUNT(*) FROM mes_production.altyapi2`,
+    getAltYapiCompaniesCountByFirma: (firma: string) => `SELECT COUNT(DISTINCT "Tezgah Adı") FROM mes_production.mes_machines_v3 LEFT JOIN mes_production.company_mapping ON mes_production.mes_machines_v3."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.mes_machines_v3' WHERE mes_production.company_mapping."key" = '${firma}'`,
+    getTotalCompaniesCountByFirma: (firma: string) => `SELECT COUNT(*) FROM mes_production.altyapi2 WHERE "Firma" = '${firma}'`,
     getTedarikciKapasite: (firma: string) => `SELECT name, value, unit, trend FROM ${S}tedarikci_kapasite WHERE firma = '${firma}' ORDER BY id`,
     getTedarikciKapasiteAll: `SELECT firma, name, value FROM ${S}tedarikci_kapasite ORDER BY firma, id`,
     getTalasliImalatDoluluk: (firma: string) => `
@@ -229,13 +230,13 @@ const SQL = {
     getKablajDuruslarCurrentMonth: `
         SELECT COUNT(DISTINCT "WORKORDERNO") as count
         FROM mes_production.kablaj_tum_duruslar
-        WHERE "STOP_STATUS" = 'AÇIK' AND "COMPANYID" in (61,63)
+        WHERE "STOP_STATUS" = 'AÇIK' AND "COMPANYID" in (61,63,114,8,112,136)
     `,
     getKablajDuruslarPreviousMonth: `
         SELECT COUNT(DISTINCT "WORKORDERNO") as count 
         from mes_production.kablaj_tum_duruslar 
         WHERE "STOP_STATUS" = 'AÇIK' 
-        AND "COMPANYID" in (61,63) 
+        AND "COMPANYID" in (61,63,114,8,112,136) 
         AND (("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp >= NOW() - interval '30 days') OR ("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp IS NULL))
     `,
     getTalasliDuruslarCurrentMonthByFirma: (firma: string) => `
@@ -258,7 +259,7 @@ const SQL = {
         LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_tum_duruslar."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_tum_duruslar'
         WHERE mes_production.company_mapping."key" = '${firma}'
           AND "STOP_STATUS" = 'AÇIK' 
-          AND "COMPANYID" in (61,63)
+          AND "COMPANYID" in (61,63,114,8,112,136)
     `,
     getKablajDuruslarPreviousMonthByFirma: (firma: string) => `
         SELECT COUNT(DISTINCT "WORKORDERNO") as count 
@@ -266,7 +267,7 @@ const SQL = {
         LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_tum_duruslar."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_tum_duruslar'
         WHERE mes_production.company_mapping."key" = '${firma}'
           AND "STOP_STATUS" = 'AÇIK' 
-          AND "COMPANYID" in (61,63) 
+          AND "COMPANYID" in (61,63,114,8,112,136) 
           AND (("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp >= NOW() - interval '30 days') OR ("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp IS NULL))
     `,
     getOpenOrdersAll: `
@@ -670,10 +671,10 @@ function InfoTooltip({
 }) {
     return (
         <div
-            className={`absolute z-50 w-max max-w-[320px] rounded-lg bg-gray-800/95 px-3 py-2 text-[11px] leading-relaxed text-white shadow-2xl transition-all duration-200 ease-out ${show ? "opacity-100 translate-y-0 scale-100" : "pointer-events-none opacity-0 -translate-y-1 scale-95"} ${className}`}
+            className={`absolute z-50 w-max max-w-[320px] rounded-xl bg-slate-800/95 px-4 py-2.5 text-[11px] leading-relaxed text-white shadow-2xl transition-all duration-200 ease-out ${show ? "opacity-100 translate-y-0 scale-100" : "pointer-events-none opacity-0 -translate-y-1 scale-95"} ${className}`}
         >
             {children}
-            <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-800"></div>
+            <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-800"></div>
         </div>
     )
 }
@@ -683,30 +684,30 @@ function TrendArrow({ trend, changePct }: { trend: string; changePct?: number })
     const pct = typeof changePct === 'number' ? changePct : 0
     const pctSign = pct > 0 ? '+' : ''
     const pctClass =
-        trend === 'up' ? 'text-green-600' :
+        trend === 'up' ? 'text-emerald-600' :
         trend === 'down' ? 'text-red-600' :
-        'text-gray-500'
+        'text-slate-500'
 
     if (trend === 'up') {
         return (
             <span className="inline-flex items-center gap-1">
-                <span className="text-green-500 text-sm drop-shadow-sm">▲</span>
-                <span className={`text-[10px] font-semibold ${pctClass}`}>{pctSign}{pct.toFixed(1)}%</span>
+                <span className="text-emerald-500 text-base drop-shadow-sm">▲</span>
+                <span className={`text-[10px] font-bold ${pctClass}`}>{pctSign}{pct.toFixed(1)}%</span>
             </span>
         )
     }
     if (trend === 'down') {
         return (
             <span className="inline-flex items-center gap-1">
-                <span className="text-red-500 text-sm drop-shadow-sm">▼</span>
-                <span className={`text-[10px] font-semibold ${pctClass}`}>{pct.toFixed(1)}%</span>
+                <span className="text-red-500 text-base drop-shadow-sm">▼</span>
+                <span className={`text-[10px] font-bold ${pctClass}`}>{pct.toFixed(1)}%</span>
             </span>
         )
     }
     return (
         <span className="inline-flex items-center gap-1">
-            <span className="text-gray-500 text-sm drop-shadow-sm">◆</span>
-            <span className={`text-[10px] font-semibold ${pctClass}`}>{pct.toFixed(1)}%</span>
+            <span className="text-slate-500 text-base drop-shadow-sm">◆</span>
+            <span className={`text-[10px] font-bold ${pctClass}`}>{pct.toFixed(1)}%</span>
         </span>
     )
 }
@@ -1176,9 +1177,9 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
     // ── Loading state ──
     if (loading) {
         return (
-            <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-                <p className="text-sm text-gray-600 mt-2">Yükleniyor...</p>
+            <div className="w-full h-full p-8 bg-gradient-to-br from-slate-50 via-white to-slate-50 rounded-xl border border-slate-200/60 shadow-2xl flex flex-col items-center justify-center">
+                <div className="animate-spin rounded-full h-10 w-10 border-2 border-slate-200 border-t-blue-600"></div>
+                <p className="text-sm text-slate-600 mt-3 font-medium">Yükleniyor...</p>
             </div>
         )
     }
@@ -1186,11 +1187,11 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
     // ── Error state ──
     if (error) {
         return (
-            <div className="w-full h-full p-4 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
-                <p className="text-sm text-red-600 text-center mb-2">Hata: {error}</p>
+            <div className="w-full h-full p-8 bg-gradient-to-br from-slate-50 via-white to-slate-50 rounded-xl border border-slate-200/60 shadow-2xl flex flex-col items-center justify-center">
+                <p className="text-sm text-red-600 text-center mb-3 font-medium">Hata: {error}</p>
                 <button
                     onClick={() => { setError(null); setLoading(true); setSelectedCompany(selectedCompany) }}
-                    className="mt-2 px-4 py-2 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                    className="mt-2 px-5 py-2.5 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold shadow-md hover:shadow-lg transition-all duration-200"
                 >
                     Tekrar Dene
                 </button>
@@ -1221,17 +1222,17 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
         ? ((kapsam.first / kapsam.second) * 100).toFixed(1)
         : '0'
     return (
-        <div className="w-full h-full p-6 bg-gradient-to-br from-white to-gray-50 rounded-xl border border-gray-200 shadow-lg flex flex-col gap-4 overflow-auto">
+        <div className="w-full h-full p-8 bg-gradient-to-br from-slate-50 via-white to-slate-50 rounded-xl border border-slate-200/60 shadow-2xl flex flex-col gap-6 overflow-auto">
             {/* ─── Header ─── */}
-            <div className="flex items-center justify-between mb-2 flex-shrink-0">
-                <div className="flex items-center space-x-3">
-                    <div className="w-2 h-8 bg-gradient-to-b from-indigo-500 to-purple-600 rounded-full shadow-md"></div>
-                    <h3 className="text-xl font-bold text-gray-800 tracking-tight">Tedarik Zinciri Stratejik Durum Paneli</h3>
+            <div className="flex items-center justify-between mb-1 flex-shrink-0">
+                <div className="flex items-center space-x-4">
+                    <div className="w-1.5 h-10 bg-gradient-to-b from-blue-600 via-indigo-600 to-violet-600 rounded-full shadow-lg"></div>
+                    <h3 className="text-2xl font-bold text-slate-800 tracking-tight">Tedarik Zinciri Stratejik Durum Paneli</h3>
                     <div className="relative inline-flex">
                         <button
                             onMouseEnter={() => setShowTooltip(true)}
                             onMouseLeave={() => setShowTooltip(false)}
-                            className="text-gray-400 hover:text-indigo-600 transition-all duration-200 hover:scale-110"
+                            className="text-slate-400 hover:text-blue-600 transition-all duration-200 hover:scale-110"
                         >
                             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
@@ -1245,16 +1246,16 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         <button
                             onMouseEnter={() => setShowResponsibleTooltip(true)}
                             onMouseLeave={() => setShowResponsibleTooltip(false)}
-                            className="text-gray-400 hover:text-indigo-600 transition-all duration-200 hover:scale-110"
+                            className="text-slate-400 hover:text-blue-600 transition-all duration-200 hover:scale-110"
                         >
                             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
                             </svg>
                         </button>
                         <div className={`absolute left-1/2 -translate-x-1/2 top-8 z-50 w-64 transition-all duration-200 ease-out ${showResponsibleTooltip ? "opacity-100 translate-y-0 scale-100" : "pointer-events-none opacity-0 -translate-y-1 scale-95"}`}>
-                            <div className="absolute -top-2 left-1/2 -translate-x-1/2 h-4 w-4 rotate-45 rounded-[2px] border-l border-t border-indigo-100 bg-white"></div>
-                            <div className="overflow-hidden rounded-3xl border border-indigo-100/90 bg-white/95 shadow-[0_20px_45px_-20px_rgba(79,70,229,0.45)] backdrop-blur-sm">
-                                <div className="relative h-32 w-full bg-gradient-to-br from-indigo-100 via-violet-100 to-purple-100">
+                            <div className="absolute -top-2 left-1/2 -translate-x-1/2 h-4 w-4 rotate-45 rounded-[2px] border-l border-t border-blue-100 bg-white"></div>
+                            <div className="overflow-hidden rounded-3xl border border-blue-100/90 bg-white/95 shadow-[0_20px_45px_-20px_rgba(59,130,246,0.45)] backdrop-blur-sm">
+                                <div className="relative h-32 w-full bg-gradient-to-br from-blue-100 via-indigo-100 to-violet-100">
                                     {CSUITE_RESPONSIBLE_CONTACT.imageUrl ? (
                                         <img
                                             src={CSUITE_RESPONSIBLE_CONTACT.imageUrl}
@@ -1263,7 +1264,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         />
                                     ) : (
                                         <div className="flex h-full w-full items-center justify-center">
-                                            <div className="flex h-16 w-16 items-center justify-center rounded-[1.1rem] bg-gradient-to-br from-indigo-500 to-purple-600 text-xl font-bold text-white shadow-lg">
+                                            <div className="flex h-16 w-16 items-center justify-center rounded-[1.1rem] bg-gradient-to-br from-blue-500 to-indigo-600 text-xl font-bold text-white shadow-lg">
                                                 {getInitials(CSUITE_RESPONSIBLE_CONTACT.name)}
                                             </div>
                                         </div>
@@ -1271,9 +1272,9 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                     <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/35 to-transparent"></div>
                                 </div>
                                 <div className="space-y-1.5 px-4 py-3.5">
-                                    <p className="text-sm font-bold text-gray-900">{CSUITE_RESPONSIBLE_CONTACT.name}</p>
-                                    <p className="text-xs font-medium text-indigo-600">{CSUITE_RESPONSIBLE_CONTACT.role}</p>
-                                    <div className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-1 text-xs text-gray-700">
+                                    <p className="text-sm font-bold text-slate-900">{CSUITE_RESPONSIBLE_CONTACT.name}</p>
+                                    <p className="text-xs font-medium text-blue-600">{CSUITE_RESPONSIBLE_CONTACT.role}</p>
+                                    <div className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs text-slate-700">
                                         {CSUITE_RESPONSIBLE_CONTACT.phone}
                                     </div>
                                 </div>
@@ -1283,14 +1284,14 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                         Firma
                     </label>
                     <div className="relative inline-flex items-center">
                         <select
                             value={selectedCompany}
                             onChange={(e) => setSelectedCompany(e.target.value)}
-                            className="appearance-none bg-white text-gray-900 border-2 border-gray-200 rounded-xl px-4 py-2 pr-10 text-sm font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent min-w-[180px] shadow-sm hover:border-indigo-300 transition-all duration-200"
+                            className="appearance-none bg-white text-slate-900 border-2 border-slate-200 rounded-xl px-4 py-2.5 pr-10 text-sm font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[180px] shadow-sm hover:border-blue-300 transition-all duration-200"
                         >
                             {companies.map((company) => (
                                 <option key={company} value={company}>
@@ -1298,7 +1299,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                 </option>
                             ))}
                         </select>
-                        <svg className="absolute right-3 w-5 h-5 text-gray-600 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="absolute right-3 w-5 h-5 text-slate-600 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
                     </div>
@@ -1306,48 +1307,48 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
             </div>
 
             {/* ─── Top KPI Row ─── */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-2 flex-shrink-0">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-2 flex-shrink-0">
                 {/* Dijital Skor */}
                 <div 
                     onClick={() => window.open('/ivme/reports/16', '_blank')}
-                    className="relative bg-gradient-to-br from-indigo-500 to-purple-600 p-5 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 group overflow-hidden cursor-pointer"
+                    className="relative bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] group overflow-hidden cursor-pointer"
                 >
                     <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
                     <div className="relative z-10 flex items-start justify-between">
                         <div>
-                            <span className="text-xs font-bold text-indigo-100 uppercase tracking-wider block mb-1">
+                            <span className="text-xs font-bold text-blue-200 uppercase tracking-widest block mb-2">
                                 Dijital Skor
                             </span>
                             {dijitalSkor.value !== null ? (
                                 <>
-                                    <span className="text-4xl font-extrabold text-white drop-shadow-lg leading-tight flex items-end gap-1">
+                                    <span className="text-5xl font-extrabold text-white drop-shadow-lg leading-tight flex items-end gap-1.5">
                                         {dijitalSkor.value.toFixed(1)}
-                                        <span className="text-base font-semibold text-indigo-100 mb-1">/ 100</span>
+                                        <span className="text-lg font-semibold text-blue-100 mb-1.5">/ 100</span>
                                     </span>
-                                    <p className="text-indigo-200 text-xs mt-2 font-medium">100 üzerinden ortalama</p>
+                                    <p className="text-blue-200 text-xs mt-3 font-medium">100 üzerinden ortalama</p>
                                 </>
                             ) : (
                                 <span className="text-lg font-bold text-white/90 drop-shadow-lg">Yapım Aşamasında</span>
                             )}
                         </div>
-                        <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-                            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                             </svg>
                         </div>
                     </div>
-                    <div className="relative z-10 mt-4 h-1.5 rounded-full bg-white/20 overflow-hidden">
+                    <div className="relative z-10 mt-5 h-2 rounded-full bg-white/20 overflow-hidden">
                         <div className="h-full rounded-full bg-white shadow-lg transition-all duration-500" style={{ width: `${Math.min(100, (dijitalSkor.value / 100) * 100)}%` }}></div>
                     </div>
-                    <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-white opacity-10 rounded-full"></div>
+                    <div className="absolute -bottom-6 -right-6 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl"></div>
                 </div>
 
                 {/* Kapsam */}
-                <div className="relative bg-gradient-to-br from-blue-500 to-cyan-600 p-5 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 group overflow-hidden">
+                <div className="relative bg-gradient-to-br from-emerald-600 to-teal-700 p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] group overflow-hidden">
                     <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
                     <div className="relative z-10 flex items-start justify-between">
                         <div>
-                            <span className="text-xs font-bold text-blue-100 uppercase tracking-wider block mb-1">
+                            <span className="text-xs font-bold text-emerald-200 uppercase tracking-widest block mb-2">
                                 Kapsam
                             </span>
                             {kapsam.first !== null && kapsam.second !== null ? (
@@ -1361,30 +1362,30 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                             : `$${(kapsam.second / 1000).toFixed(1)}K`
                                         }
                                     </span>
-                                    <p className="text-blue-200 text-xs mt-2 font-medium">%{kapsamPct} kapsam oranı</p>
+                                    <p className="text-emerald-200 text-xs mt-3 font-medium">%{kapsamPct} kapsam oranı</p>
                                 </>
                             ) : (
                                 <span className="text-lg font-bold text-white/90 drop-shadow-lg">Yapım Aşamasında</span>
                             )}
                         </div>
-                        <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-                            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                         </div>
                     </div>
-                    <div className="relative z-10 mt-4 h-1.5 rounded-full bg-white/20 overflow-hidden">
+                    <div className="relative z-10 mt-5 h-2 rounded-full bg-white/20 overflow-hidden">
                         <div className="h-full rounded-full bg-white shadow-lg transition-all duration-500" style={{ width: `${Math.min(100, parseFloat(kapsamPct))}%` }}></div>
                     </div>
-                    <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-white opacity-10 rounded-full"></div>
+                    <div className="absolute -bottom-6 -right-6 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl"></div>
                 </div>
 
                 {/* Alt Yapı Kapsamı */}
-                <div className="relative bg-gradient-to-br from-purple-500 to-pink-600 p-5 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 group overflow-hidden">
+                <div className="relative bg-gradient-to-br from-violet-600 to-purple-700 p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] group overflow-hidden">
                     <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
                     <div className="relative z-10 flex items-start justify-between">
                         <div>
-                            <span className="text-xs font-bold text-purple-100 uppercase tracking-wider block mb-1">
+                            <span className="text-xs font-bold text-violet-200 uppercase tracking-widest block mb-2">
                                 Alt Yapı Kapsamı
                             </span>
                             {altYapiKapsami.nominator !== null && altYapiKapsami.denominator !== null ? (
@@ -1392,34 +1393,34 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                     <span className="text-2xl font-extrabold text-white drop-shadow-lg leading-tight">
                                         {altYapiKapsami.nominator} <span className="text-white/80 font-normal">/</span> {altYapiKapsami.denominator}
                                     </span>
-                                    <p className="text-purple-200 text-xs mt-2 font-medium">%{altYapiKapsami.denominator > 0 ? Math.round((altYapiKapsami.nominator / altYapiKapsami.denominator) * 100) : 0} tezgah kapsamda</p>
+                                    <p className="text-violet-200 text-xs mt-3 font-medium">%{altYapiKapsami.denominator > 0 ? Math.round((altYapiKapsami.nominator / altYapiKapsami.denominator) * 100) : 0} tezgah kapsamda</p>
                                 </>
                             ) : (
                                 <span className="text-lg font-bold text-white/90 drop-shadow-lg">Yapım Aşamasında</span>
                             )}
                         </div>
-                        <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-                            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                             </svg>
                         </div>
                     </div>
-                    <div className="relative z-10 mt-4 h-1.5 rounded-full bg-white/20 overflow-hidden">
+                    <div className="relative z-10 mt-5 h-2 rounded-full bg-white/20 overflow-hidden">
                         <div className="h-full rounded-full bg-white shadow-lg transition-all duration-500" style={{ width: `${altYapiKapsami.denominator > 0 ? Math.min(100, (altYapiKapsami.nominator / altYapiKapsami.denominator) * 100) : 0}%` }}></div>
                     </div>
-                    <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-white opacity-10 rounded-full"></div>
+                    <div className="absolute -bottom-6 -right-6 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl"></div>
                 </div>
             </div>
 
             {/* ─── Main Content Grid (sidebar + content) ─── */}
-            <div className="grid grid-cols-[200px_1fr] gap-5 items-start flex-shrink-0">
+            <div className="grid grid-cols-[220px_1fr] gap-6 items-start flex-shrink-0">
                 {/* Left Sidebar Cards */}
                 <div className="flex flex-col gap-4">
                     {/* CNC Sayısı */}
-                    <div className="bg-white border-2 border-indigo-100 rounded-xl p-4 shadow-md hover:shadow-lg transition-all duration-300 hover:border-indigo-300 hover:-translate-y-1">
-                        <div className="flex items-center gap-2 pb-3 border-b-2 border-indigo-100 mb-3">
-                            <div className="w-1 h-5 bg-gradient-to-b from-indigo-500 to-purple-600 rounded-full"></div>
-                            <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider">
+                    <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-lg hover:shadow-xl transition-all duration-300 hover:border-blue-300/60 hover:-translate-y-0.5">
+                        <div className="flex items-center gap-2 pb-3 border-b border-slate-200 mb-4">
+                            <div className="w-1 h-6 bg-gradient-to-b from-blue-600 to-indigo-600 rounded-full shadow-md"></div>
+                            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                                 CNC Sayısı
                             </span>
                         </div>
@@ -1436,8 +1437,8 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                 }
                                 return (
                                     <div key={eksen} className="flex flex-col items-center">
-                                        <span className="text-[10px] font-bold text-indigo-600 mb-1">{eksen === 'Diğer' ? 'Diğer' : `${eksen} Eksen`}</span>
-                                        <span className="text-xl font-extrabold bg-gradient-to-br from-indigo-600 to-purple-600 bg-clip-text text-transparent">{amount}</span>
+                                        <span className="text-[10px] font-bold text-blue-600 mb-1.5">{eksen === 'Diğer' ? 'Diğer' : `${eksen} Eksen`}</span>
+                                        <span className="text-xl font-extrabold bg-gradient-to-br from-blue-600 to-indigo-600 bg-clip-text text-transparent">{amount}</span>
                                     </div>
                                 )
                             })}
@@ -1445,17 +1446,17 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     </div>
 
                     {/* CMM Sayısı */}
-                    <div className="bg-white border-2 border-emerald-100 rounded-xl p-4 shadow-md hover:shadow-lg transition-all duration-300 hover:border-emerald-300 hover:-translate-y-1">
-                        <div className="flex items-center gap-2 pb-3 border-b-2 border-emerald-100 mb-3">
-                            <div className="w-1 h-5 bg-gradient-to-b from-emerald-500 to-teal-600 rounded-full"></div>
-                            <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
+                    <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-lg hover:shadow-xl transition-all duration-300 hover:border-emerald-300/60 hover:-translate-y-0.5">
+                        <div className="flex items-center gap-2 pb-3 border-b border-slate-200 mb-4">
+                            <div className="w-1 h-6 bg-gradient-to-b from-emerald-600 to-teal-600 rounded-full shadow-md"></div>
+                            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                                 CMM Sayısı
                             </span>
                             <div className="relative inline-flex">
                                 <button
                                     onMouseEnter={() => setShowCmmTooltip(true)}
                                     onMouseLeave={() => setShowCmmTooltip(false)}
-                                    className="text-emerald-400 hover:text-emerald-600 transition-all duration-200 hover:scale-110"
+                                    className="text-slate-400 hover:text-emerald-600 transition-all duration-200 hover:scale-110"
                                     aria-label="CMM bilgi"
                                 >
                                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -1473,10 +1474,10 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     </div>
 
                     {/* Dizgi Hattı */}
-                    <div className="bg-white border-2 border-amber-100 rounded-xl p-4 shadow-md hover:shadow-lg transition-all duration-300 hover:border-amber-300 hover:-translate-y-1">
-                        <div className="flex items-center gap-2 pb-3 border-b-2 border-amber-100 mb-3">
-                            <div className="w-1 h-5 bg-gradient-to-b from-amber-500 to-orange-600 rounded-full"></div>
-                            <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">
+                    <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-lg hover:shadow-xl transition-all duration-300 hover:border-amber-300/60 hover:-translate-y-0.5">
+                        <div className="flex items-center gap-2 pb-3 border-b border-slate-200 mb-4">
+                            <div className="w-1 h-6 bg-gradient-to-b from-amber-600 to-orange-600 rounded-full shadow-md"></div>
+                            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                                 Dizgi Hattı
                             </span>
                         </div>
@@ -1487,73 +1488,73 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 </div>
 
                 {/* Right Content Area */}
-                <div className="flex flex-col gap-5">
+                <div className="flex flex-col gap-6">
                     {/* Tedarikçi Kapasite Analizi */}
-                    <div className="bg-white border-2 border-blue-100 rounded-xl p-5 shadow-lg">
-                        <div className="flex items-center gap-2 mb-4 pb-3 border-b-2 border-blue-100">
-                            <div className="w-1 h-6 bg-gradient-to-b from-blue-500 to-cyan-600 rounded-full"></div>
-                            <h2 className="text-base font-bold text-gray-800 tracking-tight">
+                    <div className="bg-white border border-slate-200/60 rounded-2xl p-6 shadow-lg">
+                        <div className="flex items-center gap-2 mb-5 pb-4 border-b border-slate-200">
+                            <div className="w-1.5 h-7 bg-gradient-to-b from-blue-600 to-cyan-600 rounded-full shadow-md"></div>
+                            <h2 className="text-base font-bold text-slate-800 tracking-tight">
                                 Tedarikçi Kapasite Analizi
                             </h2>
                         </div>
                         {tepirikciKapasiteAnalizi.length > 0 ? (
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-3 gap-5">
                                 {tepirikciKapasiteAnalizi.map((item, idx) => (
-                                    <div key={`tedarikci-${idx}`} className="bg-gradient-to-br from-gray-50 to-white border-2 border-gray-100 rounded-xl p-4 flex flex-col gap-2 transition-all duration-300 hover:border-blue-400 hover:shadow-md hover:-translate-y-1">
-                                        <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                    <div key={`tedarikci-${idx}`} className="bg-gradient-to-br from-slate-50 to-white border border-slate-200/60 rounded-xl p-5 flex flex-col gap-3 transition-all duration-300 hover:border-blue-400/60 hover:shadow-md hover:-translate-y-0.5">
+                                        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
                                             {tedarikciLabels[idx] || item.name}
                                         </span>
                                         {item.value !== null ? (
                                             <div className="flex items-center gap-2">
-                                                <span className="text-2xl font-extrabold text-gray-900">
+                                                <span className="text-3xl font-extrabold text-slate-900">
                                                     {item.unit === '%' ? `%${item.value}` : item.value}
                                                 </span>
                                                 <TrendArrow trend={item.trend} changePct={item.changePct} />
                                             </div>
                                         ) : (
-                                            <span className="text-sm font-bold text-gray-400">Yapım Aşamasında</span>
+                                            <span className="text-sm font-bold text-slate-400">Yapım Aşamasında</span>
                                         )}
                                     </div>
                                 ))}
                             </div>
                         ) : (
                             <div className="flex items-center justify-center py-12">
-                                <span className="text-xl font-bold text-gray-400">Yapım Aşamasında</span>
+                                <span className="text-xl font-bold text-slate-400">Yapım Aşamasında</span>
                             </div>
                         )}
                     </div>
 
                     {/* Aselsan Kaynaklı Durma */}
-                    <div className="bg-white border-2 border-rose-100 rounded-xl p-5 shadow-lg">
-                        <div className="flex items-center gap-2 mb-4 pb-3 border-b-2 border-rose-100">
-                            <div className="w-1 h-6 bg-gradient-to-b from-rose-500 to-pink-600 rounded-full"></div>
-                            <h2 className="text-base font-bold text-gray-800 tracking-tight">
+                    <div className="bg-white border border-slate-200/60 rounded-2xl p-6 shadow-lg">
+                        <div className="flex items-center gap-2 mb-5 pb-4 border-b border-slate-200">
+                            <div className="w-1.5 h-7 bg-gradient-to-b from-rose-600 to-red-600 rounded-full shadow-md"></div>
+                            <h2 className="text-base font-bold text-slate-800 tracking-tight">
                                 Duruşlar (İş Emri Bazında)
                             </h2>
                         </div>
                         {bizdenKaynakliDurma.length > 0 ? (
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-3 gap-5">
                                 {bizdenKaynakliDurma.map((item, idx) => {
                                     const isTalasliOrKablaj = idx === 0 || idx === 1
                                     return (
-                                        <div key={`aselsan-${idx}`} className="bg-gradient-to-br from-gray-50 to-white border-2 border-gray-100 rounded-xl p-4 flex flex-col gap-2 transition-all duration-300 hover:border-rose-400 hover:shadow-md hover:-translate-y-1">
-                                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        <div key={`aselsan-${idx}`} className="bg-gradient-to-br from-slate-50 to-white border border-slate-200/60 rounded-xl p-5 flex flex-col gap-3 transition-all duration-300 hover:border-rose-400/60 hover:shadow-md hover:-translate-y-0.5">
+                                            <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
                                                 {aselsanDurmaLabels[idx] || item.name}
                                             </span>
                                             {item.value !== null ? (
                                                 <>
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-2xl font-extrabold text-gray-900">
+                                                        <span className="text-3xl font-extrabold text-slate-900">
                                                             {item.unit === '%' ? `%${item.value}` : item.value}
                                                         </span>
                                                         <TrendArrow trend={item.trend} changePct={item.changePct} />
                                                     </div>
                                                     {isTalasliOrKablaj && (
-                                                        <span className="text-xs text-gray-500 font-medium">Son 30 Gün</span>
+                                                        <span className="text-xs text-slate-500 font-medium">Son 30 Gün</span>
                                                     )}
                                                 </>
                                             ) : (
-                                                <span className="text-sm font-bold text-gray-400">Yapım Aşamasında</span>
+                                                <span className="text-sm font-bold text-slate-400">Yapım Aşamasında</span>
                                             )}
                                         </div>
                                     )
@@ -1561,7 +1562,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                             </div>
                         ) : (
                             <div className="flex items-center justify-center py-12">
-                                <span className="text-xl font-bold text-gray-400">Yapım Aşamasında</span>
+                                <span className="text-xl font-bold text-slate-400">Yapım Aşamasında</span>
                             </div>
                         )}
                     </div>
@@ -1569,59 +1570,68 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
             </div>
 
             {/* ─── Supplier Risk Table (Full Width) ─── */}
-            <div className="bg-white border-2 border-violet-100 rounded-xl p-5 shadow-lg flex-shrink-0">
-                <div className="flex items-center gap-2 mb-4 pb-3 border-b-2 border-violet-100">
-                    <div className="w-1 h-6 bg-gradient-to-b from-violet-500 to-purple-600 rounded-full"></div>
-                    <h2 className="text-base font-bold text-gray-800 tracking-tight">
-                        Tedarikçi Risk Analizi
-                    </h2>
-                    <span className="text-xs text-gray-500 font-medium">
-                        ({supplierTableRows.length} kayıt)
-                    </span>
+            <div className="bg-gradient-to-br from-white to-slate-50/30 border border-slate-200/60 rounded-2xl p-7 shadow-xl flex-shrink-0">
+                <div className="flex items-center justify-between mb-6 pb-5 border-b-2 border-gradient-to-r from-violet-200 via-purple-200 to-transparent">
+                    <div className="flex items-center gap-3">
+                        <div className="w-1.5 h-8 bg-gradient-to-b from-violet-600 via-purple-600 to-fuchsia-600 rounded-full shadow-lg"></div>
+                        <div>
+                            <h2 className="text-lg font-extrabold text-slate-800 tracking-tight">
+                                Tedarikçi Risk Analizi
+                            </h2>
+                            <p className="text-xs text-slate-500 font-medium mt-0.5">
+                                Risk skorlaması ve kapasite değerlendirmesi
+                            </p>
+                        </div>
+                    </div>
+                    <div className="bg-gradient-to-br from-violet-100 to-purple-100 px-4 py-2 rounded-xl">
+                        <span className="text-xs font-bold text-violet-700 uppercase tracking-wider">
+                            {supplierTableRows.length} Tedarikçi
+                        </span>
+                    </div>
                 </div>
                 {(() => {
                     return supplierTableRows.length > 0 ? (
                     <>
-                        <div className="overflow-x-auto rounded-lg">
-                            <table className="w-full text-sm">
+                        <div className="overflow-x-auto rounded-2xl border border-slate-200/60 shadow-lg">
+                            <table className="w-full text-sm border-collapse">
                                 <thead>
-                                    <tr className="bg-gradient-to-r from-violet-50 to-purple-50 border-b-2 border-violet-200">
+                                    <tr className="bg-gradient-to-r from-violet-600 via-purple-600 to-violet-600">
                                         <th 
                                             onClick={() => handleSort('tedarikci')}
-                                            className="text-left py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs cursor-pointer hover:bg-violet-100 transition-colors"
+                                            className="text-left py-5 px-6 font-extrabold text-white uppercase tracking-wider text-xs cursor-pointer hover:bg-violet-700 transition-colors border-r border-white/10"
                                         >
-                                            <div className="flex items-center gap-1">
+                                            <div className="flex items-center gap-2">
                                                 <span>Tedarikçi</span>
                                                 {sortColumn === 'tedarikci' && (
-                                                    <span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                    <span className="text-white/90">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                                                 )}
                                             </div>
                                         </th>
                                         <th 
                                             onClick={() => handleSort('etki')}
-                                            className="text-right py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs cursor-pointer hover:bg-violet-100 transition-colors"
+                                            className="text-right py-5 px-6 font-extrabold text-white uppercase tracking-wider text-xs cursor-pointer hover:bg-violet-700 transition-colors border-r border-white/10"
                                         >
-                                            <div className="flex items-center justify-end gap-1">
+                                            <div className="flex items-center justify-end gap-2">
                                                 <span>Etki</span>
                                                 {sortColumn === 'etki' && (
-                                                    <span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                    <span className="text-white/90">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                                                 )}
                                             </div>
                                         </th>
                                         <th 
                                             onClick={() => handleSort('risk')}
-                                            className="text-center py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs cursor-pointer hover:bg-violet-100 transition-colors"
+                                            className="text-center py-5 px-6 font-extrabold text-white uppercase tracking-wider text-xs cursor-pointer hover:bg-violet-700 transition-colors border-r border-white/10"
                                         >
-                                            <div className="inline-flex items-center gap-1">
-                                                <span>Risk</span>
+                                            <div className="inline-flex items-center gap-2">
+                                                <span>Risk Skoru</span>
                                                 {sortColumn === 'risk' && (
-                                                    <span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                    <span className="text-white/90">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                                                 )}
                                                 <div className="relative inline-flex">
                                                     <button
                                                         onMouseEnter={() => setShowRiskTooltip(true)}
                                                         onMouseLeave={() => setShowRiskTooltip(false)}
-                                                        className="text-gray-400 hover:text-violet-600 transition-all duration-200 hover:scale-110"
+                                                        className="text-white/70 hover:text-white transition-all duration-200 hover:scale-110"
                                                         aria-label="Risk hesaplama bilgisi"
                                                     >
                                                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -1642,30 +1652,30 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         </th>
                                         <th 
                                             onClick={() => handleSort('kapasite')}
-                                            className="text-center py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs cursor-pointer hover:bg-violet-100 transition-colors"
+                                            className="text-center py-5 px-6 font-extrabold text-white uppercase tracking-wider text-xs cursor-pointer hover:bg-violet-700 transition-colors border-r border-white/10"
                                         >
-                                            <div className="flex items-center justify-center gap-1">
+                                            <div className="flex items-center justify-center gap-2">
                                                 <span>Kapasite</span>
                                                 {sortColumn === 'kapasite' && (
-                                                    <span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                    <span className="text-white/90">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                                                 )}
                                             </div>
                                         </th>
                                         <th 
                                             onClick={() => handleSort('mesEntegrasyon')}
-                                            className="text-center py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs cursor-pointer hover:bg-violet-100 transition-colors"
+                                            className="text-center py-5 px-6 font-extrabold text-white uppercase tracking-wider text-xs cursor-pointer hover:bg-violet-700 transition-colors border-r border-white/10"
                                         >
-                                            <div className="flex items-center justify-center gap-1">
-                                                <span>MES Entegrasyonu</span>
+                                            <div className="flex items-center justify-center gap-2">
+                                                <span>MES</span>
                                                 {sortColumn === 'mesEntegrasyon' && (
-                                                    <span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                    <span className="text-white/90">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                                                 )}
                                             </div>
                                         </th>
-                                        <th className="text-center py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs">Trend</th>
+                                        <th className="text-center py-5 px-6 font-extrabold text-white uppercase tracking-wider text-xs">Trend</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody className="bg-white">
                                     {(() => {
                                         // Sort based on selected column and direction
                                         const sorted = [...supplierTableRows].sort((a, b) => {
@@ -1703,46 +1713,50 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         const top15 = sorted.slice(0, 15)
                                         
                                         return top15.map((supplier, idx) => (
-                                            <tr key={idx} className="border-b border-gray-100 hover:bg-gradient-to-r hover:from-violet-50 hover:to-transparent transition-all duration-200">
-                                                <td className="py-3 px-4 font-semibold text-gray-900">{supplier.tedarikci}</td>
-                                                <td className="py-3 px-4 text-right text-gray-900">
-                                                    <span className="bg-gradient-to-br from-blue-100 to-blue-50 px-3 py-1 rounded font-semibold text-blue-800">
+                                            <tr key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} border-b border-slate-200/60 hover:bg-gradient-to-r hover:from-violet-50 hover:via-purple-50/30 hover:to-transparent transition-all duration-300 group`}>
+                                                <td className="py-5 px-6 font-bold text-slate-900 border-r border-slate-100 group-hover:text-violet-700 transition-colors">
+                                                    {supplier.tedarikci}
+                                                </td>
+                                                <td className="py-5 px-6 text-right border-r border-slate-100">
+                                                    <span className="inline-block bg-gradient-to-br from-blue-600 to-blue-700 px-4 py-2 rounded-xl font-bold text-white shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all">
                                                         ${(supplier.etki / 1000000).toFixed(2)}M
                                                     </span>
                                                 </td>
-                                                <td className="py-3 px-4 text-center">
+                                                <td className="py-5 px-6 text-center border-r border-slate-100">
                                                     {supplier.risk > 0 ? (
-                                                        <span className={`px-3 py-1 rounded font-bold ${
-                                                            supplier.risk >= 70 ? 'bg-red-100 text-red-700' :
-                                                            supplier.risk >= 30 ? 'bg-amber-100 text-amber-700' :
-                                                            'bg-green-100 text-green-700'
+                                                        <span className={`inline-block px-4 py-2 rounded-xl font-extrabold shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all ${
+                                                            supplier.risk >= 70 ? 'bg-gradient-to-br from-red-500 to-red-600 text-white' :
+                                                            supplier.risk >= 30 ? 'bg-gradient-to-br from-amber-500 to-orange-500 text-white' :
+                                                            'bg-gradient-to-br from-emerald-500 to-green-600 text-white'
                                                         }`}>
-                                                            {supplier.risk.toFixed(2)}
+                                                            {supplier.risk.toFixed(1)}
                                                         </span>
                                                     ) : (
-                                                        <span className="text-gray-400 text-sm">-</span>
+                                                        <span className="text-slate-400 text-sm font-medium">-</span>
                                                     )}
                                                 </td>
-                                                <td className="py-3 px-4 text-center text-gray-900 font-medium">
+                                                <td className="py-5 px-6 text-center border-r border-slate-100">
                                                     {supplier.kapasite > 0 ? (
-                                                        `%${supplier.kapasite.toFixed(1)}`
+                                                        <span className="inline-block bg-gradient-to-br from-indigo-100 to-purple-100 px-4 py-2 rounded-xl text-indigo-900 font-extrabold shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all">
+                                                            %{supplier.kapasite.toFixed(1)}
+                                                        </span>
                                                     ) : (
-                                                        <span className="text-gray-400 text-sm">-</span>
+                                                        <span className="text-slate-400 text-sm font-medium">-</span>
                                                     )}
                                                 </td>
-                                                <td className="py-3 px-4 text-center text-gray-900 font-medium">
-                                                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                                <td className="py-5 px-6 text-center border-r border-slate-100">
+                                                    <span className={`inline-block px-4 py-2 rounded-xl text-xs font-extrabold shadow-md uppercase tracking-wider group-hover:shadow-lg group-hover:scale-105 transition-all ${
                                                         supplier.mesEntegrasyon === 'MES Entegrasyonu Var' 
-                                                            ? 'bg-green-100 text-green-700' 
-                                                            : 'bg-gray-100 text-gray-600'
+                                                            ? 'bg-gradient-to-br from-emerald-500 to-green-600 text-white' 
+                                                            : 'bg-gradient-to-br from-slate-200 to-slate-300 text-slate-700'
                                                     }`}>
-                                                        {supplier.mesEntegrasyon}
+                                                        {supplier.mesEntegrasyon === 'MES Entegrasyonu Var' ? '✓ VAR' : 'YOK'}
                                                     </span>
                                                 </td>
-                                                <td className="py-3 px-4 text-center">
+                                                <td className="py-5 px-6 text-center">
                                                     {supplier.trend && supplier.trend.length > 0 ? (
-                                                        <div className="inline-flex items-center justify-center">
-                                                            <svg width="60" height="30" className="overflow-visible">
+                                                        <div className="inline-flex items-center justify-center bg-slate-50 rounded-xl p-2 shadow-inner group-hover:bg-white group-hover:shadow-md transition-all">
+                                                            <svg width="70" height="35" className="overflow-visible">
                                                                 {(() => {
                                                                     const data = supplier.trend.slice(-5)
                                                                     if (data.length === 0) return null
@@ -1752,35 +1766,48 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                                     const range = maxVal - minVal || 1
                                                                     
                                                                     const points = data.map((val, i) => {
-                                                                        const x = (i / Math.max(data.length - 1, 1)) * 50 + 5
-                                                                        const y = 25 - ((val - minVal) / range) * 20
+                                                                        const x = (i / Math.max(data.length - 1, 1)) * 55 + 7
+                                                                        const y = 28 - ((val - minVal) / range) * 22
                                                                         return `${x},${y}`
                                                                     }).join(' ')
                                                                     
                                                                     const firstVal = data[0]
                                                                     const lastVal = data[data.length - 1]
                                                                     const trendColor = lastVal > firstVal ? '#10b981' : lastVal < firstVal ? '#ef4444' : '#6b7280'
+                                                                    const bgColor = lastVal > firstVal ? '#10b98120' : lastVal < firstVal ? '#ef444420' : '#6b728020'
                                                                     
                                                                     return (
                                                                         <>
+                                                                            <defs>
+                                                                                <linearGradient id={`gradient-${idx}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                                                                                    <stop offset="0%" stopColor={trendColor} stopOpacity="0.3"/>
+                                                                                    <stop offset="100%" stopColor={trendColor} stopOpacity="0"/>
+                                                                                </linearGradient>
+                                                                            </defs>
+                                                                            <polygon
+                                                                                points={`${points} ${(Math.max(data.length - 1, 1) / Math.max(data.length - 1, 1)) * 55 + 7},35 7,35`}
+                                                                                fill={`url(#gradient-${idx})`}
+                                                                            />
                                                                             <polyline
                                                                                 points={points}
                                                                                 fill="none"
                                                                                 stroke={trendColor}
-                                                                                strokeWidth="2"
+                                                                                strokeWidth="3"
                                                                                 strokeLinecap="round"
                                                                                 strokeLinejoin="round"
                                                                             />
                                                                             {data.map((val, i) => {
-                                                                                const x = (i / Math.max(data.length - 1, 1)) * 50 + 5
-                                                                                const y = 25 - ((val - minVal) / range) * 20
+                                                                                const x = (i / Math.max(data.length - 1, 1)) * 55 + 7
+                                                                                const y = 28 - ((val - minVal) / range) * 22
                                                                                 return (
                                                                                     <circle
                                                                                         key={i}
                                                                                         cx={x}
                                                                                         cy={y}
-                                                                                        r="2"
-                                                                                        fill={trendColor}
+                                                                                        r="3"
+                                                                                        fill="white"
+                                                                                        stroke={trendColor}
+                                                                                        strokeWidth="2"
                                                                                     >
                                                                                         <title>{val.toFixed(1)}%</title>
                                                                                     </circle>
@@ -1792,7 +1819,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                             </svg>
                                                         </div>
                                                     ) : (
-                                                        <span className="text-gray-400 text-xs">-</span>
+                                                        <span className="text-slate-400 text-xs font-medium">-</span>
                                                     )}
                                                 </td>
                                             </tr>
@@ -1803,79 +1830,88 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         </div>
                     </>
                 ) : (
-                    <div className="flex items-center justify-center py-12">
-                        <span className="text-xl font-bold text-gray-400">Veri Yok</span>
+                    <div className="flex items-center justify-center py-16">
+                        <span className="text-xl font-bold text-slate-400">Veri Yok</span>
                     </div>
                 )
                 })()}
             </div>
 
             {/* ─── MES Entegrasyonu Olan Tedarikçiler Tablosu (Full Width) ─── */}
-            <div className="bg-white border-2 border-green-100 rounded-xl p-5 shadow-lg flex-shrink-0 mt-5">
-                <div className="flex items-center gap-2 mb-4 pb-3 border-b-2 border-green-100">
-                    <div className="w-1 h-6 bg-gradient-to-b from-green-500 to-emerald-600 rounded-full"></div>
-                    <h2 className="text-base font-bold text-gray-800 tracking-tight">
-                        MES Entegrasyonu Olan Tedarikçiler
-                    </h2>
-                    <span className="text-xs text-gray-500 font-medium">
-                        ({mesIntegratedSupplierRows.length} kayıt)
-                    </span>
+            <div className="bg-gradient-to-br from-white to-emerald-50/30 border border-slate-200/60 rounded-2xl p-7 shadow-xl flex-shrink-0 mt-6">
+                <div className="flex items-center justify-between mb-6 pb-5 border-b-2 border-gradient-to-r from-emerald-200 via-teal-200 to-transparent">
+                    <div className="flex items-center gap-3">
+                        <div className="w-1.5 h-8 bg-gradient-to-b from-emerald-600 via-teal-600 to-green-600 rounded-full shadow-lg"></div>
+                        <div>
+                            <h2 className="text-lg font-extrabold text-slate-800 tracking-tight">
+                                MES Entegrasyonu Olan Tedarikçiler
+                            </h2>
+                            <p className="text-xs text-slate-500 font-medium mt-0.5">
+                                Entegre sistemler ve gerçek zamanlı veri akışı
+                            </p>
+                        </div>
+                    </div>
+                    <div className="bg-gradient-to-br from-emerald-100 to-teal-100 px-4 py-2 rounded-xl">
+                        <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
+                            {mesIntegratedSupplierRows.length} Entegre
+                        </span>
+                    </div>
                 </div>
                 {(() => {
                     return mesIntegratedSupplierRows.length > 0 ? (
                     <>
-                        <div className="overflow-x-auto rounded-lg">
-                            <table className="w-full text-sm">
+                        <div className="overflow-x-auto rounded-2xl border border-slate-200/60 shadow-lg">
+                            <table className="w-full text-sm border-collapse">
                                 <thead>
-                                    <tr className="bg-gradient-to-r from-green-50 to-emerald-50 border-b-2 border-green-200">
+                                    <tr className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600">
                                         <th 
                                             onClick={() => handleSort('tedarikci')}
-                                            className="text-left py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs cursor-pointer hover:bg-green-100 transition-colors"
+                                            className="text-left py-5 px-6 font-extrabold text-white uppercase tracking-wider text-xs cursor-pointer hover:bg-emerald-700 transition-colors border-r border-white/10"
                                         >
-                                            <div className="flex items-center gap-1">
+                                            <div className="flex items-center gap-2">
                                                 <span>Tedarikçi</span>
                                                 {sortColumn === 'tedarikci' && (
-                                                    <span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                    <span className="text-white/90">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                                                 )}
                                             </div>
                                         </th>
                                         <th 
                                             onClick={() => handleSort('etki')}
-                                            className="text-right py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs cursor-pointer hover:bg-green-100 transition-colors"
+                                            className="text-right py-5 px-6 font-extrabold text-white uppercase tracking-wider text-xs cursor-pointer hover:bg-emerald-700 transition-colors border-r border-white/10"
                                         >
-                                            <div className="flex items-center justify-end gap-1">
+                                            <div className="flex items-center justify-end gap-2">
                                                 <span>Etki</span>
                                                 {sortColumn === 'etki' && (
-                                                    <span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                    <span className="text-white/90">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                                                 )}
                                             </div>
                                         </th>
                                         <th 
                                             onClick={() => handleSort('risk')}
-                                            className="text-center py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs cursor-pointer hover:bg-green-100 transition-colors"
+                                            className="text-center py-5 px-6 font-extrabold text-white uppercase tracking-wider text-xs cursor-pointer hover:bg-emerald-700 transition-colors border-r border-white/10"
                                         >
-                                            <div className="inline-flex items-center gap-1">
-                                                <span>Risk</span>
+                                            <div className="inline-flex items-center gap-2">
+                                                <span>Risk Skoru</span>
                                                 {sortColumn === 'risk' && (
-                                                    <span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                    <span className="text-white/90">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                                                 )}
                                             </div>
                                         </th>
                                         <th 
                                             onClick={() => handleSort('kapasite')}
-                                            className="text-center py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs cursor-pointer hover:bg-green-100 transition-colors"
+                                            className="text-center py-5 px-6 font-extrabold text-white uppercase tracking-wider text-xs cursor-pointer hover:bg-emerald-700 transition-colors border-r border-white/10"
                                         >
-                                            <div className="flex items-center justify-center gap-1">
+                                            <div className="flex items-center justify-center gap-2">
                                                 <span>Kapasite</span>
                                                 {sortColumn === 'kapasite' && (
-                                                    <span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                                                    <span className="text-white/90">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                                                 )}
                                             </div>
                                         </th>
-                                        <th className="text-center py-3 px-4 font-bold text-gray-700 uppercase tracking-wider text-xs">Trend</th>
+                                        <th className="text-center py-5 px-6 font-extrabold text-white uppercase tracking-wider text-xs">Trend</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody className="bg-white">
                                     {(() => {
                                         // Sort based on selected column and direction
                                         const sorted = [...mesIntegratedSupplierRows].sort((a, b) => {
@@ -1907,37 +1943,44 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         const top15 = sorted.slice(0, 15)
                                         
                                         return top15.map((supplier, idx) => (
-                                            <tr key={idx} className="border-b border-gray-100 hover:bg-gradient-to-r hover:from-green-50 hover:to-transparent transition-all duration-200">
-                                                <td className="py-3 px-4 font-semibold text-gray-900">{supplier.tedarikci}</td>
-                                                <td className="py-3 px-4 text-right text-gray-900">
-                                                    <span className="bg-gradient-to-br from-blue-100 to-blue-50 px-3 py-1 rounded font-semibold text-blue-800">
+                                            <tr key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-emerald-50/30'} border-b border-slate-200/60 hover:bg-gradient-to-r hover:from-emerald-50 hover:via-teal-50/30 hover:to-transparent transition-all duration-300 group`}>
+                                                <td className="py-5 px-6 font-bold text-slate-900 border-r border-slate-100 group-hover:text-emerald-700 transition-colors">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="inline-block w-2 h-2 bg-emerald-500 rounded-full"></span>
+                                                        {supplier.tedarikci}
+                                                    </div>
+                                                </td>
+                                                <td className="py-5 px-6 text-right border-r border-slate-100">
+                                                    <span className="inline-block bg-gradient-to-br from-blue-600 to-blue-700 px-4 py-2 rounded-xl font-bold text-white shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all">
                                                         ${(supplier.etki / 1000000).toFixed(2)}M
                                                     </span>
                                                 </td>
-                                                <td className="py-3 px-4 text-center">
+                                                <td className="py-5 px-6 text-center border-r border-slate-100">
                                                     {supplier.risk > 0 ? (
-                                                        <span className={`px-3 py-1 rounded font-bold ${
-                                                            supplier.risk >= 70 ? 'bg-red-100 text-red-700' :
-                                                            supplier.risk >= 30 ? 'bg-amber-100 text-amber-700' :
-                                                            'bg-green-100 text-green-700'
+                                                        <span className={`inline-block px-4 py-2 rounded-xl font-extrabold shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all ${
+                                                            supplier.risk >= 70 ? 'bg-gradient-to-br from-red-500 to-red-600 text-white' :
+                                                            supplier.risk >= 30 ? 'bg-gradient-to-br from-amber-500 to-orange-500 text-white' :
+                                                            'bg-gradient-to-br from-emerald-500 to-green-600 text-white'
                                                         }`}>
-                                                            {supplier.risk.toFixed(2)}
+                                                            {supplier.risk.toFixed(1)}
                                                         </span>
                                                     ) : (
-                                                        <span className="text-gray-400 text-sm">-</span>
+                                                        <span className="text-slate-400 text-sm font-medium">-</span>
                                                     )}
                                                 </td>
-                                                <td className="py-3 px-4 text-center text-gray-900 font-medium">
+                                                <td className="py-5 px-6 text-center border-r border-slate-100">
                                                     {supplier.kapasite > 0 ? (
-                                                        `%${supplier.kapasite.toFixed(1)}`
+                                                        <span className="inline-block bg-gradient-to-br from-emerald-100 to-teal-100 px-4 py-2 rounded-xl text-emerald-900 font-extrabold shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all">
+                                                            %{supplier.kapasite.toFixed(1)}
+                                                        </span>
                                                     ) : (
-                                                        <span className="text-gray-400 text-sm">-</span>
+                                                        <span className="text-slate-400 text-sm font-medium">-</span>
                                                     )}
                                                 </td>
-                                                <td className="py-3 px-4 text-center">
+                                                <td className="py-5 px-6 text-center">
                                                     {supplier.trend && supplier.trend.length > 0 ? (
-                                                        <div className="inline-flex items-center justify-center">
-                                                            <svg width="60" height="30" className="overflow-visible">
+                                                        <div className="inline-flex items-center justify-center bg-emerald-50 rounded-xl p-2 shadow-inner group-hover:bg-white group-hover:shadow-md transition-all">
+                                                            <svg width="70" height="35" className="overflow-visible">
                                                                 {(() => {
                                                                     const data = supplier.trend.slice(-5)
                                                                     if (data.length === 0) return null
@@ -1947,8 +1990,8 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                                     const range = maxVal - minVal || 1
                                                                     
                                                                     const points = data.map((val, i) => {
-                                                                        const x = (i / Math.max(data.length - 1, 1)) * 50 + 5
-                                                                        const y = 25 - ((val - minVal) / range) * 20
+                                                                        const x = (i / Math.max(data.length - 1, 1)) * 55 + 7
+                                                                        const y = 28 - ((val - minVal) / range) * 22
                                                                         return `${x},${y}`
                                                                     }).join(' ')
                                                                     
@@ -1958,24 +2001,36 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                                     
                                                                     return (
                                                                         <>
+                                                                            <defs>
+                                                                                <linearGradient id={`gradient-mes-${idx}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                                                                                    <stop offset="0%" stopColor={trendColor} stopOpacity="0.3"/>
+                                                                                    <stop offset="100%" stopColor={trendColor} stopOpacity="0"/>
+                                                                                </linearGradient>
+                                                                            </defs>
+                                                                            <polygon
+                                                                                points={`${points} ${(Math.max(data.length - 1, 1) / Math.max(data.length - 1, 1)) * 55 + 7},35 7,35`}
+                                                                                fill={`url(#gradient-mes-${idx})`}
+                                                                            />
                                                                             <polyline
                                                                                 points={points}
                                                                                 fill="none"
                                                                                 stroke={trendColor}
-                                                                                strokeWidth="2"
+                                                                                strokeWidth="3"
                                                                                 strokeLinecap="round"
                                                                                 strokeLinejoin="round"
                                                                             />
                                                                             {data.map((val, i) => {
-                                                                                const x = (i / Math.max(data.length - 1, 1)) * 50 + 5
-                                                                                const y = 25 - ((val - minVal) / range) * 20
+                                                                                const x = (i / Math.max(data.length - 1, 1)) * 55 + 7
+                                                                                const y = 28 - ((val - minVal) / range) * 22
                                                                                 return (
                                                                                     <circle
                                                                                         key={i}
                                                                                         cx={x}
                                                                                         cy={y}
-                                                                                        r="2"
-                                                                                        fill={trendColor}
+                                                                                        r="3"
+                                                                                        fill="white"
+                                                                                        stroke={trendColor}
+                                                                                        strokeWidth="2"
                                                                                     >
                                                                                         <title>{val.toFixed(1)}%</title>
                                                                                     </circle>
@@ -1987,7 +2042,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                             </svg>
                                                         </div>
                                                     ) : (
-                                                        <span className="text-gray-400 text-xs">-</span>
+                                                        <span className="text-slate-400 text-xs font-medium">-</span>
                                                     )}
                                                 </td>
                                             </tr>
@@ -1998,8 +2053,8 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         </div>
                     </>
                 ) : (
-                    <div className="flex items-center justify-center py-12">
-                        <span className="text-xl font-bold text-gray-400">MES Entegrasyonu Olan Tedarikçi Yok</span>
+                    <div className="flex items-center justify-center py-16">
+                        <span className="text-xl font-bold text-slate-400">MES Entegrasyonu Olan Tedarikçi Yok</span>
                     </div>
                 )
                 })()}
