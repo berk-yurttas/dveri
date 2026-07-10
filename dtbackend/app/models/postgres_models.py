@@ -92,6 +92,9 @@ class User(PostgreSQLBase):
     # Since foreign keys can't span databases, we store it as a plain integer
     # without a foreign key constraint. Referential integrity must be handled in application logic.
     workshop_id = Column(Integer, nullable=True, index=True)
+    # Read-only access to the atolye "İş Emirleri" page, granted per-operator by a
+    # yönetici. Only meaningful for operator users; defaults to no access.
+    can_view_work_orders = Column(Boolean, default=False, nullable=False, server_default="false")
     # Login tracking fields
     login_count = Column(Integer, default=0, nullable=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)

@@ -1061,7 +1061,19 @@ async def get_all_work_orders(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Kullanıcının atölye yetkisi bulunmamaktadır"
         )
-    
+
+    # A pure operator (no yönetici/müşteri/satınalma role) may only view this
+    # page when a yönetici has granted the read-only permission.
+    is_operator = "atolye:operator" in role_values
+    is_satinalma = "atolye:satinalma" in role_values
+    if is_operator and not (is_yonetici or is_musteri or is_satinalma):
+        operator_pg_user = await UserService.get_user_by_username(postgres_db, current_user.username)
+        if not operator_pg_user or not operator_pg_user.can_view_work_orders:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="İş emirleri sayfasını görüntüleme yetkiniz bulunmamaktadır"
+            )
+
     # Determine which company's work orders to show
     target_company = company
     if is_aselsan_satinalma and filter_company:

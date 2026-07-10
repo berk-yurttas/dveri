@@ -3,6 +3,7 @@
 import { useUser } from "@/contexts/user-context";
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
+import { useMyStation } from "@/hooks/useMyStation";
 
 export default function AtolyePage() {
   const { user } = useUser();
@@ -46,6 +47,12 @@ export default function AtolyePage() {
     }
   }, [user]);
 
+  // A pure operator (no other atolye role) may only open İş Emirleri when the
+  // yönetici has granted the read-only permission. Resolve it from my-station.
+  const isPureOperator = isOperator && !isYonetici && !isMusteri && !isSatinalma;
+  const myStation = useMyStation(isPureOperator);
+  const operatorCanViewWorkOrders = !!myStation?.can_view_work_orders;
+
   if (!hasAtolyeRole) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -87,7 +94,7 @@ export default function AtolyePage() {
       title: "Ürünüm Nerede?",
       description: "Ürünlerinizin atölye sürecindeki anlık konumu",
       href: `/${platform}/atolye/urunum-nerede`,
-      allowed: isMusteri,
+      allowed: true,
       color: "#fe9526",
       icon: (
         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -112,7 +119,7 @@ export default function AtolyePage() {
       title: "İş Emirleri",
       description: "Tüm iş emirlerinin detaylı görünümü",
       href: `/${platform}/atolye/is-emirleri`,
-      allowed: isOperator || isYonetici || isSatinalma || isMusteri,
+      allowed: isYonetici || isSatinalma || isMusteri || (isOperator && operatorCanViewWorkOrders),
       color: "#0f4c3a",
       icon: (
         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">

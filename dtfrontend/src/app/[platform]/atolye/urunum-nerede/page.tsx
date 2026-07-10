@@ -10,6 +10,7 @@ import { TrackResultCard } from "@/components/atolye/urunum-nerede/TrackResultCa
 import { RouteTimeline } from "@/components/atolye/urunum-nerede/RouteTimeline";
 import { PackageStrip } from "@/components/atolye/urunum-nerede/PackageStrip";
 import { HedefFirmaSelect } from "@/components/atolye/urunum-nerede/HedefFirmaSelect";
+import { useMyCompany } from "@/hooks/useMyCompany";
 
 type View = "idle" | "loading" | "notfound" | "list" | "result";
 
@@ -27,8 +28,24 @@ export default function UrunumNeredePage() {
   const [companies, setCompanies] = useState<string[]>([]);
   const [hedefFirma, setHedefFirma] = useState("");
 
-  const isMusteri =
-    Array.isArray(user?.role) && user.role.some((r) => typeof r === "string" && r === "atolye:musteri");
+  const roles = Array.isArray(user?.role) ? user.role : [];
+  const hasRole = (r: string) => roles.some((x) => typeof x === "string" && x === r);
+  const isMusteri = hasRole("atolye:musteri");
+  const isOperator = hasRole("atolye:operator");
+  const isYonetici = hasRole("atolye:yonetici");
+  const hasAtolyeRole = roles.some((x) => typeof x === "string" && x.startsWith("atolye:"));
+
+  // Operator / yönetici (who are not also müşteri) are pinned to their own firma
+  // as the hedef firma; müşteri (and satınalma) keep the free selection.
+  const lockToOwnFirma = (isOperator || isYonetici) && !isMusteri;
+  const myCompany = useMyCompany(lockToOwnFirma);
+
+  // Once the own-company resolves, pin the hedef firma to it (locked users).
+  useEffect(() => {
+    if (lockToOwnFirma && myCompany?.name) {
+      setHedefFirma(myCompany.name);
+    }
+  }, [lockToOwnFirma, myCompany]);
 
   useEffect(() => {
     try {
@@ -102,7 +119,7 @@ export default function UrunumNeredePage() {
     );
   }
 
-  if (!isMusteri) {
+  if (!hasAtolyeRole) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -126,7 +143,7 @@ export default function UrunumNeredePage() {
         )}
 
         <div className="mb-5">
-          <HedefFirmaSelect companies={companies} value={hedefFirma} onChange={setHedefFirma} disabled={view === "loading"} />
+          <HedefFirmaSelect companies={companies} value={hedefFirma} onChange={setHedefFirma} disabled={view === "loading"} locked={lockToOwnFirma} />
           <ProductSearchCard loading={view === "loading"} onSearch={(q) => runSearch(q)} />
         </div>
 

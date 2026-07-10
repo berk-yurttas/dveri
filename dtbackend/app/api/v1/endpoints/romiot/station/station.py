@@ -44,6 +44,8 @@ class ManagedUserResponse(BaseModel):
     company: str
     department: str | None = None
     is_self: bool = False
+    # Operator-only: read-only access to the İş Emirleri page.
+    can_view_work_orders: bool = False
 
 
 def _validate_password_strength(password: str) -> None:
@@ -71,6 +73,9 @@ class ManagedUserUpdateRequest(BaseModel):
     password_confirm: str | None = Field(None, min_length=8, description="New password confirmation")
     role: ManagedUserRoleType | None = Field(None, description="Atolye role")
     station_id: int | None = Field(None, description="Station ID for operator role")
+    can_view_work_orders: bool | None = Field(
+        None, description="Operator-only: grant read-only access to the İş Emirleri page"
+    )
     company: str | None = Field(
         None,
         description="Deprecated: ignored on input. Backend writes company = department.",
@@ -488,6 +493,7 @@ async def list_company_users(
                 company=item_company,
                 department=item_company or None,
                 is_self=username == current_user.username,
+                can_view_work_orders=bool(pg_user.can_view_work_orders) if pg_user else False,
             )
         )
 
@@ -765,6 +771,14 @@ async def update_company_user(
                     pg_user.name = pb_payload.get("name")
                 pg_user.workshop_id = station_id_for_db
 
+            # İş Emirleri read-only access is an operator-only permission. Apply
+            # the requested value for operators; clear it for any other role.
+            if new_role == ManagedUserRoleType.OPERATOR:
+                if user_data.can_view_work_orders is not None:
+                    pg_user.can_view_work_orders = user_data.can_view_work_orders
+            else:
+                pg_user.can_view_work_orders = False
+
             await postgres_db.commit()
             await postgres_db.refresh(pg_user)
 
@@ -787,6 +801,7 @@ async def update_company_user(
                 company=department_for_payload,
                 department=department_for_payload,
                 is_self=new_username == current_user.username,
+                can_view_work_orders=bool(pg_user.can_view_work_orders),
             )
     except HTTPException:
         raise
@@ -1046,6 +1061,7 @@ async def get_my_station(
         "company": station.company,
         "is_entry_station": station.is_entry_station,
         "is_exit_station": station.is_exit_station,
+        "can_view_work_orders": bool(pg_user.can_view_work_orders),
     }
 
 

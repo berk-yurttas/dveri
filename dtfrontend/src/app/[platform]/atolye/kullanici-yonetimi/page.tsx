@@ -43,6 +43,8 @@ interface ManagedUser {
   company: string;
   department: string | null;
   is_self: boolean;
+  // Operator read-only access to the İş Emirleri page (granted by yönetici).
+  can_view_work_orders: boolean;
 }
 
 interface Station {
@@ -61,6 +63,7 @@ interface EditFormData {
   password_confirm: string;
   company: string;
   department: string;
+  can_view_work_orders: boolean;
 }
 
 const ROLE_LABELS: Record<RoleType, string> = {
@@ -109,6 +112,7 @@ export default function KullaniciYonetimiPage() {
     password_confirm: "",
     company: "",
     department: "",
+    can_view_work_orders: false,
   });
 
   const fetchData = async () => {
@@ -202,6 +206,7 @@ export default function KullaniciYonetimiPage() {
       // typeahead (non-operator) / locked display (operator) shows the current
       // company; fall back to the mirrored department.
       department: target.company || target.department || "",
+      can_view_work_orders: target.can_view_work_orders ?? false,
     });
     setError(null);
     setSuccess(null);
@@ -218,6 +223,7 @@ export default function KullaniciYonetimiPage() {
       password_confirm: "",
       company: "",
       department: "",
+      can_view_work_orders: false,
     });
   };
 
@@ -314,6 +320,8 @@ export default function KullaniciYonetimiPage() {
         const stationId = parseInt(formData.station_id, 10);
         if (isNaN(stationId)) throw new Error("Operatör için atölye seçiniz");
         payload.station_id = stationId;
+        // Read-only İş Emirleri access is an operator-only permission.
+        payload.can_view_work_orders = formData.can_view_work_orders;
       }
 
       if (formData.password || formData.password_confirm) {
@@ -644,6 +652,24 @@ export default function KullaniciYonetimiPage() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                )}
+
+                {selectedUser?.role === "operator" && (
+                  <div className="md:col-span-2">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.can_view_work_orders}
+                        onChange={(e) => setFormData({ ...formData, can_view_work_orders: e.target.checked })}
+                        className="mt-0.5 h-4 w-4 text-[#0f4c3a] border-gray-300 rounded focus:ring-[#0f4c3a]"
+                        disabled={saving}
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-gray-700">İş Emirleri sayfasını görüntüleyebilir</span>
+                        <span className="block text-xs text-gray-500">Operatöre iş emirleri sayfasına salt-okunur erişim verir.</span>
+                      </span>
+                    </label>
                   </div>
                 )}
 
