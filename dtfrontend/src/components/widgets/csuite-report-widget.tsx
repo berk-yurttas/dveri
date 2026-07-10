@@ -339,9 +339,9 @@ const SQL = {
             "Kapasite",
             "Trend",
             "MesEntegrasyon",
-            NTILE(10) OVER(ORDER BY "Etki" DESC) as impact_points,
+            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            (NTILE(10) OVER(ORDER BY "Etki" DESC) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
@@ -404,9 +404,9 @@ const SQL = {
             "Kapasite",
             "Trend",
             "MesEntegrasyon",
-            NTILE(10) OVER(ORDER BY "Etki" DESC) as impact_points,
+            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            (NTILE(10) OVER(ORDER BY "Etki" DESC) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
@@ -468,9 +468,9 @@ const SQL = {
             "Etki",
             "Kapasite",
             "Trend",
-            NTILE(10) OVER(ORDER BY "Etki" DESC) as impact_points,
+            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            (NTILE(10) OVER(ORDER BY "Etki" DESC) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
@@ -532,9 +532,9 @@ const SQL = {
             "Etki",
             "Kapasite",
             "Trend",
-            NTILE(10) OVER(ORDER BY "Etki" DESC) as impact_points,
+            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            (NTILE(10) OVER(ORDER BY "Etki" DESC) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
