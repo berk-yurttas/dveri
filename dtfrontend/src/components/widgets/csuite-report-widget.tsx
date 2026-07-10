@@ -339,9 +339,9 @@ const SQL = {
             "Kapasite",
             "Trend",
             "MesEntegrasyon",
-            NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
+            NTILE(10) OVER(ORDER BY "Etki" DESC) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            NTILE(10) OVER(ORDER BY "Oran" ASC) * (COALESCE("Kapasite", 50.0) / 10.0) as "Risk"
+            (NTILE(10) OVER(ORDER BY "Etki" DESC) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
@@ -404,9 +404,9 @@ const SQL = {
             "Kapasite",
             "Trend",
             "MesEntegrasyon",
-            NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
-            "Kapasite" / 10.0 as kapasite_points,
-            NTILE(10) OVER(ORDER BY "Oran" ASC) * ("Kapasite" / 10.0) as "Risk"
+            NTILE(10) OVER(ORDER BY "Etki" DESC) as impact_points,
+            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+            (NTILE(10) OVER(ORDER BY "Etki" DESC) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
@@ -468,9 +468,9 @@ const SQL = {
             "Etki",
             "Kapasite",
             "Trend",
-            NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
+            NTILE(10) OVER(ORDER BY "Etki" DESC) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            NTILE(10) OVER(ORDER BY "Oran" ASC) * (COALESCE("Kapasite", 50.0) / 10.0) as "Risk"
+            (NTILE(10) OVER(ORDER BY "Etki" DESC) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
@@ -532,9 +532,9 @@ const SQL = {
             "Etki",
             "Kapasite",
             "Trend",
-            NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
+            NTILE(10) OVER(ORDER BY "Etki" DESC) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            NTILE(10) OVER(ORDER BY "Oran" ASC) * (COALESCE("Kapasite", 50.0) / 10.0) as "Risk"
+            (NTILE(10) OVER(ORDER BY "Etki" DESC) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
@@ -1713,21 +1713,21 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         const top15 = sorted.slice(0, 15)
                                         
                                         return top15.map((supplier, idx) => (
-                                            <tr key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} border-b border-slate-200/60 hover:bg-gradient-to-r hover:from-violet-50 hover:via-purple-50/30 hover:to-transparent transition-all duration-300 group`}>
-                                                <td className="py-3 px-4 font-bold text-slate-900 border-r border-slate-100 group-hover:text-violet-700 transition-colors max-w-[200px] truncate">
+                                            <tr key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} border-b border-slate-200/60 hover:bg-slate-100/50 transition-all duration-200 group`}>
+                                                <td className="py-3 px-4 font-medium text-slate-800 border-r border-slate-100 max-w-[200px] truncate">
                                                     {supplier.tedarikci}
                                                 </td>
                                                 <td className="py-3 px-4 text-right border-r border-slate-100">
-                                                    <span className="inline-block bg-gradient-to-br from-blue-600 to-blue-700 px-3 py-1.5 rounded-xl font-bold text-white shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all text-sm">
+                                                    <span className="inline-block bg-blue-600 px-3 py-1.5 rounded-lg font-semibold text-white text-sm">
                                                         ${(supplier.etki / 1000000).toFixed(2)}M
                                                     </span>
                                                 </td>
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     {supplier.risk > 0 ? (
-                                                        <span className={`inline-block px-3 py-1.5 rounded-xl font-extrabold shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all text-sm ${
-                                                            supplier.risk >= 70 ? 'bg-gradient-to-br from-red-500 to-red-600 text-white' :
-                                                            supplier.risk >= 30 ? 'bg-gradient-to-br from-amber-500 to-orange-500 text-white' :
-                                                            'bg-gradient-to-br from-emerald-500 to-green-600 text-white'
+                                                        <span className={`inline-block px-3 py-1.5 rounded-lg font-semibold text-sm ${
+                                                            supplier.risk >= 70 ? 'bg-red-600 text-white' :
+                                                            supplier.risk >= 30 ? 'bg-amber-600 text-white' :
+                                                            'bg-emerald-600 text-white'
                                                         }`}>
                                                             {supplier.risk.toFixed(1)}
                                                         </span>
@@ -1737,7 +1737,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                 </td>
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     {supplier.kapasite > 0 ? (
-                                                        <span className="inline-block bg-gradient-to-br from-indigo-100 to-purple-100 px-3 py-1.5 rounded-xl text-indigo-900 font-extrabold shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all text-sm">
+                                                        <span className="inline-block bg-slate-200 px-3 py-1.5 rounded-lg text-slate-800 font-semibold text-sm">
                                                             %{supplier.kapasite.toFixed(1)}
                                                         </span>
                                                     ) : (
@@ -1745,12 +1745,12 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                     )}
                                                 </td>
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
-                                                    <span className={`inline-block px-3 py-1.5 rounded-xl text-xs font-extrabold shadow-md uppercase tracking-wider group-hover:shadow-lg group-hover:scale-105 transition-all ${
+                                                    <span className={`inline-block px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider ${
                                                         supplier.mesEntegrasyon === 'MES Entegrasyonu Var' 
-                                                            ? 'bg-gradient-to-br from-emerald-500 to-green-600 text-white' 
-                                                            : 'bg-gradient-to-br from-slate-200 to-slate-300 text-slate-700'
+                                                            ? 'bg-emerald-600 text-white' 
+                                                            : 'bg-slate-300 text-slate-700'
                                                     }`}>
-                                                        {supplier.mesEntegrasyon === 'MES Entegrasyonu Var' ? '✓ ENTEGRASYON VAR' : 'ENTEGRASYON YOK'}
+                                                        {supplier.mesEntegrasyon === 'MES Entegrasyonu Var' ? '✓ VAR' : 'YOK'}
                                                     </span>
                                                 </td>
                                                 <td className="py-3 px-4 text-center">
@@ -1963,24 +1963,24 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         const top15 = sorted.slice(0, 15)
                                         
                                         return top15.map((supplier, idx) => (
-                                            <tr key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-emerald-50/30'} border-b border-slate-200/60 hover:bg-gradient-to-r hover:from-emerald-50 hover:via-teal-50/30 hover:to-transparent transition-all duration-300 group`}>
-                                                <td className="py-3 px-4 font-bold text-slate-900 border-r border-slate-100 group-hover:text-emerald-700 transition-colors max-w-[200px] truncate">
+                                            <tr key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-emerald-50/30'} border-b border-slate-200/60 hover:bg-slate-100/50 transition-all duration-200 group`}>
+                                                <td className="py-3 px-4 font-medium text-slate-800 border-r border-slate-100 max-w-[200px] truncate">
                                                     <div className="flex items-center gap-2">
                                                         <span className="inline-block w-2 h-2 bg-emerald-500 rounded-full"></span>
                                                         {supplier.tedarikci}
                                                     </div>
                                                 </td>
                                                 <td className="py-3 px-4 text-right border-r border-slate-100">
-                                                    <span className="inline-block bg-gradient-to-br from-blue-600 to-blue-700 px-3 py-1.5 rounded-xl font-bold text-white shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all text-sm">
+                                                    <span className="inline-block bg-blue-600 px-3 py-1.5 rounded-lg font-semibold text-white text-sm">
                                                         ${(supplier.etki / 1000000).toFixed(2)}M
                                                     </span>
                                                 </td>
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     {supplier.risk > 0 ? (
-                                                        <span className={`inline-block px-3 py-1.5 rounded-xl font-extrabold shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all text-sm ${
-                                                            supplier.risk >= 70 ? 'bg-gradient-to-br from-red-500 to-red-600 text-white' :
-                                                            supplier.risk >= 30 ? 'bg-gradient-to-br from-amber-500 to-orange-500 text-white' :
-                                                            'bg-gradient-to-br from-emerald-500 to-green-600 text-white'
+                                                        <span className={`inline-block px-3 py-1.5 rounded-lg font-semibold text-sm ${
+                                                            supplier.risk >= 70 ? 'bg-red-600 text-white' :
+                                                            supplier.risk >= 30 ? 'bg-amber-600 text-white' :
+                                                            'bg-emerald-600 text-white'
                                                         }`}>
                                                             {supplier.risk.toFixed(1)}
                                                         </span>
@@ -1990,7 +1990,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                 </td>
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     {supplier.kapasite > 0 ? (
-                                                        <span className="inline-block bg-gradient-to-br from-emerald-100 to-teal-100 px-3 py-1.5 rounded-xl text-emerald-900 font-extrabold shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all text-sm">
+                                                        <span className="inline-block bg-slate-200 px-3 py-1.5 rounded-lg text-slate-800 font-semibold text-sm">
                                                             %{supplier.kapasite.toFixed(1)}
                                                         </span>
                                                     ) : (
