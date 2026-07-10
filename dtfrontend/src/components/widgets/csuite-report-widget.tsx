@@ -131,7 +131,7 @@ const SQL = {
         FROM
             (
             SELECT *, 
-                   ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                   ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
             FROM mes_production.makine_doluluk_raw 
             WHERE "Firma Adı" = '${firma}'
             ) t
@@ -143,7 +143,7 @@ const SQL = {
         FROM
             (
             SELECT *, 
-                   ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                   ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
             FROM mes_production.makine_doluluk_raw
             ) t
             WHERE rn = 1
@@ -156,7 +156,7 @@ const SQL = {
             FROM
                 (
                 SELECT *, 
-                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
             FROM mes_production.makine_doluluk_raw WHERE "Firma Adı" = '${firma}'
             ) t
             WHERE rn = 1
@@ -169,7 +169,7 @@ const SQL = {
             FROM
                 (
                 SELECT *, 
-                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
                 FROM mes_production.makine_doluluk_raw
                 WHERE "Date"::timestamp <= CURRENT_DATE - INTERVAL '30 days' AND "Firma Adı" = '${firma}'
                 ) t
@@ -191,7 +191,7 @@ const SQL = {
             FROM
                 (
                 SELECT *, 
-                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
                 FROM mes_production.makine_doluluk_raw
                 ) t
             WHERE rn = 1
@@ -204,7 +204,7 @@ const SQL = {
             FROM
                 (
                 SELECT *, 
-                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
                 FROM mes_production.makine_doluluk_raw
                 WHERE "Date"::timestamp <= CURRENT_DATE - INTERVAL '30 days'
                 ) t
@@ -289,7 +289,7 @@ const SQL = {
         ),
         CompanyTrend AS (
             SELECT 
-                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date") as "Trend", 
+                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date"::timestamp) as "Trend", 
                 "Firma Adı" 
             FROM (
                 SELECT DISTINCT ON ("Firma Adı", "Date")
@@ -310,7 +310,7 @@ const SQL = {
             FROM
                 (
                 SELECT *, 
-                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
                 FROM mes_production.makine_doluluk_raw
                 ) t
             WHERE rn = 1
@@ -340,8 +340,8 @@ const SQL = {
             "Trend",
             "MesEntegrasyon",
             NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
-            "Kapasite" / 10.0 as kapasite_points,
-            NTILE(10) OVER(ORDER BY "Oran" ASC) * ("Kapasite" / 10.0) as "Risk"
+            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+            NTILE(10) OVER(ORDER BY "Oran" ASC) * (COALESCE("Kapasite", 50.0) / 10.0) as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
@@ -354,7 +354,7 @@ const SQL = {
         ),
         CompanyTrend AS (
             SELECT 
-                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date") as "Trend", 
+                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date"::timestamp) as "Trend", 
                 "Firma Adı" 
             FROM (
                 SELECT DISTINCT ON ("Firma Adı", "Date")
@@ -375,7 +375,7 @@ const SQL = {
             FROM
                 (
                 SELECT *, 
-                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
                 FROM mes_production.makine_doluluk_raw
                 ) t
             WHERE rn = 1
@@ -419,7 +419,7 @@ const SQL = {
         ),
         CompanyTrend AS (
             SELECT 
-                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date") as "Trend", 
+                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date"::timestamp) as "Trend", 
                 "Firma Adı" 
             FROM (
                 SELECT DISTINCT ON ("Firma Adı", "Date")
@@ -427,7 +427,7 @@ const SQL = {
                     "Date",
                     AVG("Aylık Planlanan Doluluk Oranı") as "Aylık Planlanan Doluluk Oranı"
                 FROM mes_production.makine_doluluk_raw
-                WHERE "Date" >= CURRENT_DATE - INTERVAL '30 days'
+                WHERE "Date"::timestamp >= CURRENT_DATE - INTERVAL '30 days'
                 GROUP BY "Firma Adı", "Date"
                 ORDER BY "Firma Adı", "Date"
             ) daily_avg
@@ -440,7 +440,7 @@ const SQL = {
             FROM
                 (
                 SELECT *, 
-                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
                 FROM mes_production.makine_doluluk_raw
                 ) t
             WHERE rn = 1
@@ -469,8 +469,8 @@ const SQL = {
             "Kapasite",
             "Trend",
             NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
-            "Kapasite" / 10.0 as kapasite_points,
-            NTILE(10) OVER(ORDER BY "Oran" ASC) * ("Kapasite" / 10.0) as "Risk"
+            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+            NTILE(10) OVER(ORDER BY "Oran" ASC) * (COALESCE("Kapasite", 50.0) / 10.0) as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
@@ -483,7 +483,7 @@ const SQL = {
         ),
         CompanyTrend AS (
             SELECT 
-                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date") as "Trend", 
+                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date"::timestamp) as "Trend", 
                 "Firma Adı" 
             FROM (
                 SELECT DISTINCT ON ("Firma Adı", "Date")
@@ -504,7 +504,7 @@ const SQL = {
             FROM
                 (
                 SELECT *, 
-                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date" desc) as rn
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
                 FROM mes_production.makine_doluluk_raw
                 ) t
             WHERE rn = 1
@@ -533,8 +533,8 @@ const SQL = {
             "Kapasite",
             "Trend",
             NTILE(10) OVER(ORDER BY "Oran" ASC) as order_points,
-            "Kapasite" / 10.0 as kapasite_points,
-            NTILE(10) OVER(ORDER BY "Oran" ASC) * ("Kapasite" / 10.0) as "Risk"
+            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+            NTILE(10) OVER(ORDER BY "Oran" ASC) * (COALESCE("Kapasite", 50.0) / 10.0) as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
@@ -1216,7 +1216,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
     } = data
 
     // Computed values
-    const cmmTotal = 0
+    const cmmTotal = cmmSayisi.reduce((sum, item) => sum + item.amount, 0)
     const dizgiTotal = dizgiHatti.reduce((sum, item) => sum + item.amount, 0)
     const kapsamPct = kapsam.second !== 0
         ? ((kapsam.first / kapsam.second) * 100).toFixed(1)
@@ -1714,17 +1714,17 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         
                                         return top15.map((supplier, idx) => (
                                             <tr key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} border-b border-slate-200/60 hover:bg-gradient-to-r hover:from-violet-50 hover:via-purple-50/30 hover:to-transparent transition-all duration-300 group`}>
-                                                <td className="py-5 px-6 font-bold text-slate-900 border-r border-slate-100 group-hover:text-violet-700 transition-colors">
+                                                <td className="py-3 px-4 font-bold text-slate-900 border-r border-slate-100 group-hover:text-violet-700 transition-colors max-w-[200px] truncate">
                                                     {supplier.tedarikci}
                                                 </td>
-                                                <td className="py-5 px-6 text-right border-r border-slate-100">
-                                                    <span className="inline-block bg-gradient-to-br from-blue-600 to-blue-700 px-4 py-2 rounded-xl font-bold text-white shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all">
+                                                <td className="py-3 px-4 text-right border-r border-slate-100">
+                                                    <span className="inline-block bg-gradient-to-br from-blue-600 to-blue-700 px-3 py-1.5 rounded-xl font-bold text-white shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all text-sm">
                                                         ${(supplier.etki / 1000000).toFixed(2)}M
                                                     </span>
                                                 </td>
-                                                <td className="py-5 px-6 text-center border-r border-slate-100">
+                                                <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     {supplier.risk > 0 ? (
-                                                        <span className={`inline-block px-4 py-2 rounded-xl font-extrabold shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all ${
+                                                        <span className={`inline-block px-3 py-1.5 rounded-xl font-extrabold shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all text-sm ${
                                                             supplier.risk >= 70 ? 'bg-gradient-to-br from-red-500 to-red-600 text-white' :
                                                             supplier.risk >= 30 ? 'bg-gradient-to-br from-amber-500 to-orange-500 text-white' :
                                                             'bg-gradient-to-br from-emerald-500 to-green-600 text-white'
@@ -1735,28 +1735,28 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                         <span className="text-slate-400 text-sm font-medium">-</span>
                                                     )}
                                                 </td>
-                                                <td className="py-5 px-6 text-center border-r border-slate-100">
+                                                <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     {supplier.kapasite > 0 ? (
-                                                        <span className="inline-block bg-gradient-to-br from-indigo-100 to-purple-100 px-4 py-2 rounded-xl text-indigo-900 font-extrabold shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all">
+                                                        <span className="inline-block bg-gradient-to-br from-indigo-100 to-purple-100 px-3 py-1.5 rounded-xl text-indigo-900 font-extrabold shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all text-sm">
                                                             %{supplier.kapasite.toFixed(1)}
                                                         </span>
                                                     ) : (
                                                         <span className="text-slate-400 text-sm font-medium">-</span>
                                                     )}
                                                 </td>
-                                                <td className="py-5 px-6 text-center border-r border-slate-100">
-                                                    <span className={`inline-block px-4 py-2 rounded-xl text-xs font-extrabold shadow-md uppercase tracking-wider group-hover:shadow-lg group-hover:scale-105 transition-all ${
+                                                <td className="py-3 px-4 text-center border-r border-slate-100">
+                                                    <span className={`inline-block px-3 py-1.5 rounded-xl text-xs font-extrabold shadow-md uppercase tracking-wider group-hover:shadow-lg group-hover:scale-105 transition-all ${
                                                         supplier.mesEntegrasyon === 'MES Entegrasyonu Var' 
                                                             ? 'bg-gradient-to-br from-emerald-500 to-green-600 text-white' 
                                                             : 'bg-gradient-to-br from-slate-200 to-slate-300 text-slate-700'
                                                     }`}>
-                                                        {supplier.mesEntegrasyon === 'MES Entegrasyonu Var' ? '✓ VAR' : 'YOK'}
+                                                        {supplier.mesEntegrasyon === 'MES Entegrasyonu Var' ? '✓ ENTEGRASYON VAR' : 'ENTEGRASYON YOK'}
                                                     </span>
                                                 </td>
-                                                <td className="py-5 px-6 text-center">
+                                                <td className="py-3 px-4 text-center">
                                                     {supplier.trend && supplier.trend.length > 0 ? (
-                                                        <div className="inline-flex items-center justify-center bg-slate-50 rounded-xl p-2 shadow-inner group-hover:bg-white group-hover:shadow-md transition-all">
-                                                            <svg width="70" height="35" className="overflow-visible">
+                                                        <div className="inline-flex items-center justify-center bg-slate-50 rounded-lg p-1.5 shadow-inner group-hover:bg-white group-hover:shadow-md transition-all">
+                                                            <svg width="60" height="28" className="overflow-visible">
                                                                 {(() => {
                                                                     const data = supplier.trend.slice(-5)
                                                                     if (data.length === 0) return null
@@ -1766,15 +1766,14 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                                     const range = maxVal - minVal || 1
                                                                     
                                                                     const points = data.map((val, i) => {
-                                                                        const x = (i / Math.max(data.length - 1, 1)) * 55 + 7
-                                                                        const y = 28 - ((val - minVal) / range) * 22
+                                                                        const x = (i / Math.max(data.length - 1, 1)) * 50 + 5
+                                                                        const y = 24 - ((val - minVal) / range) * 18
                                                                         return `${x},${y}`
                                                                     }).join(' ')
                                                                     
                                                                     const firstVal = data[0]
                                                                     const lastVal = data[data.length - 1]
                                                                     const trendColor = lastVal > firstVal ? '#10b981' : lastVal < firstVal ? '#ef4444' : '#6b7280'
-                                                                    const bgColor = lastVal > firstVal ? '#10b98120' : lastVal < firstVal ? '#ef444420' : '#6b728020'
                                                                     
                                                                     return (
                                                                         <>
@@ -1785,29 +1784,29 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                                                 </linearGradient>
                                                                             </defs>
                                                                             <polygon
-                                                                                points={`${points} ${(Math.max(data.length - 1, 1) / Math.max(data.length - 1, 1)) * 55 + 7},35 7,35`}
+                                                                                points={`${points} ${(Math.max(data.length - 1, 1) / Math.max(data.length - 1, 1)) * 50 + 5},28 5,28`}
                                                                                 fill={`url(#gradient-${idx})`}
                                                                             />
                                                                             <polyline
                                                                                 points={points}
                                                                                 fill="none"
                                                                                 stroke={trendColor}
-                                                                                strokeWidth="3"
+                                                                                strokeWidth="2.5"
                                                                                 strokeLinecap="round"
                                                                                 strokeLinejoin="round"
                                                                             />
                                                                             {data.map((val, i) => {
-                                                                                const x = (i / Math.max(data.length - 1, 1)) * 55 + 7
-                                                                                const y = 28 - ((val - minVal) / range) * 22
+                                                                                const x = (i / Math.max(data.length - 1, 1)) * 50 + 5
+                                                                                const y = 24 - ((val - minVal) / range) * 18
                                                                                 return (
                                                                                     <circle
                                                                                         key={i}
                                                                                         cx={x}
                                                                                         cy={y}
-                                                                                        r="3"
+                                                                                        r="2"
                                                                                         fill="white"
                                                                                         stroke={trendColor}
-                                                                                        strokeWidth="2"
+                                                                                        strokeWidth="1.5"
                                                                                     >
                                                                                         <title>{val.toFixed(1)}%</title>
                                                                                     </circle>
@@ -1895,6 +1894,27 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                 {sortColumn === 'risk' && (
                                                     <span className="text-white/90">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                                                 )}
+                                                <div className="relative inline-flex">
+                                                    <button
+                                                        onMouseEnter={() => setShowRiskTooltip(true)}
+                                                        onMouseLeave={() => setShowRiskTooltip(false)}
+                                                        className="text-white/70 hover:text-white transition-all duration-200 hover:scale-110"
+                                                        aria-label="Risk hesaplama bilgisi"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                                        </svg>
+                                                    </button>
+                                                    <InfoTooltip show={showRiskTooltip} className="left-1/2 top-7 max-w-[320px] -translate-x-1/2">
+                                                        <div className="space-y-2">
+                                                            <p className="font-semibold">Risk Hesaplama:</p>
+                                                            <p>Risk = Sipariş Puanı × (Kapasite / 10)</p>
+                                                            <p className="text-xs">• Sipariş Puanı: Sipariş miktarına göre 1-10 arası (yüksek sipariş = yüksek puan)</p>
+                                                            <p className="text-xs">• Kapasite Puanı: Makine kapasitesinin 10'a bölümü</p>
+                                                            <p className="text-xs mt-1 italic">Yüksek sipariş ve yüksek kapasite yüksek risk anlamına gelir.</p>
+                                                        </div>
+                                                    </InfoTooltip>
+                                                </div>
                                             </div>
                                         </th>
                                         <th 
@@ -1944,20 +1964,20 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         
                                         return top15.map((supplier, idx) => (
                                             <tr key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-emerald-50/30'} border-b border-slate-200/60 hover:bg-gradient-to-r hover:from-emerald-50 hover:via-teal-50/30 hover:to-transparent transition-all duration-300 group`}>
-                                                <td className="py-5 px-6 font-bold text-slate-900 border-r border-slate-100 group-hover:text-emerald-700 transition-colors">
+                                                <td className="py-3 px-4 font-bold text-slate-900 border-r border-slate-100 group-hover:text-emerald-700 transition-colors max-w-[200px] truncate">
                                                     <div className="flex items-center gap-2">
                                                         <span className="inline-block w-2 h-2 bg-emerald-500 rounded-full"></span>
                                                         {supplier.tedarikci}
                                                     </div>
                                                 </td>
-                                                <td className="py-5 px-6 text-right border-r border-slate-100">
-                                                    <span className="inline-block bg-gradient-to-br from-blue-600 to-blue-700 px-4 py-2 rounded-xl font-bold text-white shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all">
+                                                <td className="py-3 px-4 text-right border-r border-slate-100">
+                                                    <span className="inline-block bg-gradient-to-br from-blue-600 to-blue-700 px-3 py-1.5 rounded-xl font-bold text-white shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all text-sm">
                                                         ${(supplier.etki / 1000000).toFixed(2)}M
                                                     </span>
                                                 </td>
-                                                <td className="py-5 px-6 text-center border-r border-slate-100">
+                                                <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     {supplier.risk > 0 ? (
-                                                        <span className={`inline-block px-4 py-2 rounded-xl font-extrabold shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all ${
+                                                        <span className={`inline-block px-3 py-1.5 rounded-xl font-extrabold shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all text-sm ${
                                                             supplier.risk >= 70 ? 'bg-gradient-to-br from-red-500 to-red-600 text-white' :
                                                             supplier.risk >= 30 ? 'bg-gradient-to-br from-amber-500 to-orange-500 text-white' :
                                                             'bg-gradient-to-br from-emerald-500 to-green-600 text-white'
@@ -1968,19 +1988,19 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                         <span className="text-slate-400 text-sm font-medium">-</span>
                                                     )}
                                                 </td>
-                                                <td className="py-5 px-6 text-center border-r border-slate-100">
+                                                <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     {supplier.kapasite > 0 ? (
-                                                        <span className="inline-block bg-gradient-to-br from-emerald-100 to-teal-100 px-4 py-2 rounded-xl text-emerald-900 font-extrabold shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all">
+                                                        <span className="inline-block bg-gradient-to-br from-emerald-100 to-teal-100 px-3 py-1.5 rounded-xl text-emerald-900 font-extrabold shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all text-sm">
                                                             %{supplier.kapasite.toFixed(1)}
                                                         </span>
                                                     ) : (
                                                         <span className="text-slate-400 text-sm font-medium">-</span>
                                                     )}
                                                 </td>
-                                                <td className="py-5 px-6 text-center">
+                                                <td className="py-3 px-4 text-center">
                                                     {supplier.trend && supplier.trend.length > 0 ? (
-                                                        <div className="inline-flex items-center justify-center bg-emerald-50 rounded-xl p-2 shadow-inner group-hover:bg-white group-hover:shadow-md transition-all">
-                                                            <svg width="70" height="35" className="overflow-visible">
+                                                        <div className="inline-flex items-center justify-center bg-emerald-50 rounded-lg p-1.5 shadow-inner group-hover:bg-white group-hover:shadow-md transition-all">
+                                                            <svg width="60" height="28" className="overflow-visible">
                                                                 {(() => {
                                                                     const data = supplier.trend.slice(-5)
                                                                     if (data.length === 0) return null
@@ -1990,8 +2010,8 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                                     const range = maxVal - minVal || 1
                                                                     
                                                                     const points = data.map((val, i) => {
-                                                                        const x = (i / Math.max(data.length - 1, 1)) * 55 + 7
-                                                                        const y = 28 - ((val - minVal) / range) * 22
+                                                                        const x = (i / Math.max(data.length - 1, 1)) * 50 + 5
+                                                                        const y = 24 - ((val - minVal) / range) * 18
                                                                         return `${x},${y}`
                                                                     }).join(' ')
                                                                     
@@ -2008,29 +2028,29 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                                                 </linearGradient>
                                                                             </defs>
                                                                             <polygon
-                                                                                points={`${points} ${(Math.max(data.length - 1, 1) / Math.max(data.length - 1, 1)) * 55 + 7},35 7,35`}
+                                                                                points={`${points} ${(Math.max(data.length - 1, 1) / Math.max(data.length - 1, 1)) * 50 + 5},28 5,28`}
                                                                                 fill={`url(#gradient-mes-${idx})`}
                                                                             />
                                                                             <polyline
                                                                                 points={points}
                                                                                 fill="none"
                                                                                 stroke={trendColor}
-                                                                                strokeWidth="3"
+                                                                                strokeWidth="2.5"
                                                                                 strokeLinecap="round"
                                                                                 strokeLinejoin="round"
                                                                             />
                                                                             {data.map((val, i) => {
-                                                                                const x = (i / Math.max(data.length - 1, 1)) * 55 + 7
-                                                                                const y = 28 - ((val - minVal) / range) * 22
+                                                                                const x = (i / Math.max(data.length - 1, 1)) * 50 + 5
+                                                                                const y = 24 - ((val - minVal) / range) * 18
                                                                                 return (
                                                                                     <circle
                                                                                         key={i}
                                                                                         cx={x}
                                                                                         cy={y}
-                                                                                        r="3"
+                                                                                        r="2"
                                                                                         fill="white"
                                                                                         stroke={trendColor}
-                                                                                        strokeWidth="2"
+                                                                                        strokeWidth="1.5"
                                                                                     >
                                                                                         <title>{val.toFixed(1)}%</title>
                                                                                     </circle>
