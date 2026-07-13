@@ -1068,7 +1068,7 @@ async def get_all_work_orders(
     is_satinalma = "atolye:satinalma" in role_values
     if is_operator and not (is_yonetici or is_musteri or is_satinalma):
         operator_pg_user = await UserService.get_user_by_username(postgres_db, current_user.username)
-        if not operator_pg_user or not operator_pg_user.can_view_work_orders:
+        if not operator_pg_user or (not search_station and not operator_pg_user.can_view_work_orders):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="İş emirleri sayfasını görüntüleme yetkiniz bulunmamaktadır"
