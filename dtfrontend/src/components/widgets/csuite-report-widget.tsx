@@ -129,7 +129,11 @@ const SQL = {
         WHERE "EksenSayisi" IN ('Kart Dizgi Alt Yapisi')
           AND mes_production.company_mapping."key" = '${firma}'
     `,
-    getKapsamFirst: `
+    getKapsamFirst: (ilerlemeFirms: string[]) => {
+        const ilerlemeFirmsValues = ilerlemeFirms.length > 0
+            ? `OR "Satıcı Tanım" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
+            : ''
+        return `
         WITH MesIntegration AS (
             SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
             FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
@@ -139,7 +143,8 @@ const SQL = {
         FROM mes_production.tokadb_acik_sas t
         INNER JOIN MesIntegration m ON t."NAME1" = m."Tedarikçi"
         WHERE t."BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
-    `,
+            ${ilerlemeFirmsValues}
+    `},
     getKapsamSecond: `
         SELECT SUM("TTPRICE_USD") as value FROM mes_production."tokadb_acik_sas"
         WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
@@ -588,11 +593,20 @@ const SQL = {
             WHERE rn = 1
             GROUP BY "Firma Adı"
         ),
+        KablajKapasite AS (
+            SELECT 
+                "NAME" as "Tedarikçi",
+                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
+            FROM mes_production.kablaj_kapasite_view
+            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
+            GROUP BY "NAME"
+            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+        ),
         CompanyStats AS (
             SELECT
                 "NAME1" as "Tedarikçi",
                 SUM("TTPRICE_USD") as "Etki",
-                ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
+                COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
                 (SUM("TTPRICE_USD") * 100.0 / 
                     NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
@@ -601,10 +615,11 @@ const SQL = {
             LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "NAME1"
             INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
             WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
                 AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
@@ -686,7 +701,7 @@ const SQL = {
     `,
     getSupplierRiskAnalysisMesIntegratedByFirmaDynamic: (firma: string, ilerlemeFirms: string[] = []) => {
         const ilerlemeFirmsUnion = ilerlemeFirms.length > 0
-            ? `\n            UNION\n            SELECT unnest(ARRAY[${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')}]::text[]) as "Tedarikçi"`
+            ? `OR "Satıcı Tanım" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
             : ''
         return `
         WITH MesIntegration AS (
@@ -723,11 +738,20 @@ const SQL = {
             WHERE rn = 1
             GROUP BY "Firma Adı"
         ),
+        KablajKapasite AS (
+            SELECT 
+                "NAME" as "Tedarikçi",
+                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
+            FROM mes_production.kablaj_kapasite_view
+            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
+            GROUP BY "NAME"
+            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+        ),
         CompanyStats AS (
             SELECT
                 "NAME1" as "Tedarikçi",
                 SUM("TTPRICE_USD") as "Etki",
-                ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
+                COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
                 (SUM("TTPRICE_USD") * 100.0 / 
                     NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
@@ -736,11 +760,12 @@ const SQL = {
             LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "NAME1"
             INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
             WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
                 AND "NAME1" = '${firma}'
                 AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
@@ -1100,7 +1125,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     runQuery(isAll ? SQL.getDizgiHattiAll : SQL.getDizgiHattiByFirma(selectedCompany)),
                     isAll 
                         ? Promise.all([
-                            runQuery(SQL.getKapsamFirst),
+                            runQuery(SQL.getKapsamFirst(ilerlemeFirmNames)),
                             runQuery(SQL.getKapsamSecond)
                         ]).then(([first, second]) => [[first[0]?.[0] ?? '0', second[0]?.[0] ?? '1']])
                         : runQuery(SQL.getKapsamByFirma(selectedCompany)),
@@ -1260,9 +1285,17 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     else if (label === 'Kablaj/EMM' && effectiveTedarikciRow) {
                         computedValue = parseFloat(effectiveTedarikciRow[1])
                         unit = effectiveTedarikciRow[2] as string || 'hours'
-                        const change = parseFloat(effectiveTedarikciRow[3] || '0')
-                        changePct = change
-                        trend = change > 0 ? 'up' : change < 0 ? 'down' : 'neutral'
+                        changePct = parseFloat(effectiveTedarikciRow[3] || '0')
+                        trend = changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'neutral'
+                        
+                        // Debug logging
+                        console.log('Kablaj/EMM Kapasite:', {
+                            value: computedValue,
+                            unit,
+                            changePct,
+                            trend,
+                            rawData: effectiveTedarikciRow
+                        })
                     }
                     
                     return {
@@ -2369,7 +2402,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                     return 0
                                             }
                                         })
-                                        const top15 = sorted.slice(0, 15)
+                                        const top15 = sorted.slice(0, 50)
                                         
                                         return top15.map((supplier, idx) => (
                                             <tr key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-emerald-50/30'} border-b border-slate-200/60 hover:bg-slate-100/50 transition-all duration-200 group`}>
