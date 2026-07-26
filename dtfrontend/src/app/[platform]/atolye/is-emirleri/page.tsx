@@ -2,6 +2,7 @@
 
 import { useUser } from "@/contexts/user-context";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { api, ApiError } from "@/lib/api";
 import QRCodeSVG from "react-qr-code";
 import { OrderFilesViewer } from "@/components/atolye/OrderFilesViewer";
@@ -191,6 +192,9 @@ export default function WorkOrdersPage() {
 
   // Operator's own station (for filtering)
   const [operatorStationName, setOperatorStationName] = useState<string>("");
+  // Whether a (pure) operator has been granted read-only access to this page by
+  // their yönetici. null = not resolved yet.
+  const [operatorCanViewWorkOrders, setOperatorCanViewWorkOrders] = useState<boolean | null>(null);
 
   // Station list
   const [stations, setStations] = useState<StationInfo[]>([]);
@@ -249,11 +253,15 @@ export default function WorkOrdersPage() {
   }, [myCompany, isSatinalma]);
 
   // Fetch operator's own station name (for filtering work orders to own station)
+  // and the read-only work-order view permission granted by the yönetici.
   useEffect(() => {
     if (!isOperator) return;
-    api.get<{ station_id: number; name: string; company: string }>("/romiot/station/stations/my-station")
-      .then((data) => setOperatorStationName(data.name))
-      .catch(() => {});
+    api.get<{ station_id: number; name: string; company: string; can_view_work_orders?: boolean }>("/romiot/station/stations/my-station")
+      .then((data) => {
+        setOperatorStationName(data.name);
+        setOperatorCanViewWorkOrders(!!data.can_view_work_orders);
+      })
+      .catch(() => setOperatorCanViewWorkOrders(false));
   }, [isOperator]);
 
   // Fetch stations
@@ -311,6 +319,10 @@ export default function WorkOrdersPage() {
     if (!isYonetici && !isOperator && !isSatinalma && !isMusteri) return;
     // Wait for operator station to be loaded before fetching
     if (isOperator && !operatorStationName) return;
+    // A pure operator (no other atolye role) may only see the page when the
+    // yönetici has granted the read-only permission. Don't fetch otherwise.
+    const isPureOperator = isOperator && !isYonetici && !isMusteri && !isSatinalma;
+    if (isPureOperator && !operatorCanViewWorkOrders) return;
 
     try {
       setLoading(true);
@@ -342,7 +354,7 @@ export default function WorkOrdersPage() {
       setLoading(false);
       setInitialLoadDone(true);
     }
-  }, [isYonetici, isOperator, isSatinalma, isMusteri, isAselsanSatinalma, selectedCompany, currentPage, pageSize, debouncedSearch, operatorStationName, debouncedFilterStation, debouncedFilterCustomer, filterPriorityMin, debouncedFilterDaysMin]);
+  }, [isYonetici, isOperator, isSatinalma, isMusteri, isAselsanSatinalma, selectedCompany, currentPage, pageSize, debouncedSearch, operatorStationName, operatorCanViewWorkOrders, debouncedFilterStation, debouncedFilterCustomer, filterPriorityMin, debouncedFilterDaysMin]);
 
   useEffect(() => {
     fetchWorkOrders();
@@ -903,6 +915,20 @@ export default function WorkOrdersPage() {
     );
   }
 
+  // A pure operator only reaches this read-only page when the yönetici has
+  // explicitly enabled it. Block once we know the permission is off.
+  const isPureOperator = isOperator && !isYonetici && !isMusteri && !isSatinalma;
+  if (isPureOperator && operatorCanViewWorkOrders === false) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Erişim Yetkisi Yok</h1>
+          <p className="text-gray-600">Bu sayfayı görüntüleme yetkisine sahip değilsiniz.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (loading && !initialLoadDone) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -1293,7 +1319,17 @@ export default function WorkOrdersPage() {
                               {/* Station History */}
                               <h4 className="text-sm font-semibold text-gray-900 mb-3">Atölye Geçiş Geçmişi</h4>
                               <div className="space-y-3">
-                                {wo.entries.map((entry, index) => (
+                                {/* Display in chronological order (first scan first). The grouped
+                                    entries are stored most-recent-first; sort a copy ascending by
+                                    entrance date (unscanned/null entries last) so step numbers match
+                                    the real scan order. */}
+                                {[...wo.entries]
+                                  .sort((a, b) => {
+                                    if (!a.entrance_date) return 1;
+                                    if (!b.entrance_date) return -1;
+                                    return new Date(a.entrance_date).getTime() - new Date(b.entrance_date).getTime();
+                                  })
+                                  .map((entry, index) => (
                                   <div key={entry.id} className="bg-white rounded-lg p-4 border border-gray-200">
                                     <div className="flex items-start justify-between mb-2">
                                       <div className="flex items-center gap-3">
@@ -1425,7 +1461,7 @@ export default function WorkOrdersPage() {
         </div>
       </div>
 
-      {qrModalGroupId && (
+      {qrModalGroupId && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
           <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
@@ -1578,7 +1614,8 @@ export default function WorkOrdersPage() {
               })()}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Confirmation Modal */}
