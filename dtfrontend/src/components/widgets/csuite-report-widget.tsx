@@ -77,6 +77,17 @@ const SQL = {
         FROM ilerleme_view 
         WHERE finish_rate > 60
     `,
+    buildMesIntegrationWithIlerlemeFirms: (ilerlemeFirms: string[]) => {
+        const ilerlemeFirmsValues = ilerlemeFirms.length > 0
+            ? `UNION\nSELECT unnest(ARRAY[${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')}]::text[]) as "Tedarikçi"`
+            : ''
+        return `
+            SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
+            FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari
+            WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur'
+            ${ilerlemeFirmsValues}
+        `
+    },
     getDijitalSkorAll: `SELECT AVG("Toplam Puan")::numeric AS value FROM mes_production.dijital_puantaj_genel_skor`,
     getDijitalSkorByFirma: (firma: string) => 
         `SELECT AVG("Toplam Puan")::numeric AS value 
@@ -455,6 +466,7 @@ const SQL = {
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
             WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+                AND "NAME1" NOT LIKE '*Kullanma*%'
             GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
         )
         SELECT
@@ -519,7 +531,9 @@ const SQL = {
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
-            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') AND "NAME1" = '${firma}' 
+            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
+                AND "NAME1" = '${firma}'
+                AND "NAME1" NOT LIKE '*Kullanma*%'
             GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
         )
         SELECT
@@ -535,6 +549,76 @@ const SQL = {
         ORDER BY "Etki" DESC
         LIMIT 15
     `,
+    getSupplierRiskAnalysisMesIntegratedDynamic: (ilerlemeFirms: string[] = []) => {
+        const ilerlemeFirmsUnion = ilerlemeFirms.length > 0
+            ? `\n            UNION\n            SELECT unnest(ARRAY[${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')}]::text[]) as "Tedarikçi"`
+            : ''
+        return `
+        WITH MesIntegration AS (
+            SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
+            FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
+            WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur'${ilerlemeFirmsUnion}
+        ),
+        CompanyTrend AS (
+            SELECT 
+                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date"::timestamp) as "Trend", 
+                "Firma Adı" 
+            FROM (
+                SELECT DISTINCT ON ("Firma Adı", "Date")
+                    "Firma Adı",
+                    "Date",
+                    AVG("Aylık Planlanan Doluluk Oranı") as "Aylık Planlanan Doluluk Oranı"
+                FROM mes_production.makine_doluluk_raw
+                WHERE "Date"::timestamp >= CURRENT_DATE - INTERVAL '30 days'
+                GROUP BY "Firma Adı", "Date"
+                ORDER BY "Firma Adı", "Date"
+            ) daily_avg
+            GROUP BY "Firma Adı"
+        ),
+        LatestDoluluk AS (
+            SELECT
+                "Firma Adı",
+                AVG("Aylık Planlanan Doluluk Oranı") as "Aylık Planlanan Doluluk Oranı"
+            FROM
+                (
+                SELECT *, 
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
+                FROM mes_production.makine_doluluk_raw
+                ) t
+            WHERE rn = 1
+            GROUP BY "Firma Adı"
+        ),
+        CompanyStats AS (
+            SELECT
+                "NAME1" as "Tedarikçi",
+                SUM("TTPRICE_USD") as "Etki",
+                ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
+                (SUM("TTPRICE_USD") * 100.0 / 
+                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
+                cd."Trend" as "Trend",
+                CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
+            FROM mes_production."tokadb_acik_sas"
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
+            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
+            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+                AND "NAME1" NOT LIKE '*Kullanma*%'
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
+        )
+        SELECT
+            "Tedarikçi",
+            "Etki",
+            "Kapasite",
+            "Trend",
+            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
+            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+        FROM CompanyStats
+        ORDER BY "Etki" DESC
+        LIMIT 50
+    `
+    },
     getSupplierRiskAnalysisMesIntegrated: `
         WITH MesIntegration AS (
             SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
@@ -585,6 +669,7 @@ const SQL = {
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
             INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
             WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+                AND "NAME1" NOT LIKE '*Kullanma*%'
             GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
         )
         SELECT
@@ -597,8 +682,79 @@ const SQL = {
             ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
-        LIMIT 15
+        LIMIT 50
     `,
+    getSupplierRiskAnalysisMesIntegratedByFirmaDynamic: (firma: string, ilerlemeFirms: string[] = []) => {
+        const ilerlemeFirmsUnion = ilerlemeFirms.length > 0
+            ? `\n            UNION\n            SELECT unnest(ARRAY[${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')}]::text[]) as "Tedarikçi"`
+            : ''
+        return `
+        WITH MesIntegration AS (
+            SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
+            FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
+            WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur'${ilerlemeFirmsUnion}
+        ),
+        CompanyTrend AS (
+            SELECT 
+                array_agg("Aylık Planlanan Doluluk Oranı" ORDER BY "Date"::timestamp) as "Trend", 
+                "Firma Adı" 
+            FROM (
+                SELECT DISTINCT ON ("Firma Adı", "Date")
+                    "Firma Adı",
+                    "Date",
+                    AVG("Aylık Planlanan Doluluk Oranı") as "Aylık Planlanan Doluluk Oranı"
+                FROM mes_production.makine_doluluk_raw
+                WHERE "Date" >= CURRENT_DATE - INTERVAL '30 days'
+                GROUP BY "Firma Adı", "Date"
+                ORDER BY "Firma Adı", "Date"
+            ) daily_avg
+            GROUP BY "Firma Adı"
+        ),
+        LatestDoluluk AS (
+            SELECT
+                "Firma Adı",
+                AVG("Aylık Planlanan Doluluk Oranı") as "Aylık Planlanan Doluluk Oranı"
+            FROM
+                (
+                SELECT *, 
+                       ROW_NUMBER() OVER (PARTITION BY "Makina Kodu", "Firma Adı" ORDER BY "Date"::timestamp desc) as rn
+                FROM mes_production.makine_doluluk_raw
+                ) t
+            WHERE rn = 1
+            GROUP BY "Firma Adı"
+        ),
+        CompanyStats AS (
+            SELECT
+                "NAME1" as "Tedarikçi",
+                SUM("TTPRICE_USD") as "Etki",
+                ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
+                (SUM("TTPRICE_USD") * 100.0 / 
+                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
+                cd."Trend" as "Trend",
+                CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
+            FROM mes_production."tokadb_acik_sas"
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
+            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
+            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
+                AND "NAME1" = '${firma}'
+                AND "NAME1" NOT LIKE '*Kullanma*%'
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
+        )
+        SELECT
+            "Tedarikçi",
+            "Etki",
+            "Kapasite",
+            "Trend",
+            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
+            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+        FROM CompanyStats
+        ORDER BY "Etki" DESC
+        LIMIT 50
+    `
+    },
     getSupplierRiskAnalysisMesIntegratedByFirma: (firma: string) => `
         WITH MesIntegration AS (
             SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
@@ -648,7 +804,9 @@ const SQL = {
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
             INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
-            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') AND "NAME1" = '${firma}' 
+            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
+                AND "NAME1" = '${firma}'
+                AND "NAME1" NOT LIKE '*Kullanma*%'
             GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
         )
         SELECT
@@ -661,7 +819,7 @@ const SQL = {
             ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
-        LIMIT 15
+        LIMIT 50
     `,
 }
 
@@ -920,6 +1078,17 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     companies.find((c) => c !== 'Tüm Firmalar') || CSUITE_COMPANY_OPTIONS[0]
                 const firmaForQueries = isAll ? firstRealCompany : selectedCompany
 
+                // First, get ilerleme firms to inject into MES integrated queries
+                let ilerlemeFirmNames: string[] = []
+                try {
+                    const ilerlemeFirmsRows = await runQueryOnIvmeTakip(SQL.getIlerlemeFirms)
+                    if (ilerlemeFirmsRows && ilerlemeFirmsRows.length > 0) {
+                        ilerlemeFirmNames = ilerlemeFirmsRows.map(row => String(row[0]))
+                    }
+                } catch (err) {
+                    console.warn('Failed to fetch ilerleme firms:', err)
+                }
+
                 // Run all queries in parallel for performance
                 // Track which queries fail to show "Yapım Aşamasında"
                 const queryResults = await Promise.allSettled([
@@ -951,8 +1120,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     runQuery(isAll ? SQL.getDizgiDuruslarCurrentMonth : SQL.getDizgiDuruslarCurrentMonthByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getDizgiDuruslarPreviousMonth : SQL.getDizgiDuruslarPreviousMonthByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getSupplierRiskAnalysis : SQL.getSupplierRiskAnalysisByFirma(firmaForQueries)),
-                    runQuery(isAll ? SQL.getSupplierRiskAnalysisMesIntegrated : SQL.getSupplierRiskAnalysisMesIntegratedByFirma(firmaForQueries)),
-                    runQueryOnIvmeTakip(SQL.getIlerlemeFirms),
+                    runQuery(isAll ? SQL.getSupplierRiskAnalysisMesIntegratedDynamic(ilerlemeFirmNames) : SQL.getSupplierRiskAnalysisMesIntegratedByFirmaDynamic(firmaForQueries, ilerlemeFirmNames)),
                 ])
 
                 const toplamFirmaRows = queryResults[0].status === 'fulfilled' ? queryResults[0].value : null
@@ -979,7 +1147,6 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 const dizgiDurusPreviousRows = queryResults[21].status === 'fulfilled' ? queryResults[21].value : null
                 const supplierRiskRows = queryResults[22].status === 'fulfilled' ? queryResults[22].value : null
                 const mesIntegratedSupplierRows = queryResults[23].status === 'fulfilled' ? queryResults[23].value : null
-                const ilerlemeFirmsRows = queryResults[24].status === 'fulfilled' ? queryResults[24].value : null
 
                 if (cancelled) return
 
@@ -1305,36 +1472,6 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                             }
                         })
                         : []
-
-                // Add firms from IVME_TAKİP ilerleme_view with finish_rate > 60%
-                // Merge with existing MES integrated firms, avoiding duplicates
-                if (ilerlemeFirmsRows && ilerlemeFirmsRows.length > 0) {
-                    // Create a set of existing firm names (normalized) for duplicate checking
-                    const existingFirmNames = new Set(
-                        mesIntegratedSupplierTableRows.map(row => 
-                            normalizeCompanyKey(row.tedarikci)
-                        )
-                    )
-
-                    // Add ilerleme firms that are not already in the list
-                    ilerlemeFirmsRows.forEach((row) => {
-                        const firmName = normalizeDisplayText(row[0]) || ''
-                        const normalizedName = normalizeCompanyKey(firmName)
-                        const finishRate = parseFloat(row[1]) || 0
-
-                        // Only add if not already in the list
-                        if (!existingFirmNames.has(normalizedName)) {
-                            mesIntegratedSupplierTableRows.push({
-                                tedarikci: firmName,
-                                etki: 0, // No impact data from ilerleme_view
-                                kapasite: finishRate, // Use finish_rate as capacity
-                                risk: 0, // No risk calculation for these firms
-                                trend: [], // No trend data from ilerleme_view
-                                mesEntegrasyon: 'IVME İlerleme',
-                            })
-                        }
-                    })
-                }
 
                 const reportData: ReportData = {
                     toplamFirma: { value: toplamFirmaValue },
