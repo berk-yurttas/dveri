@@ -938,8 +938,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     runQuery(isAll ? SQL.getAltYapiCompaniesCount : SQL.getAltYapiCompaniesCountByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getTotalCompaniesCount : SQL.getTotalCompaniesCountByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getOpenOrdersAll : SQL.getOpenOrdersByFirma(selectedCompany)),
-                    runQuery(SQL.getTedarikciKapasite(firmaForQueries)),
-                    runQuery(SQL.getTedarikciKapasiteAll),
+                    runQuery(isAll ? SQL.getTedarikciKapasiteAll : SQL.getTedarikciKapasite(selectedCompany)),
                     runQuery(isAll ? SQL.getTalasliImalatDolulukAll : SQL.getTalasliImalatDoluluk(firmaForQueries)),
                     runQuery(isAll ? SQL.getTalasliImalatDolulukTrendAll : SQL.getTalasliImalatDolulukTrend(firmaForQueries)),
                     runQuery(SQL.getAselsanDurma(firmaForQueries)),
@@ -967,21 +966,20 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 const totalCompaniesRows = queryResults[8].status === 'fulfilled' ? queryResults[8].value : null
                 const openOrdersRows = queryResults[9].status === 'fulfilled' ? queryResults[9].value : null
                 const tedarikciRows = queryResults[10].status === 'fulfilled' ? queryResults[10].value : null
-                const tedarikciAllRows = queryResults[11].status === 'fulfilled' ? queryResults[11].value : null
-                const talasliDolulukRows = queryResults[12].status === 'fulfilled' ? queryResults[12].value : null
-                const talasliDolulukTrendRows = queryResults[13].status === 'fulfilled' ? queryResults[13].value : null
-                const aselsanRows = queryResults[14].status === 'fulfilled' ? queryResults[14].value : null
-                const talasliRows = queryResults[15].status === 'fulfilled' ? queryResults[15].value : null
-                const kablajRows = queryResults[16].status === 'fulfilled' ? queryResults[16].value : null
-                const talasliDurusCurrentRows = queryResults[17].status === 'fulfilled' ? queryResults[17].value : null
-                const talasliDurusPreviousRows = queryResults[18].status === 'fulfilled' ? queryResults[18].value : null
-                const kablajDurusCurrentRows = queryResults[19].status === 'fulfilled' ? queryResults[19].value : null
-                const kablajDurusPreviousRows = queryResults[20].status === 'fulfilled' ? queryResults[20].value : null
-                const dizgiDurusCurrentRows = queryResults[21].status === 'fulfilled' ? queryResults[21].value : null
-                const dizgiDurusPreviousRows = queryResults[22].status === 'fulfilled' ? queryResults[22].value : null
-                const supplierRiskRows = queryResults[23].status === 'fulfilled' ? queryResults[23].value : null
-                const mesIntegratedSupplierRows = queryResults[24].status === 'fulfilled' ? queryResults[24].value : null
-                const ilerlemeFirmsRows = queryResults[25].status === 'fulfilled' ? queryResults[25].value : null
+                const talasliDolulukRows = queryResults[11].status === 'fulfilled' ? queryResults[11].value : null
+                const talasliDolulukTrendRows = queryResults[12].status === 'fulfilled' ? queryResults[12].value : null
+                const aselsanRows = queryResults[13].status === 'fulfilled' ? queryResults[13].value : null
+                const talasliRows = queryResults[14].status === 'fulfilled' ? queryResults[14].value : null
+                const kablajRows = queryResults[15].status === 'fulfilled' ? queryResults[15].value : null
+                const talasliDurusCurrentRows = queryResults[16].status === 'fulfilled' ? queryResults[16].value : null
+                const talasliDurusPreviousRows = queryResults[17].status === 'fulfilled' ? queryResults[17].value : null
+                const kablajDurusCurrentRows = queryResults[18].status === 'fulfilled' ? queryResults[18].value : null
+                const kablajDurusPreviousRows = queryResults[19].status === 'fulfilled' ? queryResults[19].value : null
+                const dizgiDurusCurrentRows = queryResults[20].status === 'fulfilled' ? queryResults[20].value : null
+                const dizgiDurusPreviousRows = queryResults[21].status === 'fulfilled' ? queryResults[21].value : null
+                const supplierRiskRows = queryResults[22].status === 'fulfilled' ? queryResults[22].value : null
+                const mesIntegratedSupplierRows = queryResults[23].status === 'fulfilled' ? queryResults[23].value : null
+                const ilerlemeFirmsRows = queryResults[24].status === 'fulfilled' ? queryResults[24].value : null
 
                 if (cancelled) return
 
@@ -1050,16 +1048,32 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 }
 
                 // Parse Kablaj Kapasite data with month-over-month comparison
-                const fallbackTedarikciRows =
-                    tedarikciRows && tedarikciRows.length > 0
-                        ? []
-                        : tedarikciAllRows && tedarikciAllRows.length > 0
-                            ? tedarikciAllRows
-                                .filter((r) => normalizeCompanyKey(r[0]) === normalizeCompanyKey(firmaForQueries))
-                                .map((r) => [r[1], r[2], 'hours', r[3]])
-                            : []
-
-                const effectiveTedarikciRows = tedarikciRows && tedarikciRows.length > 0 ? tedarikciRows : fallbackTedarikciRows
+                // When "Tüm Firmalar" is selected, getTedarikciKapasiteAll returns multiple rows
+                // Need to aggregate for display
+                let effectiveTedarikciRow: any[] | null = null
+                
+                if (tedarikciRows && tedarikciRows.length > 0) {
+                    if (isAll) {
+                        // For "Tüm Firmalar", aggregate all companies
+                        // getTedarikciKapasiteAll returns: [firma, 'Kablaj Kapasite', value, change_pct]
+                        const totalHours = tedarikciRows.reduce((sum, r) => sum + parseFloat(r[2] || 0), 0)
+                        const avgChange = tedarikciRows.reduce((sum, r) => sum + parseFloat(r[3] || 0), 0) / tedarikciRows.length
+                        effectiveTedarikciRow = ['Tüm Firmalar', totalHours, 'hours', avgChange]
+                    } else {
+                        // For specific company
+                        // getTedarikciKapasite returns: [name, value_hours, unit, change_pct]
+                        effectiveTedarikciRow = tedarikciRows[0]
+                    }
+                }
+                
+                // Debug logging
+                if (!effectiveTedarikciRow) {
+                    console.log('Kablaj Kapasite: No data found', {
+                        tedarikciRows,
+                        isAll,
+                        selectedCompany
+                    })
+                }
 
                 // Always create all 3 tedarikci categories
                 let tedarikciItems: MetricItem[] = tedarikciLabels.map((label) => {
@@ -1076,11 +1090,10 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         unit = '%'
                     }
                     // Use kablaj kapasite data for Kablaj/EMM
-                    else if (label === 'Kablaj/EMM' && effectiveTedarikciRows.length > 0) {
-                        const row = effectiveTedarikciRows[0]
-                        computedValue = parseFloat(row[1])
-                        unit = row[2] as string || 'hours'
-                        const change = parseFloat(row[3] || '0')
+                    else if (label === 'Kablaj/EMM' && effectiveTedarikciRow) {
+                        computedValue = parseFloat(effectiveTedarikciRow[1])
+                        unit = effectiveTedarikciRow[2] as string || 'hours'
+                        const change = parseFloat(effectiveTedarikciRow[3] || '0')
                         changePct = change
                         trend = change > 0 ? 'up' : change < 0 ? 'down' : 'neutral'
                     }
