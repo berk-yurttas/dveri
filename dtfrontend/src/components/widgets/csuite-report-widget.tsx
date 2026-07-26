@@ -54,6 +54,29 @@ const SQL = {
         SELECT "NAME1" as company FROM mes_production."tokadb_acik_sas"
         WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') group by "NAME1"
     `,
+    getToplamFirma: `SELECT COUNT(*) from firms where sector = 'REHİS'`,
+    getOrtalamaIlerlemeAll: `
+        SELECT avg(tamamlandı_rate_pct) from(
+            SELECT 
+                ROUND(100.0 * SUM(CASE WHEN status = 'Tamamlandı' THEN 1 ELSE 0 END) / COUNT(*),2) as tamamlandı_rate_pct
+            FROM firm_steps
+            LEFT JOIN firms f on f.id = firm_steps.firm_id
+        ) as subquery
+    `,
+    getOrtalamaIlerlemeByFirma: (firma: string) => `
+        SELECT avg(tamamlandı_rate_pct) from(
+            SELECT 
+                ROUND(100.0 * SUM(CASE WHEN status = 'Tamamlandı' THEN 1 ELSE 0 END) / COUNT(*),2) as tamamlandı_rate_pct
+            FROM firm_steps
+            LEFT JOIN firms f on f.id = firm_steps.firm_id
+            WHERE f.name = '${firma}'
+        ) as subquery
+    `,
+    getIlerlemeFirms: `
+        SELECT name, finish_rate 
+        FROM ilerleme_view 
+        WHERE finish_rate > 60
+    `,
     getDijitalSkorAll: `SELECT AVG("Toplam Puan")::numeric AS value FROM mes_production.dijital_puantaj_genel_skor`,
     getDijitalSkorByFirma: (firma: string) => 
         `SELECT AVG("Toplam Puan")::numeric AS value 
@@ -96,35 +119,107 @@ const SQL = {
           AND mes_production.company_mapping."key" = '${firma}'
     `,
     getKapsamFirst: `
-        SELECT COALESCE(SUM(
-            CAST(
-                REPLACE(REPLACE("Açık MG de", '.', ''), ',', '.') AS NUMERIC
-            )
-        ), 0)::numeric AS value 
-        FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari
-        WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur'
+        WITH MesIntegration AS (
+            SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
+            FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
+            WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur'
+        )
+        SELECT COALESCE(SUM(t."TTPRICE_USD"), 0)::numeric AS value
+        FROM mes_production.tokadb_acik_sas t
+        INNER JOIN MesIntegration m ON t."NAME1" = m."Tedarikçi"
+        WHERE t."BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
     `,
     getKapsamSecond: `
         SELECT SUM("TTPRICE_USD") as value FROM mes_production."tokadb_acik_sas"
         WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
     `,
     getKapsamByFirma: (firma: string) => `
-        SELECT * FROM(SELECT
-            COALESCE(SUM(
-                CASE WHEN "İş Emri Durumu" != 'MES Kaydı Yoktur' 
-                THEN CAST(REPLACE(REPLACE("Açık MG de", '.', ''), ',', '.') AS NUMERIC)
-                ELSE 0 END
-            ), 0)::numeric AS first
-        FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari WHERE "Satıcı Tanım" = '${firma}') as a
-        CROSS JOIN
-        (SELECT SUM("TTPRICE_USD") as value "second" FROM mes_production."tokadb_acik_sas" WHERE "NAME1" = '${firma}') as b
+        WITH MesIntegration AS (
+            SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
+            FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
+            WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur'
+              AND "Satıcı Tanım" = '${firma}'
+        )
+        SELECT 
+            COALESCE(SUM(t."TTPRICE_USD"), 0)::numeric AS first,
+            COALESCE(SUM(ts."TTPRICE_USD"), 0)::numeric AS second
+        FROM mes_production.tokadb_acik_sas t
+        INNER JOIN MesIntegration m ON t."NAME1" = m."Tedarikçi"
+        CROSS JOIN (
+            SELECT SUM("TTPRICE_USD") as "TTPRICE_USD" 
+            FROM mes_production.tokadb_acik_sas 
+            WHERE "NAME1" = '${firma}'
+              AND "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+        ) ts
+        WHERE t."BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
     `,
     getAltYapiCompaniesCount: `SELECT SUM("Toplam") from mes_production.mes_machines_v3`,
     getTotalCompaniesCount: `SELECT COUNT(*) FROM mes_production.altyapi2`,
     getAltYapiCompaniesCountByFirma: (firma: string) => `SELECT COUNT(DISTINCT "Tezgah Adı") FROM mes_production.mes_machines_v3 LEFT JOIN mes_production.company_mapping ON mes_production.mes_machines_v3."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.mes_machines_v3' WHERE mes_production.company_mapping."key" = '${firma}'`,
     getTotalCompaniesCountByFirma: (firma: string) => `SELECT COUNT(*) FROM mes_production.altyapi2 WHERE "Firma" = '${firma}'`,
-    getTedarikciKapasite: (firma: string) => `SELECT name, value, unit, trend FROM ${S}tedarikci_kapasite WHERE firma = '${firma}' ORDER BY id`,
-    getTedarikciKapasiteAll: `SELECT firma, name, value FROM ${S}tedarikci_kapasite ORDER BY firma, id`,
+    getTedarikciKapasite: (firma: string) => `
+        WITH current_month AS (
+            SELECT 
+                "NAME" as name,
+                "Kapasite" / 60.0 as value_hours,
+                "ProdMonth"
+            FROM mes_production.kablaj_kapasite_view
+            WHERE "NAME" = '${firma}'
+            ORDER BY "ProdMonth" DESC
+            LIMIT 1
+        ),
+        previous_month AS (
+            SELECT 
+                "NAME" as name,
+                "Kapasite" / 60.0 as value_hours,
+                "ProdMonth"
+            FROM mes_production.kablaj_kapasite_view
+            WHERE "NAME" = '${firma}'
+                AND "ProdMonth" < (SELECT "ProdMonth" FROM current_month)
+            ORDER BY "ProdMonth" DESC
+            LIMIT 1
+        )
+        SELECT 
+            c.name,
+            c.value_hours,
+            'hours' as unit,
+            CASE 
+                WHEN p.value_hours IS NULL OR p.value_hours = 0 THEN 0
+                ELSE ROUND(((c.value_hours - p.value_hours) / p.value_hours * 100)::numeric, 2)
+            END as change_pct
+        FROM current_month c
+        LEFT JOIN previous_month p ON c.name = p.name
+    `,
+    getTedarikciKapasiteAll: `
+        WITH current_month AS (
+            SELECT 
+                "NAME" as name,
+                "Kapasite" / 60.0 as value_hours,
+                "ProdMonth",
+                ROW_NUMBER() OVER (PARTITION BY "NAME" ORDER BY "ProdMonth" DESC) as rn
+            FROM mes_production.kablaj_kapasite_view
+        ),
+        previous_month AS (
+            SELECT 
+                "NAME" as name,
+                "Kapasite" / 60.0 as value_hours,
+                "ProdMonth",
+                ROW_NUMBER() OVER (PARTITION BY "NAME" ORDER BY "ProdMonth" DESC) as rn
+            FROM mes_production.kablaj_kapasite_view
+        )
+        SELECT 
+            c.name as firma,
+            'Kablaj Kapasite' as name,
+            c.value_hours as value,
+            CASE 
+                WHEN p.value_hours IS NULL OR p.value_hours = 0 THEN 0
+                ELSE ROUND(((c.value_hours - p.value_hours) / p.value_hours * 100)::numeric, 2)
+            END as change_pct
+        FROM current_month c
+        LEFT JOIN previous_month p ON c.name = p.name AND p.rn = 2
+        WHERE c.rn = 1
+        ORDER BY c.name
+    `,
     getTalasliImalatDoluluk: (firma: string) => `
         SELECT
             AVG("Aylık Planlanan Doluluk Oranı")
@@ -230,13 +325,13 @@ const SQL = {
     getKablajDuruslarCurrentMonth: `
         SELECT COUNT(DISTINCT "WORKORDERNO") as count
         FROM mes_production.kablaj_tum_duruslar
-        WHERE "STOP_STATUS" = 'AÇIK' AND "COMPANYID" in (61,63,114,8,112,136)
+        WHERE "STOP_STATUS" = 'AÇIK' AND "COMPANYID" in (61,63,114,112,136)
     `,
     getKablajDuruslarPreviousMonth: `
         SELECT COUNT(DISTINCT "WORKORDERNO") as count 
         from mes_production.kablaj_tum_duruslar 
         WHERE "STOP_STATUS" = 'AÇIK' 
-        AND "COMPANYID" in (61,63,114,8,112,136) 
+        AND "COMPANYID" in (61,63,114,112,136) 
         AND (("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp >= NOW() - interval '30 days') OR ("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp IS NULL))
     `,
     getTalasliDuruslarCurrentMonthByFirma: (firma: string) => `
@@ -259,7 +354,7 @@ const SQL = {
         LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_tum_duruslar."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_tum_duruslar'
         WHERE mes_production.company_mapping."key" = '${firma}'
           AND "STOP_STATUS" = 'AÇIK' 
-          AND "COMPANYID" in (61,63,114,8,112,136)
+          AND "COMPANYID" in (61,63,114,112,136)
     `,
     getKablajDuruslarPreviousMonthByFirma: (firma: string) => `
         SELECT COUNT(DISTINCT "WORKORDERNO") as count 
@@ -267,7 +362,36 @@ const SQL = {
         LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_tum_duruslar."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_tum_duruslar'
         WHERE mes_production.company_mapping."key" = '${firma}'
           AND "STOP_STATUS" = 'AÇIK' 
-          AND "COMPANYID" in (61,63,114,8,112,136) 
+          AND "COMPANYID" in (61,63,114,112,136) 
+          AND (("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp >= NOW() - interval '30 days') OR ("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp IS NULL))
+    `,
+    getDizgiDuruslarCurrentMonth: `
+        SELECT COUNT(DISTINCT "WORKORDERNO") as count
+        FROM mes_production.kablaj_tum_duruslar
+        WHERE "STOP_STATUS" = 'AÇIK' AND "COMPANYID" = 8
+    `,
+    getDizgiDuruslarPreviousMonth: `
+        SELECT COUNT(DISTINCT "WORKORDERNO") as count 
+        from mes_production.kablaj_tum_duruslar 
+        WHERE "STOP_STATUS" = 'AÇIK' 
+        AND "COMPANYID" = 8
+        AND (("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp >= NOW() - interval '30 days') OR ("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp IS NULL))
+    `,
+    getDizgiDuruslarCurrentMonthByFirma: (firma: string) => `
+        SELECT COUNT(DISTINCT "WORKORDERNO") as count
+        FROM mes_production.kablaj_tum_duruslar
+        LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_tum_duruslar."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_tum_duruslar'
+        WHERE mes_production.company_mapping."key" = '${firma}'
+          AND "STOP_STATUS" = 'AÇIK' 
+          AND "COMPANYID" = 8
+    `,
+    getDizgiDuruslarPreviousMonthByFirma: (firma: string) => `
+        SELECT COUNT(DISTINCT "WORKORDERNO") as count 
+        FROM mes_production.kablaj_tum_duruslar
+        LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_tum_duruslar."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_tum_duruslar'
+        WHERE mes_production.company_mapping."key" = '${firma}'
+          AND "STOP_STATUS" = 'AÇIK' 
+          AND "COMPANYID" = 8
           AND (("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp >= NOW() - interval '30 days') OR ("STOP_START_DATE"::timestamp < NOW() - interval '30 days' and "STOP_END_DATE"::timestamp IS NULL))
     `,
     getOpenOrdersAll: `
@@ -459,7 +583,7 @@ const SQL = {
             LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
+            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
             WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
             GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
         )
@@ -523,7 +647,7 @@ const SQL = {
             LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
+            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
             WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') AND "NAME1" = '${firma}' 
             GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
         )
@@ -588,6 +712,8 @@ interface SupplierTableRow {
 }
 
 interface ReportData {
+    toplamFirma: { value: number | null }
+    ortalamaIlerleme: { value: number | null }
     dijitalSkor: { value: number }
     kapsam: { first: number; second: number }
     altYapiKapsami: { nominator: number; denominator: number }
@@ -622,6 +748,25 @@ async function runQuery(sql: string): Promise<any[][]> {
     const res = await api.post<PreviewResponse>('/reports/preview', {
         sql_query: sql,
         limit: 1000000,
+    })
+    if (!res.success) {
+        throw new Error(res.message || 'Query failed')
+    }
+    if (res.success && res.data && res.data.length > 0) {
+        return res.data
+    }
+    return []
+}
+
+// ── Helper: run a SQL query on IVME_TAKİP database ──
+async function runQueryOnIvmeTakip(sql: string): Promise<any[][]> {
+    const res = await api.post<PreviewResponse>('/reports/preview', {
+        sql_query: sql,
+        limit: 1000000,
+        db_config: {
+            db_type: 'postgresql',
+            database: 'IVME_TAKİP'
+        }
     })
     if (!res.success) {
         throw new Error(res.message || 'Query failed')
@@ -778,6 +923,8 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 // Run all queries in parallel for performance
                 // Track which queries fail to show "Yapım Aşamasında"
                 const queryResults = await Promise.allSettled([
+                    runQueryOnIvmeTakip(SQL.getToplamFirma),
+                    runQueryOnIvmeTakip(isAll ? SQL.getOrtalamaIlerlemeAll : SQL.getOrtalamaIlerlemeByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getDijitalSkorAll : SQL.getDijitalSkorByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getCncAll : SQL.getCncByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getCmmAll : SQL.getCmmByFirma(selectedCompany)),
@@ -802,35 +949,45 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     runQuery(isAll ? SQL.getTalasliDuruslarPreviousMonth : SQL.getTalasliDuruslarPreviousMonthByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getKablajDuruslarCurrentMonth : SQL.getKablajDuruslarCurrentMonthByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getKablajDuruslarPreviousMonth : SQL.getKablajDuruslarPreviousMonthByFirma(selectedCompany)),
+                    runQuery(isAll ? SQL.getDizgiDuruslarCurrentMonth : SQL.getDizgiDuruslarCurrentMonthByFirma(selectedCompany)),
+                    runQuery(isAll ? SQL.getDizgiDuruslarPreviousMonth : SQL.getDizgiDuruslarPreviousMonthByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getSupplierRiskAnalysis : SQL.getSupplierRiskAnalysisByFirma(firmaForQueries)),
                     runQuery(isAll ? SQL.getSupplierRiskAnalysisMesIntegrated : SQL.getSupplierRiskAnalysisMesIntegratedByFirma(firmaForQueries)),
+                    runQueryOnIvmeTakip(SQL.getIlerlemeFirms),
                 ])
 
-                const dijitalRows = queryResults[0].status === 'fulfilled' ? queryResults[0].value : null
-                const cncRows = queryResults[1].status === 'fulfilled' ? queryResults[1].value : null
-                const cmmRows = queryResults[2].status === 'fulfilled' ? queryResults[2].value : null
-                const dizgiRows = queryResults[3].status === 'fulfilled' ? queryResults[3].value : null
-                const kapsamRows = queryResults[4].status === 'fulfilled' ? queryResults[4].value : null
-                const altYapiCompaniesRows = queryResults[5].status === 'fulfilled' ? queryResults[5].value : null
-                const totalCompaniesRows = queryResults[6].status === 'fulfilled' ? queryResults[6].value : null
-                const openOrdersRows = queryResults[7].status === 'fulfilled' ? queryResults[7].value : null
-                const tedarikciRows = queryResults[8].status === 'fulfilled' ? queryResults[8].value : null
-                const tedarikciAllRows = queryResults[9].status === 'fulfilled' ? queryResults[9].value : null
-                const talasliDolulukRows = queryResults[10].status === 'fulfilled' ? queryResults[10].value : null
-                const talasliDolulukTrendRows = queryResults[11].status === 'fulfilled' ? queryResults[11].value : null
-                const aselsanRows = queryResults[12].status === 'fulfilled' ? queryResults[12].value : null
-                const talasliRows = queryResults[13].status === 'fulfilled' ? queryResults[13].value : null
-                const kablajRows = queryResults[14].status === 'fulfilled' ? queryResults[14].value : null
-                const talasliDurusCurrentRows = queryResults[15].status === 'fulfilled' ? queryResults[15].value : null
-                const talasliDurusPreviousRows = queryResults[16].status === 'fulfilled' ? queryResults[16].value : null
-                const kablajDurusCurrentRows = queryResults[17].status === 'fulfilled' ? queryResults[17].value : null
-                const kablajDurusPreviousRows = queryResults[18].status === 'fulfilled' ? queryResults[18].value : null
-                const supplierRiskRows = queryResults[19].status === 'fulfilled' ? queryResults[19].value : null
-                const mesIntegratedSupplierRows = queryResults[20].status === 'fulfilled' ? queryResults[20].value : null
+                const toplamFirmaRows = queryResults[0].status === 'fulfilled' ? queryResults[0].value : null
+                const ortalamaIlerlemeRows = queryResults[1].status === 'fulfilled' ? queryResults[1].value : null
+                const dijitalRows = queryResults[2].status === 'fulfilled' ? queryResults[2].value : null
+                const cncRows = queryResults[3].status === 'fulfilled' ? queryResults[3].value : null
+                const cmmRows = queryResults[4].status === 'fulfilled' ? queryResults[4].value : null
+                const dizgiRows = queryResults[5].status === 'fulfilled' ? queryResults[5].value : null
+                const kapsamRows = queryResults[6].status === 'fulfilled' ? queryResults[6].value : null
+                const altYapiCompaniesRows = queryResults[7].status === 'fulfilled' ? queryResults[7].value : null
+                const totalCompaniesRows = queryResults[8].status === 'fulfilled' ? queryResults[8].value : null
+                const openOrdersRows = queryResults[9].status === 'fulfilled' ? queryResults[9].value : null
+                const tedarikciRows = queryResults[10].status === 'fulfilled' ? queryResults[10].value : null
+                const tedarikciAllRows = queryResults[11].status === 'fulfilled' ? queryResults[11].value : null
+                const talasliDolulukRows = queryResults[12].status === 'fulfilled' ? queryResults[12].value : null
+                const talasliDolulukTrendRows = queryResults[13].status === 'fulfilled' ? queryResults[13].value : null
+                const aselsanRows = queryResults[14].status === 'fulfilled' ? queryResults[14].value : null
+                const talasliRows = queryResults[15].status === 'fulfilled' ? queryResults[15].value : null
+                const kablajRows = queryResults[16].status === 'fulfilled' ? queryResults[16].value : null
+                const talasliDurusCurrentRows = queryResults[17].status === 'fulfilled' ? queryResults[17].value : null
+                const talasliDurusPreviousRows = queryResults[18].status === 'fulfilled' ? queryResults[18].value : null
+                const kablajDurusCurrentRows = queryResults[19].status === 'fulfilled' ? queryResults[19].value : null
+                const kablajDurusPreviousRows = queryResults[20].status === 'fulfilled' ? queryResults[20].value : null
+                const dizgiDurusCurrentRows = queryResults[21].status === 'fulfilled' ? queryResults[21].value : null
+                const dizgiDurusPreviousRows = queryResults[22].status === 'fulfilled' ? queryResults[22].value : null
+                const supplierRiskRows = queryResults[23].status === 'fulfilled' ? queryResults[23].value : null
+                const mesIntegratedSupplierRows = queryResults[24].status === 'fulfilled' ? queryResults[24].value : null
+                const ilerlemeFirmsRows = queryResults[25].status === 'fulfilled' ? queryResults[25].value : null
 
                 if (cancelled) return
 
                 // Parse results and check which queries failed
+                const toplamFirmaValue = toplamFirmaRows && toplamFirmaRows.length > 0 ? parseInt(toplamFirmaRows[0][0] ?? 0, 10) : null
+                const ortalamaIlerlemeValue = ortalamaIlerlemeRows && ortalamaIlerlemeRows.length > 0 ? parseFloat(ortalamaIlerlemeRows[0][0] ?? 0) : null
                 const dijitalValue = dijitalRows && dijitalRows.length > 0 ? parseFloat(dijitalRows[0][0] ?? '0.00') : null
                 const kFirst = kapsamRows && kapsamRows.length > 0 ? parseFloat(kapsamRows[0][0] ?? 0) : null
                 const kSecond = kapsamRows && kapsamRows.length > 0 ? parseFloat(kapsamRows[0][1] ?? 1) : null
@@ -851,14 +1008,17 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 const talasliDurusPrevious = talasliDurusPreviousRows && talasliDurusPreviousRows.length > 0 ? parseInt(talasliDurusPreviousRows[0][0] ?? 0, 10) : 0
                 const kablajDurusCurrent = kablajDurusCurrentRows && kablajDurusCurrentRows.length > 0 ? parseInt(kablajDurusCurrentRows[0][0] ?? 0, 10) : 0
                 const kablajDurusPrevious = kablajDurusPreviousRows && kablajDurusPreviousRows.length > 0 ? parseInt(kablajDurusPreviousRows[0][0] ?? 0, 10) : 0
+                const dizgiDurusCurrent = dizgiDurusCurrentRows && dizgiDurusCurrentRows.length > 0 ? parseInt(dizgiDurusCurrentRows[0][0] ?? 0, 10) : 0
+                const dizgiDurusPrevious = dizgiDurusPreviousRows && dizgiDurusPreviousRows.length > 0 ? parseInt(dizgiDurusPreviousRows[0][0] ?? 0, 10) : 0
                 
                 // Calculate total stops for percentages
-                const totalDurusCurrent = talasliDurusCurrent + kablajDurusCurrent
-                const totalDurusPrevious = talasliDurusPrevious + kablajDurusPrevious
+                const totalDurusCurrent = talasliDurusCurrent + kablajDurusCurrent + dizgiDurusCurrent
+                const totalDurusPrevious = talasliDurusPrevious + kablajDurusPrevious + dizgiDurusPrevious
                 
                 // Calculate percentages of total stops (ensure they sum to 100%)
                 const talasliDurusPct = totalDurusCurrent > 0 ? Math.round((talasliDurusCurrent / totalDurusCurrent) * 100) : 0
-                const kablajDurusPct = totalDurusCurrent > 0 ? 100 - talasliDurusPct : 0
+                const kablajDurusPct = totalDurusCurrent > 0 ? Math.round((kablajDurusCurrent / totalDurusCurrent) * 100) : 0
+                const dizgiDurusPct = totalDurusCurrent > 0 ? 100 - talasliDurusPct - kablajDurusPct : 0
                 
                 // Calculate month-over-month change percentages
                 const talasliDurusChange = talasliDurusPrevious > 0 
@@ -867,10 +1027,14 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 const kablajDurusChange = kablajDurusPrevious > 0 
                     ? ((kablajDurusCurrent - kablajDurusPrevious) / kablajDurusPrevious) * 100 
                     : 0
+                const dizgiDurusChange = dizgiDurusPrevious > 0 
+                    ? ((dizgiDurusCurrent - dizgiDurusPrevious) / dizgiDurusPrevious) * 100 
+                    : 0
                 
                 // Determine trends
                 const talasliDurusTrend = talasliDurusChange > 0 ? 'up' : talasliDurusChange < 0 ? 'down' : 'neutral'
                 const kablajDurusTrend = kablajDurusChange > 0 ? 'up' : kablajDurusChange < 0 ? 'down' : 'neutral'
+                const dizgiDurusTrend = dizgiDurusChange > 0 ? 'up' : dizgiDurusChange < 0 ? 'down' : 'neutral'
                 
                 // Parse Talaşlı İmalat trend from database
                 const talasliTrendCurrent = talasliDolulukTrendRows && talasliDolulukTrendRows.length > 0 ? parseFloat(talasliDolulukTrendRows[0][0] ?? 0) : null
@@ -885,50 +1049,40 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     talasliTrend = delta > 0 ? 'up' : delta < 0 ? 'down' : 'neutral'
                 }
 
+                // Parse Kablaj Kapasite data with month-over-month comparison
                 const fallbackTedarikciRows =
                     tedarikciRows && tedarikciRows.length > 0
                         ? []
                         : tedarikciAllRows && tedarikciAllRows.length > 0
                             ? tedarikciAllRows
                                 .filter((r) => normalizeCompanyKey(r[0]) === normalizeCompanyKey(firmaForQueries))
-                                .map((r) => [r[1], r[2], '%', 'neutral'])
+                                .map((r) => [r[1], r[2], 'hours', r[3]])
                             : []
 
                 const effectiveTedarikciRows = tedarikciRows && tedarikciRows.length > 0 ? tedarikciRows : fallbackTedarikciRows
 
-                const tedarikciOrder = new Map(tedarikciLabels.map((label, idx) => [label, idx]))
-                effectiveTedarikciRows.sort((a, b) => {
-                    const aKey = normalizeDisplayText(a[0])
-                    const bKey = normalizeDisplayText(b[0])
-                    const aOrder = tedarikciOrder.get(aKey) ?? 999
-                    const bOrder = tedarikciOrder.get(bKey) ?? 999
-                    return aOrder - bOrder
-                })
-
                 // Always create all 3 tedarikci categories
                 let tedarikciItems: MetricItem[] = tedarikciLabels.map((label) => {
-                    // Find matching row from query
-                    const matchingRow = effectiveTedarikciRows.find((r) => {
-                        const rowLabel = normalizeDisplayText(r[0])
-                        return rowLabel === label
-                    })
-                    
                     let computedValue: number | null = null
                     let trend = 'neutral'
                     let changePct = 0
-                    let unit = '%'
-                    
-                    if (matchingRow) {
-                        computedValue = parseInt(matchingRow[1], 10)
-                        unit = matchingRow[2] as string
-                        trend = (matchingRow[3] as string) || 'neutral'
-                    }
+                    let unit = 'hours'
                     
                     // Override with database values for Talaşlı İmalat
                     if (label === 'Talaşlı İmalat' && talasliDoluluk !== null) {
                         computedValue = Math.round(talasliDoluluk)
                         trend = talasliTrend
                         changePct = talasliChangePct
+                        unit = '%'
+                    }
+                    // Use kablaj kapasite data for Kablaj/EMM
+                    else if (label === 'Kablaj/EMM' && effectiveTedarikciRows.length > 0) {
+                        const row = effectiveTedarikciRows[0]
+                        computedValue = parseFloat(row[1])
+                        unit = row[2] as string || 'hours'
+                        const change = parseFloat(row[3] || '0')
+                        changePct = change
+                        trend = change > 0 ? 'up' : change < 0 ? 'down' : 'neutral'
                     }
                     
                     return {
@@ -973,6 +1127,12 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         unit = ''
                         trend = kablajDurusTrend
                         changePct = kablajDurusChange
+                    }
+                    if (label === 'Dizgi Hattı') {
+                        computedValue = dizgiDurusCurrent
+                        unit = ''
+                        trend = dizgiDurusTrend
+                        changePct = dizgiDurusChange
                     }
                     
                     return {
@@ -1133,7 +1293,39 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         })
                         : []
 
+                // Add firms from IVME_TAKİP ilerleme_view with finish_rate > 60%
+                // Merge with existing MES integrated firms, avoiding duplicates
+                if (ilerlemeFirmsRows && ilerlemeFirmsRows.length > 0) {
+                    // Create a set of existing firm names (normalized) for duplicate checking
+                    const existingFirmNames = new Set(
+                        mesIntegratedSupplierTableRows.map(row => 
+                            normalizeCompanyKey(row.tedarikci)
+                        )
+                    )
+
+                    // Add ilerleme firms that are not already in the list
+                    ilerlemeFirmsRows.forEach((row) => {
+                        const firmName = normalizeDisplayText(row[0]) || ''
+                        const normalizedName = normalizeCompanyKey(firmName)
+                        const finishRate = parseFloat(row[1]) || 0
+
+                        // Only add if not already in the list
+                        if (!existingFirmNames.has(normalizedName)) {
+                            mesIntegratedSupplierTableRows.push({
+                                tedarikci: firmName,
+                                etki: 0, // No impact data from ilerleme_view
+                                kapasite: finishRate, // Use finish_rate as capacity
+                                risk: 0, // No risk calculation for these firms
+                                trend: [], // No trend data from ilerleme_view
+                                mesEntegrasyon: 'IVME İlerleme',
+                            })
+                        }
+                    })
+                }
+
                 const reportData: ReportData = {
+                    toplamFirma: { value: toplamFirmaValue },
+                    ortalamaIlerleme: { value: ortalamaIlerlemeValue },
                     dijitalSkor: { value: dijitalValue ?? 0 },
                     kapsam: { first: kFirst ?? 0, second: kSecond ?? 0 },
                     altYapiKapsami: { nominator: altYapiCompaniesCount ?? 0, denominator: totalCompaniesCount ?? 0 },
@@ -1202,6 +1394,8 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
     if (!data) return null
 
     const {
+        toplamFirma,
+        ortalamaIlerleme,
         dijitalSkor,
         kapsam,
         altYapiKapsami,
@@ -1217,7 +1411,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
 
     // Computed values
     const cmmTotal = cmmSayisi.reduce((sum, item) => sum + item.amount, 0)
-    const dizgiTotal = dizgiHatti.reduce((sum, item) => sum + item.amount, 0)
+    const dizgiTotal = 0
     const kapsamPct = kapsam.second !== 0
         ? ((kapsam.first / kapsam.second) * 100).toFixed(1)
         : '0'
@@ -1307,7 +1501,67 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
             </div>
 
             {/* ─── Top KPI Row ─── */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-2 flex-shrink-0">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-2 flex-shrink-0">
+                {/* Toplam Firma */}
+                <div className="relative bg-gradient-to-br from-purple-600 to-pink-700 p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] group overflow-hidden">
+                    <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
+                    <div className="relative z-10 flex items-start justify-between">
+                        <div>
+                            <span className="text-xs font-bold text-purple-200 uppercase tracking-widest block mb-2">
+                                Toplam Firma
+                            </span>
+                            {toplamFirma.value !== null ? (
+                                <>
+                                    <span className="text-5xl font-extrabold text-white drop-shadow-lg leading-tight flex items-end gap-1.5">
+                                        {toplamFirma.value}
+                                    </span>
+                                    <p className="text-purple-200 text-xs mt-3 font-medium">Porföydeki firma</p>
+                                </>
+                            ) : (
+                                <span className="text-lg font-bold text-white/90 drop-shadow-lg">Yapım Aşamasında</span>
+                            )}
+                        </div>
+                        <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                            </svg>
+                        </div>
+                    </div>
+                    <div className="absolute -bottom-6 -right-6 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl"></div>
+                </div>
+
+                {/* Ortalama İlerleme */}
+                <div className="relative bg-gradient-to-br from-orange-600 to-red-700 p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] group overflow-hidden">
+                    <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
+                    <div className="relative z-10 flex items-start justify-between">
+                        <div>
+                            <span className="text-xs font-bold text-orange-200 uppercase tracking-widest block mb-2">
+                                Ortalama İlerleme
+                            </span>
+                            {ortalamaIlerleme.value !== null ? (
+                                <>
+                                    <span className="text-5xl font-extrabold text-white drop-shadow-lg leading-tight flex items-end gap-1.5">
+                                        {ortalamaIlerleme.value.toFixed(1)}
+                                        <span className="text-lg font-semibold text-orange-100 mb-1.5">%</span>
+                                    </span>
+                                    <p className="text-orange-200 text-xs mt-3 font-medium">Firma ortalaması</p>
+                                </>
+                            ) : (
+                                <span className="text-lg font-bold text-white/90 drop-shadow-lg">Yapım Aşamasında</span>
+                            )}
+                        </div>
+                        <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                            </svg>
+                        </div>
+                    </div>
+                    <div className="relative z-10 mt-5 h-2 rounded-full bg-white/20 overflow-hidden">
+                        <div className="h-full rounded-full bg-white shadow-lg transition-all duration-500" style={{ width: `${Math.min(100, ortalamaIlerleme.value ?? 0)}%` }}></div>
+                    </div>
+                    <div className="absolute -bottom-6 -right-6 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl"></div>
+                </div>
+
                 {/* Dijital Skor */}
                 <div 
                     onClick={() => window.open('/ivme/reports/16', '_blank')}
@@ -1507,7 +1761,12 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         {item.value !== null ? (
                                             <div className="flex items-center gap-2">
                                                 <span className="text-3xl font-extrabold text-slate-900">
-                                                    {item.unit === '%' ? `%${item.value}` : item.value}
+                                                    {item.unit === '%' 
+                                                        ? `%${item.value}` 
+                                                        : item.unit === 'hours' 
+                                                            ? `${Math.round(Number(item.value))}h`
+                                                            : item.value
+                                                    }
                                                 </span>
                                                 <TrendArrow trend={item.trend} changePct={item.changePct} />
                                             </div>
@@ -1535,7 +1794,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         {bizdenKaynakliDurma.length > 0 ? (
                             <div className="grid grid-cols-3 gap-5">
                                 {bizdenKaynakliDurma.map((item, idx) => {
-                                    const isTalasliOrKablaj = idx === 0 || idx === 1
+                                    const isTalasliOrKablajOrDizgi = idx === 0 || idx === 1 || idx === 2
                                     return (
                                         <div key={`aselsan-${idx}`} className="bg-gradient-to-br from-slate-50 to-white border border-slate-200/60 rounded-xl p-5 flex flex-col gap-3 transition-all duration-300 hover:border-rose-400/60 hover:shadow-md hover:-translate-y-0.5">
                                             <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
@@ -1549,7 +1808,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                         </span>
                                                         <TrendArrow trend={item.trend} changePct={item.changePct} />
                                                     </div>
-                                                    {isTalasliOrKablaj && (
+                                                    {isTalasliOrKablajOrDizgi && (
                                                         <span className="text-xs text-slate-500 font-medium">Son 30 Gün</span>
                                                     )}
                                                 </>

@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     SEYIR_DB_USER: str = Field(default_factory=lambda: os.getenv("SEYIR_DB_USER", "postgres"))
     SEYIR_DB_PASSWORD: str = Field(default_factory=lambda: os.getenv("SEYIR_DB_PASSWORD", "postgres"))
 
+    # IVME_TAKİP Database
+    IVME_TAKIP_DB_HOST: str = Field(default_factory=lambda: os.getenv("IVME_TAKIP_DB_HOST", "localhost"))
+    IVME_TAKIP_DB_PORT: int = Field(default_factory=lambda: int(os.getenv("IVME_TAKIP_DB_PORT", "5432")))
+    IVME_TAKIP_DB_NAME: str = Field(default_factory=lambda: os.getenv("IVME_TAKIP_DB_NAME", "IVME_TAKİP"))
+    IVME_TAKIP_DB_USER: str = Field(default_factory=lambda: os.getenv("IVME_TAKIP_DB_USER", "postgres"))
+    IVME_TAKIP_DB_PASSWORD: str = Field(default_factory=lambda: os.getenv("IVME_TAKIP_DB_PASSWORD", "postgres"))
+
     # SAP Seyir API
     SAP_SEYIR_BASE_URL: str = Field(default_factory=lambda: os.getenv("SAP_SEYIR_BASE_URL", "http://localhost:8500"))
     

@@ -66,6 +66,18 @@ async def preview_report_query(
     Supports multiple database types based on platform configuration or custom db_config.
     """
     try:
+        # Handle special database configurations (e.g., IVME_TAKİP)
+        if request.db_config and request.db_config.get('database') == 'IVME_TAKİP':
+            from app.core.config import settings
+            request.db_config = {
+                'db_type': 'postgresql',
+                'host': settings.IVME_TAKIP_DB_HOST,
+                'port': settings.IVME_TAKIP_DB_PORT,
+                'database': settings.IVME_TAKIP_DB_NAME,
+                'user': settings.IVME_TAKIP_DB_USER,
+                'password': settings.IVME_TAKIP_DB_PASSWORD,
+            }
+        
         # Sanitize the SQL query
         sanitized_query = sanitize_sql_query(request.sql_query)
 
