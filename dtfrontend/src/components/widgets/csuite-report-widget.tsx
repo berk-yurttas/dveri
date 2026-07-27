@@ -79,7 +79,7 @@ const SQL = {
     `,
     buildMesIntegrationWithIlerlemeFirms: (ilerlemeFirms: string[]) => {
         const ilerlemeFirmsValues = ilerlemeFirms.length > 0
-            ? `UNION\nSELECT unnest(ARRAY[${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')}]::text[]) as "Tedarikçi"`
+            ? `OR "Satıcı Tanım" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
             : ''
         return `
             SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
@@ -329,9 +329,9 @@ const SQL = {
         FROM current_latest c
         LEFT JOIN past_latest p ON c."Firma Adı" = p."Firma Adı"
     `,
-    getAselsanDurma: (firma: string) => `SELECT name, value, unit, trend FROM ${S}aselsan_kaynakli_durma WHERE firma = '${firma}' ORDER BY id`,
-    getTalasliCount: (firma: string) => `SELECT COUNT(DISTINCT kalem_adi) AS count FROM ${S}uretim_kalemleri WHERE firma = '${firma}' AND kategori = 'Talaşlı İmalat'`,
-    getKablajCount: (firma: string) => `SELECT COUNT(DISTINCT kalem_adi) AS count FROM ${S}uretim_kalemleri WHERE firma = '${firma}' AND kategori = 'Kablaj/EMM'`,
+    getAselsanDurma: (firma: string) => `SELECT 1`,
+    getTalasliCount: (firma: string) => `SELECT 1`,
+    getKablajCount: (firma: string) => `SELECT 1`,
     getTalasliDuruslarCurrentMonth: `
         SELECT COUNT(DISTINCT "WorkOrderNo") as count from mes_production.mekanik_aktif_duruslar
     `,
@@ -421,11 +421,16 @@ const SQL = {
         LEFT JOIN mes_production.company_mapping ON mes_production.seyir_alt_yuklenici_mesuretim_kayitlari."Satıcı Tanım" = mes_production.company_mapping."key"
         WHERE mes_production.company_mapping."key" = '${firma}'
     `,
-    getSupplierRiskAnalysis: `
+    getSupplierRiskAnalysis: (ilerlemeFirms: string[] = []) => {
+        const ilerlemeFirmsValues = ilerlemeFirms.length > 0
+            ? `OR "Satıcı Tanım" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
+            : ''
+        return `
         WITH MesIntegration AS (
             SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
             FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
             WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur'
+            ${ilerlemeFirmsValues}
         ),
         CompanyTrend AS (
             SELECT 
@@ -456,11 +461,21 @@ const SQL = {
             WHERE rn = 1
             GROUP BY "Firma Adı"
         ),
+        KablajKapasite AS (
+            SELECT 
+                "NAME" as "Tedarikçi",
+                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
+            FROM mes_production.kablaj_kapasite_view
+            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
+            GROUP BY "NAME"
+            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+        ),
         CompanyStats AS (
             SELECT
                 "NAME1" as "Tedarikçi",
                 SUM("TTPRICE_USD") as "Etki",
-                ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
+                COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
+                CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
                 (SUM("TTPRICE_USD") * 100.0 / 
                     NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
@@ -469,15 +484,17 @@ const SQL = {
             LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "NAME1"
             LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
             WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
                 AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
             "Etki",
             "Kapasite",
+            "KapasiteUnit",
             "Trend",
             "MesEntegrasyon",
             (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
@@ -486,7 +503,7 @@ const SQL = {
         FROM CompanyStats
         ORDER BY "Etki" DESC
         LIMIT 15
-    `,
+    `},
     getSupplierRiskAnalysisByFirma: (firma: string) => `
         WITH MesIntegration AS (
             SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
@@ -522,11 +539,21 @@ const SQL = {
             WHERE rn = 1
             GROUP BY "Firma Adı"
         ),
+        KablajKapasite AS (
+            SELECT 
+                "NAME" as "Tedarikçi",
+                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
+            FROM mes_production.kablaj_kapasite_view
+            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
+            GROUP BY "NAME"
+            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+        ),
         CompanyStats AS (
             SELECT
                 "NAME1" as "Tedarikçi",
                 SUM("TTPRICE_USD") as "Etki",
-                ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
+                COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
+                CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
                 (SUM("TTPRICE_USD") * 100.0 / 
                     NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
@@ -535,16 +562,18 @@ const SQL = {
             LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "NAME1"
             LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
             WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
                 AND "NAME1" = '${firma}'
                 AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
             "Etki",
             "Kapasite",
+            "KapasiteUnit",
             "Trend",
             "MesEntegrasyon",
             (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
@@ -556,7 +585,7 @@ const SQL = {
     `,
     getSupplierRiskAnalysisMesIntegratedDynamic: (ilerlemeFirms: string[] = []) => {
         const ilerlemeFirmsUnion = ilerlemeFirms.length > 0
-            ? `\n            UNION\n            SELECT unnest(ARRAY[${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')}]::text[]) as "Tedarikçi"`
+            ? `OR "Satıcı Tanım" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
             : ''
         return `
         WITH MesIntegration AS (
@@ -607,6 +636,7 @@ const SQL = {
                 "NAME1" as "Tedarikçi",
                 SUM("TTPRICE_USD") as "Etki",
                 COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
+                CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
                 (SUM("TTPRICE_USD") * 100.0 / 
                     NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
@@ -625,6 +655,7 @@ const SQL = {
             "Tedarikçi",
             "Etki",
             "Kapasite",
+            "KapasiteUnit",
             "Trend",
             (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
@@ -752,6 +783,7 @@ const SQL = {
                 "NAME1" as "Tedarikçi",
                 SUM("TTPRICE_USD") as "Etki",
                 COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
+                CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
                 (SUM("TTPRICE_USD") * 100.0 / 
                     NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
@@ -771,6 +803,7 @@ const SQL = {
             "Tedarikçi",
             "Etki",
             "Kapasite",
+            "KapasiteUnit",
             "Trend",
             (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
@@ -889,6 +922,7 @@ interface SupplierTableRow {
     tedarikci: string
     etki: number
     kapasite: number
+    kapasiteUnit: 'hours' | 'percent'
     risk: number
     trend: number[]
     mesEntegrasyon: string
@@ -1144,7 +1178,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     runQuery(isAll ? SQL.getKablajDuruslarPreviousMonth : SQL.getKablajDuruslarPreviousMonthByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getDizgiDuruslarCurrentMonth : SQL.getDizgiDuruslarCurrentMonthByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getDizgiDuruslarPreviousMonth : SQL.getDizgiDuruslarPreviousMonthByFirma(selectedCompany)),
-                    runQuery(isAll ? SQL.getSupplierRiskAnalysis : SQL.getSupplierRiskAnalysisByFirma(firmaForQueries)),
+                    runQuery(isAll ? SQL.getSupplierRiskAnalysis(ilerlemeFirmNames) : SQL.getSupplierRiskAnalysisByFirma(firmaForQueries)),
                     runQuery(isAll ? SQL.getSupplierRiskAnalysisMesIntegratedDynamic(ilerlemeFirmNames) : SQL.getSupplierRiskAnalysisMesIntegratedByFirmaDynamic(firmaForQueries, ilerlemeFirmNames)),
                 ])
 
@@ -1258,14 +1292,6 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     }
                 }
                 
-                // Debug logging
-                if (!effectiveTedarikciRow) {
-                    console.log('Kablaj Kapasite: No data found', {
-                        tedarikciRows,
-                        isAll,
-                        selectedCompany
-                    })
-                }
 
                 // Always create all 3 tedarikci categories
                 let tedarikciItems: MetricItem[] = tedarikciLabels.map((label) => {
@@ -1287,15 +1313,6 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         unit = effectiveTedarikciRow[2] as string || 'hours'
                         changePct = parseFloat(effectiveTedarikciRow[3] || '0')
                         trend = changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'neutral'
-                        
-                        // Debug logging
-                        console.log('Kablaj/EMM Kapasite:', {
-                            value: computedValue,
-                            unit,
-                            changePct,
-                            trend,
-                            rawData: effectiveTedarikciRow
-                        })
                     }
                     
                     return {
@@ -1426,15 +1443,13 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         ? supplierRiskRows.map((r) => {
                             // Parse trend data - it might come as a PostgreSQL array string
                             let trendValues: number[] = []
-                            if (r[3]) {
-                                console.log('Raw trend data:', r[3], 'Type:', typeof r[3])
-                                
-                                if (Array.isArray(r[3])) {
+                            if (r[4]) {
+                                if (Array.isArray(r[4])) {
                                     // Already an array
-                                    trendValues = r[3].map((v: any) => parseFloat(v) || 0)
-                                } else if (typeof r[3] === 'string') {
+                                    trendValues = r[4].map((v: any) => parseFloat(v) || 0)
+                                } else if (typeof r[4] === 'string') {
                                     // Parse PostgreSQL array string format: "{82.5,85.0,87.3}" or "[Decimal('82.5'), ...]"
-                                    let cleaned = r[3]
+                                    let cleaned = r[4]
                                     
                                     // Remove array brackets and braces
                                     cleaned = cleaned.replace(/^[\[{]|[\]}]$/g, '').trim()
@@ -1443,7 +1458,6 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                     const matches = cleaned.match(/(\d+\.?\d*)/g)
                                     if (matches && matches.length > 0) {
                                         trendValues = matches.map((m: string) => parseFloat(m)).filter(n => !isNaN(n) && n > 0)
-                                        console.log('Parsed trend values:', trendValues)
                                     } else {
                                         // Fallback: split by comma and parse
                                         trendValues = cleaned.split(',').map((v: string) => {
@@ -1458,9 +1472,10 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                 tedarikci: normalizeDisplayText(r[0]) || '',
                                 etki: parseFloat(r[1]) || 0,
                                 kapasite: parseFloat(r[2]) || 0,
-                                risk: parseFloat(r[7]) || 0,
+                                kapasiteUnit: (r[3] === 'hours' ? 'hours' : 'percent') as 'hours' | 'percent',
+                                risk: parseFloat(r[8]) || 0,
                                 trend: trendValues,
-                                mesEntegrasyon: r[4] || 'MES Entegrasyonu Yok',
+                                mesEntegrasyon: r[5] || 'MES Entegrasyonu Yok',
                             }
                         })
                         : []
@@ -1470,17 +1485,17 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         ? mesIntegratedSupplierRows.map((r) => {
                             // Parse trend data - it might come as a PostgreSQL array string
                             let trendValues: number[] = []
-                            if (r[3]) {
-                                if (Array.isArray(r[3])) {
+                            if (r[4]) {
+                                if (Array.isArray(r[4])) {
                                     // Already an array
-                                    trendValues = r[3].map((v: any) => parseFloat(v) || 0)
-                                } else if (typeof r[3] === 'string') {
+                                    trendValues = r[4].map((v: any) => parseFloat(v) || 0)
+                                } else if (typeof r[4] === 'string') {
                                     // Parse PostgreSQL array string format: "{82.5,85.0,87.3}" or "[Decimal('82.5'), ...]"
-                                    let cleaned = r[3]
-                                    
+                                    let cleaned = r[4]
+
                                     // Remove array brackets and braces
                                     cleaned = cleaned.replace(/^[\[{]|[\]}]$/g, '').trim()
-                                    
+
                                     // Extract numbers from Decimal('X.X') format or plain numbers
                                     const matches = cleaned.match(/(\d+\.?\d*)/g)
                                     if (matches && matches.length > 0) {
@@ -1499,7 +1514,8 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                 tedarikci: normalizeDisplayText(r[0]) || '',
                                 etki: parseFloat(r[1]) || 0,
                                 kapasite: parseFloat(r[2]) || 0,
-                                risk: parseFloat(r[6]) || 0,
+                                kapasiteUnit: (r[3] === 'hours' ? 'hours' : 'percent') as 'hours' | 'percent',
+                                risk: parseFloat(r[7]) || 0,
                                 trend: trendValues,
                                 mesEntegrasyon: 'MES Entegrasyonu Var',
                             }
@@ -2180,7 +2196,10 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     {supplier.kapasite > 0 ? (
                                                         <span className="inline-block bg-slate-200 px-3 py-1.5 rounded-lg text-slate-800 font-semibold text-sm">
-                                                            %{supplier.kapasite.toFixed(1)}
+                                                            {supplier.kapasiteUnit === 'hours' 
+                                                                ? `${supplier.kapasite.toFixed(1)}h`
+                                                                : `%${supplier.kapasite.toFixed(1)}`
+                                                            }
                                                         </span>
                                                     ) : (
                                                         <span className="text-slate-400 text-sm font-medium">-</span>
@@ -2433,7 +2452,10 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     {supplier.kapasite > 0 ? (
                                                         <span className="inline-block bg-slate-200 px-3 py-1.5 rounded-lg text-slate-800 font-semibold text-sm">
-                                                            %{supplier.kapasite.toFixed(1)}
+                                                            {supplier.kapasiteUnit === 'hours' 
+                                                                ? `${supplier.kapasite.toFixed(1)}h`
+                                                                : `%${supplier.kapasite.toFixed(1)}`
+                                                            }
                                                         </span>
                                                     ) : (
                                                         <span className="text-slate-400 text-sm font-medium">-</span>
