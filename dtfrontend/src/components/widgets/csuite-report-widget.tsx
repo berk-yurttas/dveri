@@ -51,8 +51,8 @@ function getInitials(name: string): string {
 // ── SQL Queries ──
 const SQL = {
     getCompanies: `
-        SELECT "NAME1" as company FROM mes_production."tokadb_acik_sas"
-        WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') group by "NAME1"
+        SELECT "name1" as company FROM mes_production."tokadb_acik_sas"
+        WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') group by "name1"
     `,
     getToplamFirma: `SELECT COUNT(*) from firms`,
     getOrtalamaIlerlemeAll: `
@@ -130,17 +130,17 @@ const SQL = {
         WITH MesIntegration AS (
             SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
             FROM mes_production.seyir_alt_yuklenici_mesuretim_kayitlari 
-            WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur'
+            WHERE "İş Emri Durumu" != 'MES Kaydı Yoktur' ${ilerlemeFirmsValues}
         )
-        SELECT COALESCE(SUM(t."TTPRICE_USD"), 0)::numeric AS value
+        SELECT COALESCE(SUM(t."ttprice_usd"), 0)::numeric AS value
         FROM mes_production.tokadb_acik_sas t
-        INNER JOIN MesIntegration m ON t."NAME1" = m."Tedarikçi"
-        WHERE t."BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
-            ${ilerlemeFirmsValues}
+        INNER JOIN MesIntegration m ON t."name1" = m."Tedarikçi"
+        WHERE t."bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+
     `},
     getKapsamSecond: `
-        SELECT SUM("TTPRICE_USD") as value FROM mes_production."tokadb_acik_sas"
-        WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+        SELECT COALESCE(SUM(t."ttprice_usd"), 0)::numeric AS value FROM mes_production."tokadb_acik_sas" t
+        WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
     `,
     getKapsamByFirma: (firma: string) => `
         WITH MesIntegration AS (
@@ -150,17 +150,17 @@ const SQL = {
               AND "Satıcı Tanım" = '${firma}'
         )
         SELECT 
-            COALESCE(SUM(t."TTPRICE_USD"), 0)::numeric AS first,
-            COALESCE(SUM(ts."TTPRICE_USD"), 0)::numeric AS second
+            COALESCE(SUM(t."ttprice_usd"), 0)::numeric AS first,
+            COALESCE(SUM(ts."ttprice_usd"), 0)::numeric AS second
         FROM mes_production.tokadb_acik_sas t
-        INNER JOIN MesIntegration m ON t."NAME1" = m."Tedarikçi"
+        INNER JOIN MesIntegration m ON t."name1" = m."Tedarikçi"
         CROSS JOIN (
-            SELECT SUM("TTPRICE_USD") as "TTPRICE_USD" 
+            SELECT SUM("ttprice_usd") as "ttprice_usd" 
             FROM mes_production.tokadb_acik_sas 
-            WHERE "NAME1" = '${firma}'
-              AND "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+            WHERE "name1" = '${firma}'
+              AND "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
         ) ts
-        WHERE t."BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+        WHERE t."bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
     `,
     getAltYapiCompaniesCount: `SELECT SUM("Toplam") from mes_production.mes_machines_v3`,
     getTotalCompaniesCount: `SELECT COUNT(*) FROM mes_production.altyapi2`,
@@ -483,27 +483,35 @@ const SQL = {
             GROUP BY "NAME"
             HAVING MAX("ProdMonth") = MAX("ProdMonth")
         ),
+        StandartSure AS (
+            SELECT 
+                "Firma",
+                SUM("Toplam Süre") as "Standart_Sure_Hours"
+            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
+            WHERE "Firma" IS NOT NULL
+            GROUP BY "Firma"
+        ),
         CompanyStats AS (
             SELECT
-                "NAME1" as "Tedarikçi",
-                SUM("TTPRICE_USD") as "Etki",
+                "name1" as "Tedarikçi",
+                SUM("ttprice_usd") as "Etki",
                 COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
                 CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
                 ss."Standart_Sure_Hours" as "Standart_Sure",
-                (SUM("TTPRICE_USD") * 100.0 / 
-                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
+                (SUM("ttprice_usd") * 100.0 / 
+                    NULLIF(SUM(SUM("ttprice_usd")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "NAME1"
-            LEFT JOIN StandartSure ss ON ss."Firma" = "NAME1"
-            LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
-            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
-                AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
+            LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
+            WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+                AND "name1" NOT LIKE '*Kullanma*%'
+            GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
@@ -574,26 +582,26 @@ const SQL = {
         ),
         CompanyStats AS (
             SELECT
-                "NAME1" as "Tedarikçi",
-                SUM("TTPRICE_USD") as "Etki",
+                "name1" as "Tedarikçi",
+                SUM("ttprice_usd") as "Etki",
                 COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
                 CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
                 ss."Standart_Sure_Hours" as "Standart_Sure",
-                (SUM("TTPRICE_USD") * 100.0 / 
-                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
+                (SUM("ttprice_usd") * 100.0 / 
+                    NULLIF(SUM(SUM("ttprice_usd")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "NAME1"
-            LEFT JOIN StandartSure ss ON ss."Firma" = "NAME1"
-            LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
-            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
-                AND "NAME1" = '${firma}'
-                AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
+            LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
+            WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
+                AND "name1" = '${firma}'
+                AND "name1" NOT LIKE '*Kullanma*%'
+            GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
@@ -668,32 +676,34 @@ const SQL = {
         ),
         CompanyStats AS (
             SELECT
-                "NAME1" as "Tedarikçi",
-                SUM("TTPRICE_USD") as "Etki",
+                "name1" as "Tedarikçi",
+                SUM("ttprice_usd") as "Etki",
                 COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
                 CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
                 ss."Standart_Sure_Hours" as "Standart_Sure",
-                (SUM("TTPRICE_USD") * 100.0 / 
-                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
+                (SUM("ttprice_usd") * 100.0 / 
+                    NULLIF(SUM(SUM("ttprice_usd")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "NAME1"
-            LEFT JOIN StandartSure ss ON ss."Firma" = "NAME1"
-            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
-            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
-                AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
+            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
+            WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+                AND "name1" NOT LIKE '*Kullanma*%'
+            GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
             "Etki",
             "Kapasite",
             "KapasiteUnit",
+            "Standart_Sure",
             "Trend",
+            "MesEntegrasyon",
             (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
             ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
@@ -737,29 +747,53 @@ const SQL = {
             WHERE rn = 1
             GROUP BY "Firma Adı"
         ),
+        KablajKapasite AS (
+            SELECT 
+                "NAME" as "Tedarikçi",
+                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
+            FROM mes_production.kablaj_kapasite_view
+            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
+            GROUP BY "NAME"
+            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+        ),
+        StandartSure AS (
+            SELECT 
+                "Firma",
+                SUM("Toplam Süre") as "Standart_Sure_Hours"
+            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
+            WHERE "Firma" IS NOT NULL
+            GROUP BY "Firma"
+        ),
         CompanyStats AS (
             SELECT
-                "NAME1" as "Tedarikçi",
-                SUM("TTPRICE_USD") as "Etki",
-                ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
-                (SUM("TTPRICE_USD") * 100.0 / 
-                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
+                "name1" as "Tedarikçi",
+                SUM("ttprice_usd") as "Etki",
+                COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
+                CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
+                ss."Standart_Sure_Hours" as "Standart_Sure",
+                (SUM("ttprice_usd") * 100.0 / 
+                    NULLIF(SUM(SUM("ttprice_usd")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
-            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
-                AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
+            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
+            WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
+                AND "name1" NOT LIKE '*Kullanma*%'
+            GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
             "Etki",
             "Kapasite",
+            "KapasiteUnit",
+            "Standart_Sure",
             "Trend",
+            "MesEntegrasyon",
             (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
             ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
@@ -815,39 +849,50 @@ const SQL = {
             GROUP BY "NAME"
             HAVING MAX("ProdMonth") = MAX("ProdMonth")
         ),
+        StandartSure AS (
+            SELECT 
+                "Firma",
+                SUM("Toplam Süre") as "Standart_Sure_Hours"
+            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
+            WHERE "Firma" IS NOT NULL
+            GROUP BY "Firma"
+        ),
         CompanyStats AS (
             SELECT
-                "NAME1" as "Tedarikçi",
-                SUM("TTPRICE_USD") as "Etki",
+                "name1" as "Tedarikçi",
+                SUM("ttprice_usd") as "Etki",
                 COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
                 CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
-                (SUM("TTPRICE_USD") * 100.0 / 
-                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
+                ss."Standart_Sure_Hours" as "Standart_Sure",
+                (SUM("ttprice_usd") * 100.0 / 
+                    NULLIF(SUM(SUM("ttprice_usd")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "NAME1"
-            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
-            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
-                AND "NAME1" = '${firma}'
-                AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", mi."Tedarikçi"
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
+            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
+            WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
+                AND "name1" = '${firma}'
+                AND "name1" NOT LIKE '*Kullanma*%'
+            GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
             "Etki",
             "Kapasite",
             "KapasiteUnit",
+            "Standart_Sure",
             "Trend",
+            "MesEntegrasyon",
             (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
             ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
-        LIMIT 50
     `
     },
     getSupplierRiskAnalysisMesIntegratedByFirma: (firma: string) => `
@@ -885,30 +930,54 @@ const SQL = {
             WHERE rn = 1
             GROUP BY "Firma Adı"
         ),
+        KablajKapasite AS (
+            SELECT 
+                "NAME" as "Tedarikçi",
+                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
+            FROM mes_production.kablaj_kapasite_view
+            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
+            GROUP BY "NAME"
+            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+        ),
+        StandartSure AS (
+            SELECT 
+                "Firma",
+                SUM("Toplam Süre") as "Standart_Sure_Hours"
+            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
+            WHERE "Firma" IS NOT NULL
+            GROUP BY "Firma"
+        ),
         CompanyStats AS (
             SELECT
-                "NAME1" as "Tedarikçi",
-                SUM("TTPRICE_USD") as "Etki",
-                ld."Aylık Planlanan Doluluk Oranı" as "Kapasite",
-                (SUM("TTPRICE_USD") * 100.0 / 
-                    NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
+                "name1" as "Tedarikçi",
+                SUM("ttprice_usd") as "Etki",
+                COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
+                CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
+                ss."Standart_Sure_Hours" as "Standart_Sure",
+                (SUM("ttprice_usd") * 100.0 / 
+                    NULLIF(SUM(SUM("ttprice_usd")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."NAME1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
-            WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
-                AND "NAME1" = '${firma}'
-                AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", mi."Tedarikçi"
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
+            INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
+            WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
+                AND "name1" = '${firma}'
+                AND "name1" NOT LIKE '*Kullanma*%'
+            GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
             "Etki",
             "Kapasite",
+            "KapasiteUnit",
+            "Standart_Sure",
             "Trend",
+            "MesEntegrasyon",
             (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
             COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
             ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
