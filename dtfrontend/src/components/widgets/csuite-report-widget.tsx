@@ -54,7 +54,7 @@ const SQL = {
         SELECT "NAME1" as company FROM mes_production."tokadb_acik_sas"
         WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') group by "NAME1"
     `,
-    getToplamFirma: `SELECT COUNT(*) from firms where sector = 'REHİS'`,
+    getToplamFirma: `SELECT COUNT(*) from firms`,
     getOrtalamaIlerlemeAll: `
         SELECT avg(tamamlandı_rate_pct) from(
             SELECT 
@@ -73,9 +73,8 @@ const SQL = {
         ) as subquery
     `,
     getIlerlemeFirms: `
-        SELECT name, finish_rate 
-        FROM ilerleme_view 
-        WHERE finish_rate > 60
+        SELECT name
+        FROM ilerleme_view
     `,
     buildMesIntegrationWithIlerlemeFirms: (ilerlemeFirms: string[]) => {
         const ilerlemeFirmsValues = ilerlemeFirms.length > 0
@@ -118,16 +117,10 @@ const SQL = {
         WHERE "Firma" = '${firma}' AND "Tip" = 'CMM'
     `,
     getDizgiHattiAll: `
-        SELECT count(*) as "Toplam"
-        FROM mes_production.get_detailed_machines
-        WHERE "EksenSayisi" IN ('Kart Dizgi Alt Yapisi')
+        SELECT 6 as "Toplam"
     `,
     getDizgiHattiByFirma: (firma: string) => `
-        SELECT count(*) as "Toplam"
-        FROM mes_production.get_detailed_machines
-        LEFT JOIN mes_production.company_mapping ON mes_production.get_detailed_machines."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.get_detailed_machines' 
-        WHERE "EksenSayisi" IN ('Kart Dizgi Alt Yapisi')
-          AND mes_production.company_mapping."key" = '${firma}'
+        SELECT 6 as "Toplam"
     `,
     getKapsamFirst: (ilerlemeFirms: string[]) => {
         const ilerlemeFirmsValues = ilerlemeFirms.length > 0
@@ -194,6 +187,14 @@ const SQL = {
                 AND "ProdMonth" < (SELECT "ProdMonth" FROM current_month)
             ORDER BY "ProdMonth" DESC
             LIMIT 1
+        ),
+        standart_sure AS (
+            SELECT 
+                "Firma",
+                SUM("Toplam Süre") as "Standart_Sure_Hours"
+            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
+            WHERE "Firma" = '${firma}'
+            GROUP BY "Firma"
         )
         SELECT 
             c.name,
@@ -202,9 +203,11 @@ const SQL = {
             CASE 
                 WHEN p.value_hours IS NULL OR p.value_hours = 0 THEN 0
                 ELSE ROUND(((c.value_hours - p.value_hours) / p.value_hours * 100)::numeric, 2)
-            END as change_pct
+            END as change_pct,
+            COALESCE(ss."Standart_Sure_Hours", 0) as standart_sure
         FROM current_month c
         LEFT JOIN previous_month p ON c.name = p.name
+        LEFT JOIN standart_sure ss ON ss."Firma" = c.name
     `,
     getTedarikciKapasiteAll: `
         WITH current_month AS (
@@ -222,6 +225,14 @@ const SQL = {
                 "ProdMonth",
                 ROW_NUMBER() OVER (PARTITION BY "NAME" ORDER BY "ProdMonth" DESC) as rn
             FROM mes_production.kablaj_kapasite_view
+        ),
+        standart_sure AS (
+            SELECT 
+                "Firma",
+                SUM("Toplam Süre") as "Standart_Sure_Hours"
+            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
+            WHERE "Firma" IS NOT NULL
+            GROUP BY "Firma"
         )
         SELECT 
             c.name as firma,
@@ -230,9 +241,11 @@ const SQL = {
             CASE 
                 WHEN p.value_hours IS NULL OR p.value_hours = 0 THEN 0
                 ELSE ROUND(((c.value_hours - p.value_hours) / p.value_hours * 100)::numeric, 2)
-            END as change_pct
+            END as change_pct,
+            COALESCE(ss."Standart_Sure_Hours", 0) as standart_sure
         FROM current_month c
         LEFT JOIN previous_month p ON c.name = p.name AND p.rn = 2
+        LEFT JOIN standart_sure ss ON ss."Firma" = c.name
         WHERE c.rn = 1
         ORDER BY c.name
     `,
@@ -476,6 +489,7 @@ const SQL = {
                 SUM("TTPRICE_USD") as "Etki",
                 COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
                 CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
+                ss."Standart_Sure_Hours" as "Standart_Sure",
                 (SUM("TTPRICE_USD") * 100.0 / 
                     NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
@@ -485,16 +499,18 @@ const SQL = {
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "NAME1"
+            LEFT JOIN StandartSure ss ON ss."Firma" = "NAME1"
             LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
             WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
                 AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", mi."Tedarikçi"
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
             "Etki",
             "Kapasite",
             "KapasiteUnit",
+            "Standart_Sure",
             "Trend",
             "MesEntegrasyon",
             (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
@@ -548,12 +564,21 @@ const SQL = {
             GROUP BY "NAME"
             HAVING MAX("ProdMonth") = MAX("ProdMonth")
         ),
+        StandartSure AS (
+            SELECT 
+                "Firma",
+                SUM("Toplam Süre") as "Standart_Sure_Hours"
+            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
+            WHERE "Firma" IS NOT NULL
+            GROUP BY "Firma"
+        ),
         CompanyStats AS (
             SELECT
                 "NAME1" as "Tedarikçi",
                 SUM("TTPRICE_USD") as "Etki",
                 COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
                 CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
+                ss."Standart_Sure_Hours" as "Standart_Sure",
                 (SUM("TTPRICE_USD") * 100.0 / 
                     NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
@@ -563,17 +588,19 @@ const SQL = {
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "NAME1"
+            LEFT JOIN StandartSure ss ON ss."Firma" = "NAME1"
             LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
             WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
                 AND "NAME1" = '${firma}'
                 AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", mi."Tedarikçi"
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
             "Etki",
             "Kapasite",
             "KapasiteUnit",
+            "Standart_Sure",
             "Trend",
             "MesEntegrasyon",
             (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
@@ -631,12 +658,21 @@ const SQL = {
             GROUP BY "NAME"
             HAVING MAX("ProdMonth") = MAX("ProdMonth")
         ),
+        StandartSure AS (
+            SELECT 
+                "Firma",
+                SUM("Toplam Süre") as "Standart_Sure_Hours"
+            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
+            WHERE "Firma" IS NOT NULL
+            GROUP BY "Firma"
+        ),
         CompanyStats AS (
             SELECT
                 "NAME1" as "Tedarikçi",
                 SUM("TTPRICE_USD") as "Etki",
                 COALESCE(kk."Kapasite_Hours", ld."Aylık Planlanan Doluluk Oranı") as "Kapasite",
                 CASE WHEN kk."Kapasite_Hours" IS NOT NULL THEN 'hours' ELSE 'percent' END as "KapasiteUnit",
+                ss."Standart_Sure_Hours" as "Standart_Sure",
                 (SUM("TTPRICE_USD") * 100.0 / 
                     NULLIF(SUM(SUM("TTPRICE_USD")) OVER(), 0)) as "Oran",
                 cd."Trend" as "Trend",
@@ -646,10 +682,11 @@ const SQL = {
             LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
             LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "NAME1"
+            LEFT JOIN StandartSure ss ON ss."Firma" = "NAME1"
             INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "NAME1"
             WHERE "BSART" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
                 AND "NAME1" NOT LIKE '*Kullanma*%'
-            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", mi."Tedarikçi"
+            GROUP BY "NAME1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
         SELECT
             "Tedarikçi",
@@ -911,6 +948,7 @@ interface MetricItem {
     unit: string
     trend: string
     changePct?: number
+    standartSure?: number
 }
 
 interface CncItem {
@@ -923,6 +961,7 @@ interface SupplierTableRow {
     etki: number
     kapasite: number
     kapasiteUnit: 'hours' | 'percent'
+    standartSure: number
     risk: number
     trend: number[]
     mesEntegrasyon: string
@@ -1281,13 +1320,14 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 if (tedarikciRows && tedarikciRows.length > 0) {
                     if (isAll) {
                         // For "Tüm Firmalar", aggregate all companies
-                        // getTedarikciKapasiteAll returns: [firma, 'Kablaj Kapasite', value, change_pct]
+                        // getTedarikciKapasiteAll returns: [firma, 'Kablaj Kapasite', value, change_pct, standart_sure]
                         const totalHours = tedarikciRows.reduce((sum, r) => sum + parseFloat(r[2] || 0), 0)
                         const avgChange = tedarikciRows.reduce((sum, r) => sum + parseFloat(r[3] || 0), 0) / tedarikciRows.length
-                        effectiveTedarikciRow = ['Tüm Firmalar', totalHours, 'hours', avgChange]
+                        const totalStandartSure = tedarikciRows.reduce((sum, r) => sum + parseFloat(r[4] || 0), 0)
+                        effectiveTedarikciRow = ['Tüm Firmalar', totalHours, 'hours', avgChange, totalStandartSure]
                     } else {
                         // For specific company
-                        // getTedarikciKapasite returns: [name, value_hours, unit, change_pct]
+                        // getTedarikciKapasite returns: [name, value_hours, unit, change_pct, standart_sure]
                         effectiveTedarikciRow = tedarikciRows[0]
                     }
                 }
@@ -1321,6 +1361,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         unit: unit,
                         trend: trend,
                         changePct: changePct,
+                        standartSure: label === 'Kablaj/EMM' && effectiveTedarikciRow ? parseFloat(effectiveTedarikciRow[4] || '0') : undefined,
                     }
                 })
 
@@ -1443,13 +1484,13 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         ? supplierRiskRows.map((r) => {
                             // Parse trend data - it might come as a PostgreSQL array string
                             let trendValues: number[] = []
-                            if (r[4]) {
-                                if (Array.isArray(r[4])) {
+                            if (r[5]) {
+                                if (Array.isArray(r[5])) {
                                     // Already an array
-                                    trendValues = r[4].map((v: any) => parseFloat(v) || 0)
-                                } else if (typeof r[4] === 'string') {
+                                    trendValues = r[5].map((v: any) => parseFloat(v) || 0)
+                                } else if (typeof r[5] === 'string') {
                                     // Parse PostgreSQL array string format: "{82.5,85.0,87.3}" or "[Decimal('82.5'), ...]"
-                                    let cleaned = r[4]
+                                    let cleaned = r[5]
                                     
                                     // Remove array brackets and braces
                                     cleaned = cleaned.replace(/^[\[{]|[\]}]$/g, '').trim()
@@ -1473,9 +1514,10 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                 etki: parseFloat(r[1]) || 0,
                                 kapasite: parseFloat(r[2]) || 0,
                                 kapasiteUnit: (r[3] === 'hours' ? 'hours' : 'percent') as 'hours' | 'percent',
-                                risk: parseFloat(r[8]) || 0,
+                                standartSure: parseFloat(r[4]) || 0,
+                                risk: parseFloat(r[9]) || 0,
                                 trend: trendValues,
-                                mesEntegrasyon: r[5] || 'MES Entegrasyonu Yok',
+                                mesEntegrasyon: r[6] || 'MES Entegrasyonu Yok',
                             }
                         })
                         : []
@@ -1485,13 +1527,13 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         ? mesIntegratedSupplierRows.map((r) => {
                             // Parse trend data - it might come as a PostgreSQL array string
                             let trendValues: number[] = []
-                            if (r[4]) {
-                                if (Array.isArray(r[4])) {
+                            if (r[5]) {
+                                if (Array.isArray(r[5])) {
                                     // Already an array
-                                    trendValues = r[4].map((v: any) => parseFloat(v) || 0)
-                                } else if (typeof r[4] === 'string') {
+                                    trendValues = r[5].map((v: any) => parseFloat(v) || 0)
+                                } else if (typeof r[5] === 'string') {
                                     // Parse PostgreSQL array string format: "{82.5,85.0,87.3}" or "[Decimal('82.5'), ...]"
-                                    let cleaned = r[4]
+                                    let cleaned = r[5]
 
                                     // Remove array brackets and braces
                                     cleaned = cleaned.replace(/^[\[{]|[\]}]$/g, '').trim()
@@ -1515,7 +1557,8 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                 etki: parseFloat(r[1]) || 0,
                                 kapasite: parseFloat(r[2]) || 0,
                                 kapasiteUnit: (r[3] === 'hours' ? 'hours' : 'percent') as 'hours' | 'percent',
-                                risk: parseFloat(r[7]) || 0,
+                                standartSure: parseFloat(r[4]) || 0,
+                                risk: parseFloat(r[9]) || 0,
                                 trend: trendValues,
                                 mesEntegrasyon: 'MES Entegrasyonu Var',
                             }
@@ -1610,7 +1653,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
 
     // Computed values
     const cmmTotal = cmmSayisi.reduce((sum, item) => sum + item.amount, 0)
-    const dizgiTotal = 0
+    const dizgiTotal = dizgiHatti.reduce((sum, item) => sum + item.amount, 0)
     const kapsamPct = kapsam.second !== 0
         ? ((kapsam.first / kapsam.second) * 100).toFixed(1)
         : '0'
@@ -1958,17 +2001,33 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                             {tedarikciLabels[idx] || item.name}
                                         </span>
                                         {item.value !== null ? (
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-3xl font-extrabold text-slate-900">
-                                                    {item.unit === '%' 
-                                                        ? `%${item.value}` 
-                                                        : item.unit === 'hours' 
-                                                            ? `${Math.round(Number(item.value))}h`
-                                                            : item.value
-                                                    }
-                                                </span>
-                                                <TrendArrow trend={item.trend} changePct={item.changePct} />
-                                            </div>
+                                            <>
+                                                {/* Show Standart Süre for Kablaj/EMM if available */}
+                                                {item.standartSure !== undefined && item.standartSure > 0 && (
+                                                    <div className="flex flex-col gap-1 mb-2">
+                                                        <span className="text-xs text-slate-500 font-medium">Standart Süre</span>
+                                                        <span className="text-2xl font-extrabold text-blue-600">
+                                                            {Math.round(Number(item.standartSure))}h
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div className="flex flex-col gap-1">
+                                                    {item.standartSure !== undefined && item.standartSure > 0 && (
+                                                        <span className="text-xs text-slate-500 font-medium">Teyit Süresi</span>
+                                                    )}
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-3xl font-extrabold text-slate-900">
+                                                            {item.unit === '%' 
+                                                                ? `%${item.value}` 
+                                                                : item.unit === 'hours' 
+                                                                    ? `${Math.round(Number(item.value))}h`
+                                                                    : item.value
+                                                            }
+                                                        </span>
+                                                        <TrendArrow trend={item.trend} changePct={item.changePct} />
+                                                    </div>
+                                                </div>
+                                            </>
                                         ) : (
                                             <span className="text-sm font-bold text-slate-400">Yapım Aşamasında</span>
                                         )}
@@ -2194,16 +2253,31 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                     )}
                                                 </td>
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
-                                                    {supplier.kapasite > 0 ? (
-                                                        <span className="inline-block bg-slate-200 px-3 py-1.5 rounded-lg text-slate-800 font-semibold text-sm">
-                                                            {supplier.kapasiteUnit === 'hours' 
-                                                                ? `${supplier.kapasite.toFixed(1)}h`
-                                                                : `%${supplier.kapasite.toFixed(1)}`
-                                                            }
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-slate-400 text-sm font-medium">-</span>
-                                                    )}
+                                                    <div className="flex flex-col gap-1.5">
+                                                        {supplier.standartSure > 0 ? (
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-xs text-slate-500 font-medium mb-0.5">Standart Süre</span>
+                                                                <span className="inline-block bg-blue-100 px-3 py-1 rounded-lg text-blue-800 font-semibold text-sm">
+                                                                    {supplier.standartSure.toFixed(1)}h
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-slate-400 text-xs font-medium">-</span>
+                                                        )}
+                                                        {supplier.kapasite > 0 ? (
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-xs text-slate-500 font-medium mb-0.5">Teyit Süresi</span>
+                                                                <span className="inline-block bg-slate-200 px-3 py-1 rounded-lg text-slate-800 font-semibold text-sm">
+                                                                    {supplier.kapasiteUnit === 'hours' 
+                                                                        ? `${supplier.kapasite.toFixed(1)}h`
+                                                                        : `%${supplier.kapasite.toFixed(1)}`
+                                                                    }
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-slate-400 text-xs font-medium">-</span>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     <span className={`inline-block px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider ${
@@ -2446,20 +2520,35 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                             {supplier.risk.toFixed(1)}
                                                         </span>
                                                     ) : (
-                                                        <span className="text-slate-400 text-sm font-medium">-</span>
+                                                        <span className="text-slate-400 text-sm font-medium">-                                                        </span>
                                                     )}
                                                 </td>
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
-                                                    {supplier.kapasite > 0 ? (
-                                                        <span className="inline-block bg-slate-200 px-3 py-1.5 rounded-lg text-slate-800 font-semibold text-sm">
-                                                            {supplier.kapasiteUnit === 'hours' 
-                                                                ? `${supplier.kapasite.toFixed(1)}h`
-                                                                : `%${supplier.kapasite.toFixed(1)}`
-                                                            }
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-slate-400 text-sm font-medium">-</span>
-                                                    )}
+                                                    <div className="flex flex-col gap-1.5">
+                                                        {supplier.standartSure > 0 ? (
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-xs text-slate-500 font-medium mb-0.5">Standart Süre</span>
+                                                                <span className="inline-block bg-blue-100 px-3 py-1 rounded-lg text-blue-800 font-semibold text-sm">
+                                                                    {supplier.standartSure.toFixed(1)}h
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-slate-400 text-xs font-medium">-</span>
+                                                        )}
+                                                        {supplier.kapasite > 0 ? (
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-xs text-slate-500 font-medium mb-0.5">Teyit Süresi</span>
+                                                                <span className="inline-block bg-slate-200 px-3 py-1 rounded-lg text-slate-800 font-semibold text-sm">
+                                                                    {supplier.kapasiteUnit === 'hours' 
+                                                                        ? `${supplier.kapasite.toFixed(1)}h`
+                                                                        : `%${supplier.kapasite.toFixed(1)}`
+                                                                    }
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-slate-400 text-xs font-medium">-</span>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="py-3 px-4 text-center">
                                                     {supplier.trend && supplier.trend.length > 0 ? (
