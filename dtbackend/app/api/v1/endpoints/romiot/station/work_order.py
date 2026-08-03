@@ -1712,11 +1712,19 @@ async def track_product_mes(
     current_user: User = Depends(check_authenticated),
     romiot_db: AsyncSession = Depends(get_romiot_db),
 ):
-    """Müşteri product tracker reading from the external MES (AFLOW) source
-    configured per Hedef Firma. Same TrackResponse shape as /track."""
+    """Product tracker reading from the external MES (AFLOW) source configured
+    per Hedef Firma. Same TrackResponse shape as /track.
+
+    Open to any authenticated user with an `atolye:*` role (müşteri, operatör,
+    yönetici, satınalma) — matching the page gate and the Hedef Firma dropdown
+    at /company-integration/companies. The results are scoped by the requested
+    `hedef_firma`, not by the caller's role."""
     role_values = current_user.role if isinstance(current_user.role, list) else []
-    if "atolye:musteri" not in role_values:
-        raise HTTPException(status_code=403, detail="Bu sayfa yalnızca müşteri kullanıcıları içindir.")
+    has_atolye_role = any(
+        isinstance(r, str) and r.startswith("atolye:") for r in role_values
+    )
+    if not has_atolye_role:
+        raise HTTPException(status_code=403, detail="Atölye yetkisi gereklidir.")
 
     if not (hedef_firma or "").strip():
         raise HTTPException(status_code=400, detail="Hedef Firma seçilmelidir.")
