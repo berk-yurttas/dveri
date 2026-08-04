@@ -190,11 +190,12 @@ const SQL = {
         ),
         standart_sure AS (
             SELECT 
-                "Firma",
-                SUM("Toplam Süre") as "Standart_Sure_Hours"
-            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            WHERE "Firma" = '${firma}'
-            GROUP BY "Firma"
+                cm."key" as mapped_name,
+                SUM(k."Toplam Süre") as "Standart_Sure_Hours"
+            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif k
+            LEFT JOIN mes_production.company_mapping cm ON k."Firma" = cm."value" AND cm.table = 'mes_production."makine_doluluk_raw"'
+            WHERE cm."key" = '${firma}'
+            GROUP BY cm."key"
         )
         SELECT 
             c.name,
@@ -207,7 +208,7 @@ const SQL = {
             COALESCE(ss."Standart_Sure_Hours", 0) as standart_sure
         FROM current_month c
         LEFT JOIN previous_month p ON c.name = p.name
-        LEFT JOIN standart_sure ss ON ss."Firma" = c.name
+        LEFT JOIN standart_sure ss ON ss.mapped_name = c.name
     `,
     getTedarikciKapasiteAll: `
         WITH current_month AS (
@@ -228,11 +229,12 @@ const SQL = {
         ),
         standart_sure AS (
             SELECT 
-                "Firma",
-                SUM("Toplam Süre") as "Standart_Sure_Hours"
-            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            WHERE "Firma" IS NOT NULL
-            GROUP BY "Firma"
+                cm."key" as mapped_name,
+                SUM(k."Toplam Süre") as "Standart_Sure_Hours"
+            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif k
+            LEFT JOIN mes_production.company_mapping cm ON k."Firma" = cm."value" AND cm.table = 'mes_production."makine_doluluk_raw"'
+            WHERE k."Firma" IS NOT NULL
+            GROUP BY cm."key"
         )
         SELECT 
             c.name as firma,
@@ -245,7 +247,7 @@ const SQL = {
             COALESCE(ss."Standart_Sure_Hours", 0) as standart_sure
         FROM current_month c
         LEFT JOIN previous_month p ON c.name = p.name AND p.rn = 2
-        LEFT JOIN standart_sure ss ON ss."Firma" = c.name
+        LEFT JOIN standart_sure ss ON ss.mapped_name = c.name
         WHERE c.rn = 1
         ORDER BY c.name
     `,
@@ -485,11 +487,12 @@ const SQL = {
         ),
         StandartSure AS (
             SELECT 
-                "Firma",
+                cm."key" as "Firma",
                 SUM("Toplam Süre") as "Standart_Sure_Hours"
             FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            WHERE "Firma" IS NOT NULL
-            GROUP BY "Firma"
+            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_kapasite_view'
+            WHERE mes_production.company_mapping."key" IS NOT NULL
+            GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
             SELECT
@@ -574,11 +577,12 @@ const SQL = {
         ),
         StandartSure AS (
             SELECT 
-                "Firma",
+                cm."key" as "Firma",
                 SUM("Toplam Süre") as "Standart_Sure_Hours"
             FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            WHERE "Firma" IS NOT NULL
-            GROUP BY "Firma"
+            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
+            WHERE mes_production.company_mapping."key" IS NOT NULL
+            GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
             SELECT
@@ -668,11 +672,12 @@ const SQL = {
         ),
         StandartSure AS (
             SELECT 
-                "Firma",
+                cm."key" as "Firma",
                 SUM("Toplam Süre") as "Standart_Sure_Hours"
             FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            WHERE "Firma" IS NOT NULL
-            GROUP BY "Firma"
+            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
+            WHERE mes_production.company_mapping."key" IS NOT NULL
+            GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
             SELECT
@@ -709,7 +714,6 @@ const SQL = {
             ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
         FROM CompanyStats
         ORDER BY "Etki" DESC
-        LIMIT 50
     `
     },
     getSupplierRiskAnalysisMesIntegrated: `
@@ -758,11 +762,12 @@ const SQL = {
         ),
         StandartSure AS (
             SELECT 
-                "Firma",
+                cm."key" as "Firma",
                 SUM("Toplam Süre") as "Standart_Sure_Hours"
             FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            WHERE "Firma" IS NOT NULL
-            GROUP BY "Firma"
+            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
+            WHERE mes_production.company_mapping."key" IS NOT NULL
+            GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
             SELECT
@@ -851,11 +856,12 @@ const SQL = {
         ),
         StandartSure AS (
             SELECT 
-                "Firma",
+                cm."key" as "Firma",
                 SUM("Toplam Süre") as "Standart_Sure_Hours"
             FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            WHERE "Firma" IS NOT NULL
-            GROUP BY "Firma"
+            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
+            WHERE mes_production.company_mapping."key" IS NOT NULL
+            GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
             SELECT
@@ -941,11 +947,12 @@ const SQL = {
         ),
         StandartSure AS (
             SELECT 
-                "Firma",
+                cm."key" as "Firma",
                 SUM("Toplam Süre") as "Standart_Sure_Hours"
             FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            WHERE "Firma" IS NOT NULL
-            GROUP BY "Firma"
+            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
+            WHERE mes_production.company_mapping."key" IS NOT NULL
+            GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
             SELECT
@@ -1394,10 +1401,12 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         const avgChange = tedarikciRows.reduce((sum, r) => sum + parseFloat(r[3] || 0), 0) / tedarikciRows.length
                         const totalStandartSure = tedarikciRows.reduce((sum, r) => sum + parseFloat(r[4] || 0), 0)
                         effectiveTedarikciRow = ['Tüm Firmalar', totalHours, 'hours', avgChange, totalStandartSure]
+                        console.log('Kablaj Kapasite - All Companies:', { totalHours, totalStandartSure, rows: tedarikciRows })
                     } else {
                         // For specific company
                         // getTedarikciKapasite returns: [name, value_hours, unit, change_pct, standart_sure]
                         effectiveTedarikciRow = tedarikciRows[0]
+                        console.log('Kablaj Kapasite - Specific Company:', effectiveTedarikciRow)
                     }
                 }
                 
@@ -2072,30 +2081,36 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         {item.value !== null ? (
                                             <>
                                                 {/* Show Standart Süre for Kablaj/EMM if available */}
-                                                {item.standartSure !== undefined && item.standartSure > 0 && (
-                                                    <div className="flex flex-col gap-1 mb-2">
-                                                        <span className="text-xs text-slate-500 font-medium">Standart Süre</span>
-                                                        <span className="text-2xl font-extrabold text-blue-600">
-                                                            {Math.round(Number(item.standartSure))}h
-                                                        </span>
-                                                    </div>
-                                                )}
-                                                <div className="flex flex-col gap-1">
-                                                    {item.standartSure !== undefined && item.standartSure > 0 && (
-                                                        <span className="text-xs text-slate-500 font-medium">Teyit Süresi</span>
-                                                    )}
+                                                {item.unit === 'hours' ? (
+                                                    <>
+                                                        {item.standartSure !== undefined && item.standartSure > 0 && (
+                                                            <div className="flex flex-col gap-1 mb-2">
+                                                                <span className="text-xs text-slate-500 font-medium">Standart Süre</span>
+                                                                <span className="text-2xl font-extrabold text-blue-600">
+                                                                    {Math.round(Number(item.standartSure))}sa
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                        <div className="flex flex-col gap-1">
+                                                            {item.standartSure !== undefined && item.standartSure > 0 && (
+                                                                <span className="text-xs text-slate-500 font-medium">Teyit Süresi</span>
+                                                            )}
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-3xl font-extrabold text-slate-900">
+                                                                    {Math.round(Number(item.value))}sa
+                                                                </span>
+                                                                <TrendArrow trend={item.trend} changePct={item.changePct} />
+                                                            </div>
+                                                        </div>
+                                                    </>
+                                                ) : (
                                                     <div className="flex items-center gap-2">
                                                         <span className="text-3xl font-extrabold text-slate-900">
-                                                            {item.unit === '%' 
-                                                                ? `%${item.value}` 
-                                                                : item.unit === 'hours' 
-                                                                    ? `${Math.round(Number(item.value))}h`
-                                                                    : item.value
-                                                            }
+                                                            %{item.value}
                                                         </span>
                                                         <TrendArrow trend={item.trend} changePct={item.changePct} />
                                                     </div>
-                                                </div>
+                                                )}
                                             </>
                                         ) : (
                                             <span className="text-sm font-bold text-slate-400">Yapım Aşamasında</span>
@@ -2322,31 +2337,40 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                     )}
                                                 </td>
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
-                                                    <div className="flex flex-col gap-1.5">
-                                                        {supplier.standartSure > 0 ? (
-                                                            <div className="flex flex-col items-center">
-                                                                <span className="text-xs text-slate-500 font-medium mb-0.5">Standart Süre</span>
-                                                                <span className="inline-block bg-blue-100 px-3 py-1 rounded-lg text-blue-800 font-semibold text-sm">
-                                                                    {supplier.standartSure.toFixed(1)}h
+                                                    {supplier.kapasiteUnit === 'hours' ? (
+                                                        <div className="flex flex-col gap-1.5">
+                                                            {supplier.standartSure > 0 ? (
+                                                                <div className="flex flex-col items-center">
+                                                                    <span className="text-xs text-slate-500 font-medium mb-0.5">Standart Süre</span>
+                                                                    <span className="inline-block bg-blue-100 px-3 py-1 rounded-lg text-blue-800 font-semibold text-sm">
+                                                                        {supplier.standartSure.toFixed(1)}sa
+                                                                    </span>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-slate-400 text-xs font-medium">-</span>
+                                                            )}
+                                                            {supplier.kapasite > 0 ? (
+                                                                <div className="flex flex-col items-center">
+                                                                    <span className="text-xs text-slate-500 font-medium mb-0.5">Teyit Süresi</span>
+                                                                    <span className="inline-block bg-slate-200 px-3 py-1 rounded-lg text-slate-800 font-semibold text-sm">
+                                                                        {supplier.kapasite.toFixed(1)}sa
+                                                                    </span>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-slate-400 text-xs font-medium">-</span>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center justify-center">
+                                                            {supplier.kapasite > 0 ? (
+                                                                <span className="inline-block bg-slate-200 px-3 py-1.5 rounded-lg text-slate-800 font-semibold text-sm">
+                                                                    %{supplier.kapasite.toFixed(1)}
                                                                 </span>
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-slate-400 text-xs font-medium">-</span>
-                                                        )}
-                                                        {supplier.kapasite > 0 ? (
-                                                            <div className="flex flex-col items-center">
-                                                                <span className="text-xs text-slate-500 font-medium mb-0.5">Teyit Süresi</span>
-                                                                <span className="inline-block bg-slate-200 px-3 py-1 rounded-lg text-slate-800 font-semibold text-sm">
-                                                                    {supplier.kapasiteUnit === 'hours' 
-                                                                        ? `${supplier.kapasite.toFixed(1)}h`
-                                                                        : `%${supplier.kapasite.toFixed(1)}`
-                                                                    }
-                                                                </span>
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-slate-400 text-xs font-medium">-</span>
-                                                        )}
-                                                    </div>
+                                                            ) : (
+                                                                <span className="text-slate-400 text-xs font-medium">-</span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
                                                     <span className={`inline-block px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider ${
@@ -2593,31 +2617,40 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                     )}
                                                 </td>
                                                 <td className="py-3 px-4 text-center border-r border-slate-100">
-                                                    <div className="flex flex-col gap-1.5">
-                                                        {supplier.standartSure > 0 ? (
-                                                            <div className="flex flex-col items-center">
-                                                                <span className="text-xs text-slate-500 font-medium mb-0.5">Standart Süre</span>
-                                                                <span className="inline-block bg-blue-100 px-3 py-1 rounded-lg text-blue-800 font-semibold text-sm">
-                                                                    {supplier.standartSure.toFixed(1)}h
+                                                    {supplier.kapasiteUnit === 'hours' ? (
+                                                        <div className="flex flex-col gap-1.5">
+                                                            {supplier.standartSure > 0 ? (
+                                                                <div className="flex flex-col items-center">
+                                                                    <span className="text-xs text-slate-500 font-medium mb-0.5">Standart Süre</span>
+                                                                    <span className="inline-block bg-blue-100 px-3 py-1 rounded-lg text-blue-800 font-semibold text-sm">
+                                                                        {supplier.standartSure.toFixed(1)}sa
+                                                                    </span>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-slate-400 text-xs font-medium">-</span>
+                                                            )}
+                                                            {supplier.kapasite > 0 ? (
+                                                                <div className="flex flex-col items-center">
+                                                                    <span className="text-xs text-slate-500 font-medium mb-0.5">Teyit Süresi</span>
+                                                                    <span className="inline-block bg-slate-200 px-3 py-1 rounded-lg text-slate-800 font-semibold text-sm">
+                                                                        {supplier.kapasite.toFixed(1)}sa
+                                                                    </span>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-slate-400 text-xs font-medium">-</span>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center justify-center">
+                                                            {supplier.kapasite > 0 ? (
+                                                                <span className="inline-block bg-slate-200 px-3 py-1.5 rounded-lg text-slate-800 font-semibold text-sm">
+                                                                    %{supplier.kapasite.toFixed(1)}
                                                                 </span>
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-slate-400 text-xs font-medium">-</span>
-                                                        )}
-                                                        {supplier.kapasite > 0 ? (
-                                                            <div className="flex flex-col items-center">
-                                                                <span className="text-xs text-slate-500 font-medium mb-0.5">Teyit Süresi</span>
-                                                                <span className="inline-block bg-slate-200 px-3 py-1 rounded-lg text-slate-800 font-semibold text-sm">
-                                                                    {supplier.kapasiteUnit === 'hours' 
-                                                                        ? `${supplier.kapasite.toFixed(1)}h`
-                                                                        : `%${supplier.kapasite.toFixed(1)}`
-                                                                    }
-                                                                </span>
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-slate-400 text-xs font-medium">-</span>
-                                                        )}
-                                                    </div>
+                                                            ) : (
+                                                                <span className="text-slate-400 text-xs font-medium">-</span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="py-3 px-4 text-center">
                                                     {supplier.trend && supplier.trend.length > 0 ? (
