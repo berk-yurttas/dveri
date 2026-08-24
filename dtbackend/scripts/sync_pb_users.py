@@ -4,7 +4,11 @@ Creates (if missing) and upserts `pb_users` in the Seyir database so report SQL
 can JOIN PocketBase `name` (stored as `full_name`) onto tables that only store username.
 
 Usage:
+    python scripts/sync_pb_users.py
     python -m scripts.sync_pb_users
+
+    Docker:
+    docker compose exec dtbackend python /app/scripts/sync_pb_users.py
 
 Requires:
     POCKETBASE_URL, POCKETBASE_ADMIN_EMAIL, POCKETBASE_ADMIN_PASSWORD
@@ -14,6 +18,12 @@ Requires:
 from __future__ import annotations
 
 import asyncio
+import sys
+from pathlib import Path
+
+_APP_ROOT = Path(__file__).resolve().parent.parent
+if str(_APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(_APP_ROOT))
 
 import httpx
 import psycopg2
@@ -37,7 +47,7 @@ CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
 
 UPSERT_SQL = f"""
 INSERT INTO {TABLE_NAME} (
-    username, full_name, email, department, pb_id, updated_at
+    username, full_name, email, department, pb_id
 ) VALUES %s
 ON CONFLICT (username) DO UPDATE SET
     full_name = EXCLUDED.full_name,

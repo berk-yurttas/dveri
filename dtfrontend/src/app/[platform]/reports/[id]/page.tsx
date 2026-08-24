@@ -67,6 +67,7 @@ import {
 } from '@/components/visualizations'
 import { GlobalFilters } from '@/components/reports/GlobalFilters'
 import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
+import { expandNestedQueryResults } from '@/utils/excelExport'
 import { useUser } from '@/contexts/user-context'
 import { isAdmin } from '@/lib/utils'
 
@@ -1943,6 +1944,20 @@ export default function ReportDetailPage() {
 
         if (columns.length === 0) continue
 
+        if (query.visualization.type === 'expandable') {
+          const nestedQueries = query.visualization.chartOptions?.nestedQueries
+          if (nestedQueries && nestedQueries.length > 0) {
+            const expanded = await expandNestedQueryResults(
+              columns,
+              data,
+              nestedQueries,
+              report?.dbConfig || null
+            )
+            columns = expanded.columns
+            data = expanded.data
+          }
+        }
+
         // Create worksheet
         const worksheetName = (query.name || `Query_${query.id}`).substring(0, 31)
         const worksheet = workbook.addWorksheet(worksheetName)
@@ -2228,6 +2243,20 @@ export default function ReportDetailPage() {
       if (columns.length === 0) {
         alert('Dışa aktarılacak veri yok.')
         return
+      }
+
+      if (query.visualization.type === 'expandable') {
+        const nestedQueries = query.visualization.chartOptions?.nestedQueries
+        if (nestedQueries && nestedQueries.length > 0) {
+          const expanded = await expandNestedQueryResults(
+            columns,
+            data,
+            nestedQueries,
+            report?.dbConfig || null
+          )
+          columns = expanded.columns
+          data = expanded.data
+        }
       }
 
       // Create a new workbook
