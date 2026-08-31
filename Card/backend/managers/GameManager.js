@@ -9,9 +9,12 @@ class Game {
     this.currentRound = 1;
   }
 
-  // Belirtilen saldırı: Verilen attacker ve defender kartları üzerinden hesaplama yapar.
   performAttack(attacker, defender) {
-    const decision = attacker.attack - defender.defense;
+    const attackerDice = Math.floor(Math.random() * 6) + 1;
+    const defenderDice = Math.floor(Math.random() * 6) + 1;
+    const finalAttack = attacker.attack * attackerDice;
+    const finalDefense = defender.defense * defenderDice;
+    const decision = finalAttack - finalDefense;
     let xpReduction = 0;
     if (Math.abs(decision) > 0) {
       if (this.currentRound <= 5) {
@@ -33,7 +36,7 @@ class Game {
       attacker.health -= xpReduction;
       if (attacker.health < 0) attacker.health = 0;
     }
-    return { decision, xpReduction };
+    return { decision, xpReduction, attackerDice, defenderDice };
   }
 
   // Her turda: oyuncunun seçtiği hamleyi yapar ve sonrasında bilgisayar hamlesini de otomatik yapar.

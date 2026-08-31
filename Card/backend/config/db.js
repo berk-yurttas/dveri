@@ -16,7 +16,7 @@ function buildPoolOptions() {
   return { connectionString, ssl };
 }
 
-async function connectDB() {
+async function connectDB(retries = 5, delay = 3000) {
   const opts = buildPoolOptions();
   if (!opts) {
     console.error(
@@ -25,15 +25,24 @@ async function connectDB() {
     process.exit(1);
   }
   pool = new Pool(opts);
-  try {
-    const schemaPath = path.join(__dirname, '..', 'db', 'schema.sql');
-    const schema = fs.readFileSync(schemaPath, 'utf8');
-    await pool.query(schema);
-    await pool.query('SELECT 1');
-    console.log('PostgreSQL bağlantısı başarılı');
-  } catch (error) {
-    console.error('PostgreSQL bağlantı hatası:', error);
-    process.exit(1);
+  
+  while (retries > 0) {
+    try {
+      const schemaPath = path.join(__dirname, '..', 'db', 'schema.sql');
+      const schema = fs.readFileSync(schemaPath, 'utf8');
+      await pool.query(schema);
+      await pool.query('SELECT 1');
+      console.log('PostgreSQL bağlantısı başarılı');
+      return;
+    } catch (error) {
+      console.error(`PostgreSQL bağlantı hatası, ${retries - 1} deneme kaldı. Hata: ${error.message}`);
+      retries -= 1;
+      if (retries === 0) {
+        console.error('Veritabanına bağlanılamadı, çıkılıyor.');
+        process.exit(1);
+      }
+      await new Promise(res => setTimeout(res, delay));
+    }
   }
 }
 

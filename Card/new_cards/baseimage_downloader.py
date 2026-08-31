@@ -25,7 +25,7 @@ try:
         if not row or row[1] is None:
             continue
         
-        urun_adi = str(row[1]).strip() # 2. sütun (Index 1) Ürün Adı
+        urun_adi = str(row[1]).strip().replace('/', '-') # 2. sütun (Index 1) Ürün Adı
         
         # Satırdaki hücreler içinde 'http' ile başlayan URL'yi bul
         img_url = None
