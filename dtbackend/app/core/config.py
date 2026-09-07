@@ -133,6 +133,17 @@ class Settings(BaseSettings):
         )
     )
 
+    # Odak DB updater (odak-db-guncelleme) — used to refresh report source tables.
+    ODAK_UPDATER_BASE_URL: str = Field(
+        default_factory=lambda: os.getenv("ODAK_UPDATER_BASE_URL", "http://127.0.0.1:7934").strip()
+    )
+    ODAK_UPDATE_SCHEDULER_ENABLED: bool = Field(
+        default_factory=lambda: os.getenv("ODAK_UPDATE_SCHEDULER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    )
+    ODAK_UPDATE_SCHEDULER_INTERVAL_SECONDS: int = Field(
+        default_factory=lambda: int(os.getenv("ODAK_UPDATE_SCHEDULER_INTERVAL_SECONDS", "30"))
+    )
+
     @property
     def postgres_database_url(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"

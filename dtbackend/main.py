@@ -15,15 +15,18 @@ from app.core.exception_handlers import unhandled_exception_handler
 from app.core.middleware import AuthMiddleware
 from app.core.platform_middleware import PlatformMiddleware
 from app.services.csuite_history_scheduler import CSuiteHistoryScheduler
+from app.services.odak_update_scheduler import OdakUpdateScheduler
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # Start background scheduler that writes one snapshot per company per ISO week.
     CSuiteHistoryScheduler.start()
+    OdakUpdateScheduler.start()
     try:
         yield
     finally:
+        await OdakUpdateScheduler.stop()
         await CSuiteHistoryScheduler.stop()
 
 app = FastAPI(

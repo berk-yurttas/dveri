@@ -219,6 +219,12 @@ class Report(PostgreSQLBase):
     tabs = relationship("ReportTab", back_populates="report", cascade="all, delete-orphan", order_by="ReportTab.order_index")
     queries = relationship("ReportQuery", back_populates="report", cascade="all, delete-orphan", order_by="ReportQuery.order_index")
     users = relationship("ReportUser", back_populates="report", cascade="all, delete-orphan")
+    odak_schedule = relationship(
+        "ReportOdakSchedule",
+        back_populates="report",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     # Property to handle is_favorite field (set dynamically)
     is_favorite = None
@@ -302,6 +308,33 @@ class ReportUser(PostgreSQLBase):
     # relationships
     report = relationship("Report", back_populates="users")
     user = relationship("User", backref="report_users")
+
+
+class ReportOdakSchedule(PostgreSQLBase):
+    """Periodic Odak table-update schedule for a report."""
+    __tablename__ = "report_odak_schedules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(
+        Integer,
+        ForeignKey("reports.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    enabled = Column(Boolean, default=False, nullable=False, server_default="false")
+    frequency = Column(String(50), nullable=False, server_default="every_night")
+    hour = Column(Integer, nullable=False, server_default="1")
+    minute = Column(Integer, nullable=False, server_default="0")
+    timezone = Column(String(50), nullable=False, server_default="Europe/Istanbul")
+    next_run_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    last_run_at = Column(DateTime(timezone=True), nullable=True)
+    last_run_status = Column(String(50), nullable=True)
+    last_run_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    report = relationship("Report", back_populates="odak_schedule")
 
 
 class UserPlatform(PostgreSQLBase):

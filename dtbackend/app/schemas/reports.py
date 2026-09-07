@@ -472,3 +472,78 @@ class SampleQuery(BaseModel):
 
 class SampleQueriesResponse(BaseModel):
     samples: list[SampleQuery]
+
+
+class OdakUpdateTriggerResponse(BaseModel):
+    status: str
+    message: str
+    table_names: list[str] = []
+    skipped_tables: list[str] = []
+    skipped_nightly: list[str] = []
+    user_info: str | None = None
+
+
+class OdakUpdateJobStatusResponse(BaseModel):
+    running: bool
+    type: str | None = None
+    message: str | None = None
+    cancel_requested: bool = False
+    logs: list[str] = []
+
+
+class OdakUpdateCancelResponse(BaseModel):
+    status: str
+    message: str
+
+
+class OdakBulkUpdateRequest(BaseModel):
+    report_ids: list[int] = Field(..., min_length=1)
+
+
+class IvmeSyncSchedule(BaseModel):
+    enabled: bool = False
+    frequency: Literal["every_30_min", "every_hour", "every_night"] = "every_night"
+    hour: int = 1
+    minute: int = 0
+    next_run_at: datetime | None = None
+    last_run_at: datetime | None = None
+    last_run_status: str | None = None
+    last_run_message: str | None = None
+
+
+class IvmeSyncScheduleUpdate(BaseModel):
+    enabled: bool
+    frequency: Literal["every_30_min", "every_hour", "every_night"]
+    hour: int = Field(1, ge=0, le=23)
+    minute: int = Field(0, ge=0, le=59)
+
+
+class IvmeSyncBulkScheduleUpdate(BaseModel):
+    report_ids: list[int] = Field(..., min_length=1)
+    enabled: bool | None = None
+    frequency: Literal["every_30_min", "every_hour", "every_night"] | None = None
+    hour: int | None = Field(None, ge=0, le=23)
+    minute: int | None = Field(None, ge=0, le=59)
+
+
+class IvmeSyncBulkScheduleItem(BaseModel):
+    report_id: int
+    schedule: IvmeSyncSchedule
+
+
+class IvmeSyncBulkScheduleResponse(BaseModel):
+    items: list[IvmeSyncBulkScheduleItem]
+
+
+class IvmeSyncReportItem(BaseModel):
+    id: int
+    name: str
+    description: str | None = None
+    updated_at: datetime | None = None
+    schedule: IvmeSyncSchedule | None = None
+
+
+class IvmeSyncListResponse(BaseModel):
+    reports: list[IvmeSyncReportItem]
+    last_updater_date: str | None = None
+    last_updater_user: str | None = None

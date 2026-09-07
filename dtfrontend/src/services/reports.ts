@@ -9,6 +9,63 @@ import {
   SavedReport
 } from '@/types/reports'
 
+export interface OdakUpdateTriggerResponse {
+  status: string
+  message: string
+  table_names: string[]
+  skipped_tables?: string[]
+  skipped_nightly?: string[]
+  user_info?: string | null
+}
+
+export interface OdakUpdateJobStatus {
+  running: boolean
+  type: string | null
+  message: string | null
+  cancel_requested: boolean
+  logs: string[]
+}
+
+export interface IvmeSyncSchedule {
+  enabled: boolean
+  frequency: 'every_30_min' | 'every_hour' | 'every_night'
+  hour: number
+  minute: number
+  next_run_at: string | null
+  last_run_at: string | null
+  last_run_status: string | null
+  last_run_message: string | null
+}
+
+export interface IvmeSyncScheduleUpdate {
+  enabled: boolean
+  frequency: 'every_30_min' | 'every_hour' | 'every_night'
+  hour: number
+  minute: number
+}
+
+export interface IvmeSyncBulkScheduleUpdate {
+  report_ids: number[]
+  enabled?: boolean | null
+  frequency?: 'every_30_min' | 'every_hour' | 'every_night' | null
+  hour?: number | null
+  minute?: number | null
+}
+
+export interface IvmeSyncReportItem {
+  id: number
+  name: string
+  description: string | null
+  updated_at: string | null
+  schedule: IvmeSyncSchedule | null
+}
+
+export interface IvmeSyncListResponse {
+  reports: IvmeSyncReportItem[]
+  last_updater_date: string | null
+  last_updater_user: string | null
+}
+
 export const reportsService = {
   /**
    * Preview the results of a SQL query
@@ -158,5 +215,37 @@ export const reportsService = {
    */
   async exportReportSql(reportId: string): Promise<string> {
     return api.get<string>(`/reports/${reportId}/export-sql`, undefined, { useCache: false })
+  },
+
+  /**
+   * Extract tables from the report queries and start Odak DB updater.
+   * Restricted to miras:admin / odak:admin.
+   */
+  async triggerOdakUpdate(reportId: string): Promise<OdakUpdateTriggerResponse> {
+    return api.post<OdakUpdateTriggerResponse>(`/reports/${reportId}/odak-update`, {})
+  },
+
+  async triggerOdakBulkUpdate(reportIds: number[]): Promise<OdakUpdateTriggerResponse> {
+    return api.post<OdakUpdateTriggerResponse>('/reports/odak-update/bulk', { report_ids: reportIds })
+  },
+
+  async getOdakUpdateStatus(): Promise<OdakUpdateJobStatus> {
+    return api.get<OdakUpdateJobStatus>('/reports/odak-update/status', undefined, { useCache: false })
+  },
+
+  async cancelOdakUpdate(): Promise<{ status: string; message: string }> {
+    return api.get<{ status: string; message: string }>('/reports/odak-update/cancel', undefined, { useCache: false })
+  },
+
+  async getIvmeSync(): Promise<IvmeSyncListResponse> {
+    return api.get<IvmeSyncListResponse>('/reports/ivme-sync', undefined, { useCache: false })
+  },
+
+  async updateOdakSchedule(reportId: number, payload: IvmeSyncScheduleUpdate): Promise<IvmeSyncSchedule> {
+    return api.put<IvmeSyncSchedule>(`/reports/${reportId}/odak-schedule`, payload)
+  },
+
+  async updateOdakSchedulesBulk(payload: IvmeSyncBulkScheduleUpdate): Promise<{ items: Array<{ report_id: number; schedule: IvmeSyncSchedule }> }> {
+    return api.put('/reports/odak-schedule/bulk', payload)
   }
 }

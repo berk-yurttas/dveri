@@ -1,6 +1,7 @@
 import io
 import re
 import time
+import asyncio
 
 from clickhouse_driver import Client
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,6 +15,15 @@ from app.core.platform_middleware import get_current_platform, get_optional_plat
 from app.models.postgres_models import Platform
 from app.schemas.data import ReportPreviewRequest, ReportPreviewResponse
 from app.schemas.reports import (
+    IvmeSyncBulkScheduleResponse,
+    IvmeSyncBulkScheduleUpdate,
+    IvmeSyncListResponse,
+    IvmeSyncSchedule,
+    IvmeSyncScheduleUpdate,
+    OdakBulkUpdateRequest,
+    OdakUpdateCancelResponse,
+    OdakUpdateJobStatusResponse,
+    OdakUpdateTriggerResponse,
     Report,
     ReportCreate,
     ReportExecutionRequest,
@@ -25,6 +35,19 @@ from app.schemas.reports import (
     SqlValidationResponse,
 )
 from app.schemas.user import User
+from app.services.odak_schedule_service import (
+    bulk_upsert_schedules,
+    list_ivme_sync_reports,
+    record_last_run,
+    upsert_schedule,
+)
+from app.services.odak_update_scheduler import follow_job_and_record, follow_job_and_record_many
+from app.services.odak_updater_service import (
+    cancel_job,
+    get_job_status,
+    trigger_report_tables_update,
+    trigger_reports_tables_update,
+)
 from app.services.reports_service import ReportsService, ConnectionPool
 
 router = APIRouter()
@@ -54,6 +77,13 @@ def sanitize_sql_query(query: str) -> str:
         raise ValueError("Only SELECT OR WITH queries are allowed")
 
     return sanitized_query
+
+
+def _require_report_update_admin(current_user: User) -> None:
+    roles = current_user.role or []
+    allowed = {"miras:admin", "odak:admin"}
+    if not any((role or "").lower() in allowed for role in roles):
+        raise HTTPException(status_code=403, detail="Bu işlem için yetkiniz yok")
 
 @router.post("/preview", response_model=ReportPreviewResponse)
 async def preview_report_query(
@@ -322,6 +352,74 @@ async def validate_sql_syntax(
             execution_time_ms=0
         )
 
+@router.get("/odak-update/status", response_model=OdakUpdateJobStatusResponse)
+async def odak_update_job_status(
+    current_user: User = Depends(check_authenticated),
+):
+    """Poll Odak updater job state and in-memory logs. Admin only."""
+    _require_report_update_admin(current_user)
+    return await get_job_status()
+
+
+@router.get("/odak-update/cancel", response_model=OdakUpdateCancelResponse)
+async def odak_update_cancel_job(
+    current_user: User = Depends(check_authenticated),
+):
+    """Request cancellation of a running Odak updater job. Admin only."""
+    _require_report_update_admin(current_user)
+    return await cancel_job()
+
+
+@router.post("/odak-update/bulk", response_model=OdakUpdateTriggerResponse)
+async def trigger_bulk_odak_update(
+    payload: OdakBulkUpdateRequest,
+    current_user: User = Depends(check_authenticated),
+    db: AsyncSession = Depends(get_postgres_db),
+):
+    """Extract tables from multiple reports and trigger one Odak batch update."""
+    _require_report_update_admin(current_user)
+
+    unique_ids = list(dict.fromkeys(payload.report_ids))
+    service = ReportsService(db)
+    reports = []
+    for report_id in unique_ids:
+        report = await service.get_report_for_export(report_id)
+        if report:
+            reports.append(report)
+
+    if not reports:
+        raise HTTPException(status_code=404, detail="Seçilen raporlar bulunamadı")
+
+    result = await trigger_reports_tables_update(reports)
+    report_ids = [report.id for report in reports]
+    for report_id in report_ids:
+        await record_last_run(db, report_id, "started", result.get("message"))
+    asyncio.create_task(follow_job_and_record_many(report_ids))
+    return result
+
+
+@router.put("/odak-schedule/bulk", response_model=IvmeSyncBulkScheduleResponse)
+async def bulk_update_report_odak_schedules(
+    payload: IvmeSyncBulkScheduleUpdate,
+    current_user: User = Depends(check_authenticated),
+    db: AsyncSession = Depends(get_postgres_db),
+):
+    """Apply the same schedule and/or active flag to multiple reports. Admin only."""
+    _require_report_update_admin(current_user)
+    items = await bulk_upsert_schedules(db, payload)
+    return {"items": [{"report_id": report_id, "schedule": schedule} for report_id, schedule in items]}
+
+
+@router.get("/ivme-sync", response_model=IvmeSyncListResponse)
+async def list_ivme_report_sync(
+    current_user: User = Depends(check_authenticated),
+    db: AsyncSession = Depends(get_postgres_db),
+):
+    """List IVME reports with Odak update schedules. Admin only."""
+    _require_report_update_admin(current_user)
+    return await list_ivme_sync_reports(db)
+
+
 @router.get("/sample-queries", response_model=SampleQueriesResponse)
 async def get_sample_queries():
     """
@@ -524,6 +622,41 @@ async def export_report_sql(
             "Content-Length": str(len(sql_bytes))
         }
     )
+
+
+@router.post("/{report_id}/odak-update", response_model=OdakUpdateTriggerResponse)
+async def trigger_report_odak_update(
+    report_id: int,
+    current_user: User = Depends(check_authenticated),
+    db: AsyncSession = Depends(get_postgres_db)
+):
+    """
+    Extract tables from the report's SQL queries and trigger Odak DB
+    updater (`POST /trigger-multiple-update`). Restricted to admins.
+    """
+    _require_report_update_admin(current_user)
+
+    service = ReportsService(db)
+    report = await service.get_report_for_export(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Aradığınız Rapor Bulunamadı")
+
+    result = await trigger_report_tables_update(report)
+    await record_last_run(db, report_id, "started", result.get("message"))
+    asyncio.create_task(follow_job_and_record(report_id))
+    return result
+
+
+@router.put("/{report_id}/odak-schedule", response_model=IvmeSyncSchedule)
+async def update_report_odak_schedule(
+    report_id: int,
+    payload: IvmeSyncScheduleUpdate,
+    current_user: User = Depends(check_authenticated),
+    db: AsyncSession = Depends(get_postgres_db),
+):
+    """Set daily Odak update schedule for a report. Admin only."""
+    _require_report_update_admin(current_user)
+    return await upsert_schedule(db, report_id, payload)
 
 
 @router.post("/{report_id}/favorite")

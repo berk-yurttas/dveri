@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Settings, MessageSquare, BookOpen } from "lucide-react";
+import { Settings, MessageSquare, BookOpen, RefreshCw } from "lucide-react";
 
 export default function AdminSidebar() {
   const pathname = usePathname();
@@ -25,6 +25,12 @@ export default function AdminSidebar() {
       icon: BookOpen,
       href: "/admin/documentations",
       isActive: pathname?.startsWith("/admin/documentations"),
+    },
+    {
+      title: "İvme Rapor Senkronizasyon",
+      icon: RefreshCw,
+      href: "/admin/ivme-sync",
+      isActive: pathname?.startsWith("/admin/ivme-sync"),
     },
   ];
 

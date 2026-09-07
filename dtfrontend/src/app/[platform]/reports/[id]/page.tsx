@@ -66,6 +66,7 @@ import {
   CardVisualization
 } from '@/components/visualizations'
 import { GlobalFilters } from '@/components/reports/GlobalFilters'
+import { ReportOdakUpdateModal } from '@/components/reports/ReportOdakUpdateModal'
 import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 import { expandNestedQueryResults } from '@/utils/excelExport'
 import { useUser } from '@/contexts/user-context'
@@ -249,6 +250,8 @@ export default function ReportDetailPage() {
   const [authorizedDepartments, setAuthorizedDepartments] = useState<string[]>([])
   const [authorizedUsers, setAuthorizedUsers] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<number | null>(null)
+  const [isOdakUpdateModalOpen, setIsOdakUpdateModalOpen] = useState(false)
+  const canUpdateOdakTables = isAdmin(user) || (Array.isArray(user?.role) && user.role.includes('odak:admin'))
 
   // Debounce timeout refs for each filter
   const debounceTimeouts = useRef<{ [key: string]: NodeJS.Timeout }>({})
@@ -3243,6 +3246,16 @@ export default function ReportDetailPage() {
                   <RefreshCw className="h-3 w-3" />
                   Yenile
                 </button>
+                {canUpdateOdakTables && (
+                  <button
+                    onClick={() => setIsOdakUpdateModalOpen(true)}
+                    title="Rapor sorgularındaki tabloları Odak DB üzerinden güncelle"
+                    className="flex items-center gap-1.5 bg-amber-600 text-white px-2.5 py-1 text-xs rounded-md hover:bg-amber-700 transition-colors"
+                  >
+                    <Database className="h-3 w-3" />
+                    Raporu Güncelle
+                  </button>
+                )}
                 {Array.isArray(user?.role) && user.role.includes('odak:admin') && (
                   <button
                     onClick={exportReportSql}
@@ -3730,6 +3743,13 @@ export default function ReportDetailPage() {
         onSave={handleSaveDepartments}
         initialSelectedDepartments={authorizedDepartments}
         initialSelectedUsers={authorizedUsers}
+      />
+
+      <ReportOdakUpdateModal
+        isOpen={isOdakUpdateModalOpen}
+        reportId={reportId}
+        onClose={() => setIsOdakUpdateModalOpen(false)}
+        onComplete={() => report && executeAllQueries(report, filters)}
       />
 
       {/* MIRAS Assistant Chatbot */}
