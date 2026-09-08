@@ -35,6 +35,9 @@ export interface IvmeSyncSchedule {
   last_run_at: string | null
   last_run_status: string | null
   last_run_message: string | null
+  last_run_duration_seconds?: number | null
+  run_count?: number
+  avg_runtime_seconds?: number | null
 }
 
 export interface IvmeSyncScheduleUpdate {
@@ -64,6 +67,7 @@ export interface IvmeSyncListResponse {
   reports: IvmeSyncReportItem[]
   last_updater_date: string | null
   last_updater_user: string | null
+  avg_runtime_seconds?: number | null
 }
 
 export const reportsService = {

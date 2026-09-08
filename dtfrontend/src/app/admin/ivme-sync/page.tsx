@@ -10,6 +10,7 @@ import {
   XCircle,
   Loader2,
   Play,
+  Timer,
 } from "lucide-react"
 import AdminSidebar from "@/components/AdminSidebar"
 import { ReportOdakUpdateModal } from "@/components/reports/ReportOdakUpdateModal"
@@ -51,6 +52,20 @@ function formatDate(value: string | null | undefined) {
   return date.toLocaleString("tr-TR")
 }
 
+function formatDuration(seconds: number | null | undefined) {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "—"
+  const total = Math.round(seconds)
+  if (total < 60) return `${total} sn`
+  const minutes = Math.floor(total / 60)
+  const remainingSeconds = total % 60
+  if (minutes < 60) {
+    return remainingSeconds ? `${minutes} dk ${remainingSeconds} sn` : `${minutes} dk`
+  }
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return remainingMinutes ? `${hours} sa ${remainingMinutes} dk` : `${hours} sa`
+}
+
 function statusBadge(status: string | null | undefined) {
   if (!status) return null
   if (status === "success") {
@@ -81,6 +96,7 @@ export default function IvmeReportSyncPage() {
   const [reports, setReports] = useState<IvmeSyncReportItem[]>([])
   const [lastUpdaterDate, setLastUpdaterDate] = useState<string | null>(null)
   const [lastUpdaterUser, setLastUpdaterUser] = useState<string | null>(null)
+  const [avgRuntimeSeconds, setAvgRuntimeSeconds] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
@@ -101,6 +117,7 @@ export default function IvmeReportSyncPage() {
       setReports(data.reports || [])
       setLastUpdaterDate(data.last_updater_date)
       setLastUpdaterUser(data.last_updater_user)
+      setAvgRuntimeSeconds(data.avg_runtime_seconds ?? null)
     } catch (err) {
       console.error("Failed to load IVME sync reports:", err)
       setError("IVME raporları yüklenemedi")
@@ -206,6 +223,9 @@ export default function IvmeReportSyncPage() {
       last_run_at: null,
       last_run_status: null,
       last_run_message: null,
+      last_run_duration_seconds: null,
+      run_count: 0,
+      avg_runtime_seconds: null,
     }
 
   return (
@@ -220,7 +240,7 @@ export default function IvmeReportSyncPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center gap-2 text-gray-500 mb-2">
                 <Database className="h-5 w-5" />
@@ -237,6 +257,14 @@ export default function IvmeReportSyncPage() {
               {lastUpdaterUser && (
                 <p className="text-sm text-gray-500 mt-1">Kullanıcı: {lastUpdaterUser}</p>
               )}
+            </div>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center gap-2 text-gray-500 mb-2">
+                <Timer className="h-5 w-5" />
+                <span className="text-sm font-medium">Toplam ortalama süre</span>
+              </div>
+              <p className="text-2xl font-bold text-gray-900">{formatDuration(avgRuntimeSeconds)}</p>
+              <p className="text-sm text-gray-500 mt-1">Tüm raporların ortalama çalışma süresi</p>
             </div>
           </div>
 
@@ -363,6 +391,9 @@ export default function IvmeReportSyncPage() {
                       Son güncelleme
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Ort. süre
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Zamanlama
                     </th>
                     <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -406,6 +437,19 @@ export default function IvmeReportSyncPage() {
                             <p className="text-xs text-gray-500 mt-1 max-w-xs truncate" title={schedule.last_run_message}>
                               {schedule.last_run_message}
                             </p>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {formatDuration(schedule.avg_runtime_seconds)}
+                          </div>
+                          {schedule.last_run_duration_seconds != null && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              Son: {formatDuration(schedule.last_run_duration_seconds)}
+                            </p>
+                          )}
+                          {(schedule.run_count || 0) > 0 && (
+                            <p className="text-xs text-gray-400 mt-0.5">{schedule.run_count} çalışma</p>
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">

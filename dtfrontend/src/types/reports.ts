@@ -206,6 +206,7 @@ export interface SavedReport extends ReportConfig {
   owner_name: string
   created_at: string
   updated_at: string
+  odak_last_run_at?: string | null
   created_by: string
   is_public: boolean
   layoutConfig?: any[]  // Grid layout configuration

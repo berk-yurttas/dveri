@@ -354,6 +354,7 @@ class ReportsService:
             stmt = select(Report).options(
                 selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
+                selectinload(Report.odak_schedule),
                 joinedload(Report.owner)
             ).where(and_(Report.id == report_id, Report.deleted_at.is_(None)))
         else:
@@ -372,6 +373,7 @@ class ReportsService:
             stmt = select(Report).options(
                 selectinload(Report.tabs).selectinload(ReportTab.queries).selectinload(ReportQuery.filters),
                 selectinload(Report.queries).selectinload(ReportQuery.filters),
+                selectinload(Report.odak_schedule),
                 joinedload(Report.owner)
             ).where(
                 and_(

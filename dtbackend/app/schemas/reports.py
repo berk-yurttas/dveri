@@ -378,6 +378,7 @@ class Report(ReportBase):
     owner_name: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
+    odak_last_run_at: datetime | None = None
     queries: list[QueryConfig] = []
     tabs: list[TabConfig] = []
 
@@ -509,6 +510,9 @@ class IvmeSyncSchedule(BaseModel):
     last_run_at: datetime | None = None
     last_run_status: str | None = None
     last_run_message: str | None = None
+    last_run_duration_seconds: int | None = None
+    run_count: int = 0
+    avg_runtime_seconds: float | None = None
 
 
 class IvmeSyncScheduleUpdate(BaseModel):
@@ -547,3 +551,4 @@ class IvmeSyncListResponse(BaseModel):
     reports: list[IvmeSyncReportItem]
     last_updater_date: str | None = None
     last_updater_user: str | None = None
+    avg_runtime_seconds: float | None = None

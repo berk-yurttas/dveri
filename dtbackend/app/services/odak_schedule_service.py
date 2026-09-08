@@ -60,6 +60,16 @@ def compute_next_run_at(
     return candidate
 
 
+def _avg_runtime_seconds(row: ReportOdakSchedule | None) -> float | None:
+    if not row:
+        return None
+    run_count = int(getattr(row, "run_count", 0) or 0)
+    total_seconds = int(getattr(row, "total_run_seconds", 0) or 0)
+    if run_count <= 0:
+        return None
+    return round(total_seconds / run_count, 1)
+
+
 def _schedule_schema(row: ReportOdakSchedule | None) -> IvmeSyncSchedule | None:
     if not row:
         return None
@@ -73,6 +83,9 @@ def _schedule_schema(row: ReportOdakSchedule | None) -> IvmeSyncSchedule | None:
         last_run_at=row.last_run_at,
         last_run_status=row.last_run_status,
         last_run_message=row.last_run_message,
+        last_run_duration_seconds=getattr(row, "last_run_duration_seconds", None),
+        run_count=int(getattr(row, "run_count", 0) or 0),
+        avg_runtime_seconds=_avg_runtime_seconds(row),
     )
 
 
@@ -105,10 +118,19 @@ async def list_ivme_sync_reports(db: AsyncSession) -> IvmeSyncListResponse:
         )
         for report in reports
     ]
+    report_averages = [
+        item.schedule.avg_runtime_seconds
+        for item in items
+        if item.schedule and item.schedule.avg_runtime_seconds is not None
+    ]
+    overall_avg = (
+        round(sum(report_averages) / len(report_averages), 1) if report_averages else None
+    )
     return IvmeSyncListResponse(
         reports=items,
         last_updater_date=last_info.get("date"),
         last_updater_user=last_info.get("user_info"),
+        avg_runtime_seconds=overall_avg,
     )
 
 
@@ -232,9 +254,23 @@ async def record_last_run(
     message: str | None,
 ) -> None:
     row = await get_or_create_schedule(db, report_id)
-    row.last_run_at = datetime.now(timezone.utc)
-    row.last_run_status = status
-    row.last_run_message = message
+    now = datetime.now(timezone.utc)
+    if status == "started":
+        row.last_run_started_at = now
+        row.last_run_status = status
+        row.last_run_message = message
+    else:
+        started = getattr(row, "last_run_started_at", None)
+        if started is not None:
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            duration = max(0, int((now - started).total_seconds()))
+            row.last_run_duration_seconds = duration
+            row.run_count = int(getattr(row, "run_count", 0) or 0) + 1
+            row.total_run_seconds = int(getattr(row, "total_run_seconds", 0) or 0) + duration
+        row.last_run_at = now
+        row.last_run_status = status
+        row.last_run_message = message
     await db.commit()
 
 

@@ -118,6 +118,7 @@ interface ReportData {
   owner_name: string
   created_at: string
   updated_at: string | null
+  odak_last_run_at?: string | null
   queries: QueryData[]
   tabs?: TabData[]
   globalFilters?: FilterData[]
@@ -3331,6 +3332,13 @@ export default function ReportDetailPage() {
             <Calendar className="h-2.5 w-2.5" />
             {new Date(report.created_at).toLocaleDateString()}
           </div>
+          <div className="flex items-center gap-1" title="Rapor tablolarının son Odak güncelleme zamanı">
+            <Clock className="h-2.5 w-2.5" />
+            Son güncelleme:{' '}
+            {report.odak_last_run_at
+              ? new Date(report.odak_last_run_at).toLocaleString('tr-TR')
+              : '—'}
+          </div>
           {report.owner_name && (
             <div className="flex items-center gap-1">
               <User className="h-2.5 w-2.5" />
@@ -3749,7 +3757,23 @@ export default function ReportDetailPage() {
         isOpen={isOdakUpdateModalOpen}
         reportId={reportId}
         onClose={() => setIsOdakUpdateModalOpen(false)}
-        onComplete={() => report && executeAllQueries(report, filters)}
+        onComplete={async () => {
+          if (report) {
+            await executeAllQueries(report, filters)
+          }
+          try {
+            const updated = await reportsService.getReportById(reportId)
+            setReport((current) =>
+              current
+                ? { ...current, odak_last_run_at: (updated as { odak_last_run_at?: string | null }).odak_last_run_at || new Date().toISOString() }
+                : current
+            )
+          } catch {
+            setReport((current) =>
+              current ? { ...current, odak_last_run_at: new Date().toISOString() } : current
+            )
+          }
+        }}
       />
 
       {/* MIRAS Assistant Chatbot */}
