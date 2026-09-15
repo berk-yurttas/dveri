@@ -376,7 +376,7 @@ export default function SubPlatformPage() {
 
           const chartResponse = await api.post<PreviewResponse>('/reports/preview', {
             sql_query: sqlQuery,
-            limit: 100000
+            limit: 100000000
           });
 
           if (chartResponse?.data && Array.isArray(chartResponse.data)) {

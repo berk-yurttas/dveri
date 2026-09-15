@@ -422,6 +422,20 @@ class ReportExecutionRequest(BaseModel):
     sort_by: str | None = None  # Column name to sort by
     sort_direction: str | None = None  # Sort direction: 'asc' or 'desc'
 
+
+class ReportExcelExportJobStart(BaseModel):
+    job_id: str
+
+
+class ReportExcelExportJobStatus(BaseModel):
+    job_id: str
+    status: str
+    percent: int
+    label: str
+    rows_written: int
+    filename: str | None = None
+    error: str | None = None
+
 class QueryExecutionResult(BaseModel):
     query_id: int
     query_name: str

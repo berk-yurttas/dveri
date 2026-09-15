@@ -1,8 +1,12 @@
 import asyncio
 import re
+import tempfile
 import time
+from datetime import date, datetime, time as dt_time
+from decimal import Decimal
 from threading import Lock
-from typing import Any
+from typing import Any, Callable
+from uuid import UUID
 
 from clickhouse_driver import Client
 from sqlalchemy import and_, delete, or_, select
@@ -1849,3 +1853,344 @@ class ReportsService:
 
         except Exception as e:
             raise ValueError(f"Failed to get filter options: {e!s}")
+
+    EXCEL_MAX_DATA_ROWS = 1_048_575
+    EXPORT_FETCH_SIZE = 10_000
+
+    async def get_authorized_report(self, report_id: int, user: UserSchema) -> Report:
+        db_user = await UserService.get_user_by_username(self.db, user.username)
+        if not db_user:
+            raise ValueError("User not found")
+
+        stmt = select(Report).options(
+            joinedload(Report.queries).joinedload(ReportQuery.filters),
+            joinedload(Report.platform)
+        ).where(Report.id == report_id)
+        result = await self.db.execute(stmt)
+        report = result.unique().scalar_one_or_none()
+        if not report:
+            raise ValueError("Report not found or access denied")
+
+        is_admin = user.role and "miras:admin" in user.role
+        has_access = bool(is_admin) or report.owner_id == db_user.id or report.is_public is True
+        if not has_access and report.allowed_users and user.username in report.allowed_users:
+            has_access = True
+        if not has_access and report.allowed_departments and user.department:
+            user_dept_parts = user.department.split('_')
+            current_dept = ""
+            for part in user_dept_parts:
+                current_dept = f"{current_dept}_{part}" if current_dept else part
+                if current_dept in report.allowed_departments:
+                    has_access = True
+                    break
+        if not has_access:
+            raise ValueError("Report access denied")
+        return report
+
+    def _prepare_export_sql(
+        self,
+        query: ReportQuery,
+        filter_values: list[FilterValue] | None,
+        sort_by: str | None,
+        sort_direction: str | None,
+        db_type: str,
+        global_filters: list[dict[str, Any]] | None,
+        filter_by_department: bool,
+        user_department: str | None,
+        department_filter_level: str | None,
+        filter_by_step_department: bool,
+    ) -> str:
+        sql = query.sql
+        all_filters = list(query.filters)
+        if global_filters:
+            for gf in global_filters:
+                filter_obj = type('obj', (object,), {
+                    'field_name': gf.get('fieldName'),
+                    'display_name': gf.get('displayName'),
+                    'filter_type': gf.get('type'),
+                    'dropdown_query': gf.get('dropdownQuery'),
+                    'required': gf.get('required', False),
+                    'sql_expression': gf.get('sqlExpression'),
+                    'depends_on': gf.get('dependsOn')
+                })()
+                all_filters.append(filter_obj)
+
+        sql = self.apply_filters_to_query(sql, all_filters, filter_values or [], db_type)
+
+        if filter_by_department and user_department:
+            column_name = "step_department" if filter_by_step_department else "department"
+            dept_parts = user_department.split('_')
+            if department_filter_level:
+                level_map = {'sektor': 2, 'direktorluk': 3, 'mudurluk': 4, 'birim': 5}
+                level_position = level_map.get(department_filter_level.lower())
+                if level_position and len(dept_parts) >= level_position:
+                    filtered_dept = '_'.join(dept_parts[:level_position])
+                else:
+                    filtered_dept = user_department
+                dept_filter_clause = f"{column_name} LIKE '{filtered_dept}%'"
+            else:
+                dept_conditions = []
+                current = ""
+                for part in dept_parts:
+                    current = f"{current}_{part}" if current else part
+                    dept_conditions.append(f"{column_name} LIKE '{current}%'")
+                dept_filter_clause = " OR ".join(dept_conditions)
+
+            if "WHERE" in sql.upper():
+                sql = sql + f" AND ({dept_filter_clause})"
+            else:
+                match = re.search(r'\s+(GROUP\s+BY|HAVING|ORDER\s+BY|LIMIT)\s+', sql, re.IGNORECASE)
+                if match:
+                    insert_pos = match.start()
+                    sql = sql[:insert_pos] + f" WHERE ({dept_filter_clause})" + sql[insert_pos:]
+                else:
+                    sql = sql + f" WHERE ({dept_filter_clause})"
+
+        if sort_by and sort_direction:
+            sql = self.apply_sorting_to_query(sql, sort_by, sort_direction)
+        return self.sanitize_sql_query(sql)
+
+    @staticmethod
+    def _format_export_value(value: Any) -> Any:
+        if value is None or isinstance(value, (int, float, bool, str)):
+            return value
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, (datetime, date, dt_time, UUID)):
+            return str(value)
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return str(value)
+
+    @staticmethod
+    def _excel_sheet_name(name: str, used: set[str]) -> str:
+        base = re.sub(r'[\\/?*\[\]:]', '_', name or 'Sheet')[:31].strip() or 'Sheet'
+        candidate = base
+        suffix = 2
+        while candidate.lower() in used:
+            extra = f"_{suffix}"
+            candidate = f"{base[:max(1, 31 - len(extra))]}{extra}"
+            suffix += 1
+        used.add(candidate.lower())
+        return candidate
+
+    def _iter_export_batches(
+        self,
+        sql: str,
+        db_type: str,
+        db_config: dict[str, Any] | None,
+        platform: Platform | None,
+    ):
+        fetch_size = self.EXPORT_FETCH_SIZE
+        if db_type == "clickhouse":
+            if db_config:
+                client = self._connection_pool.get_connection(db_config=db_config, db_type=db_type)
+            elif self.clickhouse_client:
+                client = self.clickhouse_client
+            else:
+                raise ValueError("ClickHouse client not available")
+            empty = client.execute(f"SELECT * FROM ({sql}) AS _export_src LIMIT 0", with_column_types=True)
+            columns = [col[0] for col in empty[1]] if empty and len(empty) > 1 else []
+            yield columns, []
+            batch: list[Any] = []
+            for row in client.execute_iter(sql, settings={"max_block_size": fetch_size}):
+                batch.append(row)
+                if len(batch) >= fetch_size:
+                    yield columns, batch
+                    batch = []
+            if batch:
+                yield columns, batch
+            return
+
+        if db_type == "postgresql":
+            conn = self._connection_pool.get_connection(db_config=db_config, platform=platform, db_type=db_type)
+            cursor = None
+            try:
+                conn.autocommit = False
+                cursor = conn.cursor(name=f"export_{int(time.time() * 1000)}")
+                cursor.itersize = fetch_size
+                cursor.execute(sql)
+                columns = [desc[0] for desc in cursor.description] if cursor.description else []
+                yield columns, []
+                while True:
+                    rows = cursor.fetchmany(fetch_size)
+                    if not rows:
+                        break
+                    yield columns, rows
+            finally:
+                if cursor is not None:
+                    try:
+                        cursor.close()
+                    except Exception:
+                        pass
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                self._connection_pool.return_connection(conn, db_config=db_config, platform=platform, db_type=db_type)
+            return
+
+        if db_type == "mssql":
+            conn = self._connection_pool.get_connection(db_config=db_config, platform=platform, db_type=db_type)
+            cursor = conn.cursor()
+            try:
+                cursor.arraysize = fetch_size
+                cursor.execute(sql)
+                columns = [column[0] for column in cursor.description] if cursor.description else []
+                yield columns, []
+                while True:
+                    rows = cursor.fetchmany(fetch_size)
+                    if not rows:
+                        break
+                    yield columns, rows
+            finally:
+                cursor.close()
+                self._connection_pool.return_connection(conn, db_config=db_config, platform=platform, db_type=db_type)
+            return
+
+        raise ValueError(f"Unsupported database type: {db_type}")
+
+    def _write_excel_from_queries(
+        self,
+        query_specs: list[dict[str, Any]],
+        progress_cb: Callable[[int, str, int], None],
+    ) -> str:
+        from openpyxl import Workbook
+
+        workbook = Workbook(write_only=True)
+        used_names: set[str] = set()
+        total_rows = 0
+        estimated_total = 50_000
+        query_count = max(len(query_specs), 1)
+
+        for query_index, spec in enumerate(query_specs):
+            query_name = spec["name"]
+            progress_cb(
+                max(1, int(query_index / query_count * 90)),
+                f"{query_name} sorgulanıyor...",
+                total_rows,
+            )
+            columns: list[str] = []
+            sheet = None
+            sheet_rows = 0
+            sheet_number = 1
+            query_rows = 0
+
+            for batch_columns, batch in self._iter_export_batches(
+                spec["sql"], spec["db_type"], spec["db_config"], spec["platform"]
+            ):
+                if not columns:
+                    columns = batch_columns or []
+                    sheet_title = self._excel_sheet_name(query_name, used_names)
+                    sheet = workbook.create_sheet(sheet_title)
+                    if columns:
+                        sheet.append(columns)
+                if not batch:
+                    continue
+                if sheet is None:
+                    sheet = workbook.create_sheet(self._excel_sheet_name(query_name, used_names))
+                    if columns:
+                        sheet.append(columns)
+
+                for row in batch:
+                    if sheet_rows >= self.EXCEL_MAX_DATA_ROWS:
+                        sheet_number += 1
+                        sheet_title = self._excel_sheet_name(f"{query_name} ({sheet_number})", used_names)
+                        sheet = workbook.create_sheet(sheet_title)
+                        if columns:
+                            sheet.append(columns)
+                        sheet_rows = 0
+                    sheet.append([self._format_export_value(value) for value in row])
+                    sheet_rows += 1
+                    query_rows += 1
+                    total_rows += 1
+
+                if total_rows > estimated_total * 0.75:
+                    estimated_total = int(total_rows / 0.65)
+                query_start = int(query_index / query_count * 90)
+                query_span = 90 / query_count
+                fraction = min(0.98, total_rows / max(estimated_total, 1))
+                percent = min(95, int(query_start + fraction * query_span))
+                progress_cb(
+                    percent,
+                    f"{query_name} — {total_rows:,} satır".replace(",", "."),
+                    total_rows,
+                )
+
+            if sheet is None:
+                sheet = workbook.create_sheet(self._excel_sheet_name(query_name, used_names))
+                if columns:
+                    sheet.append(columns)
+
+        if not workbook.worksheets:
+            workbook.create_sheet("Sheet")
+
+        progress_cb(96, "Excel dosyası kaydediliyor...", total_rows)
+        handle = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+        handle.close()
+        workbook.save(handle.name)
+        progress_cb(100, "Tamamlandı", total_rows)
+        return handle.name
+
+    async def export_report_excel(
+        self,
+        request: ReportExecutionRequest,
+        user: UserSchema,
+        progress_cb: Callable[[int, str, int], None],
+    ) -> tuple[str, str]:
+        report = await self.get_authorized_report(request.report_id, user)
+        platform = report.platform
+        report_db_config = report.db_config
+        if not report_db_config and not platform and not self.clickhouse_client:
+            raise ValueError("No database connection available for this report")
+
+        if report_db_config:
+            db_type = report_db_config.get("db_type", "clickhouse").lower()
+        elif platform:
+            db_type = platform.db_type.lower()
+        else:
+            db_type = "clickhouse"
+
+        queries = list(report.queries)
+        if request.query_id:
+            query = next((q for q in queries if q.id == request.query_id), None)
+            if not query:
+                raise ValueError("Query not found in report")
+            queries = [query]
+
+        query_specs = []
+        for query in queries:
+            sql = self._prepare_export_sql(
+                query,
+                request.filters,
+                request.sort_by,
+                request.sort_direction,
+                db_type,
+                report.global_filters or [],
+                report.filter_by_department or False,
+                user.department,
+                report.department_filter_level,
+                report.filter_by_step_department or False,
+            )
+            query_specs.append({
+                "name": query.name or f"Query_{query.id}",
+                "sql": sql,
+                "db_type": db_type,
+                "db_config": report_db_config,
+                "platform": platform,
+            })
+
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", report.name)[:60] or "report"
+        if request.query_id and queries:
+            safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", queries[0].name or safe_name)[:60] or safe_name
+        filename = f"{safe_name}_{timestamp}.xlsx"
+
+        progress_cb(2, "Sorgu çalıştırılıyor...", 0)
+        file_path = await asyncio.to_thread(
+            self._write_excel_from_queries,
+            query_specs,
+            progress_cb,
+        )
+        return file_path, filename
+

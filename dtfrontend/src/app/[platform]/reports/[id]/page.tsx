@@ -38,9 +38,6 @@ import {
   Shield,
   FileCode
 } from 'lucide-react'
-import ExcelJS from 'exceljs'
-import { saveAs } from 'file-saver'
-import html2canvas from 'html2canvas'
 import { reportsService } from '@/services/reports'
 import { DeleteModal } from '@/components/ui/delete-modal'
 import { DepartmentSelectModal } from '@/components/reports/department-select-modal'
@@ -68,7 +65,6 @@ import {
 import { GlobalFilters } from '@/components/reports/GlobalFilters'
 import { ReportOdakUpdateModal } from '@/components/reports/ReportOdakUpdateModal'
 import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
-import { expandNestedQueryResults } from '@/utils/excelExport'
 import { useUser } from '@/contexts/user-context'
 import { isAdmin } from '@/lib/utils'
 
@@ -202,6 +198,46 @@ interface QueryResultState {
   }
 }
 
+function mapReportFilters(
+  filterList: FilterData[] | undefined,
+  keyPrefix: string,
+  currentFilters: FilterState
+) {
+  return (filterList || [])
+    .map((filter) => {
+      if (filter.type === 'date') {
+        const startValue = currentFilters[`${keyPrefix}${filter.fieldName}_start`]
+        const endValue = currentFilters[`${keyPrefix}${filter.fieldName}_end`]
+        if (startValue && endValue) {
+          return { field_name: filter.fieldName, value: [startValue, endValue], operator: 'BETWEEN' }
+        }
+        if (startValue) {
+          return { field_name: filter.fieldName, value: startValue, operator: '>=' }
+        }
+        if (endValue) {
+          return { field_name: filter.fieldName, value: endValue, operator: '<=' }
+        }
+        return null
+      }
+
+      const value = currentFilters[`${keyPrefix}${filter.fieldName}`]
+      if (filter.type === 'multiselect') {
+        if (Array.isArray(value) && value.length > 0) {
+          return { field_name: filter.fieldName, value, operator: 'IN' }
+        }
+        return null
+      }
+      if (value && value !== '') {
+        const operator =
+          currentFilters[`${keyPrefix}${filter.fieldName}_operator`] ||
+          (filter.type === 'text' ? 'CONTAINS' : '=')
+        return { field_name: filter.fieldName, value, operator }
+      }
+      return null
+    })
+    .filter(Boolean)
+}
+
 export default function ReportDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -228,6 +264,7 @@ export default function ReportDetailPage() {
   const [searchTerms, setSearchTerms] = useState<{ [key: string]: string }>({})
   const [dropdownOpen, setDropdownOpen] = useState<{ [key: string]: boolean }>({})
   const [isExporting, setIsExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState<{ percent: number; label: string } | null>(null)
   const [isExportingSql, setIsExportingSql] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -545,7 +582,7 @@ export default function ReportDetailPage() {
 
         const result = await reportsService.previewQuery({
           sql_query: modifiedSql,
-          limit: 1000000,
+          limit: 100000000,
           db_config: report?.dbConfig || null
         })
 
@@ -600,7 +637,7 @@ export default function ReportDetailPage() {
 
           const result = await reportsService.previewQuery({
             sql_query: sqlQuery,
-            limit: 1000000,
+            limit: 100000000,
             db_config: (reportData || report)?.dbConfig || null
           })
 
@@ -1664,32 +1701,6 @@ export default function ReportDetailPage() {
     }
   }
 
-  // Capture chart as base64 image
-  const captureChartAsImage = async (queryId: number): Promise<string | null> => {
-    try {
-      // Find the chart container for this query
-      const chartContainer = document.querySelector(`[data-query-id="${queryId}"] .recharts-wrapper`)
-      if (!chartContainer) {
-        console.warn(`Chart container not found for query ${queryId}`)
-        return null
-      }
-
-      // Capture the chart as canvas
-      const canvas = await html2canvas(chartContainer as HTMLElement, {
-        backgroundColor: '#ffffff',
-        scale: 2, // Higher quality
-        logging: false,
-        useCORS: true
-      })
-
-      // Convert to base64
-      return canvas.toDataURL('image/png').split(',')[1] // Remove data:image/png;base64, prefix
-    } catch (error) {
-      console.error(`Error capturing chart for query ${queryId}:`, error)
-      return null
-    }
-  }
-
   // Handle column sorting
   const handleColumnSort = (query: QueryData, column: string) => {
     const currentSort = sorting[query.id]
@@ -1771,610 +1782,79 @@ export default function ReportDetailPage() {
     }
   }
 
-  // Excel export functionality with chart images
-  const exportToExcel = async () => {
+  const buildExportFilters = (query?: QueryData) => {
+    const globalFilters = mapReportFilters(report?.globalFilters, 'global_', filters)
+    if (query) {
+      return [...globalFilters, ...mapReportFilters(query.filters, `${query.id}_`, filters)]
+    }
+    return [
+      ...globalFilters,
+      ...(report?.queries || []).flatMap((q) => mapReportFilters(q.filters, `${q.id}_`, filters))
+    ]
+  }
+
+  const updateExportProgress = (percent: number, label: string) => {
+    setExportProgress({
+      percent: Math.max(0, Math.min(100, Math.round(percent))),
+      label
+    })
+  }
+
+  const runExcelExportJob = async (query?: QueryData) => {
     if (!report) return
+    const currentSort = query ? sorting[query.id] : null
+    const started = await reportsService.startExcelExport({
+      report_id: report.id,
+      query_id: query?.id ?? null,
+      filters: buildExportFilters(query),
+      ...(currentSort && {
+        sort_by: currentSort.column,
+        sort_direction: currentSort.direction
+      })
+    })
 
-    try {
-      setIsExporting(true)
-
-      // Create a new workbook
-      const workbook = new ExcelJS.Workbook()
-      workbook.creator = 'DT Report System'
-      workbook.created = new Date()
-
-      // Process each query
-      for (const query of report.queries) {
-        let columns: string[] = []
-        let data: any[][] = []
-
-        // For table/expandable visualizations, fetch ALL data without pagination
-        if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
-          try {
-            // Prepare global filters
-            const globalFilters = (report?.globalFilters || [])
-              .map(filter => {
-                if (filter.type === 'date') {
-                  const startKey = `global_${filter.fieldName}_start`
-                  const endKey = `global_${filter.fieldName}_end`
-                  const startValue = filters[startKey]
-                  const endValue = filters[endKey]
-
-                  if (startValue && endValue) {
-                    return {
-                      field_name: filter.fieldName,
-                      value: [startValue, endValue],
-                      operator: 'BETWEEN'
-                    }
-                  } else if (startValue) {
-                    return {
-                      field_name: filter.fieldName,
-                      value: startValue,
-                      operator: '>='
-                    }
-                  } else if (endValue) {
-                    return {
-                      field_name: filter.fieldName,
-                      value: endValue,
-                      operator: '<='
-                    }
-                  }
-                  return null
-                } else {
-                  const key = `global_${filter.fieldName}`
-                  const value = filters[key]
-
-                  if (filter.type === 'multiselect') {
-                    if (Array.isArray(value) && value.length > 0) {
-                      return {
-                        field_name: filter.fieldName,
-                        value: value,
-                        operator: 'IN'
-                      }
-                    }
-                  } else if (value && value !== '') {
-                    const operatorKey = `global_${filter.fieldName}_operator`
-                    const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
-
-                    return {
-                      field_name: filter.fieldName,
-                      value: value,
-                      operator: operator
-                    }
-                  }
-                  return null
-                }
-              })
-              .filter(Boolean)
-
-            // Prepare query filters
-            const queryFilters = query.filters
-              .map(filter => {
-                if (filter.type === 'date') {
-                  const startKey = `${query.id}_${filter.fieldName}_start`
-                  const endKey = `${query.id}_${filter.fieldName}_end`
-                  const startValue = filters[startKey]
-                  const endValue = filters[endKey]
-
-                  if (startValue && endValue) {
-                    return {
-                      field_name: filter.fieldName,
-                      value: [startValue, endValue],
-                      operator: 'BETWEEN'
-                    }
-                  } else if (startValue) {
-                    return {
-                      field_name: filter.fieldName,
-                      value: startValue,
-                      operator: '>='
-                    }
-                  } else if (endValue) {
-                    return {
-                      field_name: filter.fieldName,
-                      value: endValue,
-                      operator: '<='
-                    }
-                  }
-                  return null
-                } else {
-                  const key = `${query.id}_${filter.fieldName}`
-                  const value = filters[key]
-
-                  if (filter.type === 'multiselect') {
-                    if (Array.isArray(value) && value.length > 0) {
-                      return {
-                        field_name: filter.fieldName,
-                        value: value,
-                        operator: 'IN'
-                      }
-                    }
-                  } else if (value && value !== '') {
-                    const operatorKey = `${query.id}_${filter.fieldName}_operator`
-                    const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
-
-                    return {
-                      field_name: filter.fieldName,
-                      value: value,
-                      operator: operator
-                    }
-                  }
-                  return null
-                }
-              })
-              .filter(Boolean)
-
-            // Merge filters
-            const allFilters = [...globalFilters, ...queryFilters]
-
-            // Get current sorting state for this query
-            const currentSort = sorting[query.id]
-
-            // Execute query with high limit to get all data
-            const request = {
-              report_id: report.id,
-              query_id: query.id,
-              filters: allFilters,
-              limit: 1000000, // Very high limit to get all data
-              ...(currentSort && {
-                sort_by: currentSort.column,
-                sort_direction: currentSort.direction
-              })
-            }
-
-            const response = await reportsService.executeReport(request)
-
-            if (response.success && response.results.length > 0) {
-              const result = response.results[0]
-              columns = result.columns
-              data = result.data
-            }
-          } catch (err) {
-            console.error(`Failed to fetch all data for query ${query.id}:`, err)
-            // Fallback to current paginated data if fetch fails
-            const queryState = queryResults[query.id]
-            if (queryState?.result) {
-              columns = queryState.result.columns
-              data = queryState.result.data
-            }
-          }
-        } else {
-          // For charts, use current result data
-          const queryState = queryResults[query.id]
-          if (!queryState?.result) continue
-
-          columns = queryState.result.columns
-          data = queryState.result.data
-        }
-
-        if (columns.length === 0) continue
-
-        if (query.visualization.type === 'expandable') {
-          const nestedQueries = query.visualization.chartOptions?.nestedQueries
-          if (nestedQueries && nestedQueries.length > 0) {
-            const expanded = await expandNestedQueryResults(
-              columns,
-              data,
-              nestedQueries,
-              report?.dbConfig || null
-            )
-            columns = expanded.columns
-            data = expanded.data
-          }
-        }
-
-        // Create worksheet
-        const worksheetName = (query.name || `Query_${query.id}`).substring(0, 31)
-        const worksheet = workbook.addWorksheet(worksheetName)
-
-        if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
-          // For table visualizations, export raw data
-          worksheet.addRow(columns)
-          data.forEach(row => {
-            worksheet.addRow(row)
-          })
-
-          // Style the header row
-          const headerRow = worksheet.getRow(1)
-          headerRow.font = { bold: true }
-          headerRow.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE6F3FF' }
-          }
-
-          // Auto-size columns
-          columns.forEach((col, index) => {
-            const column = worksheet.getColumn(index + 1)
-            let maxLength = col.length
-            // Use loop instead of spread operator to avoid stack overflow with large datasets
-            for (let i = 0; i < data.length; i++) {
-              const cellLength = String(data[i][index] || '').length
-              if (cellLength > maxLength) {
-                maxLength = cellLength
-              }
-            }
-            column.width = Math.min(maxLength + 2, 50)
-          })
-
-        } else {
-          // For chart visualizations, add data and chart image
-
-          // Add title
-          worksheet.addRow([query.visualization.title || query.name])
-          worksheet.getRow(1).font = { bold: true, size: 16 }
-          worksheet.addRow([]) // Empty row
-
-          // Add data
-          worksheet.addRow(columns)
-          data.forEach(row => {
-            worksheet.addRow(row)
-          })
-
-          // Style the header row
-          const headerRow = worksheet.getRow(3)
-          headerRow.font = { bold: true }
-          headerRow.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE6F3FF' }
-          }
-
-          // Auto-size columns
-          columns.forEach((col, index) => {
-            const column = worksheet.getColumn(index + 1)
-            let maxLength = col.length
-            // Use loop instead of spread operator to avoid stack overflow with large datasets
-            for (let i = 0; i < data.length; i++) {
-              const cellLength = String(data[i][index] || '').length
-              if (cellLength > maxLength) {
-                maxLength = cellLength
-              }
-            }
-            column.width = Math.min(maxLength + 2, 30)
-          })
-
-          // Capture and add chart image
-          const chartImageBase64 = await captureChartAsImage(query.id)
-          if (chartImageBase64) {
-            try {
-              const imageId = workbook.addImage({
-                base64: chartImageBase64,
-                extension: 'png',
-              })
-
-              // Position the image to the right of the data or below it
-              const dataEndRow = data.length + 3
-              const imageStartCol = Math.max(columns.length + 2, 5) // Start after data columns
-
-              worksheet.addImage(imageId, {
-                tl: { col: imageStartCol, row: 3 }, // Top-left position
-                ext: { width: 1200, height: 400 }, // Size
-              })
-            } catch (imageError) {
-              console.error('Error adding image to worksheet:', imageError)
-            }
-          }
-        }
+    while (true) {
+      const status = await reportsService.getExcelExportStatus(started.job_id)
+      updateExportProgress(status.percent, status.label)
+      if (status.status === 'done') {
+        await reportsService.downloadExcelExport(started.job_id, status.filename || 'export.xlsx')
+        updateExportProgress(100, 'Tamamlandı')
+        return
       }
-
-      // Generate filename with timestamp
-      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-')
-      const filename = `${report.name.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}.xlsx`
-
-      // Export to file
-      const buffer = await workbook.xlsx.writeBuffer()
-      saveAs(new Blob([buffer]), filename)
-
-    } catch (error) {
-      console.error('Excel export error:', error)
-      alert('Excel dosyası oluşturulurken hata oluştu.')
-    } finally {
-      setIsExporting(false)
+      if (status.status === 'error') {
+        throw new Error(status.error || 'Excel aktarımı başarısız')
+      }
+      await new Promise((resolve) => setTimeout(resolve, 600))
     }
   }
 
-  // Export single query to Excel
-  const exportSingleQueryToExcel = async (query: QueryData) => {
+  const exportToExcel = async () => {
     if (!report) return
-
     try {
       setIsExporting(true)
-
-      let columns: string[] = []
-      let data: any[][] = []
-
-      // For table/expandable visualizations, fetch ALL data without pagination
-      if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
-        try {
-          // Prepare global filters
-          const globalFilters = (report?.globalFilters || [])
-            .map(filter => {
-              if (filter.type === 'date') {
-                const startKey = `global_${filter.fieldName}_start`
-                const endKey = `global_${filter.fieldName}_end`
-                const startValue = filters[startKey]
-                const endValue = filters[endKey]
-
-                if (startValue && endValue) {
-                  return {
-                    field_name: filter.fieldName,
-                    value: [startValue, endValue],
-                    operator: 'BETWEEN'
-                  }
-                } else if (startValue) {
-                  return {
-                    field_name: filter.fieldName,
-                    value: startValue,
-                    operator: '>='
-                  }
-                } else if (endValue) {
-                  return {
-                    field_name: filter.fieldName,
-                    value: endValue,
-                    operator: '<='
-                  }
-                }
-                return null
-              } else {
-                const key = `global_${filter.fieldName}`
-                const value = filters[key]
-
-                if (filter.type === 'multiselect') {
-                  if (Array.isArray(value) && value.length > 0) {
-                    return {
-                      field_name: filter.fieldName,
-                      value: value,
-                      operator: 'IN'
-                    }
-                  }
-                } else if (value && value !== '') {
-                  const operatorKey = `global_${filter.fieldName}_operator`
-                  const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
-
-                  return {
-                    field_name: filter.fieldName,
-                    value: value,
-                    operator: operator
-                  }
-                }
-                return null
-              }
-            })
-            .filter(Boolean)
-
-          // Prepare query filters
-          const queryFilters = query.filters
-            .map(filter => {
-              if (filter.type === 'date') {
-                const startKey = `${query.id}_${filter.fieldName}_start`
-                const endKey = `${query.id}_${filter.fieldName}_end`
-                const startValue = filters[startKey]
-                const endValue = filters[endKey]
-
-                if (startValue && endValue) {
-                  return {
-                    field_name: filter.fieldName,
-                    value: [startValue, endValue],
-                    operator: 'BETWEEN'
-                  }
-                } else if (startValue) {
-                  return {
-                    field_name: filter.fieldName,
-                    value: startValue,
-                    operator: '>='
-                  }
-                } else if (endValue) {
-                  return {
-                    field_name: filter.fieldName,
-                    value: endValue,
-                    operator: '<='
-                  }
-                }
-                return null
-              } else {
-                const key = `${query.id}_${filter.fieldName}`
-                const value = filters[key]
-
-                if (filter.type === 'multiselect') {
-                  if (Array.isArray(value) && value.length > 0) {
-                    return {
-                      field_name: filter.fieldName,
-                      value: value,
-                      operator: 'IN'
-                    }
-                  }
-                } else if (value && value !== '') {
-                  const operatorKey = `${query.id}_${filter.fieldName}_operator`
-                  const operator = filters[operatorKey] || (filter.type === 'text' ? 'CONTAINS' : '=')
-
-                  return {
-                    field_name: filter.fieldName,
-                    value: value,
-                    operator: operator
-                  }
-                }
-                return null
-              }
-            })
-            .filter(Boolean)
-
-          // Merge filters
-          const allFilters = [...globalFilters, ...queryFilters]
-
-          // Get current sorting state for this query
-          const currentSort = sorting[query.id]
-
-          // Execute query with high limit to get all data
-          const request = {
-            report_id: report.id,
-            query_id: query.id,
-            filters: allFilters,
-            limit: 1000000, // Very high limit to get all data
-            ...(currentSort && {
-              sort_by: currentSort.column,
-              sort_direction: currentSort.direction
-            })
-          }
-
-          const response = await reportsService.executeReport(request)
-
-          if (response.success && response.results.length > 0) {
-            const result = response.results[0]
-            columns = result.columns
-            data = result.data
-          }
-        } catch (err) {
-          console.error(`Failed to fetch all data for query ${query.id}:`, err)
-          // Fallback to current paginated data if fetch fails
-          const queryState = queryResults[query.id]
-          if (queryState?.result) {
-            columns = queryState.result.columns
-            data = queryState.result.data
-          }
-        }
-      } else {
-        // For charts, use current result data
-        const queryState = queryResults[query.id]
-        if (!queryState?.result) {
-          alert('Sorgu sonucu bulunamadı.')
-          return
-        }
-
-        columns = queryState.result.columns
-        data = queryState.result.data
-      }
-
-      if (columns.length === 0) {
-        alert('Dışa aktarılacak veri yok.')
-        return
-      }
-
-      if (query.visualization.type === 'expandable') {
-        const nestedQueries = query.visualization.chartOptions?.nestedQueries
-        if (nestedQueries && nestedQueries.length > 0) {
-          const expanded = await expandNestedQueryResults(
-            columns,
-            data,
-            nestedQueries,
-            report?.dbConfig || null
-          )
-          columns = expanded.columns
-          data = expanded.data
-        }
-      }
-
-      // Create a new workbook
-      const workbook = new ExcelJS.Workbook()
-      workbook.creator = 'DT Report System'
-      workbook.created = new Date()
-
-      // Create worksheet
-      const worksheetName = (query.name || `Query_${query.id}`).substring(0, 31)
-      const worksheet = workbook.addWorksheet(worksheetName)
-
-      if (query.visualization.type === 'table' || query.visualization.type === 'expandable') {
-        // For table visualizations, export raw data
-        worksheet.addRow(columns)
-        data.forEach(row => {
-          worksheet.addRow(row)
-        })
-
-        // Style the header row
-        const headerRow = worksheet.getRow(1)
-        headerRow.font = { bold: true }
-        headerRow.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FFE6F3FF' }
-        }
-
-        // Auto-size columns
-        columns.forEach((col, index) => {
-          const column = worksheet.getColumn(index + 1)
-          let maxLength = col.length
-          // Use loop instead of spread operator to avoid stack overflow with large datasets
-          for (let i = 0; i < data.length; i++) {
-            const cellLength = String(data[i][index] || '').length
-            if (cellLength > maxLength) {
-              maxLength = cellLength
-            }
-          }
-          column.width = Math.min(maxLength + 2, 50)
-        })
-
-      } else {
-        // For chart visualizations, add data and chart image
-
-        // Add title
-        worksheet.addRow([query.visualization.title || query.name])
-        worksheet.getRow(1).font = { bold: true, size: 16 }
-        worksheet.addRow([]) // Empty row
-
-        // Add data
-        worksheet.addRow(columns)
-        data.forEach(row => {
-          worksheet.addRow(row)
-        })
-
-        // Style the header row
-        const headerRow = worksheet.getRow(3)
-        headerRow.font = { bold: true }
-        headerRow.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FFE6F3FF' }
-        }
-
-        // Auto-size columns
-        columns.forEach((col, index) => {
-          const column = worksheet.getColumn(index + 1)
-          let maxLength = col.length
-          // Use loop instead of spread operator to avoid stack overflow with large datasets
-          for (let i = 0; i < data.length; i++) {
-            const cellLength = String(data[i][index] || '').length
-            if (cellLength > maxLength) {
-              maxLength = cellLength
-            }
-          }
-          column.width = Math.min(maxLength + 2, 30)
-        })
-
-        // Capture and add chart image
-        const chartImageBase64 = await captureChartAsImage(query.id)
-        if (chartImageBase64) {
-          try {
-            const imageId = workbook.addImage({
-              base64: chartImageBase64,
-              extension: 'png',
-            })
-
-            // Position the image to the right of the data or below it
-            const dataEndRow = data.length + 3
-            const imageStartCol = Math.max(columns.length + 2, 5) // Start after data columns
-
-            worksheet.addImage(imageId, {
-              tl: { col: imageStartCol, row: 3 }, // Top-left position
-              ext: { width: 1200, height: 400 }, // Size
-            })
-          } catch (imageError) {
-            console.error('Error adding image to worksheet:', imageError)
-          }
-        }
-      }
-
-      // Generate filename with timestamp
-      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-')
-      const filename = `${query.name.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}.xlsx`
-
-      // Export to file
-      const buffer = await workbook.xlsx.writeBuffer()
-      saveAs(new Blob([buffer]), filename)
-
+      updateExportProgress(1, 'Hazırlanıyor...')
+      await runExcelExportJob()
     } catch (error) {
       console.error('Excel export error:', error)
-      alert('Excel dosyası oluşturulurken hata oluştu.')
+      alert(error instanceof Error ? `Excel dosyası oluşturulurken hata oluştu.\n${error.message}` : 'Excel dosyası oluşturulurken hata oluştu.')
     } finally {
       setIsExporting(false)
+      setExportProgress(null)
+    }
+  }
+
+  const exportSingleQueryToExcel = async (query: QueryData) => {
+    if (!report) return
+    try {
+      setIsExporting(true)
+      updateExportProgress(1, 'Hazırlanıyor...')
+      await runExcelExportJob(query)
+    } catch (error) {
+      console.error('Excel export error:', error)
+      alert(error instanceof Error ? `Excel dosyası oluşturulurken hata oluştu.\n${error.message}` : 'Excel dosyası oluşturulurken hata oluştu.')
+    } finally {
+      setIsExporting(false)
+      setExportProgress(null)
     }
   }
 
@@ -3285,7 +2765,7 @@ export default function ReportDetailPage() {
                   {isExporting ? (
                     <>
                       <Loader2 className="h-3 w-3 animate-spin" />
-                      Aktarılıyor...
+                      {exportProgress ? `${exportProgress.percent}%` : 'Aktarılıyor...'}
                     </>
                   ) : (
                     <>
@@ -3781,6 +3261,39 @@ export default function ReportDetailPage() {
 
       {/* Feedback Button */}
       <Feedback />
+
+      {isMounted && isExporting && createPortal(
+        <div className="fixed inset-0 z-[10000] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Loader2 className="h-5 w-5 animate-spin text-green-600" />
+              <h3 className="text-lg font-semibold">Excel'e aktarılıyor</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-4 min-h-[20px]">
+              {exportProgress?.label || 'Hazırlanıyor...'}
+            </p>
+            <div
+              className="h-3 bg-gray-200 rounded-full overflow-hidden"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={exportProgress?.percent ?? 0}
+            >
+              <div
+                className="h-full bg-green-600 transition-all duration-300"
+                style={{ width: `${exportProgress?.percent ?? 0}%` }}
+              />
+            </div>
+            <div className="mt-2 text-right text-sm font-semibold text-gray-700">
+              {exportProgress?.percent ?? 0}%
+            </div>
+            <p className="mt-3 text-xs text-gray-500">
+              Büyük tablolar sayfa sayfa okunur. Excel sayfa limiti 1.048.576 satır olduğu için devamı sonraki sayfalara yazılır.
+            </p>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Fullscreen Query Modal - Using Portal */}
       {isMounted && fullscreenQuery && createPortal(

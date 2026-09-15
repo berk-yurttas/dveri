@@ -175,6 +175,56 @@ export const reportsService = {
     return api.post<any>('/reports/execute', request)
   },
 
+  async startExcelExport(request: any): Promise<{ job_id: string }> {
+    return api.post<{ job_id: string }>('/reports/export-excel', request, undefined, { useCache: false, useQueue: false })
+  },
+
+  async getExcelExportStatus(jobId: string): Promise<{
+    job_id: string
+    status: string
+    percent: number
+    label: string
+    rows_written: number
+    filename?: string | null
+    error?: string | null
+  }> {
+    return api.get(`/reports/export-excel/${jobId}`, undefined, { useCache: false, useQueue: false })
+  },
+
+  async downloadExcelExport(jobId: string, fallbackName: string): Promise<void> {
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1'
+    const platformCode = typeof window !== 'undefined' ? localStorage.getItem('platform_code') : null
+    const headers: Record<string, string> = {}
+    if (platformCode) {
+      headers['X-Platform-Code'] = platformCode
+    }
+
+    const response = await fetch(`${API_BASE_URL}/reports/export-excel/${jobId}/download`, {
+      credentials: 'include',
+      headers
+    })
+    if (!response.ok) {
+      throw new Error('Excel dosyası indirilemedi')
+    }
+
+    const blob = await response.blob()
+    let filename = fallbackName
+    const disposition = response.headers.get('content-disposition')
+    const match = disposition?.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i)
+    if (match?.[1]) {
+      filename = decodeURIComponent(match[1].replace(/"/g, ''))
+    }
+
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  },
+
   /**
    * Get dropdown options for a specific filter
    */

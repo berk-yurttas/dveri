@@ -5,11 +5,11 @@ import asyncio
 
 from clickhouse_driver import Client
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import check_authenticated
-from app.core.database import get_clickhouse_db, get_postgres_db
+from app.core.database import AsyncSessionLocal, get_clickhouse_db, get_postgres_db
 from app.core.platform_db import DatabaseConnectionFactory
 from app.core.platform_middleware import get_current_platform, get_optional_platform
 from app.models.postgres_models import Platform
@@ -28,6 +28,8 @@ from app.schemas.reports import (
     ReportCreate,
     ReportExecutionRequest,
     ReportExecutionResponse,
+    ReportExcelExportJobStart,
+    ReportExcelExportJobStatus,
     ReportFullUpdate,
     ReportList,
     ReportUpdate,
@@ -48,6 +50,7 @@ from app.services.odak_updater_service import (
     trigger_report_tables_update,
     trigger_reports_tables_update,
 )
+from app.services.report_export_jobs import create_job, get_job, update_job
 from app.services.reports_service import ReportsService, ConnectionPool
 
 router = APIRouter()
@@ -708,3 +711,88 @@ async def execute_report(
         return await service.execute_report(request, current_user)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/export-excel", response_model=ReportExcelExportJobStart)
+async def start_excel_export(
+    request: ReportExecutionRequest,
+    current_user: User = Depends(check_authenticated),
+):
+    """Start a streaming Excel export job. Progress is polled via GET /export-excel/{job_id}."""
+    job = create_job()
+
+    async def run_export():
+        from clickhouse_driver import Client as ClickHouseClient
+
+        from app.core.config import settings
+
+        clickhouse_client = ClickHouseClient(
+            host=settings.CLICKHOUSE_HOST,
+            port=settings.CLICKHOUSE_PORT,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            database=settings.CLICKHOUSE_DB,
+        )
+        try:
+            update_job(job.id, status="running", percent=1, label="Hazırlanıyor...")
+            async with AsyncSessionLocal() as session:
+                service = ReportsService(session, clickhouse_client)
+
+                def progress_cb(percent: int, label: str, rows_written: int):
+                    update_job(job.id, percent=percent, label=label, rows_written=rows_written)
+
+                file_path, filename = await service.export_report_excel(request, current_user, progress_cb)
+                update_job(
+                    job.id,
+                    status="done",
+                    percent=100,
+                    label="Tamamlandı",
+                    filename=filename,
+                    file_path=file_path,
+                )
+        except Exception as exc:
+            update_job(job.id, status="error", percent=0, label="Aktarım başarısız", error=str(exc))
+        finally:
+            try:
+                clickhouse_client.disconnect()
+            except Exception:
+                pass
+
+    asyncio.create_task(run_export())
+    return ReportExcelExportJobStart(job_id=job.id)
+
+
+@router.get("/export-excel/{job_id}", response_model=ReportExcelExportJobStatus)
+async def get_excel_export_status(
+    job_id: str,
+    current_user: User = Depends(check_authenticated),
+):
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Export job not found")
+    return ReportExcelExportJobStatus(
+        job_id=job.id,
+        status=job.status,
+        percent=job.percent,
+        label=job.label,
+        rows_written=job.rows_written,
+        filename=job.filename,
+        error=job.error,
+    )
+
+
+@router.get("/export-excel/{job_id}/download")
+async def download_excel_export(
+    job_id: str,
+    current_user: User = Depends(check_authenticated),
+):
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Export job not found")
+    if job.status != "done" or not job.file_path:
+        raise HTTPException(status_code=409, detail=job.error or "Export is not ready")
+    return FileResponse(
+        job.file_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=job.filename or "export.xlsx",
+    )
