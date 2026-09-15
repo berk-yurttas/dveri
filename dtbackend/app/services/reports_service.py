@@ -1,4 +1,5 @@
 import asyncio
+import csv
 import re
 import tempfile
 import time
@@ -196,6 +197,81 @@ class ConnectionPool:
             f"PWD={db_config.get('password')}"
         )
         return pyodbc.connect(connection_string)
+
+
+class _CsvCopySink:
+    """File-like target for psycopg2 copy_expert that parses CSV records as they stream in."""
+
+    def __init__(
+        self,
+        on_header: Callable[[list[str]], None],
+        on_batch: Callable[[list[list[str]]], None],
+        batch_size: int = 20_000,
+    ):
+        self._on_header = on_header
+        self._on_batch = on_batch
+        self._batch_size = batch_size
+        self._buf = ""
+        self._batch: list[list[str]] = []
+        self.header: list[str] | None = None
+
+    def write(self, data):
+        if not data:
+            return
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            data = bytes(data).decode("utf-8")
+        self._buf += data
+        self._consume(final=False)
+
+    def writelines(self, lines):
+        for line in lines:
+            self.write(line)
+
+    def flush(self):
+        self._consume(final=True)
+        self._flush_batch()
+
+    def _flush_batch(self):
+        if self._batch:
+            self._on_batch(self._batch)
+            self._batch = []
+
+    def _consume(self, final: bool):
+        buf = self._buf
+        in_quotes = False
+        start = 0
+        i = 0
+        n = len(buf)
+        while i < n:
+            ch = buf[i]
+            if ch == '"':
+                if in_quotes and i + 1 < n and buf[i + 1] == '"':
+                    i += 2
+                    continue
+                in_quotes = not in_quotes
+            elif ch == "\n" and not in_quotes:
+                record = buf[start:i]
+                if record.endswith("\r"):
+                    record = record[:-1]
+                self._emit(record)
+                start = i + 1
+            i += 1
+        self._buf = buf[start:]
+        if final and self._buf:
+            self._emit(self._buf.rstrip("\r"))
+            self._buf = ""
+        if final:
+            self._flush_batch()
+
+    def _emit(self, record: str):
+        parsed = next(csv.reader([record]))
+        if self.header is None:
+            self.header = parsed
+            self._on_header(parsed)
+            return
+        self._batch.append(parsed)
+        if len(self._batch) >= self._batch_size:
+            self._flush_batch()
 
 
 class ReportsService:
@@ -1856,6 +1932,7 @@ class ReportsService:
 
     EXCEL_MAX_DATA_ROWS = 1_048_575
     EXPORT_FETCH_SIZE = 10_000
+    EXPORT_COPY_BATCH_SIZE = 20_000
 
     async def get_authorized_report(self, report_id: int, user: UserSchema) -> Report:
         db_user = await UserService.get_user_by_username(self.db, user.username)
@@ -1991,43 +2068,17 @@ class ReportsService:
                 raise ValueError("ClickHouse client not available")
             empty = client.execute(f"SELECT * FROM ({sql}) AS _export_src LIMIT 0", with_column_types=True)
             columns = [col[0] for col in empty[1]] if empty and len(empty) > 1 else []
-            yield columns, []
             batch: list[Any] = []
             for row in client.execute_iter(sql, settings={"max_block_size": fetch_size}):
                 batch.append(row)
                 if len(batch) >= fetch_size:
                     yield columns, batch
                     batch = []
-            if batch:
-                yield columns, batch
+            yield columns, batch
             return
 
         if db_type == "postgresql":
-            conn = self._connection_pool.get_connection(db_config=db_config, platform=platform, db_type=db_type)
-            cursor = None
-            try:
-                conn.autocommit = False
-                cursor = conn.cursor(name=f"export_{int(time.time() * 1000)}")
-                cursor.itersize = fetch_size
-                cursor.execute(sql)
-                columns = [desc[0] for desc in cursor.description] if cursor.description else []
-                yield columns, []
-                while True:
-                    rows = cursor.fetchmany(fetch_size)
-                    if not rows:
-                        break
-                    yield columns, rows
-            finally:
-                if cursor is not None:
-                    try:
-                        cursor.close()
-                    except Exception:
-                        pass
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-                self._connection_pool.return_connection(conn, db_config=db_config, platform=platform, db_type=db_type)
+            yield from self._iter_postgres_export_batches(sql, db_config, platform)
             return
 
         if db_type == "mssql":
@@ -2037,10 +2088,11 @@ class ReportsService:
                 cursor.arraysize = fetch_size
                 cursor.execute(sql)
                 columns = [column[0] for column in cursor.description] if cursor.description else []
-                yield columns, []
                 while True:
                     rows = cursor.fetchmany(fetch_size)
                     if not rows:
+                        if not columns:
+                            yield columns, []
                         break
                     yield columns, rows
             finally:
@@ -2049,6 +2101,77 @@ class ReportsService:
             return
 
         raise ValueError(f"Unsupported database type: {db_type}")
+
+    def _copy_postgres_query(
+        self,
+        sql: str,
+        db_config: dict[str, Any] | None,
+        platform: Platform | None,
+        on_header: Callable[[list[str]], None],
+        on_batch: Callable[[list[list[str]]], None],
+    ) -> None:
+        conn = self._connection_pool.get_connection(db_config=db_config, platform=platform, db_type="postgresql")
+        cursor = None
+        try:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            cursor = conn.cursor()
+            stripped_sql = sql.strip().rstrip(";")
+            copy_sql = f"COPY ({stripped_sql}) TO STDOUT WITH CSV HEADER"
+            sink = _CsvCopySink(on_header, on_batch, self.EXPORT_COPY_BATCH_SIZE)
+            cursor.copy_expert(copy_sql, sink)
+            sink.flush()
+        finally:
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            self._connection_pool.return_connection(
+                conn, db_config=db_config, platform=platform, db_type="postgresql"
+            )
+
+    def _iter_postgres_export_batches(
+        self,
+        sql: str,
+        db_config: dict[str, Any] | None,
+        platform: Platform | None,
+    ):
+        fetch_size = self.EXPORT_FETCH_SIZE
+        conn = self._connection_pool.get_connection(db_config=db_config, platform=platform, db_type="postgresql")
+        cursor = None
+        try:
+            conn.autocommit = False
+            cursor = conn.cursor(name=f"export_{int(time.time() * 1000)}")
+            cursor.itersize = fetch_size
+            cursor.execute(sql)
+            columns: list[str] = []
+            while True:
+                rows = cursor.fetchmany(fetch_size)
+                if not columns and cursor.description:
+                    columns = [desc[0] for desc in cursor.description]
+                if not rows:
+                    if not columns:
+                        yield [], []
+                    break
+                yield columns, rows
+        finally:
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            self._connection_pool.return_connection(conn, db_config=db_config, platform=platform, db_type="postgresql")
 
     def _write_excel_from_queries(
         self,
@@ -2070,41 +2193,21 @@ class ReportsService:
                 f"{query_name} sorgulanıyor...",
                 total_rows,
             )
-            columns: list[str] = []
+            columns: list[str] | None = None
             sheet = None
             sheet_rows = 0
             sheet_number = 1
-            query_rows = 0
 
-            for batch_columns, batch in self._iter_export_batches(
-                spec["sql"], spec["db_type"], spec["db_config"], spec["platform"]
-            ):
-                if not columns:
-                    columns = batch_columns or []
-                    sheet_title = self._excel_sheet_name(query_name, used_names)
-                    sheet = workbook.create_sheet(sheet_title)
-                    if columns:
-                        sheet.append(columns)
-                if not batch:
-                    continue
-                if sheet is None:
-                    sheet = workbook.create_sheet(self._excel_sheet_name(query_name, used_names))
-                    if columns:
-                        sheet.append(columns)
+            def start_sheet():
+                nonlocal sheet, sheet_rows, sheet_number
+                suffix = "" if sheet_number == 1 else f" ({sheet_number})"
+                sheet = workbook.create_sheet(self._excel_sheet_name(f"{query_name}{suffix}", used_names))
+                if columns:
+                    sheet.append(columns)
+                sheet_rows = 0
 
-                for row in batch:
-                    if sheet_rows >= self.EXCEL_MAX_DATA_ROWS:
-                        sheet_number += 1
-                        sheet_title = self._excel_sheet_name(f"{query_name} ({sheet_number})", used_names)
-                        sheet = workbook.create_sheet(sheet_title)
-                        if columns:
-                            sheet.append(columns)
-                        sheet_rows = 0
-                    sheet.append([self._format_export_value(value) for value in row])
-                    sheet_rows += 1
-                    query_rows += 1
-                    total_rows += 1
-
+            def report_progress():
+                nonlocal estimated_total
                 if total_rows > estimated_total * 0.75:
                     estimated_total = int(total_rows / 0.65)
                 query_start = int(query_index / query_count * 90)
@@ -2116,6 +2219,57 @@ class ReportsService:
                     f"{query_name} — {total_rows:,} satır".replace(",", "."),
                     total_rows,
                 )
+
+            used_copy = False
+            if spec["db_type"] == "postgresql":
+                def on_header(header: list[str]):
+                    nonlocal columns
+                    columns = header
+                    if sheet is None:
+                        start_sheet()
+
+                def on_batch(rows: list[list[str]]):
+                    nonlocal total_rows, sheet_number, sheet_rows
+                    if sheet is None:
+                        start_sheet()
+                    for row in rows:
+                        if sheet_rows >= self.EXCEL_MAX_DATA_ROWS:
+                            sheet_number += 1
+                            start_sheet()
+                        sheet.append(row)
+                        sheet_rows += 1
+                        total_rows += 1
+                    report_progress()
+
+                try:
+                    self._copy_postgres_query(
+                        spec["sql"], spec["db_config"], spec["platform"], on_header, on_batch
+                    )
+                    used_copy = True
+                except Exception as copy_error:
+                    print(f"[EXPORT] PostgreSQL COPY failed, falling back to fetchmany: {copy_error}")
+                    if total_rows > 0:
+                        raise
+
+            if not used_copy:
+                for batch_columns, batch in self._iter_export_batches(
+                    spec["sql"], spec["db_type"], spec["db_config"], spec["platform"]
+                ):
+                    if columns is None:
+                        columns = list(batch_columns or [])
+                    if sheet is None:
+                        start_sheet()
+                    if not batch:
+                        continue
+
+                    for row in batch:
+                        if sheet_rows >= self.EXCEL_MAX_DATA_ROWS:
+                            sheet_number += 1
+                            start_sheet()
+                        sheet.append([self._format_export_value(value) for value in row])
+                        sheet_rows += 1
+                        total_rows += 1
+                    report_progress()
 
             if sheet is None:
                 sheet = workbook.create_sheet(self._excel_sheet_name(query_name, used_names))
