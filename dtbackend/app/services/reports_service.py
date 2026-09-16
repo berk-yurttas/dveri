@@ -274,6 +274,451 @@ class _CsvCopySink:
             self._flush_batch()
 
 
+# Trailing clauses that must stay after WHERE. Inject filters before these.
+_SQL_TRAILING_CLAUSES = {
+    "GROUP BY",
+    "HAVING",
+    "WINDOW",
+    "QUALIFY",
+    "ORDER BY",
+    "LIMIT",
+    "OFFSET",
+    "FETCH",
+    "SETTINGS",
+    "FORMAT",
+    "FOR UPDATE",
+    "FOR SHARE",
+}
+_SQL_SET_OPS = {"UNION", "INTERSECT", "EXCEPT"}
+_SQL_KEYWORD_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"UNION\s+ALL\b", re.IGNORECASE), "UNION"),
+    (re.compile(r"UNION\s+DISTINCT\b", re.IGNORECASE), "UNION"),
+    (re.compile(r"INTERSECT\s+ALL\b", re.IGNORECASE), "INTERSECT"),
+    (re.compile(r"EXCEPT\s+ALL\b", re.IGNORECASE), "EXCEPT"),
+    (re.compile(r"GROUP\s+BY\b", re.IGNORECASE), "GROUP BY"),
+    (re.compile(r"ORDER\s+BY\b", re.IGNORECASE), "ORDER BY"),
+    (re.compile(r"FOR\s+UPDATE\b", re.IGNORECASE), "FOR UPDATE"),
+    (re.compile(r"FOR\s+SHARE\b", re.IGNORECASE), "FOR SHARE"),
+    (re.compile(r"FETCH\s+(?:FIRST|NEXT)\b", re.IGNORECASE), "FETCH"),
+    (re.compile(r"PREWHERE\b", re.IGNORECASE), "PREWHERE"),
+    (re.compile(r"WHERE\b", re.IGNORECASE), "WHERE"),
+    (re.compile(r"HAVING\b", re.IGNORECASE), "HAVING"),
+    (re.compile(r"WINDOW\b", re.IGNORECASE), "WINDOW"),
+    (re.compile(r"QUALIFY\b", re.IGNORECASE), "QUALIFY"),
+    (re.compile(r"LIMIT\b", re.IGNORECASE), "LIMIT"),
+    (re.compile(r"OFFSET\b", re.IGNORECASE), "OFFSET"),
+    (re.compile(r"FETCH\b", re.IGNORECASE), "FETCH"),
+    (re.compile(r"SETTINGS\b", re.IGNORECASE), "SETTINGS"),
+    (re.compile(r"FORMAT\b", re.IGNORECASE), "FORMAT"),
+    (re.compile(r"UNION\b", re.IGNORECASE), "UNION"),
+    (re.compile(r"INTERSECT\b", re.IGNORECASE), "INTERSECT"),
+    (re.compile(r"EXCEPT\b", re.IGNORECASE), "EXCEPT"),
+    (re.compile(r"SELECT\b", re.IGNORECASE), "SELECT"),
+    (re.compile(r"FROM\b", re.IGNORECASE), "FROM"),
+]
+_SQL_DOLLAR_QUOTE_RE = re.compile(r"\$[A-Za-z0-9_]*\$")
+_SQL_HOIST_CLAUSES = {"LIMIT", "OFFSET", "FETCH", "SETTINGS", "FORMAT"}
+_SQL_AS_RE = re.compile(r"AS\b", re.IGNORECASE)
+_SQL_WRAP_ALIAS = "_dt_filtered"
+
+
+def _skip_sql_noise(sql: str, i: int, end: int | None = None) -> int:
+    """Advance past a comment or quoted literal at i. Returns i unchanged if none."""
+    n = len(sql) if end is None else min(end, len(sql))
+    if i >= n:
+        return i
+    ch = sql[i]
+    nxt = sql[i + 1] if i + 1 < n else ""
+    if ch == "-" and nxt == "-":
+        i += 2
+        while i < n and sql[i] not in "\r\n":
+            i += 1
+        return i
+    if ch == "#":
+        while i < n and sql[i] not in "\r\n":
+            i += 1
+        return i
+    if ch == "/" and nxt == "*":
+        i += 2
+        while i + 1 < n and not (sql[i] == "*" and sql[i + 1] == "/"):
+            i += 1
+        return min(i + 2, n)
+    if ch == "'":
+        i += 1
+        while i < n:
+            if sql[i] == "'":
+                if i + 1 < n and sql[i + 1] == "'":
+                    i += 2
+                    continue
+                return i + 1
+            i += 1
+        return n
+    if ch == '"':
+        i += 1
+        while i < n:
+            if sql[i] == '"':
+                if i + 1 < n and sql[i + 1] == '"':
+                    i += 2
+                    continue
+                return i + 1
+            i += 1
+        return n
+    if ch == "`":
+        close = sql.find("`", i + 1, n)
+        return n if close < 0 else close + 1
+    if ch == "[":
+        close = sql.find("]", i + 1, n)
+        return n if close < 0 else close + 1
+    if ch == "$":
+        tag_match = _SQL_DOLLAR_QUOTE_RE.match(sql, i)
+        if tag_match and tag_match.end() <= n:
+            tag = tag_match.group(0)
+            close = sql.find(tag, tag_match.end(), n)
+            return n if close < 0 else close + len(tag)
+    return i
+
+
+def _scan_sql_keywords(sql: str) -> list[tuple[str, int, int, int]]:
+    """Return (keyword, start, end, paren_depth) for SQL keywords, skipping literals/comments."""
+    keywords: list[tuple[str, int, int, int]] = []
+    i = 0
+    n = len(sql)
+    depth = 0
+    while i < n:
+        skipped = _skip_sql_noise(sql, i)
+        if skipped != i:
+            i = skipped
+            continue
+        ch = sql[i]
+        if ch == "(":
+            depth += 1
+            i += 1
+            continue
+        if ch == ")":
+            depth = max(0, depth - 1)
+            i += 1
+            continue
+
+        if ch.isalpha() or ch == "_":
+            matched = False
+            for pattern, name in _SQL_KEYWORD_PATTERNS:
+                match = pattern.match(sql, i)
+                if match:
+                    keywords.append((name, match.start(), match.end(), depth))
+                    i = match.end()
+                    matched = True
+                    break
+            if not matched:
+                i += 1
+                while i < n and (sql[i].isalnum() or sql[i] in "_$"):
+                    i += 1
+            continue
+        i += 1
+    return keywords
+
+
+def _rtrim_sql_index(sql: str, end: int) -> int:
+    i = min(end, len(sql))
+    while i > 0 and sql[i - 1].isspace():
+        i -= 1
+    if i > 0 and sql[i - 1] == ";" and end >= len(sql.rstrip()):
+        i -= 1
+        while i > 0 and sql[i - 1].isspace():
+            i -= 1
+    return i
+
+
+def _simple_ident(expr: str | None) -> str | None:
+    if not expr:
+        return None
+    expr = expr.strip()
+    if len(expr) >= 2 and expr[0] == '"' and expr[-1] == '"':
+        return expr[1:-1].replace('""', '"')
+    if len(expr) >= 2 and expr[0] == "[" and expr[-1] == "]":
+        return expr[1:-1]
+    if len(expr) >= 2 and expr[0] == "`" and expr[-1] == "`":
+        return expr[1:-1]
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", expr):
+        return expr
+    return None
+
+
+def _read_sql_ident(sql: str, i: int, end: int) -> tuple[str | None, int]:
+    while i < end and sql[i].isspace():
+        i += 1
+    if i >= end:
+        return None, i
+    if sql[i] == '"':
+        j = i + 1
+        while j < end:
+            if sql[j] == '"':
+                if j + 1 < end and sql[j + 1] == '"':
+                    j += 2
+                    continue
+                return sql[i + 1:j].replace('""', '"'), j + 1
+            j += 1
+        return None, i
+    if sql[i] == "[":
+        close = sql.find("]", i + 1, end)
+        if close < 0:
+            return None, i
+        return sql[i + 1:close], close + 1
+    if sql[i] == "`":
+        close = sql.find("`", i + 1, end)
+        if close < 0:
+            return None, i
+        return sql[i + 1:close], close + 1
+    if sql[i].isalpha() or sql[i] == "_":
+        j = i + 1
+        while j < end and (sql[j].isalnum() or sql[j] in "_$"):
+            j += 1
+        return sql[i:j], j
+    return None, i
+
+
+def _skip_balanced_paren(sql: str, open_paren: int, end: int) -> int:
+    depth = 0
+    i = open_paren
+    while i < end:
+        skipped = _skip_sql_noise(sql, i, end)
+        if skipped != i:
+            i = skipped
+            continue
+        if sql[i] == "(":
+            depth += 1
+        elif sql[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return end
+
+
+def _skip_select_modifiers(sql: str, start: int, end: int) -> int:
+    i = start
+    while i < end:
+        while i < end and sql[i].isspace():
+            i += 1
+        on_match = re.match(r"DISTINCT\s+ON\s*\(", sql[i:end], re.IGNORECASE)
+        if on_match:
+            paren_at = sql.find("(", i, end)
+            i = _skip_balanced_paren(sql, paren_at, end) if paren_at >= 0 else end
+            continue
+        simple = re.match(r"(DISTINCT|ALL)\b", sql[i:end], re.IGNORECASE)
+        if simple:
+            i += simple.end()
+            continue
+        top = re.match(r"TOP\s*(?:\(\s*\d+\s*\)|\d+)(?:\s+PERCENT)?(?:\s+WITH\s+TIES)?\b", sql[i:end], re.IGNORECASE)
+        if top:
+            i += top.end()
+            continue
+        break
+    return i
+
+
+def _split_select_items(sql: str, start: int, end: int) -> list[tuple[int, int]]:
+    items: list[tuple[int, int]] = []
+    item_start = start
+    i = start
+    depth = 0
+    while i < end:
+        skipped = _skip_sql_noise(sql, i, end)
+        if skipped != i:
+            i = skipped
+            continue
+        ch = sql[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif ch == "," and depth == 0:
+            items.append((item_start, i))
+            item_start = i + 1
+        i += 1
+    items.append((item_start, end))
+    return items
+
+
+def _select_item_alias(sql: str, start: int, end: int) -> str | None:
+    i = start
+    while i < end and sql[i].isspace():
+        i += 1
+    if i >= end:
+        return None
+    item_begin = i
+    last_ident: str | None = None
+    last_ident_start = -1
+    depth = 0
+    while i < end:
+        skipped = _skip_sql_noise(sql, i, end)
+        if skipped != i:
+            i = skipped
+            continue
+        if sql[i].isspace():
+            i += 1
+            continue
+        if sql[i] == "(":
+            depth += 1
+            i += 1
+            continue
+        if sql[i] == ")":
+            depth = max(0, depth - 1)
+            i += 1
+            continue
+        if depth == 0:
+            as_match = _SQL_AS_RE.match(sql, i)
+            if as_match and as_match.end() <= end:
+                alias, _after = _read_sql_ident(sql, as_match.end(), end)
+                return alias
+            ident, after = _read_sql_ident(sql, i, end)
+            if ident is not None:
+                last_ident = ident
+                last_ident_start = i
+                i = after
+                continue
+        i += 1
+    if last_ident is None or last_ident == "*" or last_ident_start <= item_begin:
+        return None
+    j = last_ident_start - 1
+    while j >= item_begin and sql[j].isspace():
+        j -= 1
+    if j >= item_begin and sql[j] == ".":
+        return None
+    return last_ident
+
+
+def _first_outer_select_list_span(sql: str) -> tuple[int, int] | None:
+    keywords = _scan_sql_keywords(sql)
+    selects = [kw for kw in keywords if kw[0] == "SELECT"]
+    if not selects:
+        return None
+    min_depth = min(kw[3] for kw in selects)
+    first_select = next(kw for kw in selects if kw[3] == min_depth)
+    region_end = len(sql)
+    for name, start, _end, depth in keywords:
+        if depth == min_depth and name in _SQL_SET_OPS and start > first_select[1]:
+            region_end = start
+            break
+    froms = [
+        kw for kw in keywords
+        if kw[0] == "FROM" and kw[3] == min_depth and first_select[1] < kw[1] < region_end
+    ]
+    if not froms:
+        return None
+    return first_select[2], froms[0][1]
+
+
+def select_aliases(sql: str) -> set[str]:
+    """Return lowercase SELECT aliases from the final/first outer query."""
+    span = _first_outer_select_list_span(sql)
+    if not span:
+        return set()
+    start, end = span
+    start = _skip_select_modifiers(sql, start, end)
+    aliases: set[str] = set()
+    for item_start, item_end in _split_select_items(sql, start, end):
+        alias = _select_item_alias(sql, item_start, item_end)
+        if alias:
+            aliases.add(alias.lower())
+    return aliases
+
+
+def wrap_query_with_where(sql: str, condition: str) -> str:
+    """Wrap the query so SELECT aliases can be filtered as result columns."""
+    if not sql or not str(sql).strip() or not condition or not str(condition).strip():
+        return sql
+
+    body = str(sql).strip()
+    semicolon = body.endswith(";")
+    if semicolon:
+        body = body[:-1].rstrip()
+
+    trailing = ""
+    keywords = _scan_sql_keywords(body)
+    selects = [kw for kw in keywords if kw[0] == "SELECT"]
+    if selects:
+        min_depth = min(kw[3] for kw in selects)
+        froms = [kw for kw in keywords if kw[0] == "FROM" and kw[3] == min_depth]
+        search_after = froms[0][1] if froms else selects[0][1]
+        hoist = [
+            kw for kw in keywords
+            if kw[0] in _SQL_HOIST_CLAUSES and kw[3] == min_depth and kw[1] > search_after
+        ]
+        if hoist:
+            cut = hoist[0][1]
+            trailing = " " + body[cut:].strip()
+            body = body[:cut].rstrip()
+
+    wrapped = f"SELECT * FROM ({body}) AS {_SQL_WRAP_ALIAS} WHERE ({condition.strip()})"
+    if trailing:
+        wrapped += trailing
+    if semicolon:
+        wrapped += ";"
+    return wrapped
+
+
+def inject_where_condition(sql: str, condition: str) -> str:
+    """Add a boolean condition to the final query's WHERE clause.
+
+    Nested/CTE WHERE clauses are ignored. If the outermost (or last UNION branch)
+    query has a WHERE, the condition is ANDed onto it. Otherwise a WHERE is
+    created before GROUP BY / HAVING / ORDER BY / LIMIT / similar trailing clauses.
+    """
+    if not sql or not str(sql).strip() or not condition or not str(condition).strip():
+        return sql
+
+    condition = str(condition).strip()
+    keywords = _scan_sql_keywords(sql)
+    selects = [kw for kw in keywords if kw[0] == "SELECT"]
+    if not selects:
+        insert_at = _rtrim_sql_index(sql, len(sql))
+        injection = f" WHERE ({condition})"
+        if insert_at < len(sql) and not sql[insert_at].isspace():
+            injection += " "
+        return sql[:insert_at] + injection + sql[insert_at:]
+
+    min_depth = min(kw[3] for kw in selects)
+    outer_selects = [kw for kw in selects if kw[3] == min_depth]
+    final_select = outer_selects[-1]
+    region_start = final_select[1]
+    region_end = len(sql)
+    for name, start, _end, depth in keywords:
+        if depth == min_depth and name in _SQL_SET_OPS and start > region_start:
+            region_end = start
+            break
+
+    def _in_final_query(kw: tuple[str, int, int, int]) -> bool:
+        _name, start, _end, depth = kw
+        return depth == min_depth and region_start <= start < region_end
+
+    froms = [kw for kw in keywords if kw[0] == "FROM" and _in_final_query(kw)]
+    # WHERE / GROUP BY / ORDER BY belong after FROM, so names in the SELECT list
+    # (format, limit, window, ...) are not treated as trailing clauses.
+    search_after = froms[0][1] if froms else region_start
+
+    def _after_from(kw: tuple[str, int, int, int]) -> bool:
+        return _in_final_query(kw) and kw[1] > search_after
+
+    wheres = [kw for kw in keywords if kw[0] == "WHERE" and _after_from(kw)]
+    trailers = [
+        kw for kw in keywords
+        if kw[0] in _SQL_TRAILING_CLAUSES and _after_from(kw)
+    ]
+
+    if wheres:
+        where_start = wheres[-1][1]
+        after_where = [kw for kw in trailers if kw[1] > where_start]
+        insert_at = after_where[0][1] if after_where else _rtrim_sql_index(sql, region_end)
+        injection = f" AND ({condition})"
+    else:
+        insert_at = trailers[0][1] if trailers else _rtrim_sql_index(sql, region_end)
+        injection = f" WHERE ({condition})"
+
+    if insert_at < len(sql) and not sql[insert_at].isspace():
+        injection += " "
+    return sql[:insert_at] + injection + sql[insert_at:]
+
+
 class ReportsService:
     _connection_pool = ConnectionPool()
 
@@ -1120,8 +1565,11 @@ class ReportsService:
         # Create a mapping of field names to values
         filter_map = {fv.field_name: fv for fv in filter_values}
 
-        # Build WHERE conditions
-        conditions = []
+        # Build WHERE conditions. Alias filters must be applied outside the query
+        # because SELECT aliases are not visible in WHERE.
+        inner_conditions = []
+        outer_conditions = []
+        aliases = select_aliases(sql)
 
         for db_filter in filters:
             if db_filter.field_name not in filter_map:
@@ -1146,13 +1594,15 @@ class ReportsService:
 
             value = filter_value.value
             operator = filter_value.operator or "="
+            used_ident = _simple_ident(field_expression)
+            bucket = outer_conditions if used_ident and used_ident.lower() in aliases else inner_conditions
 
             if db_filter.filter_type == "text":
                 # Check if value is a list (from pasted multiselect)
                 if isinstance(value, list):
                     # Treat as IN clause for multiple values
                     quoted_values = [f"'{v}'" for v in value]
-                    conditions.append(f"{field_expression} IN ({','.join(quoted_values)})")
+                    bucket.append(f"{field_expression} IN ({','.join(quoted_values)})")
                 else:
                     # For text filters, use different operators based on the filter condition
                     # Use CAST for quoted identifiers to ensure LOWER works properly
@@ -1160,34 +1610,34 @@ class ReportsService:
                     value_expr = f"LOWER('{value}')"
 
                     if operator == "CONTAINS":
-                        conditions.append(f"{field_expr} LIKE LOWER('%{value}%')")
+                        bucket.append(f"{field_expr} LIKE LOWER('%{value}%')")
                     elif operator == "NOT_CONTAINS":
-                        conditions.append(f"{field_expr} NOT LIKE LOWER('%{value}%')")
+                        bucket.append(f"{field_expr} NOT LIKE LOWER('%{value}%')")
                     elif operator == "STARTS_WITH":
-                        conditions.append(f"{field_expr} LIKE LOWER('{value}%')")
+                        bucket.append(f"{field_expr} LIKE LOWER('{value}%')")
                     elif operator == "ENDS_WITH":
-                        conditions.append(f"{field_expr} LIKE LOWER('%{value}')")
+                        bucket.append(f"{field_expr} LIKE LOWER('%{value}')")
                     elif operator == "=":
-                        conditions.append(f"{field_expr} = {value_expr}")
+                        bucket.append(f"{field_expr} = {value_expr}")
                     elif operator == "NOT_EQUALS":
-                        conditions.append(f"{field_expr} != {value_expr}")
+                        bucket.append(f"{field_expr} != {value_expr}")
                     else:
                         # Default to CONTAINS for backward compatibility
-                        conditions.append(f"{field_expr} LIKE LOWER('%{value}%')")
+                        bucket.append(f"{field_expr} LIKE LOWER('%{value}%')")
             elif db_filter.filter_type == "number":
                 # Check if value is a list (from pasted multiselect)
                 if isinstance(value, list):
                     # Treat as IN clause for multiple values
-                    conditions.append(f"{field_expression} IN ({','.join(str(v) for v in value)})")
+                    bucket.append(f"{field_expression} IN ({','.join(str(v) for v in value)})")
                 else:
                     # For number filters, support =, !=, >, <, >=, <=, NOT_EQUALS
                     if operator == "NOT_EQUALS":
-                        conditions.append(f"{field_expression} != {value}")
+                        bucket.append(f"{field_expression} != {value}")
                     elif operator in ["=", "!=", ">", "<", ">=", "<="]:
-                        conditions.append(f"{field_expression} {operator} {value}")
+                        bucket.append(f"{field_expression} {operator} {value}")
                     else:
                         # Default to equals for backward compatibility
-                        conditions.append(f"{field_expression} = {value}")
+                        bucket.append(f"{field_expression} = {value}")
             elif db_filter.filter_type == "date":
                 # Use database-specific date functions
                 if db_type.lower() == "clickhouse":
@@ -1200,23 +1650,24 @@ class ReportsService:
                 if operator == "BETWEEN" and isinstance(value, list) and len(value) == 2:
                     # For timestamp fields, we need to compare dates properly
                     condition = f"{date_func}({field_expression}) BETWEEN {date_func}('{value[0]}') AND {date_func}('{value[1]}')"
-                    conditions.append(condition)
+                    bucket.append(condition)
                 elif operator == ">=":
                     condition = f"{date_func}({field_expression}) >= {date_func}('{value}')"
-                    conditions.append(condition)
+                    bucket.append(condition)
                 elif operator == "<=":
                     condition = f"{date_func}({field_expression}) <= {date_func}('{value}')"
-                    conditions.append(condition)
+                    bucket.append(condition)
                 else:
                     condition = f"{date_func}({field_expression}) {operator} {date_func}('{value}')"
-                    conditions.append(condition)
+                    bucket.append(condition)
             elif db_filter.filter_type in ["dropdown", "multiselect"]:
                 if isinstance(value, list) and len(value) > 0:
                     quoted_values = [f"'{v}'" for v in value]
-                    conditions.append(f"{field_expression} IN ({','.join(quoted_values)})")
+                    bucket.append(f"{field_expression} IN ({','.join(quoted_values)})")
                 elif not isinstance(value, list) and value:
-                    conditions.append(f"{field_expression} = '{value}'")
+                    bucket.append(f"{field_expression} = '{value}'")
 
+        conditions = inner_conditions + outer_conditions
         # Replace {{dynamic_filters}} placeholder with actual filter conditions
         if "{{dynamic_filters}}" in sql:
             if conditions:
@@ -1225,12 +1676,11 @@ class ReportsService:
             else:
                 # Remove the placeholder if no filters are applied
                 sql = sql.replace("{{dynamic_filters}}", "")
-        elif conditions:
-            where_clause = " AND ".join(conditions)
-            if "WHERE" in sql.upper():
-                sql = sql + f" AND ({where_clause})"
-            else:
-                sql = sql + f" WHERE {where_clause}"
+        else:
+            if inner_conditions:
+                sql = inject_where_condition(sql, " AND ".join(inner_conditions))
+            if outer_conditions:
+                sql = wrap_query_with_where(sql, " AND ".join(outer_conditions))
 
         return sql
 
@@ -1404,22 +1854,7 @@ class ReportsService:
                             dept_conditions.append(f"{column_name} LIKE '{dept}%'")
                     dept_filter_clause = " OR ".join(dept_conditions)
                 
-                # Inject the department filter into the query
-                if "WHERE" in sql.upper():
-                    # If there's already a WHERE clause, add the department filter with AND
-                    sql = sql + f" AND ({dept_filter_clause})"
-                else:
-                    # If no WHERE clause exists, add one
-                    # We need to be careful here - check if there's a GROUP BY, ORDER BY, or LIMIT
-                    import re
-                    # Find position to insert WHERE clause (before GROUP BY, HAVING, ORDER BY, or LIMIT)
-                    match = re.search(r'\s+(GROUP\s+BY|HAVING|ORDER\s+BY|LIMIT)\s+', sql, re.IGNORECASE)
-                    if match:
-                        insert_pos = match.start()
-                        sql = sql[:insert_pos] + f" WHERE ({dept_filter_clause})" + sql[insert_pos:]
-                    else:
-                        # No GROUP BY, ORDER BY, or LIMIT - just append
-                        sql = sql + f" WHERE ({dept_filter_clause})"
+                sql = inject_where_condition(sql, dept_filter_clause)
             print(f"[PERF] Apply department filter: {(time.time() - t1) * 1000:.2f}ms")
 
             # Apply sorting if provided
@@ -2013,15 +2448,7 @@ class ReportsService:
                     dept_conditions.append(f"{column_name} LIKE '{current}%'")
                 dept_filter_clause = " OR ".join(dept_conditions)
 
-            if "WHERE" in sql.upper():
-                sql = sql + f" AND ({dept_filter_clause})"
-            else:
-                match = re.search(r'\s+(GROUP\s+BY|HAVING|ORDER\s+BY|LIMIT)\s+', sql, re.IGNORECASE)
-                if match:
-                    insert_pos = match.start()
-                    sql = sql[:insert_pos] + f" WHERE ({dept_filter_clause})" + sql[insert_pos:]
-                else:
-                    sql = sql + f" WHERE ({dept_filter_clause})"
+            sql = inject_where_condition(sql, dept_filter_clause)
 
         if sort_by and sort_direction:
             sql = self.apply_sorting_to_query(sql, sort_by, sort_direction)
