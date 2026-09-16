@@ -3,6 +3,7 @@ import csv
 import re
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time as dt_time
 from decimal import Decimal
 from threading import Lock
@@ -717,6 +718,162 @@ def inject_where_condition(sql: str, condition: str) -> str:
     if insert_at < len(sql) and not sql[insert_at].isspace():
         injection += " "
     return sql[:insert_at] + injection + sql[insert_at:]
+
+
+NESTED_EXPORT_CONCURRENCY = 8
+
+
+def extract_expandable_nested_queries(visualization: Any) -> list[dict[str, Any]]:
+    """Return nestedQueries for expandable table visualizations."""
+    if not isinstance(visualization, dict):
+        return []
+    raw_type = visualization.get("type") or ""
+    if hasattr(raw_type, "value"):
+        raw_type = raw_type.value
+    if str(raw_type).lower() != "expandable":
+        return []
+    chart = visualization.get("chartOptions") or visualization.get("chart_options") or {}
+    if not isinstance(chart, dict):
+        chart = {}
+    nested = (
+        chart.get("nestedQueries")
+        or chart.get("nested_queries")
+        or visualization.get("nestedQueries")
+        or visualization.get("nested_queries")
+        or []
+    )
+    return nested if isinstance(nested, list) else []
+
+
+def apply_expandable_placeholders(
+    sql: str,
+    expandable_fields: list[str],
+    parent_columns: list[str],
+    row: list[Any],
+) -> str:
+    processed = sql or ""
+    for field in expandable_fields or []:
+        try:
+            column_index = parent_columns.index(field)
+        except ValueError:
+            continue
+        value = row[column_index] if column_index < len(row) else ""
+        escaped = str(value if value is not None else "").replace("'", "''")
+        processed = re.sub(re.escape(f"{{{{{field}}}}}"), f"'{escaped}'", processed)
+    return processed
+
+
+def _uniquify_child_columns(parent_columns: list[str], child_columns: list[str], level: int) -> list[str]:
+    used = set(parent_columns)
+    unique: list[str] = []
+    for col in child_columns:
+        name = col
+        if name in used:
+            name = f"{col} (L{level})"
+        suffix = 2
+        while name in used:
+            name = f"{col} (L{level}_{suffix})"
+            suffix += 1
+        used.add(name)
+        unique.append(name)
+    return unique
+
+
+def _align_export_row(row: list[Any], source_columns: list[str], target_columns: list[str]) -> list[Any]:
+    index_by_column = {col: index for index, col in enumerate(source_columns)}
+    aligned: list[Any] = []
+    for col in target_columns:
+        index = index_by_column.get(col)
+        aligned.append("" if index is None or index >= len(row) else row[index])
+    return aligned
+
+
+def _combine_nested_tables(tables: list[tuple[list[str], list[list[Any]]]]) -> tuple[list[str], list[list[Any]]]:
+    columns: list[str] = []
+    seen: set[str] = set()
+    for table_columns, _rows in tables:
+        for col in table_columns:
+            if col in seen:
+                continue
+            seen.add(col)
+            columns.append(col)
+    data: list[list[Any]] = []
+    for table_columns, rows in tables:
+        for row in rows:
+            data.append(_align_export_row(row, table_columns, columns))
+    return columns, data
+
+
+def flatten_nested_export(
+    parent_columns: list[str],
+    parent_data: list[list[Any]],
+    nested_queries: list[dict[str, Any]],
+    fetch_sql: Callable[[str], tuple[list[str], list[list[Any]]]],
+    level: int = 1,
+    concurrency: int = NESTED_EXPORT_CONCURRENCY,
+) -> tuple[list[str], list[list[Any]]]:
+    """Denormalize expandable nested query results onto parent rows."""
+    if not nested_queries or not parent_data:
+        return parent_columns, parent_data
+
+    def expand_parent(parent_row: list[Any]) -> tuple[list[str], list[list[Any]]]:
+        tables: list[tuple[list[str], list[list[Any]]]] = []
+        for nested_query in nested_queries:
+            if not isinstance(nested_query, dict):
+                continue
+            sql = nested_query.get("sql") or ""
+            fields = nested_query.get("expandableFields") or nested_query.get("expandable_fields") or []
+            processed = apply_expandable_placeholders(sql, fields, parent_columns, parent_row)
+            child_columns, child_rows = fetch_sql(processed)
+            deeper = nested_query.get("nestedQueries") or nested_query.get("nested_queries") or []
+            if deeper:
+                child_columns, child_rows = flatten_nested_export(
+                    child_columns,
+                    child_rows,
+                    deeper if isinstance(deeper, list) else [],
+                    fetch_sql,
+                    level + 1,
+                    concurrency,
+                )
+            tables.append((child_columns, child_rows))
+        if not tables:
+            return [], []
+        return _combine_nested_tables(tables)
+
+    worker_count = min(max(concurrency, 1), len(parent_data))
+    if worker_count <= 1:
+        child_tables = [expand_parent(row) for row in parent_data]
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            child_tables = list(executor.map(expand_parent, parent_data))
+
+    original_child_columns: list[str] = []
+    seen_child: set[str] = set()
+    for child_columns, _rows in child_tables:
+        for col in child_columns:
+            if col in seen_child:
+                continue
+            seen_child.add(col)
+            original_child_columns.append(col)
+
+    if not original_child_columns:
+        return parent_columns, parent_data
+
+    export_child_columns = _uniquify_child_columns(parent_columns, original_child_columns, level)
+    export_columns = [*parent_columns, *export_child_columns]
+    export_data: list[list[Any]] = []
+    empty_child = [""] * len(original_child_columns)
+    for parent_row, (child_columns, child_rows) in zip(parent_data, child_tables, strict=False):
+        aligned_children = [
+            _align_export_row(child_row, child_columns, original_child_columns)
+            for child_row in child_rows
+        ]
+        if not aligned_children:
+            export_data.append([*parent_row, *empty_child])
+            continue
+        for child_row in aligned_children:
+            export_data.append([*parent_row, *child_row])
+    return export_columns, export_data
 
 
 class ReportsService:
@@ -2466,6 +2623,68 @@ class ReportsService:
             return value.decode("utf-8", errors="replace")
         return str(value)
 
+    def _fetch_export_table(
+        self,
+        sql: str,
+        db_type: str,
+        db_config: dict[str, Any] | None,
+        platform: Platform | None,
+    ) -> tuple[list[str], list[list[Any]]]:
+        columns: list[str] = []
+        data: list[list[Any]] = []
+        for batch_columns, batch in self._iter_export_batches(sql, db_type, db_config, platform):
+            if not columns:
+                columns = list(batch_columns or [])
+            for row in batch or []:
+                data.append([self._format_export_value(value) for value in row])
+        return columns, data
+
+    def _expand_nested_export_table(
+        self,
+        parent_columns: list[str],
+        parent_data: list[list[Any]],
+        nested_queries: list[dict[str, Any]],
+        db_type: str,
+        db_config: dict[str, Any] | None,
+        platform: Platform | None,
+    ) -> tuple[list[str], list[list[Any]]]:
+        cache: dict[str, tuple[list[str], list[list[Any]]]] = {}
+        cache_lock = Lock()
+        clickhouse_lock = Lock()
+
+        def fetch_sql(sql: str) -> tuple[list[str], list[list[Any]]]:
+            with cache_lock:
+                cached = cache.get(sql)
+            if cached is not None:
+                return cached
+            try:
+                sanitized = self.sanitize_sql_query(sql)
+                if db_type == "clickhouse":
+                    with clickhouse_lock:
+                        with cache_lock:
+                            cached = cache.get(sql)
+                            if cached is not None:
+                                return cached
+                        result = self._fetch_export_table(sanitized, db_type, db_config, platform)
+                else:
+                    result = self._fetch_export_table(sanitized, db_type, db_config, platform)
+            except Exception as exc:
+                print(f"[EXPORT] Nested query failed during Excel export: {exc}")
+                result = ([], [])
+            with cache_lock:
+                cache[sql] = result
+            return result
+
+        concurrency = 1 if db_type == "clickhouse" else NESTED_EXPORT_CONCURRENCY
+        return flatten_nested_export(
+            parent_columns,
+            parent_data,
+            nested_queries,
+            fetch_sql,
+            1,
+            concurrency,
+        )
+
     @staticmethod
     def _excel_sheet_name(name: str, used: set[str]) -> str:
         base = re.sub(r'[\\/?*\[\]:]', '_', name or 'Sheet')[:31].strip() or 'Sheet'
@@ -2647,6 +2866,42 @@ class ReportsService:
                     total_rows,
                 )
 
+            nested_queries = spec.get("nested_queries") or []
+            if nested_queries:
+                progress_cb(
+                    max(1, int(query_index / query_count * 90)),
+                    f"{query_name} — iç tablolar genişletiliyor...",
+                    total_rows,
+                )
+                parent_columns, parent_data = self._fetch_export_table(
+                    spec["sql"], spec["db_type"], spec["db_config"], spec["platform"]
+                )
+                columns, expanded_rows = self._expand_nested_export_table(
+                    parent_columns,
+                    parent_data,
+                    nested_queries,
+                    spec["db_type"],
+                    spec["db_config"],
+                    spec["platform"],
+                )
+                if sheet is None:
+                    start_sheet()
+                for row in expanded_rows:
+                    if sheet_rows >= self.EXCEL_MAX_DATA_ROWS:
+                        sheet_number += 1
+                        start_sheet()
+                    sheet.append(row)
+                    sheet_rows += 1
+                    total_rows += 1
+                    if total_rows % 500 == 0:
+                        report_progress()
+                report_progress()
+                if sheet is None:
+                    sheet = workbook.create_sheet(self._excel_sheet_name(query_name, used_names))
+                    if columns:
+                        sheet.append(columns)
+                continue
+
             used_copy = False
             if spec["db_type"] == "postgresql":
                 def on_header(header: list[str]):
@@ -2759,6 +3014,7 @@ class ReportsService:
                 "db_type": db_type,
                 "db_config": report_db_config,
                 "platform": platform,
+                "nested_queries": extract_expandable_nested_queries(query.visualization_config),
             })
 
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
