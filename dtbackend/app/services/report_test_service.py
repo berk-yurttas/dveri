@@ -369,24 +369,18 @@ async def _execute_run(run_id: int) -> None:
             ui_skip_reason: str | None = None
             cookies = _run_cookies.pop(run_id, {})
             if not settings.REPORT_TEST_UI_ENABLED:
-                ui_skip_reason = "UI tests are disabled (REPORT_TEST_UI_ENABLED=false)"
+                ui_skip_reason = "Ekran kontrolü kapalı."
             elif not playwright_available():
-                ui_skip_reason = "playwright is not installed. Run: pip install playwright && playwright install chromium"
+                ui_skip_reason = "Rapor ekranı kontrolü için gerekli tarayıcı kurulu değil."
             elif not cookies:
-                ui_skip_reason = "No browser login cookies; start the run from Admin so the tester can act as you"
+                ui_skip_reason = "Oturum bilgisi alınamadı. Lütfen yönetici sayfasından tekrar başlatın."
             else:
                 ui_tester = ReportUiTester(cookies)
                 try:
                     await ui_tester.start()
-                except Exception as exc:
+                except Exception:
                     logger.exception("Failed to start Playwright UI tester")
-                    detail = str(exc).strip() or type(exc).__name__
-                    if type(exc).__name__ == "NotImplementedError":
-                        detail = (
-                            "Windows reload loop cannot spawn Chromium. "
-                            "Restart the backend so the dedicated Playwright thread can launch it."
-                        )
-                    ui_skip_reason = f"Could not start Chromium: {detail}"
+                    ui_skip_reason = "Rapor ekranı tarayıcıda açılamadı."
                     ui_tester = None
 
             concurrency = max(1, min(int(settings.REPORT_TEST_CONCURRENCY), 8))
@@ -524,9 +518,9 @@ async def _run_one_report(
                 cases = [case(
                     "report_timeout",
                     "error",
-                    "Report test timeout",
+                    "Rapor kontrolü",
                     "failed",
-                    f"Stopped after {timeout}s so the rest of the suite can continue",
+                    "Bu rapor çok uzun sürdüğü için kontrol durduruldu.",
                     timeout * 1000,
                 )]
                 result_row = ReportTestResult(
@@ -540,7 +534,7 @@ async def _run_one_report(
                     query_count=query_count,
                     filter_count=filter_count,
                     row_count_total=0,
-                    summary=f"Timed out after {timeout}s",
+                    summary=f"Kontrol {timeout} saniye sonra durduruldu",
                     cases=cases,
                 )
             except Exception as exc:
@@ -552,9 +546,9 @@ async def _run_one_report(
                 cases = [case(
                     "runner_error",
                     "error",
-                    "Test runner",
+                    "Rapor kontrolü",
                     "failed",
-                    f"Unexpected tester error: {exc}",
+                    "Bu rapor kontrol edilirken beklenmeyen bir sorun oluştu.",
                     _elapsed_ms(started),
                 )]
                 result_row = ReportTestResult(
@@ -722,16 +716,16 @@ async def _test_report(
             cases.append(case(
                 "ui_crash",
                 "ui",
-                "Drive report UI like a user",
+                "Rapor ekranı",
                 "failed",
-                str(exc),
+                "Rapor ekranı kontrol edilirken bir sorun oluştu.",
                 _elapsed_ms(ui_started),
             ))
     elif ui_skip_reason:
         cases.append(case(
             "ui_skipped",
             "ui",
-            "Browser UI test",
+            "Rapor ekranı",
             "warning",
             ui_skip_reason,
         ))

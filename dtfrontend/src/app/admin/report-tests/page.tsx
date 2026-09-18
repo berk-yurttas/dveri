@@ -176,9 +176,9 @@ function AdminReportTestsPageInner() {
       <div className="flex-1 overflow-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Rapor Testleri</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Rapor Kontrolleri</h1>
             <p className="text-gray-600">
-              Her koşu gerçek bir tarayıcıda sizin gibi rapor sayfalarını açar: sekmeler, filtreler, Uygula, tablolar, grafikler, satır sayıları ve hatalar. Sonuçlar burada tarihsel olarak saklanır.
+              Raporların düzgün açılıp açılmadığına bakar. Sadece hata ve uyarılar listelenir.
             </p>
           </div>
 
@@ -191,11 +191,11 @@ function AdminReportTestsPageInner() {
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <div className="text-xs text-gray-500 mb-1">Son koşu</div>
+              <div className="text-xs text-gray-500 mb-1">Son kontrol</div>
               <div className="text-lg font-semibold text-gray-900">{formatDate(latest?.finished_at || latest?.started_at)}</div>
             </div>
             <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <div className="text-xs text-gray-500 mb-1">Başarılı rapor</div>
+              <div className="text-xs text-gray-500 mb-1">Sorunsuz rapor</div>
               <div className="text-lg font-semibold text-green-700">{latest?.passed_reports ?? 0}</div>
             </div>
             <div className="bg-white rounded-lg border border-gray-200 p-4">
@@ -211,7 +211,7 @@ function AdminReportTestsPageInner() {
           {running && (
             <div className="mb-6 bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center justify-between gap-4">
               <div>
-                <div className="font-medium text-amber-900">Test çalışıyor</div>
+                <div className="font-medium text-amber-900">Kontrol ediliyor</div>
                 <div className="text-sm text-amber-800">
                   {running.processed_reports}/{running.total_reports || "?"} rapor
                   {running.current_report_name ? ` — ${running.current_report_name}` : ""}
@@ -302,18 +302,17 @@ function AdminReportTestsPageInner() {
                       <td className="px-6 py-4">
                         <div className="font-medium text-gray-900">#{run.id}</div>
                         <div className="text-sm text-gray-500">
-                          {run.trigger === "scheduled" ? "Zamanlanmış" : "Manuel"} · {run.triggered_by || "—"}
+                          {run.trigger === "scheduled" ? "Otomatik" : "Elle"} · {run.triggered_by || "—"}
                         </div>
                         <div className="text-xs text-gray-400">{formatDate(run.started_at || run.created_at)}</div>
                       </td>
                       <td className="px-6 py-4">{runStatusBadge(run.status)}</td>
                       <td className="px-6 py-4 text-sm text-gray-700">
-                        <span className="text-green-700">{run.passed_reports} geçti</span>
+                        <span className="text-green-700">{run.passed_reports} sorunsuz</span>
                         {" · "}
                         <span className="text-red-700">{run.failed_reports} hata</span>
                         {" · "}
                         <span className="text-amber-700">{run.warning_reports} uyarı</span>
-                        <div className="text-xs text-gray-400">{run.total_cases} kontrol</div>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600">
                         {formatDuration(run.started_at, run.finished_at)}

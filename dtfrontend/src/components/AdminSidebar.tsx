@@ -33,7 +33,7 @@ export default function AdminSidebar() {
       isActive: pathname?.startsWith("/admin/ivme-sync"),
     },
     {
-      title: "Rapor Testleri",
+      title: "Rapor Kontrolleri",
       icon: FlaskConical,
       href: "/admin/report-tests",
       isActive: pathname?.startsWith("/admin/report-tests"),

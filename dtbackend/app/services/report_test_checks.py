@@ -599,10 +599,10 @@ def summarize_cases(cases: list[dict[str, Any]]) -> str:
     warnings = [item for item in cases if item.get("status") == "warning"]
     if failed:
         first = failed[0].get("message") or failed[0].get("name")
-        extra = f" (+{len(failed) - 1} more)" if len(failed) > 1 else ""
-        return f"{len(failed)} failed: {first}{extra}"
+        extra = f" (+{len(failed) - 1} tane daha)" if len(failed) > 1 else ""
+        return f"{len(failed)} hata: {first}{extra}"
     if warnings:
         first = warnings[0].get("message") or warnings[0].get("name")
-        extra = f" (+{len(warnings) - 1} more)" if len(warnings) > 1 else ""
-        return f"{len(warnings)} warning(s): {first}{extra}"
-    return f"{len(cases)} checks passed"
+        extra = f" (+{len(warnings) - 1} tane daha)" if len(warnings) > 1 else ""
+        return f"{len(warnings)} uyarı: {first}{extra}"
+    return "Sorun bulunmadı"

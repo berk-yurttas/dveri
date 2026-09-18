@@ -174,7 +174,7 @@ class RollupTest(unittest.TestCase):
             {"status": "failed", "message": "other", "name": "x"},
         ])
         self.assertIn("SQL is empty", text)
-        self.assertIn("+1 more", text)
+        self.assertIn("+1 tane daha", text)
 
 
 if __name__ == "__main__":

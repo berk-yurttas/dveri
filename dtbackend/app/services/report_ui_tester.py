@@ -37,6 +37,74 @@ def _ms(started: float) -> float:
     return round((time.perf_counter() - started) * 1000, 2)
 
 
+_NAV_HINTS = (
+    "execution context was destroyed",
+    "because of a navigation",
+    "target closed",
+    "frame was detached",
+    "cannot find context",
+)
+
+
+def _is_nav_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return any(hint in text for hint in _NAV_HINTS)
+
+
+def _ui_error_message(exc: BaseException) -> str:
+    if _is_nav_error(exc):
+        return "Rapor sayfası açılırken yenilendi, ekran kontrolü tamamlanamadı."
+    return "Rapor ekranı kontrol edilirken bir sorun oluştu."
+
+
+async def _wait_stable(page: Page, timeout: int = 10000, network_idle: bool = False) -> None:
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=timeout)
+    except Exception:
+        pass
+    if network_idle:
+        try:
+            await page.wait_for_load_state("networkidle", timeout=min(timeout, 8000))
+        except Exception:
+            pass
+    else:
+        try:
+            await page.wait_for_timeout(400)
+        except Exception:
+            pass
+
+
+async def _retry(action, page: Page, attempts: int = 4):
+    last: BaseException | None = None
+    for _ in range(attempts):
+        try:
+            return await action()
+        except Exception as exc:
+            last = exc
+            if not _is_nav_error(exc):
+                raise
+            await _wait_stable(page)
+    assert last is not None
+    raise last
+
+
+async def _count(locator) -> int:
+    return int(await _retry(locator.count, locator.page))
+
+
+async def _visible(locator) -> bool:
+    try:
+        return bool(await _retry(locator.is_visible, locator.page))
+    except Exception as exc:
+        if _is_nav_error(exc):
+            return False
+        raise
+
+
+async def _text(locator) -> str:
+    return str((await _retry(locator.inner_text, locator.page)) or "").strip()
+
+
 def _frontend_url() -> str:
     raw = settings.REPORT_TEST_FRONTEND_URL
     if isinstance(raw, (list, tuple)):
@@ -229,13 +297,36 @@ class ReportUiTester:
         return await self._thread.run(self._test_report_on_page(snapshot))
 
     async def _test_report_on_page(self, report: Any) -> list[dict[str, Any]]:
+        last_error: BaseException | None = None
+        for attempt in range(2):
+            try:
+                return await self._run_report_page(report)
+            except Exception as exc:
+                last_error = exc
+                if not _is_nav_error(exc) or attempt == 1:
+                    return [case(
+                        "ui_crash",
+                        "ui",
+                        "Rapor ekranı",
+                        "failed",
+                        _ui_error_message(exc),
+                    )]
+        return [case(
+            "ui_crash",
+            "ui",
+            "Rapor ekranı",
+            "failed",
+            _ui_error_message(last_error) if last_error else "Rapor ekranı kontrol edilemedi.",
+        )]
+
+    async def _run_report_page(self, report: Any) -> list[dict[str, Any]]:
         if not self._context:
             return [case(
                 "ui_browser",
                 "ui",
-                "Browser session",
+                "Rapor ekranı",
                 "failed",
-                "UI tester was not started",
+                "Tarayıcı henüz hazır değildi.",
             )]
 
         platform_code = report.platform.code if report.platform else None
@@ -243,9 +334,9 @@ class ReportUiTester:
             return [case(
                 "ui_url",
                 "ui",
-                "Open report page",
+                "Raporun açılması",
                 "failed",
-                "Report has no platform code; cannot build the UI URL",
+                "Raporun bağlı olduğu platform bulunamadı.",
             )]
 
         url = f"/{platform_code}/reports/{report.id}"
@@ -283,76 +374,75 @@ class ReportUiTester:
         cases: list[dict[str, Any]] = []
         started = time.perf_counter()
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
-            await page.wait_for_timeout(500)
+            await page.goto(url, wait_until="load", timeout=timeout)
+            await _wait_stable(page, timeout, network_idle=True)
 
             if "login" in page.url.lower() or "rdct" in page.url.lower():
                 cases.append(case(
                     "ui_auth",
                     "ui",
-                    "Open report as logged-in user",
+                    "Giriş",
                     "failed",
-                    f"Browser was redirected to login: {page.url}",
-                    _ms(started),
-                ))
-                return cases
-
-            load_error = page.locator('[data-testid="report-load-error"]')
-            if await load_error.count():
-                text = (await load_error.inner_text()).strip()
-                cases.append(case(
-                    "ui_load",
-                    "ui",
-                    "Report page loads",
-                    "failed",
-                    text or "Report page rendered a load error",
+                    "Raporu açmak için oturum açılamadı. Lütfen yönetici sayfasından tekrar deneyin.",
                     _ms(started),
                 ))
                 return cases
 
             title = page.locator('[data-testid="report-title"]')
+            load_error = page.locator('[data-testid="report-load-error"]')
             try:
                 await title.wait_for(state="visible", timeout=timeout)
-                shown = (await title.inner_text()).strip()
-                cases.append(case(
-                    "ui_load",
-                    "ui",
-                    "Report page loads",
-                    "passed",
-                    f"Opened '{shown}' as a user at {url}",
-                    _ms(started),
-                ))
             except Exception:
+                if await _count(load_error):
+                    text = await _text(load_error)
+                    cases.append(case(
+                        "ui_load",
+                        "ui",
+                        "Raporun açılması",
+                        "failed",
+                        text or "Rapor sayfası açılamadı.",
+                        _ms(started),
+                    ))
+                    return cases
                 cases.append(case(
                     "ui_load",
                     "ui",
-                    "Report page loads",
+                    "Raporun açılması",
                     "failed",
-                    f"Report title did not appear at {url}",
+                    "Rapor başlığı görünmedi, sayfa tam yüklenememiş olabilir.",
                     _ms(started),
                 ))
                 return cases
+
+            shown = await _text(title)
+            cases.append(case(
+                "ui_load",
+                "ui",
+                "Raporun açılması",
+                "passed",
+                f"'{shown}' raporu açıldı.",
+                _ms(started),
+            ))
 
             cases.extend(await self._exercise_filters(page, report))
             cases.extend(await self._exercise_tabs_and_queries(page, report, timeout))
 
             if failed_apis:
-                unique = list(dict.fromkeys(failed_apis))[:8]
                 cases.append(case(
                     "ui_network",
                     "ui",
-                    "No failed report API calls",
+                    "Rapor verisi",
                     "failed",
-                    "; ".join(unique),
+                    "Rapor verisi alınırken bir hata oluştu.",
                     _ms(started),
                 ))
             else:
                 cases.append(case(
                     "ui_network",
                     "ui",
-                    "No failed report API calls",
+                    "Rapor verisi",
                     "passed",
-                    "Execute/filter requests returned success",
+                    "Rapor verileri sorunsuz geldi.",
                     _ms(started),
                 ))
 
@@ -360,9 +450,9 @@ class ReportUiTester:
                 cases.append(case(
                     "ui_pageerror",
                     "ui",
-                    "No page JavaScript exceptions",
+                    "Rapor ekranı",
                     "failed",
-                    page_errors[0],
+                    "Rapor ekranında beklenmeyen bir hata oluştu.",
                     _ms(started),
                     meta={"errors": page_errors[:5]},
                 ))
@@ -370,9 +460,9 @@ class ReportUiTester:
                 cases.append(case(
                     "ui_pageerror",
                     "ui",
-                    "No page JavaScript exceptions",
+                    "Rapor ekranı",
                     "passed",
-                    "No uncaught page errors",
+                    "Ekranda hata görünmedi.",
                     _ms(started),
                 ))
 
@@ -381,19 +471,21 @@ class ReportUiTester:
                 cases.append(case(
                     "ui_console",
                     "ui",
-                    "Browser console",
+                    "Rapor ekranı",
                     "warning",
-                    serious_console[0],
+                    "Sayfa açıldı ama bazı veriler yüklenirken sorun çıktı.",
                     _ms(started),
                     meta={"errors": serious_console[:5]},
                 ))
         except Exception as exc:
+            if _is_nav_error(exc):
+                raise
             cases.append(case(
                 "ui_crash",
                 "ui",
-                "Drive report UI",
+                "Rapor ekranı",
                 "failed",
-                str(exc),
+                _ui_error_message(exc),
                 _ms(started),
             ))
         finally:
@@ -404,14 +496,14 @@ class ReportUiTester:
         cases: list[dict[str, Any]] = []
         started = time.perf_counter()
         bar = page.locator('[data-testid="global-filters"]')
-        if not await bar.count():
+        if not await _count(bar):
             if report.global_filters:
                 cases.append(case(
                     "ui_global_filters",
                     "ui",
-                    "Global filters visible",
+                    "Filtreler",
                     "failed",
-                    "Report has global filters but the filter bar did not render",
+                    "Raporun filtreleri ekranda görünmedi.",
                     _ms(started),
                 ))
             return cases
@@ -419,9 +511,9 @@ class ReportUiTester:
         cases.append(case(
             "ui_global_filters",
             "ui",
-            "Global filters visible",
+            "Filtreler",
             "passed",
-            "Filter bar is on the page",
+            "Filtreler görünüyor.",
             _ms(started),
         ))
 
@@ -435,13 +527,15 @@ class ReportUiTester:
                 step = time.perf_counter()
                 start_input = page.locator(f'[data-testid="global-filter-{field}-start"]')
                 end_input = page.locator(f'[data-testid="global-filter-{field}-end"]')
-                if await start_input.count() and await end_input.count():
+                if await _count(start_input) and await _count(end_input):
                     await start_input.fill(start)
+                    await _wait_stable(page)
                     await end_input.fill(end)
+                    await _wait_stable(page)
                     cases.append(case(
                         f"ui_filter_date_{field}",
                         "ui",
-                        f"Fill date filter '{filt['display_name']}'",
+                        f"Tarih filtresi: {filt['display_name']}",
                         "passed",
                         f"{start} – {end}",
                         _ms(step),
@@ -449,52 +543,55 @@ class ReportUiTester:
             elif filt["type"] in {"dropdown", "multiselect"}:
                 step = time.perf_counter()
                 toggle = page.locator(f'[data-testid="global-filter-{field}-dropdown"]')
-                if not await toggle.count():
+                if not await _count(toggle):
                     cases.append(case(
                         f"ui_filter_dropdown_{field}",
                         "ui",
-                        f"Open dropdown '{filt['display_name']}'",
+                        f"Liste filtresi: {filt['display_name']}",
                         "failed",
-                        "Dropdown toggle was not found",
+                        "Filtre listesi bulunamadı.",
                         _ms(step),
                     ))
                     continue
                 await toggle.scroll_into_view_if_needed()
                 await toggle.click()
+                await _wait_stable(page)
                 option = page.locator('[data-testid="global-filter-option"]').first
                 try:
                     await option.wait_for(state="visible", timeout=8000)
-                    label = (await option.inner_text()).strip()
+                    label = await _text(option)
                     await option.click()
+                    await _wait_stable(page)
                     cases.append(case(
                         f"ui_filter_dropdown_{field}",
                         "ui",
-                        f"Select option in '{filt['display_name']}'",
+                        f"Liste filtresi: {filt['display_name']}",
                         "passed",
-                        f"Clicked '{label or 'first option'}'",
+                        f"'{label or 'ilk seçenek'}' seçildi.",
                         _ms(step),
                     ))
                 except Exception:
                     cases.append(case(
                         f"ui_filter_dropdown_{field}",
                         "ui",
-                        f"Select option in '{filt['display_name']}'",
+                        f"Liste filtresi: {filt['display_name']}",
                         "warning",
-                        "Dropdown opened but no options appeared",
+                        "Liste açıldı ama içinde seçenek çıkmadı.",
                         _ms(step),
                     ))
                     await page.keyboard.press("Escape")
 
         apply_btn = page.locator('[data-testid="global-filter-apply"]')
-        if await apply_btn.count():
+        if await _count(apply_btn):
             step = time.perf_counter()
             await apply_btn.click()
+            await _wait_stable(page)
             cases.append(case(
                 "ui_filter_apply",
                 "ui",
-                "Click Apply on global filters",
+                "Filtreleri uygulama",
                 "passed",
-                "Clicked Uygula like a user",
+                "Uygula düğmesine basıldı.",
                 _ms(step),
             ))
         return cases
@@ -506,23 +603,24 @@ class ReportUiTester:
             for tab in sorted(tabs, key=lambda item: getattr(item, "order_index", 0) or 0):
                 step = time.perf_counter()
                 tab_btn = page.locator(f'[data-testid="report-tab-{tab.id}"]')
-                if not await tab_btn.count():
+                if not await _count(tab_btn):
                     cases.append(case(
                         f"ui_tab_{tab.id}",
                         "ui",
-                        f"Open tab '{tab.name}'",
+                        f"Sekme: {tab.name}",
                         "failed",
-                        "Tab button was not found",
+                        "Sekme bulunamadı.",
                         _ms(step),
                     ))
                     continue
                 await tab_btn.click()
+                await _wait_stable(page)
                 cases.append(case(
                     f"ui_tab_{tab.id}",
                     "ui",
-                    f"Open tab '{tab.name}'",
+                    f"Sekme: {tab.name}",
                     "passed",
-                    "Clicked tab",
+                    "Sekme açıldı.",
                     _ms(step),
                 ))
                 tab_queries = [q for q in (report.queries or []) if getattr(q, "tab_id", None) == tab.id]
@@ -541,17 +639,17 @@ class ReportUiTester:
         cases: list[dict[str, Any]] = []
         for query in queries:
             qid = query.id
-            qname = query.name or f"Query {qid}"
+            qname = query.name or f"Tablo {qid}"
             label = f"{qname}" + (f" ({tab_name})" if tab_name else "")
             step = time.perf_counter()
             widget = page.locator(f'[data-testid="query-widget-{qid}"]')
-            if not await widget.count():
+            if not await _count(widget):
                 cases.append(case(
                     f"ui_query_{qid}_visible",
                     "ui",
-                    f"Query widget visible: {label}",
+                    f"Tablo: {label}",
                     "failed",
-                    "Query card did not render",
+                    "Tablo ekranda görünmedi.",
                     _ms(step),
                 ))
                 continue
@@ -559,61 +657,61 @@ class ReportUiTester:
             cases.append(case(
                 f"ui_query_{qid}_visible",
                 "ui",
-                f"Query widget visible: {label}",
+                f"Tablo: {label}",
                 "passed",
-                "Query card is on the page",
+                "Tablo göründü.",
                 _ms(step),
             ))
 
             loading = page.locator(f'[data-testid="query-loading-{qid}"]')
             load_started = time.perf_counter()
             try:
-                if await loading.count():
+                if await _count(loading):
                     await loading.wait_for(state="hidden", timeout=timeout)
             except Exception:
                 cases.append(case(
                     f"ui_query_{qid}_load",
                     "ui",
-                    f"Query finishes loading: {label}",
+                    f"Tablo yüklenmesi: {label}",
                     "failed",
-                    f"Still loading after {timeout}ms",
+                    "Tablo çok uzun süre yüklendi.",
                     _ms(load_started),
                 ))
                 continue
 
             error_box = page.locator(f'[data-testid="query-error-{qid}"]')
-            if await error_box.count() and await error_box.is_visible():
-                text = (await error_box.inner_text()).strip()
+            if await _count(error_box) and await _visible(error_box):
+                text = await _text(error_box)
                 cases.append(case(
                     f"ui_query_{qid}_error",
                     "ui",
-                    f"Query renders without error: {label}",
+                    f"Tablo: {label}",
                     "failed",
-                    text or "Query widget showed an error",
+                    text or "Tabloda bir hata göründü.",
                     _ms(load_started),
                 ))
                 continue
 
             empty = page.locator(f'[data-testid="query-empty-{qid}"]')
-            if await empty.count() and await empty.is_visible():
+            if await _count(empty) and await _visible(empty):
                 cases.append(case(
                     f"ui_query_{qid}_data",
                     "ui",
-                    f"Query shows data: {label}",
+                    f"Tablo: {label}",
                     "warning",
-                    "Widget finished but showed the empty state",
+                    "Tablo açıldı ama içinde kayıt yok.",
                     _ms(load_started),
                 ))
                 continue
 
             result_box = page.locator(f'[data-testid="query-result-{qid}"]')
-            if not await result_box.count():
+            if not await _count(result_box):
                 cases.append(case(
                     f"ui_query_{qid}_data",
                     "ui",
-                    f"Query shows data: {label}",
+                    f"Tablo: {label}",
                     "failed",
-                    "No result, error, or empty state appeared",
+                    "Tablo sonucu görünmedi.",
                     _ms(load_started),
                 ))
                 continue
@@ -623,11 +721,11 @@ class ReportUiTester:
                 viz_type = str(query.visualization_config.get("type") or "")
 
             rows = result_box.locator('[data-testid="viz-table-row"]')
-            row_count = await rows.count()
+            row_count = await _count(rows)
             count_label = result_box.locator('[data-testid="viz-table-count"]')
-            count_text = (await count_label.inner_text()).strip() if await count_label.count() else ""
+            count_text = await _text(count_label) if await _count(count_label) else ""
             chart = result_box.locator(".recharts-wrapper, .recharts-surface, svg.recharts-surface")
-            chart_count = await chart.count()
+            chart_count = await _count(chart)
             viz_ms = _ms(load_started)
 
             if viz_type in {"table", "expandable"} or row_count:
@@ -635,77 +733,79 @@ class ReportUiTester:
                 cases.append(case(
                     f"ui_query_{qid}_table",
                     "ui",
-                    f"Table rows: {label}",
+                    f"Tablo kayıtları: {label}",
                     status,
-                    count_text or f"{row_count} visible row(s)",
+                    count_text or (f"{row_count} kayıt göründü." if row_count else "Tabloda kayıt görünmedi."),
                     viz_ms,
                     meta={"visible_rows": row_count, "count_text": count_text},
                 ))
                 if row_count:
                     header = result_box.locator("th").first
-                    if await header.count():
+                    if await _count(header):
                         sort_started = time.perf_counter()
                         await header.click()
+                        await _wait_stable(page)
                         cases.append(case(
                             f"ui_query_{qid}_sort",
                             "ui",
-                            f"Click column header: {label}",
+                            f"Sıralama: {label}",
                             "passed",
-                            "Clicked first column to sort",
+                            "Sütun başlığına tıklandı.",
                             _ms(sort_started),
                         ))
             elif viz_type == "card" or "card" in viz_type:
                 cases.append(case(
                     f"ui_query_{qid}_card",
                     "ui",
-                    f"Card visualization: {label}",
+                    f"Özet kutu: {label}",
                     "passed",
-                    "Card result rendered",
+                    "Özet kutu göründü.",
                     viz_ms,
                 ))
             elif chart_count:
                 cases.append(case(
                     f"ui_query_{qid}_chart",
                     "ui",
-                    f"Chart visualization: {label}",
+                    f"Grafik: {label}",
                     "passed",
-                    f"{viz_type or 'chart'} rendered",
+                    "Grafik göründü.",
                     viz_ms,
                 ))
             else:
                 cases.append(case(
                     f"ui_query_{qid}_data",
                     "ui",
-                    f"Query visualization: {label}",
+                    f"Tablo: {label}",
                     "warning",
-                    "Result container is present but no table/chart was detected",
+                    "Sonuç alanı var ama tablo veya grafik görünmedi.",
                     viz_ms,
                 ))
 
             apply_btn = page.locator(f'[data-testid="query-apply-{qid}"]')
-            if await apply_btn.count():
+            if await _count(apply_btn):
                 apply_started = time.perf_counter()
                 await apply_btn.scroll_into_view_if_needed()
                 await apply_btn.click()
+                await _wait_stable(page)
                 loading = page.locator(f'[data-testid="query-loading-{qid}"]')
                 try:
-                    if await loading.count():
+                    if await _count(loading):
                         await loading.wait_for(state="hidden", timeout=timeout)
                     cases.append(case(
                         f"ui_query_{qid}_apply",
                         "ui",
-                        f"Click Apply on query filters: {label}",
+                        f"Filtre uygulama: {label}",
                         "passed",
-                        "Clicked Uygula and waited for reload",
+                        "Uygula düğmesine basıldı.",
                         _ms(apply_started),
                     ))
                 except Exception:
                     cases.append(case(
                         f"ui_query_{qid}_apply",
                         "ui",
-                        f"Click Apply on query filters: {label}",
+                        f"Filtre uygulama: {label}",
                         "failed",
-                        "Query did not finish after clicking Uygula",
+                        "Uygula sonrası tablo yüklenmedi.",
                         _ms(apply_started),
                     ))
         return cases

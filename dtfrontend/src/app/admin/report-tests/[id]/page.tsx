@@ -14,6 +14,12 @@ import {
 import AdminSidebar from "@/components/AdminSidebar"
 import { reportTestService } from "@/services/report-tests"
 import type { ReportTestCase, ReportTestResult, ReportTestRun } from "@/types/report-tests"
+import {
+  friendlyCaseMessage,
+  friendlyCaseName,
+  friendlySummary,
+  isIssueStatus,
+} from "@/lib/friendly-report-test"
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "—"
@@ -36,7 +42,7 @@ function formatMs(ms?: number | null) {
 
 function resultBadge(status: string) {
   if (status === "passed") {
-    return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Geçti</span>
+    return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Sorunsuz</span>
   }
   if (status === "warning") {
     return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Uyarı</span>
@@ -55,12 +61,12 @@ function caseBadge(status: string) {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  structure: "Yapı",
-  ui: "Arayüz",
-  filter: "Filtre",
-  query: "Sorgu",
-  visualization: "Görselleştirme",
-  performance: "Performans",
+  structure: "Rapor ayarları",
+  ui: "Ekran",
+  filter: "Filtreler",
+  query: "Tablolar",
+  visualization: "Görünüm",
+  performance: "Yavaşlık",
   error: "Hata",
 }
 
@@ -71,7 +77,7 @@ export default function AdminReportTestRunPage() {
   const [run, setRun] = useState<ReportTestRun | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [statusFilter, setStatusFilter] = useState<string>("issues")
   const [searchTerm, setSearchTerm] = useState("")
   const [openIds, setOpenIds] = useState<Set<number>>(new Set())
   const [cancelling, setCancelling] = useState(false)
@@ -83,7 +89,7 @@ export default function AdminReportTestRunPage() {
       setError(null)
     } catch (err) {
       console.error(err)
-      setError("Test koşusu yüklenemedi")
+      setError("Sonuçlar yüklenemedi")
     } finally {
       setLoading(false)
     }
@@ -115,7 +121,11 @@ export default function AdminReportTestRunPage() {
   const results = run?.results || []
   const filtered = useMemo(() => {
     return results.filter((item) => {
-      if (statusFilter !== "all" && item.status !== statusFilter) return false
+      if (statusFilter === "issues") {
+        if (!isIssueStatus(item.status)) return false
+      } else if (statusFilter !== "all" && item.status !== statusFilter) {
+        return false
+      }
       const term = searchTerm.trim().toLowerCase()
       if (!term) return true
       return (
@@ -164,14 +174,14 @@ export default function AdminReportTestRunPage() {
             className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-4"
           >
             <ArrowLeft className="h-4 w-4" />
-            Tüm koşular
+            Tüm kontroller
           </button>
 
           <div className="flex items-start justify-between gap-4 mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-1">Test koşusu #{runId}</h1>
+              <h1 className="text-3xl font-bold text-gray-900 mb-1">Kontrol #{runId}</h1>
               <p className="text-gray-600 text-sm">
-                {run?.trigger === "scheduled" ? "Zamanlanmış" : "Manuel"} · {run?.triggered_by || "—"} · {formatDate(run?.started_at)}
+                {run?.trigger === "scheduled" ? "Otomatik" : "Elle başlatıldı"} · {run?.triggered_by || "—"} · {formatDate(run?.started_at)}
               </p>
             </div>
             {isActive && (
@@ -210,19 +220,18 @@ export default function AdminReportTestRunPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-            <Stat label="Geçti" value={run?.passed_reports ?? 0} color="text-green-700" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <Stat label="Sorunsuz" value={run?.passed_reports ?? 0} color="text-green-700" />
             <Stat label="Hata" value={run?.failed_reports ?? 0} color="text-red-700" />
             <Stat label="Uyarı" value={run?.warning_reports ?? 0} color="text-amber-700" />
-            <Stat label="Kontrol" value={run?.total_cases ?? 0} color="text-gray-800" />
-            <Stat label="Satır (örnek)" value={results.reduce((sum, item) => sum + (item.row_count_total || 0), 0)} color="text-gray-800" />
+            <Stat label="Toplam rapor" value={run?.total_reports ?? results.length} color="text-gray-800" />
           </div>
 
           <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4 flex flex-col md:flex-row gap-3">
             <input
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Rapor veya platform ara..."
+              placeholder="Rapor ara..."
               className="border border-gray-300 rounded-lg px-3 py-2 flex-1"
             />
             <select
@@ -230,11 +239,10 @@ export default function AdminReportTestRunPage() {
               onChange={(e) => setStatusFilter(e.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2"
             >
-              <option value="all">Tüm durumlar</option>
+              <option value="issues">Sadece sorunlar</option>
               <option value="failed">Hata</option>
               <option value="warning">Uyarı</option>
-              <option value="passed">Geçti</option>
-              <option value="skipped">Atlandı</option>
+              <option value="all">Tümü</option>
             </select>
           </div>
 
@@ -249,7 +257,7 @@ export default function AdminReportTestRunPage() {
             ))}
             {filtered.length === 0 && (
               <div className="bg-white border border-gray-200 rounded-lg py-12 text-center text-gray-500">
-                Bu filtreye uyan rapor yok.
+                Bu filtreye uyan sorun yok.
               </div>
             )}
           </div>
@@ -280,6 +288,7 @@ function ReportResultCard({
   const grouped = useMemo(() => {
     const map = new Map<string, ReportTestCase[]>()
     for (const item of result.cases || []) {
+      if (!isIssueStatus(item.status)) continue
       const list = map.get(item.category) || []
       list.push(item)
       map.set(item.category, list)
@@ -300,34 +309,38 @@ function ReportResultCard({
             )}
           </div>
           <div className="text-xs text-gray-500 mt-1">
-            {result.query_count} sorgu · {result.filter_count} filtre · {result.row_count_total} satır · {formatMs(result.duration_ms)}
-            {result.summary ? ` · ${result.summary}` : ""}
+            {formatMs(result.duration_ms)}
+            {result.summary ? ` · ${friendlySummary(result.summary)}` : ""}
           </div>
         </div>
       </button>
       {open && (
         <div className="border-t border-gray-100 px-4 py-3 space-y-4">
-          {grouped.map(([category, cases]) => (
-            <div key={category}>
-              <div className="text-xs font-semibold text-gray-500 uppercase mb-2">
-                {CATEGORY_LABELS[category] || category}
-              </div>
-              <div className="space-y-2">
-                {cases.map((item) => (
-                  <div key={item.case_id} className="flex items-start gap-2 text-sm">
-                    {caseBadge(item.status)}
-                    <div className="flex-1 min-w-0">
-                      <div className="text-gray-900">{item.name}</div>
-                      <div className="text-gray-500">{item.message}</div>
+          {grouped.length === 0 ? (
+            <div className="text-sm text-gray-500">Bu raporda hata veya uyarı yok.</div>
+          ) : (
+            grouped.map(([category, cases]) => (
+              <div key={category}>
+                <div className="text-xs font-semibold text-gray-500 uppercase mb-2">
+                  {CATEGORY_LABELS[category] || category}
+                </div>
+                <div className="space-y-2">
+                  {cases.map((item) => (
+                    <div key={item.case_id} className="flex items-start gap-2 text-sm">
+                      {caseBadge(item.status)}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-gray-900">{friendlyCaseName(item)}</div>
+                        <div className="text-gray-500">{friendlyCaseMessage(item)}</div>
+                      </div>
+                      <div className="text-xs text-gray-400 tabular-nums whitespace-nowrap pt-0.5">
+                        {formatMs(item.duration_ms)}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-400 tabular-nums whitespace-nowrap pt-0.5">
-                      {formatMs(item.duration_ms)}
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
     </div>
