@@ -430,3 +430,67 @@ class Documentation(PostgreSQLBase):
 
     # Relationships
     platform = relationship("Platform", backref="documentations")
+
+
+class ReportTestRun(PostgreSQLBase):
+    """One execution of the automated report health-test suite."""
+    __tablename__ = "report_test_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    status = Column(String(50), nullable=False, default="queued", server_default="queued", index=True)
+    trigger = Column(String(50), nullable=False, default="manual", server_default="manual")
+    triggered_by = Column(String(255), nullable=True)
+    platform_id = Column(Integer, nullable=True, index=True)
+    report_id = Column(Integer, nullable=True, index=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    total_reports = Column(Integer, nullable=False, default=0, server_default="0")
+    passed_reports = Column(Integer, nullable=False, default=0, server_default="0")
+    failed_reports = Column(Integer, nullable=False, default=0, server_default="0")
+    warning_reports = Column(Integer, nullable=False, default=0, server_default="0")
+    skipped_reports = Column(Integer, nullable=False, default=0, server_default="0")
+    total_cases = Column(Integer, nullable=False, default=0, server_default="0")
+    passed_cases = Column(Integer, nullable=False, default=0, server_default="0")
+    failed_cases = Column(Integer, nullable=False, default=0, server_default="0")
+    warning_cases = Column(Integer, nullable=False, default=0, server_default="0")
+    current_report_id = Column(Integer, nullable=True)
+    current_report_name = Column(String(255), nullable=True)
+    processed_reports = Column(Integer, nullable=False, default=0, server_default="0")
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    results = relationship(
+        "ReportTestResult",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="ReportTestResult.id",
+    )
+
+
+class ReportTestResult(PostgreSQLBase):
+    """Per-report outcome inside a health-test run. Kept after report deletion."""
+    __tablename__ = "report_test_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("report_test_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    report_id = Column(Integer, nullable=False, index=True)
+    report_name = Column(String(255), nullable=False)
+    platform_id = Column(Integer, nullable=True, index=True)
+    platform_name = Column(String(255), nullable=True)
+    platform_code = Column(String(50), nullable=True)
+    status = Column(String(50), nullable=False, index=True)
+    duration_ms = Column(Integer, nullable=False, default=0, server_default="0")
+    query_count = Column(Integer, nullable=False, default=0, server_default="0")
+    filter_count = Column(Integer, nullable=False, default=0, server_default="0")
+    row_count_total = Column(Integer, nullable=False, default=0, server_default="0")
+    summary = Column(Text, nullable=True)
+    cases = Column(JSONB, nullable=False, default=list)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    run = relationship("ReportTestRun", back_populates="results")

@@ -2297,6 +2297,7 @@ export default function ReportDetailPage() {
             ))}
             <div className="flex-shrink-0">
               <button
+                data-testid={`query-apply-${query.id}`}
                 onClick={() => {
                   const queryState = queryResults[query.id]
                   const pageSize = queryState?.pageSize || 50
@@ -2623,7 +2624,7 @@ export default function ReportDetailPage() {
   // Show error only if there's an actual error and loading is complete
   if (error && !reportLoading) {
     return (
-      <div className="container mx-auto py-8">
+      <div className="container mx-auto py-8" data-testid="report-load-error">
         <div className="bg-red-50 border border-red-200 rounded-md p-4">
           <div className="flex">
             <AlertCircle className="h-5 w-5 text-red-400" />
@@ -2644,14 +2645,14 @@ export default function ReportDetailPage() {
   }
 
   return (
-    <div className="container min-w-full space-y-3">
+    <div className="container min-w-full space-y-3" data-testid="report-page">
       {/* Report Header */}
       <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 px-4 py-2 space-y-1.5 rounded-lg shadow-md">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold">{report.name}</h1>
+                <h1 className="text-xl font-bold" data-testid="report-title">{report.name}</h1>
                 {isAdmin(user) && (
                   <div className="relative" ref={dropdownRef}>
                     <button
@@ -2863,6 +2864,7 @@ export default function ReportDetailPage() {
             {[...report.tabs].sort((a, b) => a.orderIndex - b.orderIndex).map((tab) => (
               <button
                 key={tab.id}
+                data-testid={`report-tab-${tab.id}`}
                 onClick={() => handleTabChange(tab.id)}
                 className={`px-4 py-2 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
                   activeTab === tab.id
@@ -2913,7 +2915,7 @@ export default function ReportDetailPage() {
           const scale = isLayoutEditMode ? Math.min(gridItemHeight / 500, 1) : 1
 
           return (
-            <div key={query.id.toString()} className={`bg-white rounded-lg shadow-md border ${isLayoutEditMode ? 'border-blue-400 border-2' : 'border-gray-200'} h-full flex flex-col`} data-query-id={query.id}>
+            <div key={query.id.toString()} className={`bg-white rounded-lg shadow-md border ${isLayoutEditMode ? 'border-blue-400 border-2' : 'border-gray-200'} h-full flex flex-col`} data-query-id={query.id} data-testid={`query-widget-${query.id}`}>
               <div className={`pb-2 px-4 pt-4 flex-shrink-0 ${isLayoutEditMode ? 'drag-handle cursor-move bg-blue-50' : ''}`}>
                 <div className="flex items-center gap-2">
                   <Icon className="h-4 w-4 text-blue-600" />
@@ -2946,7 +2948,7 @@ export default function ReportDetailPage() {
               <div className="space-y-3 px-4 pb-4 relative flex-1 overflow-hidden">
                 {/* Loading Skeleton */}
                 {queryState?.loading && (
-                  <div className="absolute inset-0 bg-white flex items-center justify-center z-10 rounded-lg">
+                  <div className="absolute inset-0 bg-white flex items-center justify-center z-10 rounded-lg" data-testid={`query-loading-${query.id}`}>
                     {(() => {
                       const vizType = query.visualization.type
                       
@@ -3182,7 +3184,7 @@ export default function ReportDetailPage() {
 
                 {/* Error State */}
                 {queryState?.error && (
-                  <div className="bg-red-50 border border-red-200 rounded-md p-4">
+                  <div className="bg-red-50 border border-red-200 rounded-md p-4" data-testid={`query-error-${query.id}`}>
                     <div className="flex">
                       <AlertCircle className="h-5 w-5 text-red-400" />
                       <div className="ml-3">
@@ -3194,7 +3196,7 @@ export default function ReportDetailPage() {
 
                 {/* Results */}
                 {queryState?.result && (
-                  <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }} data-testid={`query-result-${query.id}`}>
                     {/* Show filters above charts (but not for tables) */}
                     {query.visualization.type !== 'table' && query.visualization.type !== 'expandable' && renderQueryFilters(query)}
                     {renderVisualization(query, queryState.result, scale)}
@@ -3203,7 +3205,7 @@ export default function ReportDetailPage() {
 
                 {/* No Data State */}
                 {!queryState?.result && !queryState?.loading && !queryState?.error && (
-                  <div className="text-center py-8 text-gray-500">
+                  <div className="text-center py-8 text-gray-500" data-testid={`query-empty-${query.id}`}>
                     No data available. Try running the query with different filters.
                   </div>
                 )}

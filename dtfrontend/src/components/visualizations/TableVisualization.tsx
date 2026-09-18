@@ -990,7 +990,7 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
       minHeight: '200px'
     }}>
       <div style={{ flex: 1, overflow: 'auto' }}>
-        <table className="w-full border-collapse relative">
+        <table className="w-full border-collapse relative" data-testid="viz-table">
           <thead className="sticky top-0 z-10 relative">
             <tr className="bg-gray-50 border-b border-gray-200">
               {columns.map((col, index) => {
@@ -1130,7 +1130,7 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
               const rowTextColor = getRowTextColor(row, columns, query.visualization.chartOptions?.rowColorRules)
 
               return (
-                <tr key={rowIndex} className="hover:bg-gray-50 transition-colors">
+                <tr key={rowIndex} className="hover:bg-gray-50 transition-colors" data-testid="viz-table-row">
                   {row.map((cell, cellIndex) => {
                     const cellValue = cell?.toString() || ''
                     const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
@@ -1173,7 +1173,7 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
 
       {/* Pagination Controls */}
       <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center flex-wrap gap-3 flex-shrink-0">
-        <div className="text-xs text-gray-600">
+        <div className="text-xs text-gray-600" data-testid="viz-table-count">
           {((currentPage - 1) * pageSize + 1)}-{Math.min(currentPage * pageSize, totalRows)} / {totalRows}
         </div>
 

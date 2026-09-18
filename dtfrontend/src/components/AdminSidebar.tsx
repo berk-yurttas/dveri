@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Settings, MessageSquare, BookOpen, RefreshCw } from "lucide-react";
+import { Settings, MessageSquare, BookOpen, RefreshCw, FlaskConical } from "lucide-react";
 
 export default function AdminSidebar() {
   const pathname = usePathname();
@@ -31,6 +31,12 @@ export default function AdminSidebar() {
       icon: RefreshCw,
       href: "/admin/ivme-sync",
       isActive: pathname?.startsWith("/admin/ivme-sync"),
+    },
+    {
+      title: "Rapor Testleri",
+      icon: FlaskConical,
+      href: "/admin/report-tests",
+      isActive: pathname?.startsWith("/admin/report-tests"),
     },
   ];
 

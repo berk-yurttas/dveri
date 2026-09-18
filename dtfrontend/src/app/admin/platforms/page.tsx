@@ -11,14 +11,12 @@ import {
   XCircle,
   Activity,
   Database,
-  Users,
-  LayoutDashboard,
-  FileText,
-  Eye,
-  EyeOff
+  FlaskConical
 } from "lucide-react";
 import { platformService } from "@/services/platform";
+import { reportTestService } from "@/services/report-tests";
 import { Platform } from "@/types/platform";
+import type { ReportTestPlatformSummary, ReportTestSummary } from "@/types/report-tests";
 import { DeleteModal } from "@/components/ui/delete-modal";
 import AdminSidebar from "@/components/AdminSidebar";
 
@@ -33,10 +31,21 @@ export default function AdminPlatformsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [testSummary, setTestSummary] = useState<ReportTestSummary | null>(null);
 
   useEffect(() => {
     fetchPlatforms();
+    fetchTestSummary();
   }, [includeInactive]);
+
+  const fetchTestSummary = async () => {
+    try {
+      const data = await reportTestService.getSummary();
+      setTestSummary(data);
+    } catch (err) {
+      console.error("Failed to fetch report test summary:", err);
+    }
+  };
 
   const fetchPlatforms = async () => {
     try {
@@ -103,6 +112,10 @@ export default function AdminPlatformsPage() {
     platform.display_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     platform.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
     platform.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const healthByPlatform = new Map(
+    (testSummary?.platforms || []).map((item: ReportTestPlatformSummary) => [item.platform_id, item])
   );
 
   if (loading && platforms.length === 0) {
@@ -175,6 +188,14 @@ export default function AdminPlatformsPage() {
               </label>
 
               <button
+                onClick={() => router.push('/admin/report-tests')}
+                className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+              >
+                <FlaskConical className="h-5 w-5" />
+                Rapor Testleri
+              </button>
+
+              <button
                 onClick={() => router.push('/admin/platforms/add')}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
               >
@@ -203,6 +224,9 @@ export default function AdminPlatformsPage() {
                     </th>
                     <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Durum
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Rapor testi
                     </th>
                     <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                       İşlemler
@@ -269,6 +293,38 @@ export default function AdminPlatformsPage() {
                             </>
                           )}
                         </button>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {(() => {
+                          const health = healthByPlatform.get(platform.id);
+                          if (!health || !health.last_run_id) {
+                            return (
+                              <button
+                                onClick={() => router.push(`/admin/report-tests?platformId=${platform.id}`)}
+                                className="text-sm text-gray-400 hover:text-gray-600"
+                              >
+                                Henüz test yok
+                              </button>
+                            );
+                          }
+                          const failed = health.failed;
+                          const warning = health.warning;
+                          const passed = health.passed;
+                          return (
+                            <button
+                              onClick={() => router.push(`/admin/report-tests/${health.last_run_id}`)}
+                              className="text-left"
+                              title="Test geçmişini aç"
+                            >
+                              <div className={`text-sm font-medium ${failed ? 'text-red-700' : warning ? 'text-amber-700' : 'text-green-700'}`}>
+                                {failed ? `${failed} hata` : warning ? `${warning} uyarı` : `${passed} geçti`}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {health.total} rapor{health.last_run_at ? ` · ${new Date(health.last_run_at).toLocaleString('tr-TR')}` : ''}
+                              </div>
+                            </button>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
                         <div className="flex items-center justify-center gap-2">

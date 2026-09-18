@@ -13,6 +13,7 @@ __pycache__/
 
 # Offline ODBC packages (binary .deb files)
 offline_packages/
+.tmp_playwright_dl/
 
 # Local CSuite weekly snapshot store
 dtbackend/data/csuite_weekly_history.json

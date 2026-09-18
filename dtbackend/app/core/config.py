@@ -144,6 +144,53 @@ class Settings(BaseSettings):
         default_factory=lambda: int(os.getenv("ODAK_UPDATE_SCHEDULER_INTERVAL_SECONDS", "30"))
     )
 
+    # Automated report health tests (queries, filters, UI config) with historical results
+    REPORT_TEST_SCHEDULER_ENABLED: bool = Field(
+        default_factory=lambda: os.getenv("REPORT_TEST_SCHEDULER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    )
+    REPORT_TEST_SCHEDULER_INTERVAL_SECONDS: int = Field(
+        default_factory=lambda: int(os.getenv("REPORT_TEST_SCHEDULER_INTERVAL_SECONDS", "60"))
+    )
+    REPORT_TEST_SCHEDULE_HOUR: int = Field(
+        default_factory=lambda: int(os.getenv("REPORT_TEST_SCHEDULE_HOUR", "2"))
+    )
+    REPORT_TEST_SCHEDULE_MINUTE: int = Field(
+        default_factory=lambda: int(os.getenv("REPORT_TEST_SCHEDULE_MINUTE", "0"))
+    )
+    REPORT_TEST_QUERY_TIMEOUT_SECONDS: int = Field(
+        default_factory=lambda: int(os.getenv("REPORT_TEST_QUERY_TIMEOUT_SECONDS", "45"))
+    )
+    REPORT_TEST_FILTER_TIMEOUT_SECONDS: int = Field(
+        default_factory=lambda: int(os.getenv("REPORT_TEST_FILTER_TIMEOUT_SECONDS", "20"))
+    )
+    REPORT_TEST_QUERY_LIMIT: int = Field(
+        default_factory=lambda: int(os.getenv("REPORT_TEST_QUERY_LIMIT", "50"))
+    )
+    REPORT_TEST_SLOW_QUERY_MS: int = Field(
+        default_factory=lambda: int(os.getenv("REPORT_TEST_SLOW_QUERY_MS", "15000"))
+    )
+    REPORT_TEST_REPORT_TIMEOUT_SECONDS: int = Field(
+        default_factory=lambda: int(os.getenv("REPORT_TEST_REPORT_TIMEOUT_SECONDS", "90"))
+    )
+    REPORT_TEST_CONCURRENCY: int = Field(
+        default_factory=lambda: int(os.getenv("REPORT_TEST_CONCURRENCY", "4"))
+    )
+    REPORT_TEST_QUERY_CONCURRENCY: int = Field(
+        default_factory=lambda: int(os.getenv("REPORT_TEST_QUERY_CONCURRENCY", "4"))
+    )
+    REPORT_TEST_FRONTEND_URL: str = Field(
+        default_factory=lambda: os.getenv("REPORT_TEST_FRONTEND_URL") or os.getenv("CORS_ORIGIN", "http://localhost:3000")
+    )
+    REPORT_TEST_UI_ENABLED: bool = Field(
+        default_factory=lambda: os.getenv("REPORT_TEST_UI_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    )
+    REPORT_TEST_UI_HEADLESS: bool = Field(
+        default_factory=lambda: os.getenv("REPORT_TEST_UI_HEADLESS", "true").lower() in {"1", "true", "yes", "on"}
+    )
+    REPORT_TEST_UI_TIMEOUT_MS: int = Field(
+        default_factory=lambda: int(os.getenv("REPORT_TEST_UI_TIMEOUT_MS", "20000"))
+    )
+
     @property
     def postgres_database_url(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"

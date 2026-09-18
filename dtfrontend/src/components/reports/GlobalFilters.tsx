@@ -76,7 +76,7 @@ export function GlobalFilters({
   if (!globalFilters || globalFilters.length === 0) return null
 
   return (
-    <div className="bg-gradient-to-r from-orange-50 via-amber-50 to-yellow-50 px-4 py-2 rounded-lg shadow-sm border border-orange-200">
+    <div className="bg-gradient-to-r from-orange-50 via-amber-50 to-yellow-50 px-4 py-2 rounded-lg shadow-sm border border-orange-200" data-testid="global-filters">
       <div className="flex items-center gap-2 mb-2">
         <Filter className="h-4 w-4 text-orange-600" />
         <h3 className="text-sm font-semibold text-gray-800">Filtreler</h3>
@@ -86,12 +86,13 @@ export function GlobalFilters({
       <div className="bg-white p-2 rounded border border-orange-200 shadow-sm">
         <div className="flex flex-wrap items-end gap-2">
           {globalFilters.map((filter, filterIndex) => (
-            <div key={`global_filter_${filter.fieldName}_${filterIndex}`} className={`flex-shrink-0 ${filter.type === 'date' ? 'w-72' : 'w-48'}`}>
+            <div key={`global_filter_${filter.fieldName}_${filterIndex}`} className={`flex-shrink-0 ${filter.type === 'date' ? 'w-72' : 'w-48'}`} data-testid={`global-filter-${filter.fieldName}`}>
               <label className="block text-xs font-medium text-gray-600 mb-1">{filter.displayName}</label>
               {filter.type === 'date' ? (
                 <div className="relative flex items-center gap-1 w-full">
                   <input
                     type="date"
+                    data-testid={`global-filter-${filter.fieldName}-start`}
                     value={filters[`global_${filter.fieldName}_start`] || ''}
                     onChange={(e) => {
                       const newValue = e.target.value
@@ -106,6 +107,7 @@ export function GlobalFilters({
                   <span className="text-gray-500 text-xs font-medium">-</span>
                   <input
                     type="date"
+                    data-testid={`global-filter-${filter.fieldName}-end`}
                     value={filters[`global_${filter.fieldName}_end`] || ''}
                     onChange={(e) => {
                       const newValue = e.target.value
@@ -147,6 +149,7 @@ export function GlobalFilters({
                     <div className="relative filter-dropdown-container">
                       <button
                         type="button"
+                        data-testid={`global-filter-${filter.fieldName}-dropdown`}
                         onClick={() => {
                           setOperatorMenuOpen({})
                           setDropdownOpen(prev => {
@@ -194,6 +197,7 @@ export function GlobalFilters({
                               filteredOptions.map((option, index) => (
                                 <div
                                   key={`globalfilter_dropdown_${filterIndex}_${filter.fieldName}_${option.value}_${index}`}
+                                  data-testid="global-filter-option"
                                   onClick={() => {
                                     onFilterChange(0, `global_${filter.fieldName}`, option.value)
                                     setDropdownOpen(prev => ({ ...prev, [filterKey]: false }))
@@ -230,6 +234,7 @@ export function GlobalFilters({
                     <div className="relative filter-dropdown-container">
                       <button
                         type="button"
+                        data-testid={`global-filter-${filter.fieldName}-dropdown`}
                         onClick={() => {
                           setOperatorMenuOpen({})
                           setDropdownOpen(prev => {
@@ -279,6 +284,7 @@ export function GlobalFilters({
                                 return (
                                   <div
                                     key={`globalfilter_multiselect_${filterIndex}_${filter.fieldName}_${option.value}_${index}`}
+                                    data-testid="global-filter-option"
                                     onClick={() => {
                                       let newValues
                                       if (isChecked) {
@@ -391,6 +397,7 @@ export function GlobalFilters({
           ))}
           <div className="flex-shrink-0 flex gap-2">
             <button
+              data-testid="global-filter-apply"
               onClick={onApplyFilters}
               className="h-[28px] px-3 text-xs font-medium text-white bg-orange-600 hover:bg-orange-700 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
             >
@@ -398,6 +405,7 @@ export function GlobalFilters({
               Uygula
             </button>
             <button
+              data-testid="global-filter-clear"
               onClick={onClearFilters}
               className="h-[28px] px-3 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded transition-colors flex items-center gap-1.5 whitespace-nowrap"
             >

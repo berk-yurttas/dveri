@@ -2404,13 +2404,30 @@ class ReportsService:
         if not db_filter.dropdown_query:
             return {"options": [], "total": 0, "page": page, "page_size": page_size, "has_more": False}
 
-        # Get report's db_config and platform (fallback)
         report_db_config = db_filter.query.report.db_config if db_filter.query and db_filter.query.report else None
         platform = db_filter.query.report.platform if db_filter.query and db_filter.query.report else None
 
-        # Determine database type - prioritize report's db_config
-        if report_db_config:
-            db_type = report_db_config.get('db_type', 'clickhouse').lower()
+        return await self.run_dropdown_query(
+            db_filter.dropdown_query,
+            db_config=report_db_config,
+            platform=platform,
+            page=page,
+            page_size=page_size,
+            search=search,
+        )
+
+    async def run_dropdown_query(
+        self,
+        dropdown_query: str,
+        db_config: dict[str, Any] | None = None,
+        platform: Platform | None = None,
+        page: int = 1,
+        page_size: int = 50,
+        search: str = "",
+    ) -> dict[str, Any]:
+        """Execute a filter dropdown SQL query and return paginated value/label options."""
+        if db_config:
+            db_type = db_config.get("db_type", "clickhouse").lower()
         elif platform:
             db_type = platform.db_type.lower()
         else:
@@ -2419,89 +2436,91 @@ class ReportsService:
                 raise ValueError("Database client not available")
 
         try:
-            # Build the query with search and pagination
-            base_query = self.sanitize_sql_query(db_filter.dropdown_query)
+            base_query = self.sanitize_sql_query(dropdown_query)
+            base_query = base_query.rstrip(";").strip()
 
-            # Remove trailing semicolon if present
-            base_query = base_query.rstrip(';').strip()
-
-            # Add search filter if provided
             if search:
-                # Wrap base query and add WHERE clause for search
-                # This assumes the first column is value and second is label
                 if "WHERE" in base_query.upper():
-                    base_query = f"SELECT * FROM ({base_query}) AS subquery WHERE CAST(subquery.value AS TEXT) ILIKE '%{search}%' OR CAST(subquery.label AS TEXT) ILIKE '%{search}%'"
+                    base_query = (
+                        f"SELECT * FROM ({base_query}) AS subquery "
+                        f"WHERE CAST(subquery.value AS TEXT) ILIKE '%{search}%' "
+                        f"OR CAST(subquery.label AS TEXT) ILIKE '%{search}%'"
+                    )
                 else:
-                    # If no columns specified, search in all columns
-                    base_query = f"SELECT * FROM ({base_query}) AS subquery WHERE CAST(subquery.value AS TEXT) ILIKE '%{search}%'"
+                    base_query = (
+                        f"SELECT * FROM ({base_query}) AS subquery "
+                        f"WHERE CAST(subquery.value AS TEXT) ILIKE '%{search}%'"
+                    )
 
-            # Get total count
             count_query = f"SELECT COUNT(*) FROM ({base_query}) AS count_subquery"
-
-            # Add pagination
             offset = (page - 1) * page_size
             paginated_query = f"{base_query} LIMIT {page_size} OFFSET {offset}"
 
             if db_type == "clickhouse":
                 if not self.clickhouse_client:
                     raise ValueError("ClickHouse client not available")
-
-                # Get total count (run in thread pool to not block event loop)
                 total_result = await asyncio.to_thread(self.clickhouse_client.execute, count_query)
                 total = total_result[0][0] if total_result else 0
-
-                # Get paginated results (run in thread pool to not block event loop)
                 result = await asyncio.to_thread(self.clickhouse_client.execute, paginated_query)
 
             elif db_type == "postgresql":
-                # Use report's db_config or fallback to platform
-                if report_db_config:
-                    conn = await asyncio.to_thread(self._connection_pool.get_connection, db_config=report_db_config, db_type=db_type)
+                if db_config:
+                    conn = await asyncio.to_thread(
+                        self._connection_pool.get_connection, db_config=db_config, db_type=db_type
+                    )
                 elif platform:
-                    conn = await asyncio.to_thread(self._connection_pool.get_connection, platform=platform, db_type=db_type)
+                    conn = await asyncio.to_thread(
+                        self._connection_pool.get_connection, platform=platform, db_type=db_type
+                    )
                 else:
                     raise ValueError("Database configuration required for PostgreSQL queries")
-                
+
                 cursor = conn.cursor()
                 try:
-                    # Get total count (run in thread pool)
                     await asyncio.to_thread(cursor.execute, count_query)
                     total = cursor.fetchone()[0]
-
-                    # Get paginated results (run in thread pool)
                     await asyncio.to_thread(cursor.execute, paginated_query)
                     result = await asyncio.to_thread(cursor.fetchall)
                 finally:
                     cursor.close()
-                    # Return connection to pool
-                    await asyncio.to_thread(self._connection_pool.return_connection, conn, db_config=report_db_config, platform=platform, db_type=db_type)
+                    await asyncio.to_thread(
+                        self._connection_pool.return_connection,
+                        conn,
+                        db_config=db_config,
+                        platform=platform,
+                        db_type=db_type,
+                    )
 
             elif db_type == "mssql":
-                # Use report's db_config or fallback to platform
-                if report_db_config:
-                    conn = await asyncio.to_thread(self._connection_pool.get_connection, db_config=report_db_config, db_type=db_type)
+                if db_config:
+                    conn = await asyncio.to_thread(
+                        self._connection_pool.get_connection, db_config=db_config, db_type=db_type
+                    )
                 elif platform:
-                    conn = await asyncio.to_thread(self._connection_pool.get_connection, platform=platform, db_type=db_type)
+                    conn = await asyncio.to_thread(
+                        self._connection_pool.get_connection, platform=platform, db_type=db_type
+                    )
                 else:
                     raise ValueError("Database configuration required for MSSQL queries")
-                
+
                 cursor = conn.cursor()
                 try:
-                    # Get total count (run in thread pool)
                     await asyncio.to_thread(cursor.execute, count_query)
                     total = cursor.fetchone()[0]
-
-                    # Get paginated results (run in thread pool)
                     await asyncio.to_thread(cursor.execute, paginated_query)
                     result = await asyncio.to_thread(cursor.fetchall)
                 finally:
                     cursor.close()
-                    # Return connection to pool
-                    await asyncio.to_thread(self._connection_pool.return_connection, conn, db_config=report_db_config, platform=platform, db_type=db_type)
+                    await asyncio.to_thread(
+                        self._connection_pool.return_connection,
+                        conn,
+                        db_config=db_config,
+                        platform=platform,
+                        db_type=db_type,
+                    )
             else:
                 raise ValueError(f"Unsupported database type: {db_type}")
 
-            # Format as value/label pairs
             options = []
             for row in result:
                 if len(row) >= 2:
@@ -2510,15 +2529,13 @@ class ReportsService:
                     options.append({"value": row[0], "label": str(row[0])})
 
             has_more = (offset + len(options)) < total
-
             return {
                 "options": options,
                 "total": total,
                 "page": page,
                 "page_size": page_size,
-                "has_more": has_more
+                "has_more": has_more,
             }
-
         except Exception as e:
             raise ValueError(f"Failed to get filter options: {e!s}")
 
