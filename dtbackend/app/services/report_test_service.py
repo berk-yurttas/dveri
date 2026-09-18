@@ -372,7 +372,7 @@ async def _execute_run(run_id: int) -> None:
                 ui_skip_reason = "Ekran kontrolü kapalı."
             elif not playwright_available():
                 ui_skip_reason = "Rapor ekranı kontrolü için gerekli tarayıcı kurulu değil."
-            elif not cookies:
+            elif not settings.REPORT_TEST_UI_BYPASS_AUTH and not cookies:
                 ui_skip_reason = "Oturum bilgisi alınamadı. Lütfen yönetici sayfasından tekrar başlatın."
             else:
                 ui_tester = ReportUiTester(cookies)

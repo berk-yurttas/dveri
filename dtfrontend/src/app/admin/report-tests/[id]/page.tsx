@@ -18,7 +18,7 @@ import {
   friendlyCaseMessage,
   friendlyCaseName,
   friendlySummary,
-  isIssueStatus,
+  isErrorStatus,
 } from "@/lib/friendly-report-test"
 
 function formatDate(value: string | null | undefined) {
@@ -77,7 +77,7 @@ export default function AdminReportTestRunPage() {
   const [run, setRun] = useState<ReportTestRun | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState<string>("issues")
+  const [statusFilter, setStatusFilter] = useState<string>("failed")
   const [searchTerm, setSearchTerm] = useState("")
   const [openIds, setOpenIds] = useState<Set<number>>(new Set())
   const [cancelling, setCancelling] = useState(false)
@@ -121,8 +121,8 @@ export default function AdminReportTestRunPage() {
   const results = run?.results || []
   const filtered = useMemo(() => {
     return results.filter((item) => {
-      if (statusFilter === "issues") {
-        if (!isIssueStatus(item.status)) return false
+      if (statusFilter === "failed") {
+        if (!isErrorStatus(item.status)) return false
       } else if (statusFilter !== "all" && item.status !== statusFilter) {
         return false
       }
@@ -239,9 +239,7 @@ export default function AdminReportTestRunPage() {
               onChange={(e) => setStatusFilter(e.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2"
             >
-              <option value="issues">Sadece sorunlar</option>
-              <option value="failed">Hata</option>
-              <option value="warning">Uyarı</option>
+              <option value="failed">Sadece hatalar</option>
               <option value="all">Tümü</option>
             </select>
           </div>
@@ -257,7 +255,7 @@ export default function AdminReportTestRunPage() {
             ))}
             {filtered.length === 0 && (
               <div className="bg-white border border-gray-200 rounded-lg py-12 text-center text-gray-500">
-                Bu filtreye uyan sorun yok.
+                Hata bulunan rapor yok.
               </div>
             )}
           </div>
@@ -288,7 +286,7 @@ function ReportResultCard({
   const grouped = useMemo(() => {
     const map = new Map<string, ReportTestCase[]>()
     for (const item of result.cases || []) {
-      if (!isIssueStatus(item.status)) continue
+      if (!isErrorStatus(item.status)) continue
       const list = map.get(item.category) || []
       list.push(item)
       map.set(item.category, list)
@@ -317,7 +315,7 @@ function ReportResultCard({
       {open && (
         <div className="border-t border-gray-100 px-4 py-3 space-y-4">
           {grouped.length === 0 ? (
-            <div className="text-sm text-gray-500">Bu raporda hata veya uyarı yok.</div>
+            <div className="text-sm text-gray-500">Bu raporda hata yok.</div>
           ) : (
             grouped.map(([category, cases]) => (
               <div key={category}>

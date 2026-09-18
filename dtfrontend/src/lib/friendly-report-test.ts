@@ -1,7 +1,7 @@
 import type { ReportTestCase } from "@/types/report-tests"
 
-export function isIssueStatus(status: string | null | undefined) {
-  return status === "failed" || status === "error" || status === "warning"
+export function isErrorStatus(status: string | null | undefined) {
+  return status === "failed" || status === "error"
 }
 
 export function friendlyCaseName(item: ReportTestCase) {

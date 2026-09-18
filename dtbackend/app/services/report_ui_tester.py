@@ -10,10 +10,11 @@ import time
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
 from app.core.config import settings
+from app.core.report_test_auth import playwright_extra_headers
 from app.models.postgres_models import Report
 from app.services.report_test_checks import case, normalize_filter
 
@@ -110,6 +111,119 @@ def _frontend_url() -> str:
     if isinstance(raw, (list, tuple)):
         raw = raw[0] if raw else "http://localhost:3000"
     return str(raw).split(",")[0].strip().rstrip("/")
+
+
+def _origin_url(raw: str | None) -> str | None:
+    text = str(raw or "").split(",")[0].strip()
+    if not text:
+        return None
+    if "://" not in text:
+        text = f"http://{text}"
+    parsed = urlparse(text)
+    if not parsed.hostname:
+        return None
+    path = (parsed.path or "").rstrip("/")
+    if path.endswith("/api/v1"):
+        path = path[: -len("/api/v1")]
+    scheme = parsed.scheme or "http"
+    netloc = parsed.netloc
+    return f"{scheme}://{netloc}{path}".rstrip("/")
+
+
+def _cookie_urls(api_origin: str | None = None) -> list[str]:
+    """Host-only cookie URLs. Chromium rejects Domain=localhost."""
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: str | None) -> None:
+        origin = _origin_url(raw)
+        if not origin:
+            return
+        parsed = urlparse(origin)
+        host = (parsed.hostname or "").lower()
+        scheme = parsed.scheme or "http"
+        port = f":{parsed.port}" if parsed.port else ""
+        key = f"{scheme}://{host}{port}"
+        if key in seen:
+            return
+        seen.add(key)
+        urls.append(f"{key}/")
+        if host in {"localhost", "127.0.0.1"}:
+            twin = "127.0.0.1" if host == "localhost" else "localhost"
+            twin_key = f"{scheme}://{twin}{port}"
+            if twin_key not in seen:
+                seen.add(twin_key)
+                urls.append(f"{twin_key}/")
+
+    add(_frontend_url())
+    add(api_origin)
+    add(settings.REPORT_TEST_API_URL)
+    cors = settings.CORS_ORIGIN
+    if isinstance(cors, list):
+        for item in cors:
+            add(item)
+    else:
+        add(str(cors))
+    extra = settings.BACKEND_CORS_ORIGINS
+    if isinstance(extra, list):
+        for item in extra:
+            add(item)
+    else:
+        add(str(extra))
+    return urls
+
+
+def is_login_bounce(page_url: str) -> bool:
+    parsed = urlparse(page_url or "")
+    query = {key.lower() for key in parse_qs(parsed.query or "")}
+    if "rdct_url" in query or "client_rdct" in query:
+        return True
+    path = (parsed.path or "").rstrip("/").lower()
+    return path in {"/login", "/users/login_redirect"} or path.endswith("/login")
+
+
+def build_playwright_cookie_specs(
+    cookies: dict[str, str],
+    *,
+    frontend_url: str | None = None,
+    api_origin: str | None = None,
+) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    urls = _cookie_urls(api_origin)
+    if frontend_url:
+        extra = _origin_url(frontend_url)
+        if extra:
+            extra_url = extra if extra.endswith("/") else f"{extra}/"
+            if extra_url not in urls:
+                urls = [extra_url, *urls]
+    cookie_domain = (settings.COOKIE_DOMAIN or "").strip().lstrip(".")
+    use_domain = cookie_domain.lower() not in {"", "localhost", "none", "127.0.0.1"}
+
+    for name, value in cookies.items():
+        if not value:
+            continue
+        http_only = name.endswith("_token") or name == "session_id"
+        for url in urls:
+            specs.append({
+                "name": name,
+                "value": str(value),
+                "url": url,
+                "path": "/",
+                "httpOnly": http_only,
+                "secure": urlparse(url).scheme == "https",
+                "sameSite": "Lax",
+            })
+        if use_domain:
+            specs.append({
+                "name": name,
+                "value": str(value),
+                "domain": cookie_domain,
+                "path": "/",
+                "httpOnly": http_only,
+                "secure": False,
+                "sameSite": "Lax",
+            })
+    return specs
 
 
 def _snapshot_report(report: Report) -> SimpleNamespace:
@@ -232,14 +346,19 @@ class ReportUiTester:
             args=["--disable-gpu", "--disable-dev-shm-usage"],
         )
         base_url = _frontend_url()
-        parsed = urlparse(base_url)
-        self._context = await self._browser.new_context(
-            base_url=base_url,
-            viewport={"width": 1440, "height": 900},
-            ignore_https_errors=True,
-            locale="tr-TR",
-        )
-        await self._context.add_cookies(self._playwright_cookies(parsed))
+        extra_headers = playwright_extra_headers() if settings.REPORT_TEST_UI_BYPASS_AUTH else {}
+        context_kwargs: dict[str, Any] = {
+            "base_url": base_url,
+            "viewport": {"width": 1440, "height": 900},
+            "ignore_https_errors": True,
+            "locale": "tr-TR",
+        }
+        if extra_headers:
+            context_kwargs["extra_http_headers"] = extra_headers
+        self._context = await self._browser.new_context(**context_kwargs)
+        cookie_specs = self._playwright_cookies()
+        if cookie_specs:
+            await self._context.add_cookies(cookie_specs)
 
     async def close(self) -> None:
         try:
@@ -259,38 +378,8 @@ class ReportUiTester:
             await self._playwright.stop()
             self._playwright = None
 
-    def _playwright_cookies(self, parsed) -> list[dict[str, Any]]:
-        host = parsed.hostname or "localhost"
-        domains = {host}
-        if host == "localhost":
-            domains.add("127.0.0.1")
-        cookie_domain = (settings.COOKIE_DOMAIN or "").strip()
-        if cookie_domain and cookie_domain not in {"localhost", "none"}:
-            domains.add(cookie_domain.lstrip("."))
-        cors = settings.CORS_ORIGIN
-        if isinstance(cors, list):
-            cors_url = cors[0] if cors else ""
-        else:
-            cors_url = str(cors).split(",")[0]
-        api_host = urlparse(cors_url).hostname if cors_url else None
-        if api_host:
-            domains.add(api_host)
-
-        cookies = []
-        for name, value in self.cookies.items():
-            if not value:
-                continue
-            for domain in domains:
-                cookies.append({
-                    "name": name,
-                    "value": value,
-                    "domain": domain,
-                    "path": "/",
-                    "httpOnly": name.endswith("_token"),
-                    "secure": parsed.scheme == "https",
-                    "sameSite": "Lax",
-                })
-        return cookies
+    def _playwright_cookies(self) -> list[dict[str, Any]]:
+        return build_playwright_cookie_specs(self.cookies)
 
     async def test_report(self, report: Report) -> list[dict[str, Any]]:
         snapshot = _snapshot_report(report)
@@ -377,22 +466,21 @@ class ReportUiTester:
             await page.goto(url, wait_until="load", timeout=timeout)
             await _wait_stable(page, timeout, network_idle=True)
 
-            if "login" in page.url.lower() or "rdct" in page.url.lower():
-                cases.append(case(
-                    "ui_auth",
-                    "ui",
-                    "Giriş",
-                    "failed",
-                    "Raporu açmak için oturum açılamadı. Lütfen yönetici sayfasından tekrar deneyin.",
-                    _ms(started),
-                ))
-                return cases
-
             title = page.locator('[data-testid="report-title"]')
             load_error = page.locator('[data-testid="report-load-error"]')
             try:
                 await title.wait_for(state="visible", timeout=timeout)
             except Exception:
+                if is_login_bounce(page.url):
+                    cases.append(case(
+                        "ui_auth",
+                        "ui",
+                        "Giriş",
+                        "failed",
+                        "Raporu açmak için oturum açılamadı. Lütfen yönetici sayfasından tekrar deneyin.",
+                        _ms(started),
+                    ))
+                    return cases
                 if await _count(load_error):
                     text = await _text(load_error)
                     cases.append(case(

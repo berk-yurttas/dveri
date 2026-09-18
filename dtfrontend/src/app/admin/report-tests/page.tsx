@@ -178,7 +178,7 @@ function AdminReportTestsPageInner() {
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Rapor Kontrolleri</h1>
             <p className="text-gray-600">
-              Raporların düzgün açılıp açılmadığına bakar. Sadece hata ve uyarılar listelenir.
+              Raporların düzgün açılıp açılmadığına bakar. Sadece hatalar listelenir.
             </p>
           </div>
 

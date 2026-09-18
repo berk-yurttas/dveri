@@ -218,6 +218,12 @@ async def get_current_user_with_refresh(request: Request, response: Response) ->
     Raises:
         HTTPException: For authentication errors
     """
+    from app.core.report_test_auth import user_from_playwright_request
+
+    playwright_user = user_from_playwright_request(request)
+    if playwright_user:
+        return playwright_user
+
     access_token = request.cookies.get("access_token")
     refresh_token = request.cookies.get("refresh_token")
 

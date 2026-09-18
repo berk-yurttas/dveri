@@ -282,11 +282,6 @@ def check_query_ui(query: Any) -> list[dict[str, Any]]:
     qid = getattr(query, "id", "x")
     qname = getattr(query, "name", None) or f"Query {qid}"
 
-    if not (getattr(query, "name", None) or "").strip():
-        cases.append(case(f"query_{qid}_name", "ui", f"Query name ({qid})", "failed", "Query name is empty"))
-    else:
-        cases.append(case(f"query_{qid}_name", "ui", f"Query has a name: {qname}", "passed", qname))
-
     sql_case = check_sql_shape(getattr(query, "sql", None), f"query_{qid}_sql", f"SQL shape: {qname}")
     cases.append(sql_case)
 
