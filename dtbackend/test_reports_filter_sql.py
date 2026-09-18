@@ -7,7 +7,9 @@ import unittest
 from app.schemas.reports import FilterValue
 from app.services.reports_service import (
     ReportsService,
+    extract_dropdown_placeholders,
     inject_where_condition,
+    prepare_dropdown_query,
     select_aliases,
     wrap_query_with_where,
 )
@@ -301,6 +303,33 @@ class SelectAliasParseTest(unittest.TestCase):
         self.assertEqual(
             _norm(result),
             "SELECT * FROM (SELECT a AS b FROM t ORDER BY a) AS _dt_filtered WHERE (b = 1) LIMIT 5",
+        )
+
+
+class DropdownPlaceholderTest(unittest.TestCase):
+    def test_extracts_parent_names(self):
+        sql = 'SELECT "Kod", "Ad" FROM t WHERE "Firma" = {{Firma Adı}} AND x = {{x}}'
+        self.assertEqual(extract_dropdown_placeholders(sql), ["Firma Adı", "x"])
+
+    def test_neutralizes_unbound_parent(self):
+        sql = 'SELECT value, label FROM opts WHERE "Firma" = {{Firma Adı}} ORDER BY label'
+        self.assertEqual(
+            _norm(prepare_dropdown_query(sql)),
+            'SELECT value, label FROM opts WHERE 1=1 ORDER BY label',
+        )
+
+    def test_binds_parent_value(self):
+        sql = 'SELECT value, label FROM opts WHERE "Firma" = {{Firma Adı}}'
+        self.assertEqual(
+            _norm(prepare_dropdown_query(sql, {"Firma Adı": "ASELSAN"})),
+            "SELECT value, label FROM opts WHERE \"Firma\" = 'ASELSAN'",
+        )
+
+    def test_in_placeholder_without_parent(self):
+        sql = "SELECT value, label FROM opts WHERE dept IN ({{Departman}})"
+        self.assertEqual(
+            _norm(prepare_dropdown_query(sql)),
+            "SELECT value, label FROM opts WHERE 1=1",
         )
 
 

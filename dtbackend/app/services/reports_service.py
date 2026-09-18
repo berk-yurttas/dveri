@@ -763,6 +763,67 @@ def apply_expandable_placeholders(
     return processed
 
 
+DROPDOWN_PLACEHOLDER_RE = re.compile(r"\{\{([^}]+)\}\}")
+
+
+def extract_dropdown_placeholders(sql: str | None) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for match in DROPDOWN_PLACEHOLDER_RE.finditer(sql or ""):
+        name = match.group(1).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    return names
+
+
+def _dropdown_sql_literal(raw: Any) -> str:
+    if isinstance(raw, (list, tuple, set)):
+        values = [_dropdown_sql_literal(item) for item in raw]
+        return f"({','.join(values)})"
+    text = str(raw).replace("'", "''")
+    return f"'{text}'"
+
+
+def remove_dropdown_placeholder_condition(sql: str, field: str) -> str:
+    placeholder = re.escape("{{" + field + "}}")
+    ident = r'(?:"[^"]+"|\'[^\']+\'|\[[^\]]+\]|[\w.]+)'
+    patterns = [
+        (rf"{ident}\s*=\s*['\"]?{placeholder}['\"]?", "1=1"),
+        (rf"{ident}\s+IN\s*\(\s*{placeholder}\s*\)", "1=1"),
+        (rf"{ident}\s+IN\s+{placeholder}", "1=1"),
+        (rf"{ident}\s+LIKE\s*['\"]?{placeholder}['\"]?", "1=1"),
+        (placeholder, "1"),
+    ]
+    modified = sql
+    for pattern, replacement in patterns:
+        modified = re.sub(pattern, replacement, modified, flags=re.IGNORECASE)
+    modified = re.sub(r"WHERE\s+AND", "WHERE", modified, flags=re.IGNORECASE)
+    modified = re.sub(r"WHERE\s+OR", "WHERE", modified, flags=re.IGNORECASE)
+    modified = re.sub(r"AND\s+AND", "AND", modified, flags=re.IGNORECASE)
+    modified = re.sub(r"OR\s+OR", "OR", modified, flags=re.IGNORECASE)
+    return modified
+
+
+def prepare_dropdown_query(sql: str | None, values: dict[str, Any] | None = None) -> str:
+    """Bind parent-filter placeholders, or neutralize them so the dropdown SQL stays valid."""
+    processed = sql or ""
+    values = values or {}
+    for field in extract_dropdown_placeholders(processed):
+        raw = values.get(field)
+        has_value = (
+            raw is not None
+            and raw != ""
+            and not (isinstance(raw, (list, tuple, set)) and len(raw) == 0)
+        )
+        if has_value:
+            processed = processed.replace("{{" + field + "}}", _dropdown_sql_literal(raw))
+        else:
+            processed = remove_dropdown_placeholder_condition(processed, field)
+    return processed
+
+
 def _uniquify_child_columns(parent_columns: list[str], child_columns: list[str], level: int) -> list[str]:
     used = set(parent_columns)
     unique: list[str] = []
@@ -2424,6 +2485,7 @@ class ReportsService:
         page: int = 1,
         page_size: int = 50,
         search: str = "",
+        placeholder_values: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute a filter dropdown SQL query and return paginated value/label options."""
         if db_config:
@@ -2436,7 +2498,9 @@ class ReportsService:
                 raise ValueError("Database client not available")
 
         try:
-            base_query = self.sanitize_sql_query(dropdown_query)
+            base_query = self.sanitize_sql_query(
+                prepare_dropdown_query(dropdown_query, placeholder_values)
+            )
             base_query = base_query.rstrip(";").strip()
 
             if search:

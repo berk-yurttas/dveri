@@ -39,6 +39,7 @@ from app.services.report_test_checks import (
 from app.services.reports_service import (
     ReportsService,
     apply_expandable_placeholders,
+    extract_dropdown_placeholders,
     extract_expandable_nested_queries,
 )
 from app.services.report_ui_tester import ReportUiTester, playwright_available
@@ -92,6 +93,69 @@ def _option_value(option: dict[str, Any] | Any) -> Any:
     if value is None:
         value = option.get("label")
     return value
+
+
+def _dropdown_parent_names(filt: dict[str, Any]) -> set[str]:
+    names = set(extract_dropdown_placeholders(filt.get("dropdown_query") or ""))
+    if filt.get("depends_on"):
+        names.add(filt["depends_on"])
+    return {name for name in names if name}
+
+
+def _dropdown_waves(filters: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    remaining = list(filters)
+    resolved: set[str] = set()
+    waves: list[list[dict[str, Any]]] = []
+    while remaining:
+        wave: list[dict[str, Any]] = []
+        leftover: list[dict[str, Any]] = []
+        for filt in remaining:
+            parents = _dropdown_parent_names(filt)
+            if parents and not parents.issubset(resolved):
+                leftover.append(filt)
+            else:
+                wave.append(filt)
+        if not wave:
+            waves.append(leftover)
+            break
+        waves.append(wave)
+        for filt in wave:
+            resolved.add(filt["field_name"])
+            if filt.get("display_name"):
+                resolved.add(filt["display_name"])
+        remaining = leftover
+    return waves
+
+
+def _dropdown_placeholder_values(
+    filt: dict[str, Any],
+    option_cache: dict[str, list[dict[str, Any]]],
+    siblings: list[dict[str, Any]],
+    prefixes: list[str],
+) -> dict[str, Any]:
+    aliases: dict[str, str] = {}
+    for sibling in siblings:
+        field = sibling.get("field_name") or ""
+        if field:
+            aliases[field] = field
+        display = sibling.get("display_name") or ""
+        if display:
+            aliases[display] = field or display
+    values: dict[str, Any] = {}
+    for name in _dropdown_parent_names(filt):
+        cache_field = aliases.get(name, name)
+        options: list[dict[str, Any]] = []
+        for prefix in prefixes:
+            options = option_cache.get(f"{prefix}:{cache_field}") or option_cache.get(f"{prefix}:{name}") or []
+            if options:
+                break
+        if not options:
+            continue
+        sample = _option_value(options[0])
+        if sample is None or sample == "":
+            continue
+        values[name] = sample
+    return values
 
 
 def _query_concurrency() -> int:
@@ -673,21 +737,23 @@ async def _test_report(
             f"global_{report.id}_{filt['field_name']}",
             f"Global filter options: {filt['display_name']}",
             filt["dropdown_query"],
+            placeholder_values=_dropdown_placeholder_values(filt, option_cache, global_dropdowns, ["global"]),
         )
         option_cache[f"global:{filt['field_name']}"] = options
         return option_case
 
-    for result in await _map_with_services(service, global_dropdowns, run_global_dropdown):
-        if isinstance(result, Exception):
-            cases.append(case(
-                "global_dropdown_error",
-                "filter",
-                "Global filter options",
-                "failed",
-                str(result),
-            ))
-        else:
-            cases.append(result)
+    for wave in _dropdown_waves(global_dropdowns):
+        for result in await _map_with_services(service, wave, run_global_dropdown):
+            if isinstance(result, Exception):
+                cases.append(case(
+                    "global_dropdown_error",
+                    "filter",
+                    "Global filter options",
+                    "failed",
+                    str(result),
+                ))
+            else:
+                cases.append(result)
 
     async def run_query(local_service: ReportsService, query: ReportQuery) -> tuple[list[dict[str, Any]], int]:
         return await _test_query(local_service, report, query, option_cache)
@@ -754,6 +820,7 @@ async def _test_dropdown(
     case_id: str,
     name: str,
     dropdown_query: str,
+    placeholder_values: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     started = time.perf_counter()
     timeout = settings.REPORT_TEST_FILTER_TIMEOUT_SECONDS
@@ -765,6 +832,7 @@ async def _test_dropdown(
                 platform=report.platform,
                 page=1,
                 page_size=20,
+                placeholder_values=placeholder_values,
             ),
             timeout=timeout,
         )
@@ -887,13 +955,19 @@ async def _test_query(
         filt for filt in query_filters
         if filt["type"] in {"dropdown", "multiselect"} and filt["dropdown_query"]
     ]
-    for filt in query_dropdowns:
+    for filt in [item for wave in _dropdown_waves(query_dropdowns) for item in wave]:
         options, option_case = await _test_dropdown(
             service,
             report,
             f"query_{qid}_filter_{filt['field_name']}_options",
             f"Filter options '{filt['display_name']}' on {qname}",
             filt["dropdown_query"],
+            placeholder_values=_dropdown_placeholder_values(
+                filt,
+                option_cache,
+                query_filters + [normalize_filter(item) for item in (report.global_filters or [])],
+                [f"query_{qid}", "global"],
+            ),
         )
         cases.append(option_case)
         option_cache[f"query_{qid}:{filt['field_name']}"] = options

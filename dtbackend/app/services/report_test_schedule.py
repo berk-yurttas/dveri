@@ -223,14 +223,35 @@ def send_email(recipients: list[str], subject: str, html: str, text: str) -> Non
         if settings.SMTP_USE_TLS and port != 465:
             client.starttls()
             client.ehlo()
-        if settings.SMTP_USER:
-            client.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+        _smtp_login(client)
         client.send_message(message)
     finally:
         try:
             client.quit()
         except Exception:
             pass
+
+
+def _smtp_auth_methods(client: smtplib.SMTP) -> list[str]:
+    return (client.esmtp_features.get("auth") or "").upper().split()
+
+
+def _smtp_login(client: smtplib.SMTP) -> None:
+    user = (settings.SMTP_USER or "").strip()
+    password = settings.SMTP_PASSWORD or ""
+    if not user:
+        return
+    advertised = _smtp_auth_methods(client)
+    if any(method in advertised for method in ("PLAIN", "LOGIN", "CRAM-MD5")):
+        client.login(user, password)
+        return
+    # Exchange on port 25 without TLS often advertises only NTLM/XOAUTH2.
+    # Python's SMTP.login() cannot use those, and internal relays usually
+    # accept mail without AUTH when SMTP_USE_TLS is false.
+    logger.warning(
+        "SMTP AUTH methods %s are not usable without TLS; sending without login",
+        advertised or ["none"],
+    )
 
 
 async def notify_scheduled_run(run_id: int) -> None:

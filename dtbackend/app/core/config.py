@@ -2,7 +2,7 @@ import os
 
 from dotenv import load_dotenv
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()
 
@@ -198,7 +198,7 @@ class Settings(BaseSettings):
     )
 
     SMTP_HOST: str = Field(default_factory=lambda: os.getenv("SMTP_HOST", "").strip())
-    SMTP_PORT: int = Field(default_factory=lambda: int(os.getenv("SMTP_PORT", "25")))
+    SMTP_PORT: int = Field(default_factory=lambda: int(os.getenv("SMTP_PORT", "25") or "25"))
     SMTP_USER: str = Field(default_factory=lambda: os.getenv("SMTP_USER", "").strip())
     SMTP_PASSWORD: str = Field(default_factory=lambda: os.getenv("SMTP_PASSWORD", "").strip())
     SMTP_FROM: str = Field(default_factory=lambda: os.getenv("SMTP_FROM", "").strip())
@@ -218,6 +218,10 @@ class Settings(BaseSettings):
     def romiot_postgres_database_url(self) -> str:
         return f"postgresql+asyncpg://{self.ROMIOT_POSTGRES_USER}:{self.ROMIOT_POSTGRES_PASSWORD}@{self.ROMIOT_POSTGRES_SERVER}:{self.ROMIOT_POSTGRES_PORT}/{self.ROMIOT_POSTGRES_DB}"
 
-    model_config = {"env_file": ".env", "case_sensitive": True}
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        case_sensitive=False,
+    )
 
 settings = Settings()

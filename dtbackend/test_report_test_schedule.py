@@ -3,9 +3,11 @@
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from app.services.report_test_schedule import (
+    _smtp_login,
     build_summary_email,
     is_schedule_due,
     parse_recipients,
@@ -67,6 +69,27 @@ class MailSummaryTest(unittest.TestCase):
         self.assertIn(url, text)
         self.assertIn("/admin/report-tests/42", url)
         self.assertIn("Sipariş", html)
+
+
+class SmtpLoginTest(unittest.TestCase):
+    def test_skips_login_when_only_ntlm_is_advertised(self):
+        client = SimpleNamespace(esmtp_features={"auth": "NTLM XOAUTH2"}, login=lambda *_: self.fail("login"))
+        with patch("app.services.report_test_schedule.settings") as smtp_settings:
+            smtp_settings.SMTP_USER = "user@example.com"
+            smtp_settings.SMTP_PASSWORD = "secret"
+            _smtp_login(client)
+
+    def test_logs_in_when_login_is_advertised(self):
+        calls = []
+        client = SimpleNamespace(
+            esmtp_features={"auth": "LOGIN PLAIN"},
+            login=lambda user, password: calls.append((user, password)),
+        )
+        with patch("app.services.report_test_schedule.settings") as smtp_settings:
+            smtp_settings.SMTP_USER = "user@example.com"
+            smtp_settings.SMTP_PASSWORD = "secret"
+            _smtp_login(client)
+        self.assertEqual(calls, [("user@example.com", "secret")])
 
 
 if __name__ == "__main__":
