@@ -308,7 +308,6 @@ export default function AdminPlatformsPage() {
                             );
                           }
                           const failed = health.failed;
-                          const warning = health.warning;
                           const passed = health.passed;
                           return (
                             <button
@@ -316,8 +315,8 @@ export default function AdminPlatformsPage() {
                               className="text-left"
                               title="Test geçmişini aç"
                             >
-                              <div className={`text-sm font-medium ${failed ? 'text-red-700' : warning ? 'text-amber-700' : 'text-green-700'}`}>
-                                {failed ? `${failed} hata` : warning ? `${warning} uyarı` : `${passed} geçti`}
+                              <div className={`text-sm font-medium ${failed ? 'text-red-700' : 'text-green-700'}`}>
+                                {failed ? `${failed} hata` : `${passed} geçti`}
                               </div>
                               <div className="text-xs text-gray-500">
                                 {health.total} rapor{health.last_run_at ? ` · ${new Date(health.last_run_at).toLocaleString('tr-TR')}` : ''}

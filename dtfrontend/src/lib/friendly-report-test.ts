@@ -75,11 +75,8 @@ export function friendlyCaseMessage(item: ReportTestCase) {
   if (lower.includes("report title did not appear")) {
     return "Rapor başlığı görünmedi, sayfa tam yüklenememiş olabilir."
   }
-  if (/^\d+ failed:/i.test(message)) {
+  if (/^\d+ failed:/i.test(message) || /^\d+ hata:/i.test(message)) {
     return message.replace(/^(\d+) failed:\s*/i, "$1 hata: ").replace(/\(\+(\d+) more\)/i, "(+$1 tane daha)")
-  }
-  if (/^\d+ warning/i.test(message)) {
-    return message.replace(/^(\d+) warning\(s\):\s*/i, "$1 uyarı: ").replace(/\(\+(\d+) more\)/i, "(+$1 tane daha)")
   }
   if (/checks passed/i.test(message)) return "Sorun bulunmadı."
   return message

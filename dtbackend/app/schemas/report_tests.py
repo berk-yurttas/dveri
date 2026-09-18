@@ -1,12 +1,16 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ReportTestStartRequest(BaseModel):
     platform_id: int | None = None
     report_id: int | None = None
+
+
+def _without_warning(status: str) -> str:
+    return "passed" if status == "warning" else status
 
 
 class ReportTestCase(BaseModel):
@@ -17,6 +21,11 @@ class ReportTestCase(BaseModel):
     message: str
     duration_ms: float = 0
     meta: dict[str, Any] | None = None
+
+    @field_validator("status")
+    @classmethod
+    def drop_warning_status(cls, value: str) -> str:
+        return _without_warning(value)
 
 
 class ReportTestResultOut(BaseModel):
@@ -38,6 +47,11 @@ class ReportTestResultOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_validator("status")
+    @classmethod
+    def drop_warning_status(cls, value: str) -> str:
+        return _without_warning(value)
+
 
 class ReportTestRunOut(BaseModel):
     id: int
@@ -51,12 +65,10 @@ class ReportTestRunOut(BaseModel):
     total_reports: int = 0
     passed_reports: int = 0
     failed_reports: int = 0
-    warning_reports: int = 0
     skipped_reports: int = 0
     total_cases: int = 0
     passed_cases: int = 0
     failed_cases: int = 0
-    warning_cases: int = 0
     current_report_id: int | None = None
     current_report_name: str | None = None
     processed_reports: int = 0
@@ -64,6 +76,24 @@ class ReportTestRunOut(BaseModel):
     created_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def fold_legacy_warning_counts(cls, data: Any, handler):
+        warning_reports = 0
+        warning_cases = 0
+        if isinstance(data, dict):
+            warning_reports = int(data.get("warning_reports") or 0)
+            warning_cases = int(data.get("warning_cases") or 0)
+        else:
+            warning_reports = int(getattr(data, "warning_reports", 0) or 0)
+            warning_cases = int(getattr(data, "warning_cases", 0) or 0)
+        obj = handler(data)
+        if warning_reports:
+            obj.passed_reports += warning_reports
+        if warning_cases:
+            obj.passed_cases += warning_cases
+        return obj
 
 
 class ReportTestRunDetail(ReportTestRunOut):
@@ -84,7 +114,6 @@ class ReportTestPlatformSummary(BaseModel):
     last_run_status: str | None = None
     passed: int = 0
     failed: int = 0
-    warning: int = 0
     skipped: int = 0
     total: int = 0
 
@@ -95,3 +124,23 @@ class ReportTestSummary(BaseModel):
     platforms: list[ReportTestPlatformSummary] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ReportTestScheduleUpdate(BaseModel):
+    enabled: bool = False
+    hour: int = Field(default=2, ge=0, le=23)
+    minute: int = Field(default=0, ge=0, le=59)
+    recipients: list[str] = Field(default_factory=list)
+
+
+class ReportTestScheduleOut(ReportTestScheduleUpdate):
+    platform_id: int
+    platform_name: str | None = None
+    platform_code: str | None = None
+    last_started_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReportTestScheduleList(BaseModel):
+    items: list[ReportTestScheduleOut]

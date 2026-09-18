@@ -7,11 +7,14 @@ from app.schemas.report_tests import (
     ReportTestRunDetail,
     ReportTestRunList,
     ReportTestRunOut,
+    ReportTestScheduleList,
+    ReportTestScheduleOut,
+    ReportTestScheduleUpdate,
     ReportTestStartRequest,
     ReportTestSummary,
 )
 from app.schemas.user import User
-from app.services import report_test_service
+from app.services import report_test_schedule, report_test_service
 
 router = APIRouter()
 
@@ -100,3 +103,34 @@ async def cancel_report_test_run(
     if not run:
         raise HTTPException(status_code=404, detail="Test run not found")
     return run
+
+
+@router.get("/schedules", response_model=ReportTestScheduleList)
+async def list_report_test_schedules(
+    current_user: User = Depends(check_authenticated),
+    db: AsyncSession = Depends(get_postgres_db),
+):
+    _require_admin(current_user)
+    items = await report_test_schedule.list_schedules(db)
+    return ReportTestScheduleList(items=items)
+
+
+@router.put("/schedules/{platform_id}", response_model=ReportTestScheduleOut)
+async def upsert_report_test_schedule(
+    platform_id: int,
+    payload: ReportTestScheduleUpdate,
+    current_user: User = Depends(check_authenticated),
+    db: AsyncSession = Depends(get_postgres_db),
+):
+    _require_admin(current_user)
+    try:
+        return await report_test_schedule.upsert_schedule(
+            db,
+            platform_id,
+            enabled=payload.enabled,
+            hour=payload.hour,
+            minute=payload.minute,
+            recipients=payload.recipients,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

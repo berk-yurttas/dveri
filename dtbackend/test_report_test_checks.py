@@ -94,13 +94,13 @@ class QueryUiTest(unittest.TestCase):
         cases = check_query_ui(_query(visualization_config={"type": "heatmap"}))
         self.assertTrue(any(c["status"] == "failed" and "Unknown visualization" in c["message"] for c in cases))
 
-    def test_bar_without_axes_warns(self):
+    def test_bar_without_axes_passes(self):
         cases = check_query_ui(_query(visualization_config={"type": "bar"}))
-        self.assertTrue(any(c["case_id"].endswith("_axes") and c["status"] == "warning" for c in cases))
+        self.assertTrue(any(c["case_id"].endswith("_axes") and c["status"] == "passed" for c in cases))
 
-    def test_expandable_without_nested_warns(self):
+    def test_expandable_without_nested_passes(self):
         cases = check_query_ui(_query(visualization_config={"type": "expandable"}))
-        self.assertTrue(any(c["case_id"].endswith("_nested") and c["status"] == "warning" for c in cases))
+        self.assertTrue(any(c["case_id"].endswith("_nested") and c["status"] == "passed" for c in cases))
 
     def test_expandable_nested_sql(self):
         cases = check_query_ui(_query(visualization_config={
@@ -147,26 +147,32 @@ class ResultColumnTest(unittest.TestCase):
         viz = next(c for c in cases if c["case_id"].endswith("_viz_columns"))
         self.assertEqual(viz["status"], "failed")
 
-    def test_empty_rows_warn(self):
+    def test_empty_rows_pass(self):
         query = _query()
         cases = check_result_columns(query, ["value"], 0, 10, slow_ms=15000)
         row = next(c for c in cases if c["case_id"].endswith("_row_count"))
-        self.assertEqual(row["status"], "warning")
+        self.assertEqual(row["status"], "passed")
 
-    def test_slow_query_warns(self):
+    def test_slow_query_passes(self):
         query = _query()
         cases = check_result_columns(query, ["value"], 4, 20000, slow_ms=15000)
         perf = next(c for c in cases if c["case_id"].endswith("_perf"))
-        self.assertEqual(perf["status"], "warning")
+        self.assertEqual(perf["status"], "passed")
 
 
 class RollupTest(unittest.TestCase):
-    def test_failed_beats_warning(self):
+    def test_failed_beats_passed(self):
         self.assertEqual(rollup_status([
-            {"status": "warning"},
+            {"status": "skipped"},
             {"status": "failed"},
             {"status": "passed"},
         ]), "failed")
+
+    def test_passed_without_failures(self):
+        self.assertEqual(rollup_status([
+            {"status": "skipped"},
+            {"status": "passed"},
+        ]), "passed")
 
     def test_summary_mentions_first_failure(self):
         text = summarize_cases([
@@ -175,6 +181,42 @@ class RollupTest(unittest.TestCase):
         ])
         self.assertIn("SQL is empty", text)
         self.assertIn("+1 tane daha", text)
+
+
+class SchemaWarningFoldTest(unittest.TestCase):
+    def test_case_and_result_warning_become_passed(self):
+        from app.schemas.report_tests import ReportTestCase, ReportTestResultOut, ReportTestRunOut
+
+        case = ReportTestCase(
+            case_id="x",
+            category="ui",
+            name="n",
+            status="warning",
+            message="old",
+        )
+        self.assertEqual(case.status, "passed")
+        result = ReportTestResultOut(
+            id=1,
+            run_id=1,
+            report_id=1,
+            report_name="R",
+            status="warning",
+            cases=[],
+        )
+        self.assertEqual(result.status, "passed")
+        run = ReportTestRunOut(
+            id=1,
+            status="success",
+            trigger="manual",
+            passed_reports=3,
+            warning_reports=2,
+            failed_reports=1,
+            passed_cases=10,
+            warning_cases=4,
+        )
+        self.assertEqual(run.passed_reports, 5)
+        self.assertEqual(run.passed_cases, 14)
+        self.assertFalse(hasattr(run, "warning_reports") and "warning_reports" in run.model_fields)
 
 
 if __name__ == "__main__":

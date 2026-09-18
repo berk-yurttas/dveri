@@ -44,9 +44,6 @@ function resultBadge(status: string) {
   if (status === "passed") {
     return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Sorunsuz</span>
   }
-  if (status === "warning") {
-    return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Uyarı</span>
-  }
   if (status === "skipped") {
     return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Atlandı</span>
   }
@@ -55,7 +52,6 @@ function resultBadge(status: string) {
 
 function caseBadge(status: string) {
   if (status === "passed") return <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
-  if (status === "warning") return <span className="h-4 w-4 shrink-0 text-amber-500 font-bold">!</span>
   if (status === "skipped") return <span className="h-4 w-4 shrink-0 text-gray-400">–</span>
   return <XCircle className="h-4 w-4 text-red-600 shrink-0" />
 }
@@ -220,10 +216,9 @@ export default function AdminReportTestRunPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
             <Stat label="Sorunsuz" value={run?.passed_reports ?? 0} color="text-green-700" />
             <Stat label="Hata" value={run?.failed_reports ?? 0} color="text-red-700" />
-            <Stat label="Uyarı" value={run?.warning_reports ?? 0} color="text-amber-700" />
             <Stat label="Toplam rapor" value={run?.total_reports ?? results.length} color="text-gray-800" />
           </div>
 

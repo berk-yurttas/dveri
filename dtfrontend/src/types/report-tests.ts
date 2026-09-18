@@ -1,6 +1,6 @@
 export type ReportTestStatus = 'queued' | 'running' | 'success' | 'failed' | 'cancelled'
-export type ReportResultStatus = 'passed' | 'failed' | 'warning' | 'skipped' | 'error'
-export type ReportTestCaseStatus = 'passed' | 'failed' | 'warning' | 'skipped'
+export type ReportResultStatus = 'passed' | 'failed' | 'skipped' | 'error'
+export type ReportTestCaseStatus = 'passed' | 'failed' | 'skipped'
 
 export interface ReportTestCase {
   case_id: string
@@ -42,12 +42,10 @@ export interface ReportTestRun {
   total_reports: number
   passed_reports: number
   failed_reports: number
-  warning_reports: number
   skipped_reports: number
   total_cases: number
   passed_cases: number
   failed_cases: number
-  warning_cases: number
   current_report_id: number | null
   current_report_name: string | null
   processed_reports: number
@@ -70,7 +68,6 @@ export interface ReportTestPlatformSummary {
   last_run_status: string | null
   passed: number
   failed: number
-  warning: number
   skipped: number
   total: number
 }
@@ -84,4 +81,15 @@ export interface ReportTestSummary {
 export interface ReportTestStartRequest {
   platform_id?: number | null
   report_id?: number | null
+}
+
+export interface ReportTestSchedule {
+  platform_id: number
+  platform_name: string | null
+  platform_code: string | null
+  enabled: boolean
+  hour: number
+  minute: number
+  recipients: string[]
+  last_started_at: string | null
 }

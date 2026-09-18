@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+import traceback
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -232,7 +233,6 @@ async def get_summary(db: AsyncSession) -> dict[str, Any]:
                 "last_run_status": None,
                 "passed": 0,
                 "failed": 0,
-                "warning": 0,
                 "skipped": 0,
                 "total": 0,
             })
@@ -247,9 +247,8 @@ async def get_summary(db: AsyncSession) -> dict[str, Any]:
             .group_by(ReportTestResult.status)
         )
         counts = {row[0]: int(row[1]) for row in (await db.execute(counts_stmt)).all()}
-        passed = counts.get("passed", 0)
+        passed = counts.get("passed", 0) + counts.get("warning", 0)
         failed = counts.get("failed", 0) + counts.get("error", 0)
-        warning = counts.get("warning", 0)
         skipped = counts.get("skipped", 0)
         has_data = last_scoped is not None or any(counts.values())
         summaries.append({
@@ -261,9 +260,8 @@ async def get_summary(db: AsyncSession) -> dict[str, Any]:
             "last_run_status": source_run.status if has_data else None,
             "passed": passed,
             "failed": failed,
-            "warning": warning,
             "skipped": skipped,
-            "total": passed + failed + warning + skipped,
+            "total": passed + failed + skipped,
         })
 
     return {
@@ -379,6 +377,7 @@ async def _execute_run(run_id: int) -> None:
                 try:
                     await ui_tester.start()
                 except Exception:
+                    traceback.print_exc()
                     logger.exception("Failed to start Playwright UI tester")
                     ui_skip_reason = "Rapor ekranı tarayıcıda açılamadı."
                     ui_tester = None
@@ -390,13 +389,11 @@ async def _execute_run(run_id: int) -> None:
             counters = {
                 "passed": 0,
                 "failed": 0,
-                "warning": 0,
                 "skipped": 0,
                 "processed": 0,
                 "total_cases": 0,
                 "passed_cases": 0,
                 "failed_cases": 0,
-                "warning_cases": 0,
             }
 
             async def worker(report_id: int) -> None:
@@ -434,12 +431,12 @@ async def _execute_run(run_id: int) -> None:
                     run.status = "failed" if counters["failed"] else "success"
                 run.passed_reports = counters["passed"]
                 run.failed_reports = counters["failed"]
-                run.warning_reports = counters["warning"]
+                run.warning_reports = 0
                 run.skipped_reports = counters["skipped"]
                 run.total_cases = counters["total_cases"]
                 run.passed_cases = counters["passed_cases"]
                 run.failed_cases = counters["failed_cases"]
-                run.warning_cases = counters["warning_cases"]
+                run.warning_cases = 0
                 run.processed_reports = counters["processed"]
                 run.finished_at = _utc_now()
                 run.current_report_id = None
@@ -462,6 +459,11 @@ async def _execute_run(run_id: int) -> None:
                     await ui_tester.close()
                 except Exception:
                     pass
+            try:
+                from app.services.report_test_schedule import notify_scheduled_run
+                await notify_scheduled_run(run_id)
+            except Exception:
+                logger.exception("Failed to send report test summary mail for run %s", run_id)
 
 
 async def _run_one_report(
@@ -571,19 +573,16 @@ async def _run_one_report(
             await db.commit()
             async with progress_lock:
                 in_flight.discard(report_name)
-                if result_row.status == "passed":
+                if result_row.status in {"passed", "warning"}:
                     counters["passed"] += 1
-                elif result_row.status == "warning":
-                    counters["warning"] += 1
                 elif result_row.status == "skipped":
                     counters["skipped"] += 1
                 else:
                     counters["failed"] += 1
                 counters["processed"] += 1
                 counters["total_cases"] += len(cases)
-                counters["passed_cases"] += sum(1 for item in cases if item.get("status") == "passed")
-                counters["failed_cases"] += sum(1 for item in cases if item.get("status") == "failed")
-                counters["warning_cases"] += sum(1 for item in cases if item.get("status") == "warning")
+                counters["passed_cases"] += sum(1 for item in cases if item.get("status") in {"passed", "warning"})
+                counters["failed_cases"] += sum(1 for item in cases if item.get("status") in {"failed", "error"})
                 await _write_run_progress(run_id, report, in_flight, counters)
     finally:
         _close_clickhouse(clickhouse_client)
@@ -608,12 +607,12 @@ async def _write_run_progress(
         run.processed_reports = counters["processed"]
         run.passed_reports = counters["passed"]
         run.failed_reports = counters["failed"]
-        run.warning_reports = counters["warning"]
+        run.warning_reports = 0
         run.skipped_reports = counters["skipped"]
         run.total_cases = counters["total_cases"]
         run.passed_cases = counters["passed_cases"]
         run.failed_cases = counters["failed_cases"]
-        run.warning_cases = counters["warning_cases"]
+        run.warning_cases = 0
         await db.commit()
 
 
@@ -635,12 +634,12 @@ async def _write_run_progress_counts(
         run.processed_reports = counters["processed"]
         run.passed_reports = counters["passed"]
         run.failed_reports = counters["failed"]
-        run.warning_reports = counters["warning"]
+        run.warning_reports = 0
         run.skipped_reports = counters["skipped"]
         run.total_cases = counters["total_cases"]
         run.passed_cases = counters["passed_cases"]
         run.failed_cases = counters["failed_cases"]
-        run.warning_cases = counters["warning_cases"]
+        run.warning_cases = 0
         await db.commit()
 
 
@@ -726,7 +725,7 @@ async def _test_report(
             "ui_skipped",
             "ui",
             "Rapor ekranı",
-            "warning",
+            "skipped",
             ui_skip_reason,
         ))
 
@@ -777,7 +776,7 @@ async def _test_dropdown(
                 case_id,
                 "filter",
                 name,
-                "warning",
+                "passed",
                 "Dropdown query returned 0 options",
                 duration_ms,
                 meta={"option_count": 0},

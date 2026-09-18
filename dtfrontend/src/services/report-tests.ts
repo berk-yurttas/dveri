@@ -2,6 +2,7 @@ import { api } from '@/lib/api'
 import type {
   ReportTestRun,
   ReportTestRunList,
+  ReportTestSchedule,
   ReportTestStartRequest,
   ReportTestSummary,
 } from '@/types/report-tests'
@@ -35,5 +36,21 @@ export const reportTestService = {
 
   async cancelRun(runId: number): Promise<ReportTestRun> {
     return api.post<ReportTestRun>(`/report-tests/runs/${runId}/cancel`, {}, undefined, noCache)
+  },
+
+  async listSchedules(): Promise<{ items: ReportTestSchedule[] }> {
+    return api.get('/report-tests/schedules', undefined, noCache)
+  },
+
+  async saveSchedule(
+    platformId: number,
+    payload: {
+      enabled: boolean
+      hour: number
+      minute: number
+      recipients: string[]
+    }
+  ): Promise<ReportTestSchedule> {
+    return api.put(`/report-tests/schedules/${platformId}`, payload, undefined, noCache)
   },
 }

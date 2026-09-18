@@ -197,6 +197,15 @@ class Settings(BaseSettings):
         default_factory=lambda: int(os.getenv("REPORT_TEST_UI_TIMEOUT_MS", "20000"))
     )
 
+    SMTP_HOST: str = Field(default_factory=lambda: os.getenv("SMTP_HOST", "").strip())
+    SMTP_PORT: int = Field(default_factory=lambda: int(os.getenv("SMTP_PORT", "25")))
+    SMTP_USER: str = Field(default_factory=lambda: os.getenv("SMTP_USER", "").strip())
+    SMTP_PASSWORD: str = Field(default_factory=lambda: os.getenv("SMTP_PASSWORD", "").strip())
+    SMTP_FROM: str = Field(default_factory=lambda: os.getenv("SMTP_FROM", "").strip())
+    SMTP_USE_TLS: bool = Field(
+        default_factory=lambda: os.getenv("SMTP_USE_TLS", "false").lower() in {"1", "true", "yes", "on"}
+    )
+
     @property
     def postgres_database_url(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"

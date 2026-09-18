@@ -560,7 +560,7 @@ class ReportUiTester:
                     "ui_console",
                     "ui",
                     "Rapor ekranı",
-                    "warning",
+                    "passed",
                     "Sayfa açıldı ama bazı veriler yüklenirken sorun çıktı.",
                     _ms(started),
                     meta={"errors": serious_console[:5]},
@@ -663,7 +663,7 @@ class ReportUiTester:
                         f"ui_filter_dropdown_{field}",
                         "ui",
                         f"Liste filtresi: {filt['display_name']}",
-                        "warning",
+                        "passed",
                         "Liste açıldı ama içinde seçenek çıkmadı.",
                         _ms(step),
                     ))
@@ -786,7 +786,7 @@ class ReportUiTester:
                     f"ui_query_{qid}_data",
                     "ui",
                     f"Tablo: {label}",
-                    "warning",
+                    "passed",
                     "Tablo açıldı ama içinde kayıt yok.",
                     _ms(load_started),
                 ))
@@ -817,7 +817,7 @@ class ReportUiTester:
             viz_ms = _ms(load_started)
 
             if viz_type in {"table", "expandable"} or row_count:
-                status = "passed" if row_count else "warning"
+                status = "passed"
                 cases.append(case(
                     f"ui_query_{qid}_table",
                     "ui",
@@ -864,7 +864,7 @@ class ReportUiTester:
                     f"ui_query_{qid}_data",
                     "ui",
                     f"Tablo: {label}",
-                    "warning",
+                    "passed",
                     "Sonuç alanı var ama tablo veya grafik görünmedi.",
                     viz_ms,
                 ))

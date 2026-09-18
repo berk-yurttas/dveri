@@ -79,6 +79,12 @@ class Platform(PostgreSQLBase):
     dashboards = relationship("Dashboard", back_populates="platform", cascade="all, delete-orphan")
     reports = relationship("Report", back_populates="platform", cascade="all, delete-orphan")
     user_platforms = relationship("UserPlatform", back_populates="platform", cascade="all, delete-orphan")
+    report_test_schedule = relationship(
+        "ReportTestSchedule",
+        back_populates="platform",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 class User(PostgreSQLBase):
@@ -112,6 +118,29 @@ class User(PostgreSQLBase):
 
     # many-to-many with platforms through UserPlatform
     user_platforms = relationship("UserPlatform", back_populates="user", cascade="all, delete-orphan")
+
+
+class ReportTestSchedule(PostgreSQLBase):
+    """Daily report-test schedule for one platform."""
+    __tablename__ = "report_test_schedules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    platform_id = Column(
+        Integer,
+        ForeignKey("platforms.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    hour = Column(Integer, nullable=False, default=2, server_default="2")
+    minute = Column(Integer, nullable=False, default=0, server_default="0")
+    recipients = Column(ARRAY(String), nullable=False, default=list, server_default="{}")
+    last_started_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    platform = relationship("Platform", back_populates="report_test_schedule")
 
 
 class AnalyticsEvent(PostgreSQLBase):

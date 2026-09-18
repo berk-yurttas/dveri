@@ -5,9 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation"
 import {
   CheckCircle,
   ChevronRight,
+  Clock,
   FlaskConical,
   Loader2,
   Play,
+  Save,
   Search,
   Square,
   XCircle,
@@ -16,7 +18,7 @@ import AdminSidebar from "@/components/AdminSidebar"
 import { platformService } from "@/services/platform"
 import { reportTestService } from "@/services/report-tests"
 import type { Platform } from "@/types/platform"
-import type { ReportTestRun, ReportTestSummary } from "@/types/report-tests"
+import type { ReportTestRun, ReportTestSchedule, ReportTestSummary } from "@/types/report-tests"
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "—"
@@ -72,6 +74,17 @@ function runStatusBadge(status: string | null | undefined) {
   )
 }
 
+function timeValue(hour: number, minute: number) {
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
+}
+
+function parseTime(value: string) {
+  const [hourText, minuteText] = (value || "02:00").split(":")
+  const hour = Math.min(23, Math.max(0, Number(hourText) || 0))
+  const minute = Math.min(59, Math.max(0, Number(minuteText) || 0))
+  return { hour, minute }
+}
+
 export default function AdminReportTestsPage() {
   return (
     <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-gray-500">Yükleniyor...</div>}>
@@ -95,6 +108,9 @@ function AdminReportTestsPageInner() {
   const [cancelling, setCancelling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
+  const [schedules, setSchedules] = useState<ReportTestSchedule[]>([])
+  const [recipientDraft, setRecipientDraft] = useState<Record<number, string>>({})
+  const [savingPlatformId, setSavingPlatformId] = useState<number | null>(null)
 
   const running = summary?.running_run || runs.find((run) => run.status === "running" || run.status === "queued")
 
@@ -121,6 +137,18 @@ function AdminReportTestsPageInner() {
     setLoading(true)
     loadData()
   }, [platformId])
+
+  useEffect(() => {
+    reportTestService.listSchedules().then((data) => {
+      const items = data.items || []
+      setSchedules(items)
+      setRecipientDraft(
+        Object.fromEntries(items.map((item) => [item.platform_id, (item.recipients || []).join(", ")]))
+      )
+    }).catch((err) => {
+      console.error(err)
+    })
+  }, [])
 
   useEffect(() => {
     if (!running) return
@@ -168,6 +196,35 @@ function AdminReportTestsPageInner() {
     }
   }
 
+  const updateSchedule = (platformIdToUpdate: number, patch: Partial<ReportTestSchedule>) => {
+    setSchedules((current) =>
+      current.map((item) => (item.platform_id === platformIdToUpdate ? { ...item, ...patch } : item))
+    )
+  }
+
+  const handleSaveSchedule = async (schedule: ReportTestSchedule) => {
+    setSavingPlatformId(schedule.platform_id)
+    setError(null)
+    try {
+      const saved = await reportTestService.saveSchedule(schedule.platform_id, {
+        enabled: schedule.enabled,
+        hour: schedule.hour,
+        minute: schedule.minute,
+        recipients: (recipientDraft[schedule.platform_id] || "").split(/[,;\s]+/).filter(Boolean),
+      })
+      updateSchedule(schedule.platform_id, saved)
+      setRecipientDraft((current) => ({
+        ...current,
+        [schedule.platform_id]: (saved.recipients || []).join(", "),
+      }))
+    } catch (err) {
+      console.error(err)
+      setError("Zamanlama kaydedilemedi")
+    } finally {
+      setSavingPlatformId(null)
+    }
+  }
+
   const latest = summary?.latest_run
 
   return (
@@ -189,7 +246,7 @@ function AdminReportTestsPageInner() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <div className="text-xs text-gray-500 mb-1">Son kontrol</div>
               <div className="text-lg font-semibold text-gray-900">{formatDate(latest?.finished_at || latest?.started_at)}</div>
@@ -202,10 +259,88 @@ function AdminReportTestsPageInner() {
               <div className="text-xs text-gray-500 mb-1">Hatalı rapor</div>
               <div className="text-lg font-semibold text-red-700">{latest?.failed_reports ?? 0}</div>
             </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <div className="text-xs text-gray-500 mb-1">Uyarı</div>
-              <div className="text-lg font-semibold text-amber-700">{latest?.warning_reports ?? 0}</div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="h-4 w-4 text-gray-500" />
+              <h2 className="font-medium text-gray-900">Platform zamanlamaları</h2>
             </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Her platform için günlük saat seçin ve özet mail alacak kişileri yazın. Test bitince koşu linki mailde olur.
+            </p>
+            {schedules.length === 0 ? (
+              <div className="text-sm text-gray-500">Platform bulunamadı.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-xs font-medium text-gray-500 uppercase">
+                      <th className="pb-2 pr-3">Platform</th>
+                      <th className="pb-2 pr-3">Aktif</th>
+                      <th className="pb-2 pr-3">Saat</th>
+                      <th className="pb-2 pr-3">Alıcılar</th>
+                      <th className="pb-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {schedules.map((schedule) => (
+                      <tr key={schedule.platform_id}>
+                        <td className="py-3 pr-3 text-sm font-medium text-gray-900 whitespace-nowrap">
+                          {schedule.platform_name || schedule.platform_code}
+                        </td>
+                        <td className="py-3 pr-3">
+                          <input
+                            type="checkbox"
+                            checked={schedule.enabled}
+                            onChange={(event) =>
+                              updateSchedule(schedule.platform_id, { enabled: event.target.checked })
+                            }
+                          />
+                        </td>
+                        <td className="py-3 pr-3">
+                          <input
+                            type="time"
+                            value={timeValue(schedule.hour, schedule.minute)}
+                            onChange={(event) =>
+                              updateSchedule(schedule.platform_id, parseTime(event.target.value))
+                            }
+                            className="border border-gray-300 rounded-lg px-2 py-1 text-sm"
+                          />
+                        </td>
+                        <td className="py-3 pr-3 min-w-[240px]">
+                          <input
+                            value={recipientDraft[schedule.platform_id] ?? schedule.recipients.join(", ")}
+                            onChange={(event) =>
+                              setRecipientDraft((current) => ({
+                                ...current,
+                                [schedule.platform_id]: event.target.value,
+                              }))
+                            }
+                            placeholder="ali@aselsan.com, veli@aselsan.com"
+                            className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-full"
+                          />
+                        </td>
+                        <td className="py-3 text-right">
+                          <button
+                            onClick={() => handleSaveSchedule(schedule)}
+                            disabled={savingPlatformId === schedule.platform_id}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            {savingPlatformId === schedule.platform_id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Save className="h-4 w-4" />
+                            )}
+                            Kaydet
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {running && (
@@ -311,8 +446,6 @@ function AdminReportTestsPageInner() {
                         <span className="text-green-700">{run.passed_reports} sorunsuz</span>
                         {" · "}
                         <span className="text-red-700">{run.failed_reports} hata</span>
-                        {" · "}
-                        <span className="text-amber-700">{run.warning_reports} uyarı</span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600">
                         {formatDuration(run.started_at, run.finished_at)}
