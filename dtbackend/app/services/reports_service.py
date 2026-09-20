@@ -786,6 +786,12 @@ def _dropdown_sql_literal(raw: Any) -> str:
     return f"'{text}'"
 
 
+def _dropdown_in_list(raw: Any) -> str:
+    if isinstance(raw, (list, tuple, set)):
+        return "(" + ",".join(_dropdown_sql_literal(item) for item in raw) + ")"
+    return f"({_dropdown_sql_literal(raw)})"
+
+
 def remove_dropdown_placeholder_condition(sql: str, field: str) -> str:
     placeholder = re.escape("{{" + field + "}}")
     ident = r'(?:"[^"]+"|\'[^\']+\'|\[[^\]]+\]|[\w.]+)'
@@ -818,6 +824,24 @@ def prepare_dropdown_query(sql: str | None, values: dict[str, Any] | None = None
             and not (isinstance(raw, (list, tuple, set)) and len(raw) == 0)
         )
         if has_value:
+            placeholder = re.escape("{{" + field + "}}")
+            in_list = _dropdown_in_list(raw)
+
+            def _bind_in(match: re.Match[str]) -> str:
+                return match.group(1) + in_list
+
+            processed = re.sub(
+                rf"(\bIN\s*)\(\s*{placeholder}\s*\)",
+                _bind_in,
+                processed,
+                flags=re.IGNORECASE,
+            )
+            processed = re.sub(
+                rf"(\bIN\s*){placeholder}",
+                _bind_in,
+                processed,
+                flags=re.IGNORECASE,
+            )
             processed = processed.replace("{{" + field + "}}", _dropdown_sql_literal(raw))
         else:
             processed = remove_dropdown_placeholder_condition(processed, field)

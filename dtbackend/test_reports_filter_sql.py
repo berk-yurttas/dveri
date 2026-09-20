@@ -332,6 +332,20 @@ class DropdownPlaceholderTest(unittest.TestCase):
             "SELECT value, label FROM opts WHERE 1=1",
         )
 
+    def test_in_placeholder_without_parens_binds_list(self):
+        sql = 'SELECT value, label FROM opts WHERE "Firma Adı" IN {{Firma Adı}}'
+        self.assertEqual(
+            _norm(prepare_dropdown_query(sql, {"Firma Adı": "Aryasis Makina"})),
+            'SELECT value, label FROM opts WHERE "Firma Adı" IN (\'Aryasis Makina\')',
+        )
+
+    def test_in_placeholder_with_parens_binds_list(self):
+        sql = 'SELECT value, label FROM opts WHERE "Firma Adı" IN ({{Firma Adı}})'
+        self.assertEqual(
+            _norm(prepare_dropdown_query(sql, {"Firma Adı": "Aryasis Makina"})),
+            'SELECT value, label FROM opts WHERE "Firma Adı" IN (\'Aryasis Makina\')',
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -157,20 +157,11 @@ class Settings(BaseSettings):
     REPORT_TEST_SCHEDULE_MINUTE: int = Field(
         default_factory=lambda: int(os.getenv("REPORT_TEST_SCHEDULE_MINUTE", "0"))
     )
-    REPORT_TEST_QUERY_TIMEOUT_SECONDS: int = Field(
-        default_factory=lambda: int(os.getenv("REPORT_TEST_QUERY_TIMEOUT_SECONDS", "45"))
-    )
-    REPORT_TEST_FILTER_TIMEOUT_SECONDS: int = Field(
-        default_factory=lambda: int(os.getenv("REPORT_TEST_FILTER_TIMEOUT_SECONDS", "20"))
-    )
     REPORT_TEST_QUERY_LIMIT: int = Field(
         default_factory=lambda: int(os.getenv("REPORT_TEST_QUERY_LIMIT", "50"))
     )
     REPORT_TEST_SLOW_QUERY_MS: int = Field(
         default_factory=lambda: int(os.getenv("REPORT_TEST_SLOW_QUERY_MS", "15000"))
-    )
-    REPORT_TEST_REPORT_TIMEOUT_SECONDS: int = Field(
-        default_factory=lambda: int(os.getenv("REPORT_TEST_REPORT_TIMEOUT_SECONDS", "90"))
     )
     REPORT_TEST_CONCURRENCY: int = Field(
         default_factory=lambda: int(os.getenv("REPORT_TEST_CONCURRENCY", "4"))

@@ -26,12 +26,19 @@ export function buildDropdownQuery(
 
   const values = Array.isArray(rawValue) ? rawValue : [rawValue]
   const formattedValues = values.map((value) => `'${String(value).replace(/'/g, "''")}'`)
-  const replacement = Array.isArray(rawValue)
-    ? `(${formattedValues.join(',')})`
-    : formattedValues[0]
+  const inList = `(${formattedValues.join(',')})`
+  const replacement = Array.isArray(rawValue) ? inList : formattedValues[0]
+  const escapedField = placeholderField.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-  const placeholderRegex = new RegExp(`{{${placeholderField}}}`, 'g')
-  return baseSql.replace(placeholderRegex, replacement)
+  let sql = baseSql.replace(
+    new RegExp(`(\\bIN\\s*)\\(\\s*{{${escapedField}}}\\s*\\)`, 'gi'),
+    (_match, prefix: string) => `${prefix}${inList}`
+  )
+  sql = sql.replace(
+    new RegExp(`(\\bIN\\s*){{${escapedField}}}`, 'gi'),
+    (_match, prefix: string) => `${prefix}${inList}`
+  )
+  return sql.replace(new RegExp(`{{${escapedField}}}`, 'g'), replacement)
 }
 
 /**

@@ -534,40 +534,9 @@ async def _run_one_report(
                 await _write_run_progress(run_id, report, in_flight, counters)
 
             service = ReportsService(db, clickhouse_client)
-            timeout = max(15, int(settings.REPORT_TEST_REPORT_TIMEOUT_SECONDS))
             started = time.perf_counter()
             try:
-                result_row, cases = await asyncio.wait_for(
-                    _test_report(service, report),
-                    timeout=timeout,
-                )
-            except asyncio.TimeoutError:
-                try:
-                    await db.rollback()
-                except Exception:
-                    pass
-                cases = [case(
-                    "report_timeout",
-                    "error",
-                    "Rapor kontrolü",
-                    "failed",
-                    "Bu rapor çok uzun sürdüğü için kontrol durduruldu.",
-                    timeout * 1000,
-                )]
-                result_row = ReportTestResult(
-                    report_id=report_id,
-                    report_name=report_name,
-                    platform_id=platform_id,
-                    platform_name=platform_name,
-                    platform_code=platform_code,
-                    status="failed",
-                    duration_ms=int(_elapsed_ms(started)),
-                    query_count=query_count,
-                    filter_count=filter_count,
-                    row_count_total=0,
-                    summary=f"Kontrol {timeout} saniye sonra durduruldu",
-                    cases=cases,
-                )
+                result_row, cases = await _test_report(service, report)
             except Exception as exc:
                 logger.exception("Report test crashed for report %s", report_id)
                 try:
@@ -764,18 +733,14 @@ async def _test_dropdown(
     placeholder_values: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     started = time.perf_counter()
-    timeout = settings.REPORT_TEST_FILTER_TIMEOUT_SECONDS
     try:
-        payload = await asyncio.wait_for(
-            service.run_dropdown_query(
-                dropdown_query,
-                db_config=report.db_config,
-                platform=report.platform,
-                page=1,
-                page_size=20,
-                placeholder_values=placeholder_values,
-            ),
-            timeout=timeout,
+        payload = await service.run_dropdown_query(
+            dropdown_query,
+            db_config=report.db_config,
+            platform=report.platform,
+            page=1,
+            page_size=20,
+            placeholder_values=placeholder_values,
         )
         options = payload.get("options") or []
         total = payload.get("total") or len(options)
@@ -801,15 +766,6 @@ async def _test_dropdown(
                 "option_count": total,
                 "sample": [str(opt.get("label") or opt.get("value")) for opt in options[:5]],
             },
-        )
-    except asyncio.TimeoutError:
-        return [], case(
-            case_id,
-            "filter",
-            name,
-            "failed",
-            f"Dropdown query timed out after {timeout}s",
-            _elapsed_ms(started),
         )
     except Exception as exc:
         return [], case(case_id, "filter", name, "failed", str(exc), _elapsed_ms(started))
@@ -858,22 +814,18 @@ async def _execute_query_safe(
     query: ReportQuery,
     filter_values: list[FilterValue],
 ) -> Any:
-    timeout = settings.REPORT_TEST_QUERY_TIMEOUT_SECONDS
     viz_type = "table"
     if isinstance(query.visualization_config, dict):
         viz_type = query.visualization_config.get("type") or "table"
-    return await asyncio.wait_for(
-        service.execute_query(
-            query,
-            filter_values,
-            limit=settings.REPORT_TEST_QUERY_LIMIT,
-            visualization_type=viz_type,
-            platform=report.platform,
-            global_filters=report.global_filters or [],
-            db_config=report.db_config,
-            filter_by_department=False,
-        ),
-        timeout=timeout,
+    return await service.execute_query(
+        query,
+        filter_values,
+        limit=settings.REPORT_TEST_QUERY_LIMIT,
+        visualization_type=viz_type,
+        platform=report.platform,
+        global_filters=report.global_filters or [],
+        db_config=report.db_config,
+        filter_by_department=False,
     )
 
 
@@ -966,16 +918,6 @@ async def _test_query(
             exec_result.execution_time_ms or duration_ms,
             settings.REPORT_TEST_SLOW_QUERY_MS,
         ), started))
-    except asyncio.TimeoutError:
-        cases.append(case(
-            f"query_{qid}_execute",
-            "query",
-            f"Execute query: {qname}",
-            "failed",
-            f"Query timed out after {settings.REPORT_TEST_QUERY_TIMEOUT_SECONDS}s",
-            _elapsed_ms(started),
-        ))
-        return cases, 0
     except Exception as exc:
         cases.append(case(
             f"query_{qid}_execute",
@@ -1019,15 +961,6 @@ async def _test_query(
                     duration_ms,
                     meta={"row_count": filtered_rows, "filters": extra_applied},
                 ))
-        except asyncio.TimeoutError:
-            cases.append(case(
-                f"query_{qid}_filtered_execute",
-                "filter",
-                f"Execute {qname} with sample filter values",
-                "failed",
-                f"Filtered query timed out after {settings.REPORT_TEST_QUERY_TIMEOUT_SECONDS}s",
-                _elapsed_ms(started),
-            ))
         except Exception as exc:
             cases.append(case(
                 f"query_{qid}_filtered_execute",
