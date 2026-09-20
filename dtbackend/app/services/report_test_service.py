@@ -6,7 +6,6 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-import traceback
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -42,14 +41,12 @@ from app.services.reports_service import (
     extract_dropdown_placeholders,
     extract_expandable_nested_queries,
 )
-from app.services.report_ui_tester import ReportUiTester, playwright_available
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Europe/Istanbul")
 
 _running_lock = asyncio.Lock()
 _cancel_flags: dict[int, asyncio.Event] = {}
-_run_cookies: dict[int, dict[str, str]] = {}
 
 
 def _utc_now() -> datetime:
@@ -341,7 +338,6 @@ async def start_run(
     trigger: str = "manual",
     platform_id: int | None = None,
     report_id: int | None = None,
-    auth_cookies: dict[str, str] | None = None,
 ) -> ReportTestRun:
     async with AsyncSessionLocal() as db:
         existing = await get_running_run(db)
@@ -361,8 +357,6 @@ async def start_run(
         run_id = run.id
 
     _cancel_flags[run_id] = asyncio.Event()
-    if auth_cookies:
-        _run_cookies[run_id] = auth_cookies
     asyncio.create_task(_execute_run(run_id), name=f"report-test-run-{run_id}")
     return run
 
@@ -391,7 +385,7 @@ async def _load_reports(db: AsyncSession, platform_id: int | None, report_id: in
             selectinload(Report.tabs),
             selectinload(Report.platform),
         )
-        .where(Report.deleted_at.is_(None))
+        .where(Report.deleted_at.is_(None), Report.color.isnot(None), Report.color != '#878787')
         .order_by(Report.platform_id.nulls_last(), Report.name)
     )
     if report_id is not None:
@@ -414,7 +408,6 @@ def _clickhouse_client() -> ClickHouseClient:
 
 async def _execute_run(run_id: int) -> None:
     cancel_event = _cancel_flags.setdefault(run_id, asyncio.Event())
-    ui_tester: ReportUiTester | None = None
     async with _running_lock:
         try:
             async with AsyncSessionLocal() as db:
@@ -427,24 +420,6 @@ async def _execute_run(run_id: int) -> None:
                 run.total_reports = len(reports)
                 await db.commit()
                 report_ids = [report.id for report in reports]
-
-            ui_skip_reason: str | None = None
-            cookies = _run_cookies.pop(run_id, {})
-            if not settings.REPORT_TEST_UI_ENABLED:
-                ui_skip_reason = "Ekran kontrolü kapalı."
-            elif not playwright_available():
-                ui_skip_reason = "Rapor ekranı kontrolü için gerekli tarayıcı kurulu değil."
-            elif not settings.REPORT_TEST_UI_BYPASS_AUTH and not cookies:
-                ui_skip_reason = "Oturum bilgisi alınamadı. Lütfen yönetici sayfasından tekrar başlatın."
-            else:
-                ui_tester = ReportUiTester(cookies)
-                try:
-                    await ui_tester.start()
-                except Exception:
-                    traceback.print_exc()
-                    logger.exception("Failed to start Playwright UI tester")
-                    ui_skip_reason = "Rapor ekranı tarayıcıda açılamadı."
-                    ui_tester = None
 
             concurrency = max(1, min(int(settings.REPORT_TEST_CONCURRENCY), 8))
             semaphore = asyncio.Semaphore(concurrency)
@@ -468,8 +443,6 @@ async def _execute_run(run_id: int) -> None:
                         await _run_one_report(
                             run_id,
                             report_id,
-                            ui_tester,
-                            ui_skip_reason,
                             cancel_event,
                             progress_lock,
                             in_flight,
@@ -517,12 +490,6 @@ async def _execute_run(run_id: int) -> None:
                     await db.commit()
         finally:
             _cancel_flags.pop(run_id, None)
-            _run_cookies.pop(run_id, None)
-            if ui_tester:
-                try:
-                    await ui_tester.close()
-                except Exception:
-                    pass
             try:
                 from app.services.report_test_schedule import notify_scheduled_run
                 await notify_scheduled_run(run_id)
@@ -533,8 +500,6 @@ async def _execute_run(run_id: int) -> None:
 async def _run_one_report(
     run_id: int,
     report_id: int,
-    ui_tester: ReportUiTester | None,
-    ui_skip_reason: str | None,
     cancel_event: asyncio.Event,
     progress_lock: asyncio.Lock,
     in_flight: set[str],
@@ -573,7 +538,7 @@ async def _run_one_report(
             started = time.perf_counter()
             try:
                 result_row, cases = await asyncio.wait_for(
-                    _test_report(service, report, ui_tester, ui_skip_reason),
+                    _test_report(service, report),
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
@@ -710,8 +675,6 @@ async def _write_run_progress_counts(
 async def _test_report(
     service: ReportsService,
     report: Report,
-    ui_tester: ReportUiTester | None = None,
-    ui_skip_reason: str | None = None,
 ) -> tuple[ReportTestResult, list[dict[str, Any]]]:
     started = time.perf_counter()
     cases: list[dict[str, Any]] = []
@@ -772,28 +735,6 @@ async def _test_report(
             query_cases, query_rows = result
             cases.extend(query_cases)
             row_count_total += query_rows
-
-    if ui_tester:
-        ui_started = time.perf_counter()
-        try:
-            cases.extend(await ui_tester.test_report(report))
-        except Exception as exc:
-            cases.append(case(
-                "ui_crash",
-                "ui",
-                "Rapor ekranı",
-                "failed",
-                "Rapor ekranı kontrol edilirken bir sorun oluştu.",
-                _elapsed_ms(ui_started),
-            ))
-    elif ui_skip_reason:
-        cases.append(case(
-            "ui_skipped",
-            "ui",
-            "Rapor ekranı",
-            "skipped",
-            ui_skip_reason,
-        ))
 
     status = rollup_status(cases)
     duration_ms = int(_elapsed_ms(started))

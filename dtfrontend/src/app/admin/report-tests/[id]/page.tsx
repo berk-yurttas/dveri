@@ -7,6 +7,7 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   Loader2,
   Square,
   XCircle,
@@ -95,18 +96,6 @@ export default function AdminReportTestRunPage() {
     loadRun()
   }, [runId])
 
-  useEffect(() => {
-    if (!run || run.status === "running" || run.status === "queued") return
-    setOpenIds((prev) => {
-      if (prev.size) return prev
-      return new Set(
-        (run.results || [])
-          .filter((item) => item.status === "failed" || item.status === "error")
-          .map((item) => item.id)
-      )
-    })
-  }, [run?.id, run?.status])
-
   const isActive = run?.status === "running" || run?.status === "queued"
   useEffect(() => {
     if (!isActive) return
@@ -139,6 +128,16 @@ export default function AdminReportTestRunPage() {
       else next.add(id)
       return next
     })
+  }
+
+  const allExpanded = filtered.length > 0 && filtered.every((item) => openIds.has(item.id))
+
+  const setAllExpanded = (checked: boolean) => {
+    if (checked) {
+      setOpenIds(new Set(filtered.map((item) => item.id)))
+    } else {
+      setOpenIds(new Set())
+    }
   }
 
   const handleCancel = async () => {
@@ -222,7 +221,7 @@ export default function AdminReportTestRunPage() {
             <Stat label="Toplam rapor" value={run?.total_reports ?? results.length} color="text-gray-800" />
           </div>
 
-          <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4 flex flex-col md:flex-row gap-3">
+          <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4 flex flex-col md:flex-row gap-3 md:items-center">
             <input
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -237,6 +236,21 @@ export default function AdminReportTestRunPage() {
               <option value="failed">Sadece hatalar</option>
               <option value="all">Tümü</option>
             </select>
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none whitespace-nowrap">
+              <span className="relative inline-flex h-5 w-9 shrink-0 items-center">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  className="peer sr-only"
+                  checked={allExpanded}
+                  disabled={filtered.length === 0}
+                  onChange={(event) => setAllExpanded(event.target.checked)}
+                />
+                <span className="absolute inset-0 rounded-full bg-gray-300 transition-colors peer-checked:bg-blue-600 peer-disabled:opacity-40" />
+                <span className="absolute left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+              </span>
+              Tüm adımları aç
+            </label>
           </div>
 
           <div className="space-y-2">
@@ -269,6 +283,11 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
   )
 }
 
+function reportHref(result: ReportTestResult) {
+  if (!result.report_id || !result.platform_code) return null
+  return `/${result.platform_code}/reports/${result.report_id}`
+}
+
 function ReportResultCard({
   result,
   open,
@@ -289,13 +308,43 @@ function ReportResultCard({
     return Array.from(map.entries())
   }, [result.cases])
 
+  const href = reportHref(result)
+
   return (
     <div className="bg-white border border-gray-200 rounded-lg">
-      <button onClick={onToggle} className="w-full px-4 py-3 flex items-center gap-3 text-left">
-        {open ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+      <div
+        className="w-full px-4 py-3 flex items-center gap-3 cursor-pointer"
+        onClick={onToggle}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault()
+            onToggle()
+          }
+        }}
+      >
+        <span className="p-0.5 text-gray-400">
+          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-gray-900 truncate">{result.report_name}</span>
+            {href ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(event) => event.stopPropagation()}
+                className="inline-flex items-center gap-1.5 font-medium text-blue-700 hover:text-blue-800 hover:underline truncate"
+                title="Raporu yeni sekmede aç"
+              >
+                <span className="truncate">{result.report_name}</span>
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+              </a>
+            ) : (
+              <span className="font-medium text-gray-900 truncate">{result.report_name}</span>
+            )}
             {resultBadge(result.status)}
             {result.platform_name && (
               <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{result.platform_name}</span>
@@ -306,7 +355,7 @@ function ReportResultCard({
             {result.summary ? ` · ${friendlySummary(result.summary)}` : ""}
           </div>
         </div>
-      </button>
+      </div>
       {open && (
         <div className="border-t border-gray-100 px-4 py-3 space-y-4">
           {grouped.length === 0 ? (

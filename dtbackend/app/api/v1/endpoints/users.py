@@ -176,8 +176,6 @@ async def login_jwt(
     Raises:
         HTTPException: If user is not authenticated or token is invalid
     """
-    from app.core.report_test_auth import is_playwright_bypass_user
-
     user = await UserService.get_user_by_username(db, current_user.username)
     if not user:
         print(f"User not found in database, creating user: {current_user.username}")
@@ -189,14 +187,6 @@ async def login_jwt(
             if not user:
                 raise
 
-    # Playwright UI tests authenticate with a process-only header, not SAML.
-    # Keep a DB row so report access checks succeed, but do not count a login.
-    if is_playwright_bypass_user(current_user):
-        if user and user.name != current_user.name:
-            user.name = current_user.name
-            await db.commit()
-        return current_user
-    
     # Update user name
     user.name = current_user.name
     await db.commit()

@@ -181,21 +181,6 @@ class Settings(BaseSettings):
     REPORT_TEST_FRONTEND_URL: str = Field(
         default_factory=lambda: os.getenv("REPORT_TEST_FRONTEND_URL") or os.getenv("CORS_ORIGIN", "http://localhost:3000")
     )
-    REPORT_TEST_API_URL: str = Field(
-        default_factory=lambda: os.getenv("REPORT_TEST_API_URL", "http://localhost:8000").strip()
-    )
-    REPORT_TEST_UI_ENABLED: bool = Field(
-        default_factory=lambda: os.getenv("REPORT_TEST_UI_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
-    )
-    REPORT_TEST_UI_BYPASS_AUTH: bool = Field(
-        default_factory=lambda: os.getenv("REPORT_TEST_UI_BYPASS_AUTH", "true").lower() in {"1", "true", "yes", "on"}
-    )
-    REPORT_TEST_UI_HEADLESS: bool = Field(
-        default_factory=lambda: os.getenv("REPORT_TEST_UI_HEADLESS", "true").lower() in {"1", "true", "yes", "on"}
-    )
-    REPORT_TEST_UI_TIMEOUT_MS: int = Field(
-        default_factory=lambda: int(os.getenv("REPORT_TEST_UI_TIMEOUT_MS", "20000"))
-    )
 
     SMTP_HOST: str = Field(default_factory=lambda: os.getenv("SMTP_HOST", "").strip())
     SMTP_PORT: int = Field(default_factory=lambda: int(os.getenv("SMTP_PORT", "25") or "25"))

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import check_authenticated
@@ -53,7 +53,6 @@ async def list_report_test_runs(
 
 @router.post("/runs", response_model=ReportTestRunOut)
 async def start_report_test_run(
-    request: Request,
     payload: ReportTestStartRequest | None = None,
     current_user: User = Depends(check_authenticated),
 ):
@@ -65,7 +64,6 @@ async def start_report_test_run(
             trigger="manual",
             platform_id=body.platform_id,
             report_id=body.report_id,
-            auth_cookies=dict(request.cookies),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
