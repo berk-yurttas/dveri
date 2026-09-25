@@ -120,14 +120,10 @@ async def send_production_order(
     Fire-and-forget Mekasan push.
 
     F3:
-      - `len(pairs) == 1`: one POST with Mes_OrderId = "{group_id}-{station.id}"
-        (unchanged single-pair behavior).
-      - `len(pairs) > 1`: N parallel POSTs, each with
-        Mes_OrderId = "{group_id}-{station.id}-{sipariş_no}-{kalem_no}".
-        The suffix carries BOTH the sipariş no and kalem no so the id stays
-        unique even when one order has several line items (same sipariş_no,
-        different kalem_no) — the primary multi-pair case. Sipariş-no alone
-        would collide there.
+      - `len(pairs) == 1`: one POST with Mes_OrderId = "{group_id}-{station.id}".
+      - `len(pairs) > 1`: N parallel POSTs, one per pair (AselsanOrderCode /
+        WorkOrderItemNo differ), all sharing the same
+        Mes_OrderId = "{group_id}-{station.id}".
 
     Returns True only if every POST succeeded, False otherwise.
     """
@@ -141,13 +137,11 @@ async def send_production_order(
         item = _build_payload_item(work_order, station, pairs[0], base_id, subcontractor_id, company)
         return await _post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id)
 
-    # Multi-pair: N independent POSTs in parallel. All-or-nothing: True only if
-    # every pair POST succeeded. Re-pushing already-delivered pairs is safe
-    # because Toy upserts by Mes_OrderId.
+    # Multi-pair: N independent POSTs in parallel, all with the same
+    # Mes_OrderId. All-or-nothing: True only if every pair POST succeeded.
     tasks = []
     for pair in pairs:
-        mes_order_id = f"{base_id}-{pair.aselsan_order_number}-{pair.order_item_number}"
-        item = _build_payload_item(work_order, station, pair, mes_order_id, subcontractor_id, company)
+        item = _build_payload_item(work_order, station, pair, base_id, subcontractor_id, company)
         tasks.append(_post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id))
     results = await asyncio.gather(*tasks)
     return all(results)
@@ -232,8 +226,7 @@ async def _push_route_placeholders(
             tasks.append(_post_one(integration.api_url, integration.api_key, {"company": integration.company, "data": [item]}, work_order.id))
         else:
             for pair in pairs:
-                mes_order_id = f"{base_id}-{pair.aselsan_order_number}-{pair.order_item_number}"
-                item = _build_placeholder_item(work_order, station, pair, mes_order_id, subcontractor_id, integration.company)
+                item = _build_placeholder_item(work_order, station, pair, base_id, subcontractor_id, integration.company)
                 tasks.append(_post_one(integration.api_url, integration.api_key, {"company": integration.company, "data": [item]}, work_order.id))
 
     if not tasks:
