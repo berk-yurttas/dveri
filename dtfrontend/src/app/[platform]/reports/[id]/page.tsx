@@ -68,6 +68,13 @@ import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 import { useUser } from '@/contexts/user-context'
 import { isAdmin } from '@/lib/utils'
 
+function matchesDropdownSearch(option: { value: unknown; label: unknown }, search: string): boolean {
+  const term = search.trim().toLowerCase()
+  if (!term) return true
+  return String(option.value ?? '').toLowerCase().includes(term)
+    || String(option.label ?? '').toLowerCase().includes(term)
+}
+
 const VISUALIZATION_ICONS = {
   table: Table,
   expandable: Table,
@@ -263,6 +270,7 @@ export default function ReportDetailPage() {
   }>({})
   const [searchTerms, setSearchTerms] = useState<{ [key: string]: string }>({})
   const [dropdownOpen, setDropdownOpen] = useState<{ [key: string]: boolean }>({})
+  const loadingMoreKeysRef = useRef<Set<string>>(new Set())
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState<{ percent: number; label: string } | null>(null)
   const [isExportingSql, setIsExportingSql] = useState(false)
@@ -568,17 +576,7 @@ export default function ReportDetailPage() {
         const parentKey = query.id === 0 ? `global_${filter.dependsOn}` : `${query.id}_${filter.dependsOn}`
         const parentValue = currentFilterValues ? currentFilterValues[parentKey] : filters[parentKey]
 
-        let modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn, parentValue)
-
-        // Add search filter if provided
-        if (search) {
-          // Wrap the query in a subquery and add WHERE clause for search
-          // Remove trailing semicolon
-          modifiedSql = modifiedSql.replace(/;\s*$/, '').trim()
-
-          // Add search condition - search in both value and label columns
-          modifiedSql = `SELECT * FROM (${modifiedSql}) AS search_subquery WHERE CAST(search_subquery.value AS TEXT) ILIKE '%${search}%' OR CAST(search_subquery.label AS TEXT) ILIKE '%${search}%'`
-        }
+        const modifiedSql = buildDropdownQuery(filter.dropdownQuery, filter.dependsOn, parentValue)
 
         const result = await reportsService.previewQuery({
           sql_query: modifiedSql,
@@ -595,14 +593,17 @@ export default function ReportDetailPage() {
           const uniqueOptions = options.filter((option, index, self) =>
             index === self.findIndex((o) => o.value === option.value)
           )
+          const visibleOptions = search
+            ? uniqueOptions.filter((option) => matchesDropdownSearch(option, search))
+            : uniqueOptions
 
           setDropdownOptions(prev => ({
             ...prev,
             [key]: {
-              options: uniqueOptions,
+              options: visibleOptions,
               page: 1,
               hasMore: false,
-              total: uniqueOptions.length,
+              total: visibleOptions.length,
               loading: false
             }
           }))
@@ -623,17 +624,7 @@ export default function ReportDetailPage() {
         // For global filters (query.id === 0), use preview query instead
         if (query.id === 0 && filter.dropdownQuery) {
           // Global filter - execute the dropdown query directly
-          let sqlQuery = filter.dropdownQuery
-
-          // Add search filter if provided
-          if (search) {
-            // Wrap the query in a subquery and add WHERE clause for search
-            // Remove trailing semicolon
-            sqlQuery = sqlQuery.replace(/;\s*$/, '').trim()
-
-            // Add search condition - search in both value and label columns
-            sqlQuery = `SELECT * FROM (${sqlQuery}) AS search_subquery WHERE CAST(search_subquery.value AS TEXT) ILIKE '%${search}%' OR CAST(search_subquery.label AS TEXT) ILIKE '%${search}%'`
-          }
+          const sqlQuery = filter.dropdownQuery
 
           const result = await reportsService.previewQuery({
             sql_query: sqlQuery,
@@ -651,14 +642,17 @@ export default function ReportDetailPage() {
             const uniqueOptions = Array.from(
               new Map(options.map(item => [item.value, item])).values()
             )
+            const visibleOptions = search
+              ? uniqueOptions.filter((option) => matchesDropdownSearch(option, search))
+              : uniqueOptions
 
             setDropdownOptions(prev => ({
               ...prev,
               [key]: {
-                options: uniqueOptions,
+                options: visibleOptions,
                 page: 1,
                 hasMore: false,
-                total: uniqueOptions.length,
+                total: visibleOptions.length,
                 loading: false
               }
             }))
@@ -710,6 +704,7 @@ export default function ReportDetailPage() {
 
   // Handle loading more options for a dropdown filter
   const handleLoadMoreOptions = async (filterKey: string) => {
+    if (loadingMoreKeysRef.current.has(filterKey)) return
     const dropdownData = dropdownOptions[filterKey]
     if (!dropdownData || dropdownData.loading || !dropdownData.hasMore) return
 
@@ -726,7 +721,20 @@ export default function ReportDetailPage() {
     if (!filter) return
 
     const currentSearch = searchTerms[filterKey] || ''
-    await loadDropdownOptions(query, filter, filters, dropdownData.page + 1, currentSearch, true)
+    loadingMoreKeysRef.current.add(filterKey)
+    try {
+      await loadDropdownOptions(query, filter, filters, dropdownData.page + 1, currentSearch, true)
+    } finally {
+      loadingMoreKeysRef.current.delete(filterKey)
+    }
+  }
+
+  const handleDropdownListScroll = (filterKey: string, event: React.UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget
+    const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 24
+    if (nearBottom) {
+      handleLoadMoreOptions(filterKey)
+    }
   }
 
   // Handle searching options for a dropdown filter
@@ -2015,8 +2023,11 @@ export default function ReportDetailPage() {
                                 />
                               </div>
                             </div>
-                            <div className="max-h-40 overflow-y-auto">
-                              {options.length === 0 ? (
+                            <div
+                              className="max-h-40 overflow-y-auto"
+                              onScroll={(event) => handleDropdownListScroll(filterKey, event)}
+                            >
+                              {options.length === 0 && !dropdownData.loading ? (
                                 <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
                               ) : (
                                 options.map((option, index) => (
@@ -2048,6 +2059,9 @@ export default function ReportDetailPage() {
                                     {option.label}
                                   </div>
                                 ))
+                              )}
+                              {dropdownData.loading && (
+                                <div className="px-2 py-1 text-[10px] text-gray-500 text-center">Yükleniyor...</div>
                               )}
                             </div>
                           </div>
@@ -2159,8 +2173,11 @@ export default function ReportDetailPage() {
                                 />
                               </div>
                             </div>
-                            <div className="max-h-40 overflow-y-auto">
-                              {options.length === 0 ? (
+                            <div
+                              className="max-h-40 overflow-y-auto"
+                              onScroll={(event) => handleDropdownListScroll(filterKey, event)}
+                            >
+                              {options.length === 0 && !dropdownData.loading ? (
                                 <div className="px-2 py-1 text-[10px] text-gray-500">Sonuç bulunamadı</div>
                               ) : (
                                 options.map((option, index) => {
@@ -2203,6 +2220,9 @@ export default function ReportDetailPage() {
                                     </div>
                                   )
                                 })
+                              )}
+                              {dropdownData.loading && (
+                                <div className="px-2 py-1 text-[10px] text-gray-500 text-center">Yükleniyor...</div>
                               )}
                             </div>
                           </div>

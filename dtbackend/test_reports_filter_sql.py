@@ -11,6 +11,8 @@ from app.services.reports_service import (
     inject_where_condition,
     prepare_dropdown_query,
     select_aliases,
+    sort_sql_expression,
+    wrap_dropdown_search,
     wrap_query_with_where,
 )
 
@@ -304,6 +306,78 @@ class SelectAliasParseTest(unittest.TestCase):
             _norm(result),
             "SELECT * FROM (SELECT a AS b FROM t ORDER BY a) AS _dt_filtered WHERE (b = 1) LIMIT 5",
         )
+
+
+class SortExpressionTest(unittest.TestCase):
+    def test_plain_column_is_quoted(self):
+        sql = ReportsService.apply_sorting_to_query(None, "SELECT \"Tarih\" FROM t", "Tarih", "asc")
+        self.assertEqual(_norm(sql), 'SELECT "Tarih" FROM t ORDER BY "Tarih" ASC')
+
+    def test_sort_uses_filter_sql_expression(self):
+        filters = [type("F", (), {"field_name": "Tarih", "sql_expression": "TO_DATE(\"Tarih\", 'DD.MM.YYYY')"})()]
+        expression = sort_sql_expression("Tarih", filters)
+        sql = ReportsService.apply_sorting_to_query(
+            None,
+            'SELECT "Tarih" FROM t ORDER BY "Tarih"',
+            "Tarih",
+            "desc",
+            sort_expression=expression,
+        )
+        self.assertEqual(
+            _norm(sql),
+            "SELECT \"Tarih\" FROM t ORDER BY TO_DATE(\"Tarih\", 'DD.MM.YYYY') DESC",
+        )
+
+    def test_quoted_field_name_matches_sort_column(self):
+        filters = [type("F", (), {"field_name": '"Tarih"', "sql_expression": 'CAST("Tarih" AS DATE)'})()]
+        self.assertEqual(sort_sql_expression("Tarih", filters), 'CAST("Tarih" AS DATE)')
+
+    def test_column_without_expression_stays_plain(self):
+        filters = [type("F", (), {"field_name": "Tutar", "sql_expression": None})()]
+        self.assertIsNone(sort_sql_expression("Tarih", filters))
+
+
+class DropdownSearchWrapTest(unittest.TestCase):
+    def test_filters_real_column_names(self):
+        sql = 'SELECT "Firma Adı" FROM t'
+        result = wrap_dropdown_search(sql, ["Firma Adı"], "aselsan", "postgresql")
+        self.assertEqual(
+            _norm(result),
+            "SELECT * FROM (SELECT \"Firma Adı\" FROM t) AS subquery "
+            "WHERE CAST(subquery.\"Firma Adı\" AS TEXT) ILIKE '%aselsan%' ESCAPE '\\'",
+        )
+
+    def test_searches_first_two_columns_only(self):
+        sql = "SELECT kod, ad FROM t WHERE active = 1"
+        result = wrap_dropdown_search(sql, ["kod", "ad", "extra"], "x", "postgresql")
+        self.assertIn('subquery."kod"', result)
+        self.assertIn('subquery."ad"', result)
+        self.assertNotIn("extra", result)
+        self.assertNotIn("subquery.value", result)
+        self.assertNotIn("subquery.label", result)
+
+    def test_single_column_does_not_require_label(self):
+        result = wrap_dropdown_search("SELECT stok_no FROM t WHERE active = 1", ["stok_no"], "ab", "postgresql")
+        self.assertIn('subquery."stok_no"', result)
+        self.assertNotIn("label", result)
+
+    def test_escapes_quotes_and_wildcards(self):
+        result = wrap_dropdown_search("SELECT a FROM t", ["a"], "100%_O'Brien", "postgresql")
+        self.assertIn("100\\%\\_O''Brien", result)
+
+    def test_quotes_embedded_identifier_quotes(self):
+        result = wrap_dropdown_search("SELECT a FROM t", ['say "hi"'], "ab", "postgresql")
+        self.assertIn('subquery."say ""hi"""', result)
+
+    def test_mssql_and_clickhouse_dialects(self):
+        mssql = wrap_dropdown_search("SELECT a FROM t", ["a"], "ab", "mssql")
+        clickhouse = wrap_dropdown_search("SELECT a FROM t", ["a"], "ab", "clickhouse")
+        self.assertIn("CAST(subquery.[a] AS NVARCHAR(MAX)) LIKE '%ab%' ESCAPE '\\'", mssql)
+        self.assertIn("toString(subquery.`a`) ILIKE '%ab%'", clickhouse)
+
+    def test_empty_search_leaves_query_unchanged(self):
+        sql = "SELECT a FROM t"
+        self.assertEqual(wrap_dropdown_search(sql, ["a"], "", "postgresql"), sql)
 
 
 class DropdownPlaceholderTest(unittest.TestCase):

@@ -590,7 +590,16 @@ const TableFilterInput = React.memo<{
               )}
             </div>
           ) : (
-            <div className="max-h-48 overflow-y-auto border border-gray-300 rounded">
+            <div
+              className="max-h-48 overflow-y-auto border border-gray-300 rounded"
+              onScroll={(e) => {
+                const target = e.currentTarget
+                const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 24
+                if (nearBottom && dropdownData.hasMore && !dropdownData.loading && onLoadMore) {
+                  onLoadMore(filterKey)
+                }
+              }}
+            >
               <div
                 onClick={(e) => {
                   e.stopPropagation()
@@ -614,6 +623,9 @@ const TableFilterInput = React.memo<{
               ))}
               {options.length === 0 && (
                 <div className="px-3 py-2 text-xs text-gray-500">Seçenekler yükleniyor...</div>
+              )}
+              {dropdownData.loading && options.length > 0 && (
+                <div className="px-3 py-2 text-xs text-gray-500 text-center">Yükleniyor...</div>
               )}
             </div>
           )}

@@ -848,6 +848,50 @@ def prepare_dropdown_query(sql: str | None, values: dict[str, Any] | None = None
     return processed
 
 
+def quote_sql_identifier(name: str, db_type: str) -> str:
+    if db_type == "mssql":
+        return "[" + name.replace("]", "]]") + "]"
+    if db_type == "clickhouse":
+        return "`" + name.replace("`", "``") + "`"
+    return '"' + name.replace('"', '""') + '"'
+
+
+def dropdown_search_literal(search: str) -> str:
+    """LIKE/ILIKE pattern that treats user input as literal text."""
+    escaped = (
+        search.replace("\\", "\\\\")
+        .replace("'", "''")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    return f"'%{escaped}%'"
+
+
+def wrap_dropdown_search(sql: str, columns: list[str], search: str, db_type: str = "postgresql") -> str:
+    """Filter dropdown rows by the query's real output columns.
+
+    Dropdown SQL is positional: the first column is the option value and the
+    second, when present, is the label. Those columns are not named value/label.
+    """
+    if not search:
+        return sql
+    body = (sql or "").strip().rstrip(";").strip()
+    targets = [str(column) for column in list(columns)[:2] if column]
+    if not body or not targets:
+        return body or sql
+    literal = dropdown_search_literal(search)
+    predicates: list[str] = []
+    for column in targets:
+        ident = f"subquery.{quote_sql_identifier(column, db_type)}"
+        if db_type == "clickhouse":
+            predicates.append(f"toString({ident}) ILIKE {literal}")
+        elif db_type == "mssql":
+            predicates.append(f"CAST({ident} AS NVARCHAR(MAX)) LIKE {literal} ESCAPE '\\'")
+        else:
+            predicates.append(f"CAST({ident} AS TEXT) ILIKE {literal} ESCAPE '\\'")
+    return f"SELECT * FROM ({body}) AS subquery WHERE {' OR '.join(predicates)}"
+
+
 def _uniquify_child_columns(parent_columns: list[str], child_columns: list[str], level: int) -> list[str]:
     used = set(parent_columns)
     unique: list[str] = []
@@ -959,6 +1003,24 @@ def flatten_nested_export(
         for child_row in aligned_children:
             export_data.append([*parent_row, *child_row])
     return export_columns, export_data
+
+
+def _sort_column_key(name: str | None) -> str:
+    return str(name or "").strip().strip('"').strip("[").strip("]").strip("`").casefold()
+
+
+def sort_sql_expression(sort_by: str, filters: list[Any] | None) -> str | None:
+    """Return the filter SQL expression for a sorted result column, when one is set."""
+    target = _sort_column_key(sort_by)
+    if not target:
+        return None
+    for db_filter in filters or []:
+        expression = getattr(db_filter, "sql_expression", None)
+        if not expression or not str(expression).strip():
+            continue
+        if _sort_column_key(getattr(db_filter, "field_name", None)) == target:
+            return str(expression).strip()
+    return None
 
 
 class ReportsService:
@@ -1926,7 +1988,13 @@ class ReportsService:
 
         return sql
 
-    def apply_sorting_to_query(self, sql: str, sort_by: str, sort_direction: str) -> str:
+    def apply_sorting_to_query(
+        self,
+        sql: str,
+        sort_by: str,
+        sort_direction: str,
+        sort_expression: str | None = None,
+    ) -> str:
         """Apply sorting to SQL query, overriding any existing ORDER BY clause"""
         import re
 
@@ -1942,29 +2010,38 @@ class ReportsService:
         if sort_direction not in ['asc', 'desc']:
             raise ValueError(f"Invalid sort direction: {sort_direction}. Must be 'asc' or 'desc'")
 
-        # Validate sort_by column name (basic SQL injection prevention)
-        sort_by = sort_by.strip()
+        order_expr = (sort_expression or "").strip()
+        if order_expr:
+            if any(token in order_expr for token in (';', '--', '/*', '*/')):
+                raise ValueError("Invalid sort expression")
+            for danger in ('DROP', 'DELETE', 'TRUNCATE', 'INSERT', 'UPDATE', 'ALTER', 'CREATE', 'GRANT', 'REVOKE'):
+                if re.search(rf'\b{danger}\b', order_expr, flags=re.IGNORECASE):
+                    raise ValueError("Invalid sort expression")
+        else:
+            # Validate sort_by column name (basic SQL injection prevention)
+            sort_by = sort_by.strip()
 
-        # Check for dangerous SQL keywords/characters first
-        dangerous_chars = [';', '--', '/*', '*/', 'DROP', 'DELETE', 'UPDATE', 'INSERT', 'TRUNCATE']
-        sort_by_upper = sort_by.upper()
-        for danger in dangerous_chars:
-            if danger in sort_by_upper:
-                raise ValueError(f"Invalid column name: {sort_by}. Contains potentially dangerous SQL.")
+            # Check for dangerous SQL keywords/characters first
+            dangerous_chars = [';', '--', '/*', '*/', 'DROP', 'DELETE', 'UPDATE', 'INSERT', 'TRUNCATE']
+            sort_by_upper = sort_by.upper()
+            for danger in dangerous_chars:
+                if danger in sort_by_upper:
+                    raise ValueError(f"Invalid column name: {sort_by}. Contains potentially dangerous SQL.")
 
-        # Auto-quote field names that need quoting for PostgreSQL (unless already quoted)
-        if not (sort_by.startswith('"') and sort_by.endswith('"')):
-            # Check if field needs quoting (contains uppercase, spaces, or special chars)
-            if not sort_by.islower() or ' ' in sort_by or not sort_by.replace('_', '').replace('.', '').isalnum():
-                # Quote the identifier for PostgreSQL
-                sort_by = f'"{sort_by}"'
+            # Auto-quote field names that need quoting for PostgreSQL (unless already quoted)
+            if not (sort_by.startswith('"') and sort_by.endswith('"')):
+                # Check if field needs quoting (contains uppercase, spaces, or special chars)
+                if not sort_by.islower() or ' ' in sort_by or not sort_by.replace('_', '').replace('.', '').isalnum():
+                    # Quote the identifier for PostgreSQL
+                    sort_by = f'"{sort_by}"'
+            order_expr = sort_by
 
         # Remove existing ORDER BY clause (case insensitive)
         # This regex matches ORDER BY followed by any characters until the end or LIMIT
         sql_without_order = re.sub(r'\s+ORDER\s+BY\s+.*?(?=\s+LIMIT\s+|\s*$)', '', sql, flags=re.IGNORECASE)
 
         # Add new ORDER BY clause
-        new_sql = f"{sql_without_order} ORDER BY {sort_by} {sort_direction.upper()}"
+        new_sql = f"{sql_without_order} ORDER BY {order_expr} {sort_direction.upper()}"
 
         return new_sql
 
@@ -2103,7 +2180,12 @@ class ReportsService:
             t1 = time.time()
             if sort_by and sort_direction:
                 try:
-                    sql = self.apply_sorting_to_query(sql, sort_by, sort_direction)
+                    sql = self.apply_sorting_to_query(
+                        sql,
+                        sort_by,
+                        sort_direction,
+                        sort_expression=sort_sql_expression(sort_by, all_filters),
+                    )
                 except ValueError as e:
                     return QueryExecutionResult(
                         query_id=query.id,
@@ -2501,6 +2583,63 @@ class ReportsService:
             search=search,
         )
 
+    async def _dropdown_result_columns(
+        self,
+        base_query: str,
+        db_type: str,
+        db_config: dict[str, Any] | None,
+        platform: Platform | None,
+    ) -> list[str]:
+        """Return output column names without fetching dropdown rows."""
+        if db_type == "clickhouse":
+            if not self.clickhouse_client:
+                raise ValueError("ClickHouse client not available")
+            probe = f"SELECT * FROM ({base_query}) AS dropdown_cols LIMIT 0"
+            described = await asyncio.to_thread(
+                self.clickhouse_client.execute, probe, with_column_types=True
+            )
+            column_types = described[1] if described and len(described) > 1 else []
+            return [str(column[0]) for column in column_types if column and column[0]]
+
+        if db_type == "mssql":
+            probe = f"SELECT TOP 0 * FROM ({base_query}) AS dropdown_cols"
+        elif db_type == "postgresql":
+            probe = f"SELECT * FROM ({base_query}) AS dropdown_cols LIMIT 0"
+        else:
+            raise ValueError(f"Unsupported database type: {db_type}")
+
+        if db_config:
+            conn = await asyncio.to_thread(
+                self._connection_pool.get_connection, db_config=db_config, db_type=db_type
+            )
+        elif platform:
+            conn = await asyncio.to_thread(
+                self._connection_pool.get_connection, platform=platform, db_type=db_type
+            )
+        else:
+            raise ValueError("Database configuration required for dropdown queries")
+
+        cursor = conn.cursor()
+        try:
+            await asyncio.to_thread(cursor.execute, probe)
+            if not cursor.description:
+                return []
+            return [str(column[0]) for column in cursor.description if column and column[0]]
+        finally:
+            cursor.close()
+            if db_type == "postgresql":
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            await asyncio.to_thread(
+                self._connection_pool.return_connection,
+                conn,
+                db_config=db_config,
+                platform=platform,
+                db_type=db_type,
+            )
+
     async def run_dropdown_query(
         self,
         dropdown_query: str,
@@ -2528,17 +2667,12 @@ class ReportsService:
             base_query = base_query.rstrip(";").strip()
 
             if search:
-                if "WHERE" in base_query.upper():
-                    base_query = (
-                        f"SELECT * FROM ({base_query}) AS subquery "
-                        f"WHERE CAST(subquery.value AS TEXT) ILIKE '%{search}%' "
-                        f"OR CAST(subquery.label AS TEXT) ILIKE '%{search}%'"
-                    )
-                else:
-                    base_query = (
-                        f"SELECT * FROM ({base_query}) AS subquery "
-                        f"WHERE CAST(subquery.value AS TEXT) ILIKE '%{search}%'"
-                    )
+                columns = await self._dropdown_result_columns(
+                    base_query, db_type, db_config, platform
+                )
+                if not columns:
+                    raise ValueError("Dropdown query did not return any columns")
+                base_query = wrap_dropdown_search(base_query, columns, search, db_type)
 
             count_query = f"SELECT COUNT(*) FROM ({base_query}) AS count_subquery"
             offset = (page - 1) * page_size
@@ -2713,7 +2847,12 @@ class ReportsService:
             sql = inject_where_condition(sql, dept_filter_clause)
 
         if sort_by and sort_direction:
-            sql = self.apply_sorting_to_query(sql, sort_by, sort_direction)
+            sql = self.apply_sorting_to_query(
+                sql,
+                sort_by,
+                sort_direction,
+                sort_expression=sort_sql_expression(sort_by, all_filters),
+            )
         return self.sanitize_sql_query(sql)
 
     @staticmethod
