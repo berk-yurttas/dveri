@@ -19,3 +19,4 @@ openpyxl==3.1.2
 pandas==2.1.4
 ruff==0.2.2
 pydantic[email]==2.5.0
+reportlab

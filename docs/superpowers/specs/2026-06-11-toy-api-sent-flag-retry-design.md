@@ -46,8 +46,7 @@ delivered, and opportunistically retry rows that previously failed.
    ([work_order.py:754-774](../../../dtbackend/app/api/v1/endpoints/romiot/station/work_order.py#L754-L774)).
 3. `send_production_order` builds one payload per pair and POSTs to the integration
    URL. Single-pair → one POST; multi-pair → N parallel POSTs. `Mes_OrderId` is
-   `"{group_id}-{station.id}"` (single) or `"{group_id}-{station.id}-{sipariş}-{kalem}"`
-   (multi). It returns `None` and never raises — failures are logged and lost
+   `"{group_id}-{station.id}"` for every POST (single and multi-pair alike). It returns `None` and never raises — failures are logged and lost
    ([toy_api_service.py:61-102](../../../dtbackend/app/services/toy_api_service.py#L61-L102)).
 
 The same row is therefore pushed **twice** (entry, then exit), to the **same**
@@ -145,7 +144,8 @@ be re-pushed to deliver the exit event.
   endpoints return as fast as today.
 - **Idempotency** is what makes the simplifications safe:
   - Multi-pair partial failure re-pushes the already-succeeded pairs, but Toy
-    upserts by `Mes_OrderId` (which includes the pair suffix), so it is harmless.
+    upserts by `Mes_OrderId` (`{group_id}-{station.id}`, shared by all pairs),
+    so it is harmless.
   - Two concurrent scans for the same company can each sweep and re-push the same
     unsent row; both target the same `Mes_OrderId`, so Toy sees one upsert. No
     locking needed.

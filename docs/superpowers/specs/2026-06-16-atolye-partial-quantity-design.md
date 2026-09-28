@@ -138,7 +138,7 @@ comes from the scanned QR payload, so this endpoint only needs the counters
   `ActualEndDate` still comes from `exit_date`, so it is only populated at full
   exit.
 - **Push cadence (chosen default):** keep firing the push on *every* scan
-  (entrance and exit). Because `Mes_OrderId = {group_id}-{station.id}[-pair]` is
+  (entrance and exit). Because `Mes_OrderId = {group_id}-{station.id}` is
   stable, each push **updates** the same Mekasan order with the live
   `exited_quantity`. More accurate than today, at the cost of more calls.
   *(Alternative considered: push only when fully exited. Rejected for accuracy;

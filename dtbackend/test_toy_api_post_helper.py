@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 
-from app.services.toy_api_service import _post_one, send_production_order
+from app.services.toy_api_service import _post_one, _push_route_placeholders, send_production_order
 
 
 def _client_cm(*, is_success=True, raises=False):
@@ -83,6 +83,30 @@ class SendProductionOrderTest(unittest.TestCase):
             ok = asyncio.run(send_production_order(
                 _wo(), _station(), "u", "k", "CMP", [_pair("A1"), _pair("A2")], "SUB"))
         self.assertFalse(ok)
+
+    def test_multi_pair_all_posts_share_group_station_mes_order_id(self):
+        post = AsyncMock(return_value=True)
+        with patch("app.services.toy_api_service._post_one", new=post):
+            asyncio.run(send_production_order(
+                _wo(), _station(), "u", "k", "CMP", [_pair("A1", "K1"), _pair("A1", "K2")], "SUB"))
+        ids = [c.args[2]["data"][0]["Mes_OrderId"] for c in post.await_args_list]
+        self.assertEqual(ids, ["WO-1-10", "WO-1-10"])
+
+
+class PushRoutePlaceholdersTest(unittest.TestCase):
+    def test_multi_pair_placeholders_share_group_station_mes_order_id(self):
+        route = MagicMock(all=MagicMock(return_value=[(10,), (11,)]))
+        scanned = MagicMock(all=MagicMock(return_value=[(11,)]))
+        db = MagicMock()
+        db.execute = AsyncMock(side_effect=[route, scanned])
+        db.get = AsyncMock(return_value=_station())
+        integration = SimpleNamespace(api_url="u", api_key="k", company="CMP")
+        post = AsyncMock(return_value=True)
+        with patch("app.services.toy_api_service._post_one", new=post):
+            asyncio.run(_push_route_placeholders(
+                db, _wo(), integration, [_pair("A1", "K1"), _pair("A1", "K2")], "SUB"))
+        ids = [c.args[2]["data"][0]["Mes_OrderId"] for c in post.await_args_list]
+        self.assertEqual(ids, ["WO-1-10", "WO-1-10"])
 
 
 if __name__ == "__main__":
