@@ -54,14 +54,27 @@ const SQL = {
         SELECT "name1" as company FROM mes_production."tokadb_acik_sas"
         WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') group by "name1"
     `,
-    getToplamFirma: `SELECT COUNT(*) from firms`,
+    getToplamFirma: `SELECT COUNT(*) AS total_firms
+    FROM firms f
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM firm_steps fs
+        WHERE fs.firm_id = f.id
+          AND fs.status = 'İptal Edildi'
+    )`,
     getOrtalamaIlerlemeAll: `
-        SELECT avg(tamamlandı_rate_pct) from(
-            SELECT 
-                ROUND(100.0 * SUM(CASE WHEN status = 'Tamamlandı' THEN 1 ELSE 0 END) / COUNT(*),2) as tamamlandı_rate_pct
-            FROM firm_steps
-            LEFT JOIN firms f on f.id = firm_steps.firm_id
-        ) as subquery
+    SELECT avg(tamamlandı_rate_pct) from(
+        SELECT 
+            ROUND(100.0 * SUM(CASE WHEN status = 'Tamamlandı' THEN 1 ELSE 0 END) / COUNT(*),2) as tamamlandı_rate_pct
+        FROM firm_steps
+        LEFT JOIN firms f on f.id = firm_steps.firm_id
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM firm_steps fs
+            WHERE fs.firm_id = f.id
+              AND fs.status = 'İptal Edildi'
+        )
+    ) as subquery
     `,
     getOrtalamaIlerlemeByFirma: (firma: string) => `
         SELECT avg(tamamlandı_rate_pct) from(
@@ -73,12 +86,12 @@ const SQL = {
         ) as subquery
     `,
     getIlerlemeFirms: `
-        SELECT name
+        SELECT code
         FROM ilerleme_view
     `,
     buildMesIntegrationWithIlerlemeFirms: (ilerlemeFirms: string[]) => {
         const ilerlemeFirmsValues = ilerlemeFirms.length > 0
-            ? `OR "Satıcı Tanım" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
+            ? `OR "Satıcı" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
             : ''
         return `
             SELECT DISTINCT "Satıcı Tanım" as "Tedarikçi"
@@ -87,12 +100,16 @@ const SQL = {
             ${ilerlemeFirmsValues}
         `
     },
-    getDijitalSkorAll: `SELECT AVG("Toplam Puan")::numeric AS value FROM mes_production.dijital_puantaj_genel_skor`,
+    getDijitalSkorAll: `select
+                AVG("Toplam Puan")::numeric as value
+            from
+                mes_production.dijital_puantaj_genel_skor
+            where "Toplam Puan" > 0`,
     getDijitalSkorByFirma: (firma: string) => 
         `SELECT AVG("Toplam Puan")::numeric AS value 
         FROM mes_production.dijital_puantaj_genel_skor 
         LEFT JOIN mes_production.company_mapping ON mes_production.dijital_puantaj_genel_skor."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.dijital_puantaj_genel_skor'
-        WHERE mes_production.company_mapping."key" = '${firma}'`,
+        WHERE mes_production.company_mapping."key" = '${firma}' and "Toplam Puan" > 0`,
     getCncAll: `
         SELECT count(*) as "Toplam", "Eksen Sayısı"
         FROM mes_production.altyapi2
@@ -124,7 +141,7 @@ const SQL = {
     `,
     getKapsamFirst: (ilerlemeFirms: string[]) => {
         const ilerlemeFirmsValues = ilerlemeFirms.length > 0
-            ? `OR "Satıcı Tanım" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
+            ? `OR "Satıcı" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
             : ''
         return `
         WITH MesIntegration AS (
@@ -174,6 +191,7 @@ const SQL = {
                 "ProdMonth"
             FROM mes_production.kablaj_kapasite_view
             WHERE "NAME" = '${firma}'
+              AND NOT ("NAME" ILIKE '%MELSİS%' OR "NAME" ILIKE '%MELSIS%')
             ORDER BY "ProdMonth" DESC
             LIMIT 1
         ),
@@ -184,18 +202,20 @@ const SQL = {
                 "ProdMonth"
             FROM mes_production.kablaj_kapasite_view
             WHERE "NAME" = '${firma}'
+              AND NOT ("NAME" ILIKE '%MELSİS%' OR "NAME" ILIKE '%MELSIS%')
                 AND "ProdMonth" < (SELECT "ProdMonth" FROM current_month)
             ORDER BY "ProdMonth" DESC
             LIMIT 1
         ),
         standart_sure AS (
             SELECT 
-                cm."key" as mapped_name,
+                cm."value" as mapped_name,
                 SUM(k."Toplam Süre") as "Standart_Sure_Hours"
             FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif k
             LEFT JOIN mes_production.company_mapping cm ON k."Firma" = cm."value" AND cm.table = 'mes_production."makine_doluluk_raw"'
             WHERE cm."key" = '${firma}'
-            GROUP BY cm."key"
+              AND NOT (COALESCE(k."Firma Adı", k."Firma") ILIKE '%MELSİS%' OR COALESCE(k."Firma Adı", k."Firma") ILIKE '%MELSIS%')
+            GROUP BY cm."value"
         )
         SELECT 
             c.name,
@@ -229,12 +249,13 @@ const SQL = {
         ),
         standart_sure AS (
             SELECT 
-                cm."key" as mapped_name,
+                cm."value" as mapped_name,
                 SUM(k."Toplam Süre") as "Standart_Sure_Hours"
             FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif k
-            LEFT JOIN mes_production.company_mapping cm ON k."Firma" = cm."value" AND cm.table = 'mes_production."makine_doluluk_raw"'
-            WHERE k."Firma" IS NOT NULL
-            GROUP BY cm."key"
+            LEFT JOIN mes_production.company_mapping cm ON k."Firma Adı" = cm."value" AND cm.table = 'mes_production."makine_doluluk_raw"'
+            WHERE COALESCE(k."Firma Adı", k."Firma") IS NOT NULL
+              AND NOT (COALESCE(k."Firma Adı", k."Firma") ILIKE '%MELSİS%' OR COALESCE(k."Firma Adı", k."Firma") ILIKE '%MELSIS%')
+            GROUP BY cm."value"
         )
         SELECT 
             c.name as firma,
@@ -249,8 +270,65 @@ const SQL = {
         LEFT JOIN previous_month p ON c.name = p.name AND p.rn = 2
         LEFT JOIN standart_sure ss ON ss.mapped_name = c.name
         WHERE c.rn = 1
+          AND NOT (c.name ILIKE '%MELSİS%' OR c.name ILIKE '%MELSIS%')
         ORDER BY c.name
     `,
+    getKartDizgiKapasite: (firma?: string) => {
+        const firmaClause = firma
+            ? `AND cm."key" = '${firma.replace(/'/g, "''")}'`
+            : ''
+        const nameClause = firma
+            ? `AND "NAME" = '${firma.replace(/'/g, "''")}'`
+            : ''
+        return `
+        WITH melsis_names AS (
+            SELECT
+                "NAME" as name,
+                "Kapasite" / 60.0 as value_hours,
+                "ProdMonth",
+                ROW_NUMBER() OVER (PARTITION BY "NAME" ORDER BY "ProdMonth" DESC) as rn
+            FROM mes_production.kablaj_kapasite_view
+            WHERE ("NAME" ILIKE '%MELSİS%' OR "NAME" ILIKE '%MELSIS%')
+            ${nameClause}
+        ),
+        current_month AS (
+            SELECT name, value_hours, "ProdMonth"
+            FROM melsis_names
+            WHERE rn = 1
+        ),
+        previous_month AS (
+            SELECT name, value_hours, "ProdMonth"
+            FROM melsis_names
+            WHERE rn = 2
+        ),
+        kapasite AS (
+            SELECT
+                COALESCE(SUM(c.value_hours), 0) as value_hours,
+                CASE
+                    WHEN COALESCE(SUM(p.value_hours), 0) = 0 THEN 0
+                    ELSE ROUND(((SUM(c.value_hours) - SUM(p.value_hours)) / SUM(p.value_hours) * 100)::numeric, 2)
+                END as change_pct
+            FROM current_month c
+            LEFT JOIN previous_month p ON c.name = p.name
+        ),
+        standart_sure AS (
+            SELECT COALESCE(SUM(k."Toplam Süre"), 0) as "Standart_Sure_Hours"
+            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif k
+            LEFT JOIN mes_production.company_mapping cm
+                ON COALESCE(k."Firma Adı", k."Firma") = cm."value"
+               AND cm.table = 'mes_production.kablaj_kapasite_view'
+            WHERE (COALESCE(k."Firma Adı", k."Firma") ILIKE '%MELSİS%' OR COALESCE(k."Firma Adı", k."Firma") ILIKE '%MELSIS%')
+            ${firmaClause}
+        )
+        SELECT
+            'MELSİS' as name,
+            k.value_hours,
+            'hours' as unit,
+            k.change_pct,
+            s."Standart_Sure_Hours" as standart_sure
+        FROM kapasite k
+        CROSS JOIN standart_sure s
+    `},
     getTalasliImalatDoluluk: (firma: string) => `
         SELECT
             AVG("Aylık Planlanan Doluluk Oranı")
@@ -438,7 +516,7 @@ const SQL = {
     `,
     getSupplierRiskAnalysis: (ilerlemeFirms: string[] = []) => {
         const ilerlemeFirmsValues = ilerlemeFirms.length > 0
-            ? `OR "Satıcı Tanım" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
+            ? `OR "Satıcı" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
             : ''
         return `
         WITH MesIntegration AS (
@@ -477,21 +555,26 @@ const SQL = {
             GROUP BY "Firma Adı"
         ),
         KablajKapasite AS (
-            SELECT 
-                "NAME" as "Tedarikçi",
-                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
-            FROM mes_production.kablaj_kapasite_view
-            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
-            GROUP BY "NAME"
-            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+            SELECT
+                name as "Tedarikçi",
+                value_hours as "Kapasite_Hours"
+            FROM (
+                SELECT
+                    "NAME" as name,
+                    "Kapasite" / 60.0 as value_hours,
+                    ROW_NUMBER() OVER (PARTITION BY "NAME" ORDER BY "ProdMonth" DESC) as rn
+                FROM mes_production.kablaj_kapasite_view
+            ) ranked
+            WHERE rn = 1
+              AND name IS NOT NULL
         ),
         StandartSure AS (
             SELECT 
-                cm."key" as "Firma",
-                SUM("Toplam Süre") as "Standart_Sure_Hours"
-            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_kapasite_view'
-            WHERE mes_production.company_mapping."key" IS NOT NULL
+                "key" as "Firma",
+                ROUND(SUM("Toplam Süre"))::bigint as "Standart_Sure_Hours"
+            FROM mes_production.standart_sure_is_emri_bazli
+            LEFT JOIN mes_production.company_mapping ON mes_production.standart_sure_is_emri_bazli."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
+            WHERE mes_production.company_mapping."key" IS NOT null and "İş Emri Statüsü" = 'AKTIF'
             GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
@@ -506,29 +589,30 @@ const SQL = {
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
-            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key"
+            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production.kablaj_kapasite_view'
             LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
             LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
             WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
                 AND "name1" NOT LIKE '*Kullanma*%'
             GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
-        SELECT
-            "Tedarikçi",
-            "Etki",
-            "Kapasite",
-            "KapasiteUnit",
-            "Standart_Sure",
-            "Trend",
-            "MesEntegrasyon",
-            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
-            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
-        FROM CompanyStats
-        ORDER BY "Etki" DESC
+        select * from (
+            select distinct on ("Tedarikçi")
+                "Tedarikçi",
+                "Etki",
+                "Kapasite",
+                "KapasiteUnit",
+                "Standart_Sure",
+                "Trend",
+                "MesEntegrasyon",
+                (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
+                COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+                ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+            FROM CompanyStats
+            ORDER BY "Tedarikçi" desc, "KapasiteUnit" asc) order by "Etki" desc
         LIMIT 15
     `},
     getSupplierRiskAnalysisByFirma: (firma: string) => `
@@ -567,21 +651,26 @@ const SQL = {
             GROUP BY "Firma Adı"
         ),
         KablajKapasite AS (
-            SELECT 
-                "NAME" as "Tedarikçi",
-                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
-            FROM mes_production.kablaj_kapasite_view
-            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
-            GROUP BY "NAME"
-            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+            SELECT
+                name as "Tedarikçi",
+                value_hours as "Kapasite_Hours"
+            FROM (
+                SELECT
+                    "NAME" as name,
+                    "Kapasite" / 60.0 as value_hours,
+                    ROW_NUMBER() OVER (PARTITION BY "NAME" ORDER BY "ProdMonth" DESC) as rn
+                FROM mes_production.kablaj_kapasite_view
+            ) ranked
+            WHERE rn = 1
+              AND name IS NOT NULL
         ),
         StandartSure AS (
             SELECT 
-                cm."key" as "Firma",
-                SUM("Toplam Süre") as "Standart_Sure_Hours"
-            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
-            WHERE mes_production.company_mapping."key" IS NOT NULL
+                "key" as "Firma",
+                ROUND(SUM("Toplam Süre"))::bigint as "Standart_Sure_Hours"
+            FROM mes_production.standart_sure_is_emri_bazli
+            LEFT JOIN mes_production.company_mapping ON mes_production.standart_sure_is_emri_bazli."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
+            WHERE mes_production.company_mapping."key" IS NOT null and "İş Emri Statüsü" = 'AKTIF'
             GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
@@ -596,10 +685,10 @@ const SQL = {
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
-            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key"
+            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production.kablaj_kapasite_view'
             LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
             LEFT JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
             WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
@@ -607,24 +696,25 @@ const SQL = {
                 AND "name1" NOT LIKE '*Kullanma*%'
             GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
-        SELECT
-            "Tedarikçi",
-            "Etki",
-            "Kapasite",
-            "KapasiteUnit",
-            "Standart_Sure",
-            "Trend",
-            "MesEntegrasyon",
-            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
-            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
-        FROM CompanyStats
-        ORDER BY "Etki" DESC
+        select * from (
+            select distinct on ("Tedarikçi")
+                "Tedarikçi",
+                "Etki",
+                "Kapasite",
+                "KapasiteUnit",
+                "Standart_Sure",
+                "Trend",
+                "MesEntegrasyon",
+                (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
+                COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+                ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+            FROM CompanyStats
+            ORDER BY "Tedarikçi" desc, "KapasiteUnit" asc) order by "Etki" desc
         LIMIT 15
     `,
     getSupplierRiskAnalysisMesIntegratedDynamic: (ilerlemeFirms: string[] = []) => {
         const ilerlemeFirmsUnion = ilerlemeFirms.length > 0
-            ? `OR "Satıcı Tanım" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
+            ? `OR "Satıcı" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
             : ''
         return `
         WITH MesIntegration AS (
@@ -662,21 +752,26 @@ const SQL = {
             GROUP BY "Firma Adı"
         ),
         KablajKapasite AS (
-            SELECT 
-                "NAME" as "Tedarikçi",
-                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
-            FROM mes_production.kablaj_kapasite_view
-            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
-            GROUP BY "NAME"
-            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+            SELECT
+                name as "Tedarikçi",
+                value_hours as "Kapasite_Hours"
+            FROM (
+                SELECT
+                    "NAME" as name,
+                    "Kapasite" / 60.0 as value_hours,
+                    ROW_NUMBER() OVER (PARTITION BY "NAME" ORDER BY "ProdMonth" DESC) as rn
+                FROM mes_production.kablaj_kapasite_view
+            ) ranked
+            WHERE rn = 1
+              AND name IS NOT NULL
         ),
         StandartSure AS (
             SELECT 
-                cm."key" as "Firma",
-                SUM("Toplam Süre") as "Standart_Sure_Hours"
-            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
-            WHERE mes_production.company_mapping."key" IS NOT NULL
+                "key" as "Firma",
+                ROUND(SUM("Toplam Süre"))::bigint as "Standart_Sure_Hours"
+            FROM mes_production.standart_sure_is_emri_bazli
+            LEFT JOIN mes_production.company_mapping ON mes_production.standart_sure_is_emri_bazli."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
+            WHERE mes_production.company_mapping."key" IS NOT null and "İş Emri Statüsü" = 'AKTIF'
             GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
@@ -691,29 +786,30 @@ const SQL = {
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
-            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key"
+            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production.kablaj_kapasite_view'
             LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
             INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
             WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
                 AND "name1" NOT LIKE '*Kullanma*%'
             GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
-        SELECT
-            "Tedarikçi",
-            "Etki",
-            "Kapasite",
-            "KapasiteUnit",
-            "Standart_Sure",
-            "Trend",
-            "MesEntegrasyon",
-            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
-            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
-        FROM CompanyStats
-        ORDER BY "Etki" DESC
+        select * from (
+            select distinct on ("Tedarikçi")
+                "Tedarikçi",
+                "Etki",
+                "Kapasite",
+                "KapasiteUnit",
+                "Standart_Sure",
+                "Trend",
+                "MesEntegrasyon",
+                (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
+                COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+                ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+            FROM CompanyStats
+            ORDER BY "Tedarikçi" desc, "KapasiteUnit" asc) order by "Etki" desc
     `
     },
     getSupplierRiskAnalysisMesIntegrated: `
@@ -752,21 +848,26 @@ const SQL = {
             GROUP BY "Firma Adı"
         ),
         KablajKapasite AS (
-            SELECT 
-                "NAME" as "Tedarikçi",
-                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
-            FROM mes_production.kablaj_kapasite_view
-            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
-            GROUP BY "NAME"
-            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+            SELECT
+                name as "Tedarikçi",
+                value_hours as "Kapasite_Hours"
+            FROM (
+                SELECT
+                    "NAME" as name,
+                    "Kapasite" / 60.0 as value_hours,
+                    ROW_NUMBER() OVER (PARTITION BY "NAME" ORDER BY "ProdMonth" DESC) as rn
+                FROM mes_production.kablaj_kapasite_view
+            ) ranked
+            WHERE rn = 1
+              AND name IS NOT NULL
         ),
         StandartSure AS (
             SELECT 
-                cm."key" as "Firma",
-                SUM("Toplam Süre") as "Standart_Sure_Hours"
-            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
-            WHERE mes_production.company_mapping."key" IS NOT NULL
+                "key" as "Firma",
+                ROUND(SUM("Toplam Süre"))::bigint as "Standart_Sure_Hours"
+            FROM mes_production.standart_sure_is_emri_bazli
+            LEFT JOIN mes_production.company_mapping ON mes_production.standart_sure_is_emri_bazli."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
+            WHERE mes_production.company_mapping."key" IS NOT null and "İş Emri Statüsü" = 'AKTIF'
             GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
@@ -781,34 +882,35 @@ const SQL = {
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
-            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key"
+            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production.kablaj_kapasite_view'
             LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
             INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
             WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200')
                 AND "name1" NOT LIKE '*Kullanma*%'
             GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
-        SELECT
-            "Tedarikçi",
-            "Etki",
-            "Kapasite",
-            "KapasiteUnit",
-            "Standart_Sure",
-            "Trend",
-            "MesEntegrasyon",
-            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
-            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
-        FROM CompanyStats
-        ORDER BY "Etki" DESC
+        select * from (
+            select distinct on ("Tedarikçi")
+                "Tedarikçi",
+                "Etki",
+                "Kapasite",
+                "KapasiteUnit",
+                "Standart_Sure",
+                "Trend",
+                "MesEntegrasyon",
+                (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
+                COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+                ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+            FROM CompanyStats
+            ORDER BY "Tedarikçi" desc, "KapasiteUnit" asc) order by "Etki" desc
         LIMIT 50
     `,
     getSupplierRiskAnalysisMesIntegratedByFirmaDynamic: (firma: string, ilerlemeFirms: string[] = []) => {
         const ilerlemeFirmsUnion = ilerlemeFirms.length > 0
-            ? `OR "Satıcı Tanım" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
+            ? `OR "Satıcı" IN (${ilerlemeFirms.map(f => `'${f.replace(/'/g, "''")}'`).join(', ')})`
             : ''
         return `
         WITH MesIntegration AS (
@@ -846,21 +948,26 @@ const SQL = {
             GROUP BY "Firma Adı"
         ),
         KablajKapasite AS (
-            SELECT 
-                "NAME" as "Tedarikçi",
-                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
-            FROM mes_production.kablaj_kapasite_view
-            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
-            GROUP BY "NAME"
-            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+            SELECT
+                name as "Tedarikçi",
+                value_hours as "Kapasite_Hours"
+            FROM (
+                SELECT
+                    "NAME" as name,
+                    "Kapasite" / 60.0 as value_hours,
+                    ROW_NUMBER() OVER (PARTITION BY "NAME" ORDER BY "ProdMonth" DESC) as rn
+                FROM mes_production.kablaj_kapasite_view
+            ) ranked
+            WHERE rn = 1
+              AND name IS NOT NULL
         ),
         StandartSure AS (
             SELECT 
-                cm."key" as "Firma",
-                SUM("Toplam Süre") as "Standart_Sure_Hours"
-            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
-            WHERE mes_production.company_mapping."key" IS NOT NULL
+                "key" as "Firma",
+                ROUND(SUM("Toplam Süre"))::bigint as "Standart_Sure_Hours"
+            FROM mes_production.standart_sure_is_emri_bazli
+            LEFT JOIN mes_production.company_mapping ON mes_production.standart_sure_is_emri_bazli."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
+            WHERE mes_production.company_mapping."key" IS NOT null and "İş Emri Statüsü" = 'AKTIF'
             GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
@@ -875,10 +982,10 @@ const SQL = {
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
-            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key"
+            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production.kablaj_kapasite_view'
             LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
             INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
             WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
@@ -886,19 +993,20 @@ const SQL = {
                 AND "name1" NOT LIKE '*Kullanma*%'
             GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
-        SELECT
-            "Tedarikçi",
-            "Etki",
-            "Kapasite",
-            "KapasiteUnit",
-            "Standart_Sure",
-            "Trend",
-            "MesEntegrasyon",
-            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
-            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
-        FROM CompanyStats
-        ORDER BY "Etki" DESC
+        select * from (
+            select distinct on ("Tedarikçi")
+                "Tedarikçi",
+                "Etki",
+                "Kapasite",
+                "KapasiteUnit",
+                "Standart_Sure",
+                "Trend",
+                "MesEntegrasyon",
+                (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
+                COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+                ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+            FROM CompanyStats
+            ORDER BY "Tedarikçi" desc, "KapasiteUnit" asc) order by "Etki" desc
     `
     },
     getSupplierRiskAnalysisMesIntegratedByFirma: (firma: string) => `
@@ -937,21 +1045,26 @@ const SQL = {
             GROUP BY "Firma Adı"
         ),
         KablajKapasite AS (
-            SELECT 
-                "NAME" as "Tedarikçi",
-                MAX("Kapasite") / 60.0 as "Kapasite_Hours"
-            FROM mes_production.kablaj_kapasite_view
-            WHERE "NAME" IS NOT NULL AND "Kapasite" IS NOT NULL
-            GROUP BY "NAME"
-            HAVING MAX("ProdMonth") = MAX("ProdMonth")
+            SELECT
+                name as "Tedarikçi",
+                value_hours as "Kapasite_Hours"
+            FROM (
+                SELECT
+                    "NAME" as name,
+                    "Kapasite" / 60.0 as value_hours,
+                    ROW_NUMBER() OVER (PARTITION BY "NAME" ORDER BY "ProdMonth" DESC) as rn
+                FROM mes_production.kablaj_kapasite_view
+            ) ranked
+            WHERE rn = 1
+              AND name IS NOT NULL
         ),
         StandartSure AS (
             SELECT 
-                cm."key" as "Firma",
-                SUM("Toplam Süre") as "Standart_Sure_Hours"
-            FROM mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif
-            LEFT JOIN mes_production.company_mapping ON mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif."Firma" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
-            WHERE mes_production.company_mapping."key" IS NOT NULL
+                "key" as "Firma",
+                ROUND(SUM("Toplam Süre"))::bigint as "Standart_Sure_Hours"
+            FROM mes_production.standart_sure_is_emri_bazli
+            LEFT JOIN mes_production.company_mapping ON mes_production.standart_sure_is_emri_bazli."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping.table = 'mes_production.kablaj_is_emirleri_guncel_durum_dagilim_saat_bazli_aktif'
+            WHERE mes_production.company_mapping."key" IS NOT null and "İş Emri Statüsü" = 'AKTIF'
             GROUP BY mes_production.company_mapping."key"
         ),
         CompanyStats AS (
@@ -966,10 +1079,10 @@ const SQL = {
                 cd."Trend" as "Trend",
                 CASE WHEN mi."Tedarikçi" IS NOT NULL THEN 'MES Entegrasyonu Var' ELSE 'MES Entegrasyonu Yok' END as "MesEntegrasyon"
             FROM mes_production."tokadb_acik_sas"
-            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key" and mes_production.company_mapping.table = 'mes_production."makine_doluluk_raw"'
-            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value"
-            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = "name1"
+            LEFT JOIN mes_production.company_mapping ON mes_production."tokadb_acik_sas"."name1" = mes_production.company_mapping."key"
+            LEFT JOIN LatestDoluluk ld ON ld."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN CompanyTrend cd ON cd."Firma Adı" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production."makine_doluluk_raw"'
+            LEFT JOIN KablajKapasite kk ON kk."Tedarikçi" = mes_production.company_mapping."value" and mes_production.company_mapping."table" = 'mes_production.kablaj_kapasite_view'
             LEFT JOIN StandartSure ss ON ss."Firma" = "name1"
             INNER JOIN MesIntegration mi ON mi."Tedarikçi" = "name1"
             WHERE "bsart" IN('S400', 'Y110', 'Y210', 'Y211', 'Y310', 'Y311', 'Y410', 'Y510', 'Y610', 'A200') 
@@ -977,19 +1090,20 @@ const SQL = {
                 AND "name1" NOT LIKE '*Kullanma*%'
             GROUP BY "name1", cd."Trend", ld."Aylık Planlanan Doluluk Oranı", kk."Kapasite_Hours", ss."Standart_Sure_Hours", mi."Tedarikçi"
         )
-        SELECT
-            "Tedarikçi",
-            "Etki",
-            "Kapasite",
-            "KapasiteUnit",
-            "Standart_Sure",
-            "Trend",
-            "MesEntegrasyon",
-            (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
-            COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
-            ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
-        FROM CompanyStats
-        ORDER BY "Etki" DESC
+        select * from (
+            select distinct on ("Tedarikçi")
+                "Tedarikçi",
+                "Etki",
+                "Kapasite",
+                "KapasiteUnit",
+                "Standart_Sure",
+                "Trend",
+                "MesEntegrasyon",
+                (11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) as impact_points,
+                COALESCE("Kapasite", 50.0) / 10.0 as kapasite_points,
+                ((11 - NTILE(10) OVER(ORDER BY "Etki" DESC)) * 0.7 + (COALESCE("Kapasite", 50.0) / 10.0) * 0.3) * 10 as "Risk"
+            FROM CompanyStats
+            ORDER BY "Tedarikçi" desc, "KapasiteUnit" asc) order by "Etki" desc
         LIMIT 50
     `,
 }
@@ -1282,6 +1396,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     runQuery(isAll ? SQL.getTotalCompaniesCount : SQL.getTotalCompaniesCountByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getOpenOrdersAll : SQL.getOpenOrdersByFirma(selectedCompany)),
                     runQuery(isAll ? SQL.getTedarikciKapasiteAll : SQL.getTedarikciKapasite(selectedCompany)),
+                    runQuery(isAll ? SQL.getKartDizgiKapasite() : SQL.getKartDizgiKapasite(selectedCompany)),
                     runQuery(isAll ? SQL.getTalasliImalatDolulukAll : SQL.getTalasliImalatDoluluk(firmaForQueries)),
                     runQuery(isAll ? SQL.getTalasliImalatDolulukTrendAll : SQL.getTalasliImalatDolulukTrend(firmaForQueries)),
                     runQuery(SQL.getAselsanDurma(firmaForQueries)),
@@ -1308,19 +1423,20 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                 const totalCompaniesRows = queryResults[8].status === 'fulfilled' ? queryResults[8].value : null
                 const openOrdersRows = queryResults[9].status === 'fulfilled' ? queryResults[9].value : null
                 const tedarikciRows = queryResults[10].status === 'fulfilled' ? queryResults[10].value : null
-                const talasliDolulukRows = queryResults[11].status === 'fulfilled' ? queryResults[11].value : null
-                const talasliDolulukTrendRows = queryResults[12].status === 'fulfilled' ? queryResults[12].value : null
-                const aselsanRows = queryResults[13].status === 'fulfilled' ? queryResults[13].value : null
-                const talasliRows = queryResults[14].status === 'fulfilled' ? queryResults[14].value : null
-                const kablajRows = queryResults[15].status === 'fulfilled' ? queryResults[15].value : null
-                const talasliDurusCurrentRows = queryResults[16].status === 'fulfilled' ? queryResults[16].value : null
-                const talasliDurusPreviousRows = queryResults[17].status === 'fulfilled' ? queryResults[17].value : null
-                const kablajDurusCurrentRows = queryResults[18].status === 'fulfilled' ? queryResults[18].value : null
-                const kablajDurusPreviousRows = queryResults[19].status === 'fulfilled' ? queryResults[19].value : null
-                const dizgiDurusCurrentRows = queryResults[20].status === 'fulfilled' ? queryResults[20].value : null
-                const dizgiDurusPreviousRows = queryResults[21].status === 'fulfilled' ? queryResults[21].value : null
-                const supplierRiskRows = queryResults[22].status === 'fulfilled' ? queryResults[22].value : null
-                const mesIntegratedSupplierRows = queryResults[23].status === 'fulfilled' ? queryResults[23].value : null
+                const kartDizgiKapasiteRows = queryResults[11].status === 'fulfilled' ? queryResults[11].value : null
+                const talasliDolulukRows = queryResults[12].status === 'fulfilled' ? queryResults[12].value : null
+                const talasliDolulukTrendRows = queryResults[13].status === 'fulfilled' ? queryResults[13].value : null
+                const aselsanRows = queryResults[14].status === 'fulfilled' ? queryResults[14].value : null
+                const talasliRows = queryResults[15].status === 'fulfilled' ? queryResults[15].value : null
+                const kablajRows = queryResults[16].status === 'fulfilled' ? queryResults[16].value : null
+                const talasliDurusCurrentRows = queryResults[17].status === 'fulfilled' ? queryResults[17].value : null
+                const talasliDurusPreviousRows = queryResults[18].status === 'fulfilled' ? queryResults[18].value : null
+                const kablajDurusCurrentRows = queryResults[19].status === 'fulfilled' ? queryResults[19].value : null
+                const kablajDurusPreviousRows = queryResults[20].status === 'fulfilled' ? queryResults[20].value : null
+                const dizgiDurusCurrentRows = queryResults[21].status === 'fulfilled' ? queryResults[21].value : null
+                const dizgiDurusPreviousRows = queryResults[22].status === 'fulfilled' ? queryResults[22].value : null
+                const supplierRiskRows = queryResults[23].status === 'fulfilled' ? queryResults[23].value : null
+                const mesIntegratedSupplierRows = queryResults[24].status === 'fulfilled' ? queryResults[24].value : null
 
                 if (cancelled) return
 
@@ -1433,13 +1549,26 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         trend = changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'neutral'
                     }
                     
+                    else if (label === 'Kart Dizgi' && kartDizgiKapasiteRows && kartDizgiKapasiteRows.length > 0) {
+                        const dizgiRow = kartDizgiKapasiteRows[0]
+                        computedValue = parseFloat(dizgiRow[1] || '0')
+                        unit = 'hours'
+                        changePct = parseFloat(dizgiRow[3] || '0')
+                        trend = changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'neutral'
+                    }
+
+                    
                     return {
                         name: label,
                         value: computedValue,
                         unit: unit,
                         trend: trend,
                         changePct: changePct,
-                        standartSure: label === 'Kablaj/EMM' && effectiveTedarikciRow ? parseFloat(effectiveTedarikciRow[4] || '0') : undefined,
+                        standartSure: label === 'Kablaj/EMM' && effectiveTedarikciRow
+                            ? parseFloat(effectiveTedarikciRow[4] || '0')
+                            : label === 'Kart Dizgi' && kartDizgiKapasiteRows && kartDizgiKapasiteRows.length > 0
+                                ? parseFloat(kartDizgiKapasiteRows[0][4] || '0')
+                                : undefined,
                     }
                 })
 
@@ -1477,7 +1606,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                         trend = kablajDurusTrend
                         changePct = kablajDurusChange
                     }
-                    if (label === 'Dizgi Hattı') {
+                    if (label === 'Kart Dizgi') {
                         computedValue = dizgiDurusCurrent
                         unit = ''
                         trend = dizgiDurusTrend
@@ -1529,7 +1658,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     tedarikciItems = tedarikciItems.map((item) => {
                         const key = item.name
                         // Skip Talaşlı İmalat - already has database trend
-                        if (key === 'Talaşlı İmalat') {
+                        if (key === 'Talaşlı İmalat' || key === 'Kablaj/EMM' || key === 'Kablaj/EMM' || key === 'Kart Dizgi') {
                             return item
                         }
                         const delta = Number(tChanges[key] ?? 0)
@@ -1543,7 +1672,7 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                     aselsanItems = aselsanItems.map((item) => {
                         const key = item.name
                         // Skip Talaşlı İmalat and Kablaj/EMM - already have database trends
-                        if (key === 'Talaşlı İmalat' || key === 'Kablaj/EMM') {
+                        if (key === 'Talaşlı İmalat' || key === 'Kablaj/EMM' || key === 'Kart Dizgi') {
                             return item
                         }
                         const delta = Number(aChanges[key] ?? 0)
@@ -1794,28 +1923,6 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                        Firma
-                    </label>
-                    <div className="relative inline-flex items-center">
-                        <select
-                            value={selectedCompany}
-                            onChange={(e) => setSelectedCompany(e.target.value)}
-                            className="appearance-none bg-white text-slate-900 border-2 border-slate-200 rounded-xl px-4 py-2.5 pr-10 text-sm font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[180px] shadow-sm hover:border-blue-300 transition-all duration-200"
-                        >
-                            {companies.map((company) => (
-                                <option key={company} value={company}>
-                                    {company}
-                                </option>
-                            ))}
-                        </select>
-                        <svg className="absolute right-3 w-5 h-5 text-slate-600 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
                     </div>
                 </div>
             </div>
@@ -2078,31 +2185,25 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                         <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
                                             {tedarikciLabels[idx] || item.name}
                                         </span>
-                                        {item.value !== null ? (
-                                            <>
-                                                {/* Show Standart Süre for Kablaj/EMM if available */}
+                                        <>
                                                 {item.unit === 'hours' ? (
-                                                    <>
-                                                        {item.standartSure !== undefined && item.standartSure > 0 && (
-                                                            <div className="flex flex-col gap-1 mb-2">
-                                                                <span className="text-xs text-slate-500 font-medium">Standart Süre</span>
-                                                                <span className="text-2xl font-extrabold text-blue-600">
-                                                                    {Math.round(Number(item.standartSure))}sa
-                                                                </span>
-                                                            </div>
-                                                        )}
+                                                    <div className="flex flex-col gap-3">
                                                         <div className="flex flex-col gap-1">
-                                                            {item.standartSure !== undefined && item.standartSure > 0 && (
-                                                                <span className="text-xs text-slate-500 font-medium">Teyit Süresi</span>
-                                                            )}
+                                                            <span className="text-xs text-slate-500 font-medium">Kapasite</span>
                                                             <div className="flex items-center gap-2">
                                                                 <span className="text-3xl font-extrabold text-slate-900">
-                                                                    {Math.round(Number(item.value))}sa
+                                                                    {Math.round(Number(item.value ?? 0))}sa
                                                                 </span>
                                                                 <TrendArrow trend={item.trend} changePct={item.changePct} />
                                                             </div>
                                                         </div>
-                                                    </>
+                                                        <div className="flex flex-col gap-1">
+                                                            <span className="text-xs text-slate-500 font-medium">Standart Süre</span>
+                                                            <span className="text-2xl font-extrabold text-blue-600">
+                                                                {Math.round(Number(item.standartSure ?? 0))}sa
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                 ) : (
                                                     <div className="flex items-center gap-2">
                                                         <span className="text-3xl font-extrabold text-slate-900">
@@ -2112,9 +2213,6 @@ export function CSuiteReportWidget({ widgetId }: CSuiteReportWidgetProps) {
                                                     </div>
                                                 )}
                                             </>
-                                        ) : (
-                                            <span className="text-sm font-bold text-slate-400">Yapım Aşamasında</span>
-                                        )}
                                     </div>
                                 ))}
                             </div>
