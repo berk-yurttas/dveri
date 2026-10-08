@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     service_status,
     feragat_formu,
     documentations,
+    customer_integration,
 )
 from app.api.v1.endpoints.romiot.station import company_integration, station, work_order, qr_code, priority, work_order_route, company as station_company
 from app.api.v1.endpoints.romiot import stats
@@ -45,3 +46,4 @@ api_router.include_router(sap_seyir.router, prefix="/sap_seyir", tags=["sap_seyi
 api_router.include_router(personel.router, prefix="/personel", tags=["personel"])
 api_router.include_router(service_status.router, tags=["service-status"])
 api_router.include_router(feragat_formu.router, prefix="/feragat-formu", tags=["feragat-formu"])
+api_router.include_router(customer_integration.router, prefix="/integrations", tags=["integrations"])
