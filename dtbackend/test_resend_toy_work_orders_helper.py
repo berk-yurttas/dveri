@@ -39,7 +39,7 @@ class ResendTest(unittest.TestCase):
             summary = asyncio.run(script.resend(db, send=False))
         push.assert_not_awaited()
         db.commit.assert_not_awaited()
-        self.assertEqual(summary, {"matched": 2, "sent": 0, "failed": 0})
+        self.assertEqual(summary, {"matched": 2, "groups": 2, "sent": 0, "failed": 0})
 
     def test_send_pushes_each_row_with_its_company_integration_and_commits(self):
         mek, oth = _integration("MEKASAN"), _integration("OTHER")
@@ -52,13 +52,23 @@ class ResendTest(unittest.TestCase):
             [(1, "MEKASAN"), (2, "OTHER"), (3, "MEKASAN")],
         )
         db.commit.assert_awaited()
-        self.assertEqual(summary, {"matched": 3, "sent": 2, "failed": 1})
+        self.assertEqual(summary, {"matched": 3, "groups": 3, "sent": 2, "failed": 1})
+
+    def test_send_pushes_each_group_once(self):
+        a, b = _wo(1), _wo(2)
+        b.work_order_group_id = a.work_order_group_id
+        db = _db([_integration()], [(a, "MEKASAN"), (b, "MEKASAN"), (_wo(3), "MEKASAN")])
+        push = AsyncMock(return_value=True)
+        with patch.object(script, "_push_one_work_order", new=push):
+            summary = asyncio.run(script.resend(db, send=True))
+        self.assertEqual([c.args[1].id for c in push.await_args_list], [1, 3])
+        self.assertEqual(summary, {"matched": 3, "groups": 2, "sent": 2, "failed": 0})
 
     def test_no_usable_integration_returns_without_querying_rows(self):
         db = _db([_integration(url=None)], [])
         summary = asyncio.run(script.resend(db, send=True))
         self.assertEqual(db.execute.await_count, 1)
-        self.assertEqual(summary, {"matched": 0, "sent": 0, "failed": 0})
+        self.assertEqual(summary, {"matched": 0, "groups": 0, "sent": 0, "failed": 0})
 
 
 if __name__ == "__main__":

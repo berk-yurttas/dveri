@@ -44,9 +44,12 @@ delivered, and opportunistically retry rows that previously failed.
    `exit_date`, commits, then fires `send_production_order(...)` **again** with a
    payload that now carries `ActualEndDate` / `ActualQuantity`
    ([work_order.py:754-774](../../../dtbackend/app/api/v1/endpoints/romiot/station/work_order.py#L754-L774)).
-3. `send_production_order` builds one payload item per pair and sends them all in
-   **one** POST (`data` = every pair) to the integration URL. `Mes_OrderId` is
-   `"{group_id}"` for every item. It returns `None` and never raises — failures are logged and lost
+3. `send_production_order` sends the **whole group** in **one** POST: `data` holds
+   one item per station x pair, built from every scan row of the group at the
+   integration company's stations (a station's packages are combined: earliest
+   entrance, latest exit once all packages exited, summed quantities).
+   `Mes_OrderId` is `"{group_id}"` for every item. Because Toy replaces all rows
+   for that id on each POST, a push must carry the full group. It returns `None` and never raises — failures are logged and lost
    ([toy_api_service.py:61-102](../../../dtbackend/app/services/toy_api_service.py#L61-L102)).
 
 The same row is therefore pushed **twice** (entry, then exit), to the **same**
@@ -96,8 +99,10 @@ bound drains any such backlog gradually.
 - `_post_one(...)` → return `bool`: `True` on a 2xx response, `False` on a
   non-2xx response or an exception. (Currently returns `None`; keep the existing
   logging.)
-- `send_production_order(...)` → return `bool`: the result of its single POST
-  (all pairs in one request). Still never raises.
+- `send_production_order(group_rows, ...)` → return `bool`: the result of its
+  single POST (every station x pair of the group in one request). Still never
+  raises. `_push_one_work_order` loads the group's rows and sets `sent` on all
+  of them; the sweep skips rows already sent with an earlier group push.
 - **New** `push_and_sync(work_order_id: int) -> None` — the only coroutine the
   endpoints dispatch. Runs in the background and owns its own session via
   `RomiotAsyncSessionLocal`
