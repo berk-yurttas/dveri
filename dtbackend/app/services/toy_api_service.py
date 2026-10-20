@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 import httpx
@@ -82,34 +81,27 @@ async def send_production_order(
     subcontractor_id: str | None = None,
 ) -> bool:
     """
-    Fire-and-forget Mekasan push.
+    Fire-and-forget Mekasan push: ONE POST whose `data` holds one item per pair,
+    all with Mes_OrderId = "{group_id}".
 
-    F3:
-      - `len(pairs) == 1`: one POST with Mes_OrderId = "{group_id}".
-      - `len(pairs) > 1`: N parallel POSTs, one per pair (AselsanOrderCode /
-        WorkOrderItemNo differ), all sharing the same
-        Mes_OrderId = "{group_id}".
+    Toy replaces by (SubcontractorID, Mes_OrderId) — it deletes the existing
+    rows and inserts the new ones in a single transaction — so sending every
+    pair in one request keeps all pairs and lets the next push replace them
+    cleanly. Separate parallel POSTs with the same id would race on Toy's
+    delete-then-insert (duplicate rows or a 500).
 
-    Returns True only if every POST succeeded, False otherwise.
+    Returns the POST result: True on 2xx, False otherwise.
     """
     if not pairs:
         logger.warning("send_production_order skipped: empty pairs for work_order_id=%s", work_order.id)
         return False
 
-    base_id = work_order.work_order_group_id
-
-    if len(pairs) == 1:
-        item = _build_payload_item(work_order, station, pairs[0], base_id, subcontractor_id, company)
-        return await _post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id)
-
-    # Multi-pair: N independent POSTs in parallel, all with the same
-    # Mes_OrderId. All-or-nothing: True only if every pair POST succeeded.
-    tasks = []
-    for pair in pairs:
-        item = _build_payload_item(work_order, station, pair, base_id, subcontractor_id, company)
-        tasks.append(_post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id))
-    results = await asyncio.gather(*tasks)
-    return all(results)
+    mes_order_id = work_order.work_order_group_id
+    items = [
+        _build_payload_item(work_order, station, pair, mes_order_id, subcontractor_id, company)
+        for pair in pairs
+    ]
+    return await _post_one(api_url, api_key, {"company": company, "data": items}, work_order.id)
 
 
 async def _resolve_pairs(db, work_order_group_id: str) -> list[OrderPair]:
@@ -151,7 +143,8 @@ async def push_and_sync(work_order_id: int) -> None:
 
     Pushes the current row's state to Toy and records `sent`, then sweeps up to
     20 `sent=false` rows for the SAME company (oldest first) and re-pushes them.
-    Idempotent on Toy's side (upsert by Mes_OrderId). Never raises."""
+    Re-pushing is safe: Toy replaces rows by (SubcontractorID, Mes_OrderId).
+    Never raises."""
     try:
         async with RomiotAsyncSessionLocal() as db:
             work_order = await db.get(WorkOrder, work_order_id)

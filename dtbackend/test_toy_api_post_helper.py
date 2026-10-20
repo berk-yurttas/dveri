@@ -70,28 +70,25 @@ class SendProductionOrderTest(unittest.TestCase):
             ok = asyncio.run(send_production_order(_wo(), _station(), "u", "k", "CMP", [_pair()], "SUB"))
         self.assertTrue(ok)
 
-    def test_multi_pair_true_only_when_all_succeed(self):
-        with patch("app.services.toy_api_service._post_one",
-                   new=AsyncMock(side_effect=[True, True])):
+    def test_multi_pair_sends_one_post_with_every_pair(self):
+        post = AsyncMock(return_value=True)
+        with patch("app.services.toy_api_service._post_one", new=post):
             ok = asyncio.run(send_production_order(
-                _wo(), _station(), "u", "k", "CMP", [_pair("A1"), _pair("A2")], "SUB"))
+                _wo(), _station(), "u", "k", "CMP", [_pair("A1", "K1"), _pair("A1", "K2")], "SUB"))
         self.assertTrue(ok)
+        post.assert_awaited_once()
+        payload = post.await_args.args[2]
+        self.assertEqual(payload["company"], "CMP")
+        self.assertEqual(
+            [(d["AselsanOrderCode"], d["WorkOrderItemNo"], d["Mes_OrderId"]) for d in payload["data"]],
+            [("A1", "K1", "WO-1"), ("A1", "K2", "WO-1")],
+        )
 
-    def test_multi_pair_false_when_any_fails(self):
-        with patch("app.services.toy_api_service._post_one",
-                   new=AsyncMock(side_effect=[True, False])):
+    def test_multi_pair_returns_post_result(self):
+        with patch("app.services.toy_api_service._post_one", new=AsyncMock(return_value=False)):
             ok = asyncio.run(send_production_order(
                 _wo(), _station(), "u", "k", "CMP", [_pair("A1"), _pair("A2")], "SUB"))
         self.assertFalse(ok)
-
-    def test_multi_pair_all_posts_share_group_mes_order_id(self):
-        post = AsyncMock(return_value=True)
-        with patch("app.services.toy_api_service._post_one", new=post):
-            asyncio.run(send_production_order(
-                _wo(), _station(), "u", "k", "CMP", [_pair("A1", "K1"), _pair("A1", "K2")], "SUB"))
-        ids = [c.args[2]["data"][0]["Mes_OrderId"] for c in post.await_args_list]
-        self.assertEqual(ids, ["WO-1", "WO-1"])
-
 
 if __name__ == "__main__":
     unittest.main()
