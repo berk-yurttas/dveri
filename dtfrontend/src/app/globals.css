@@ -208,6 +208,49 @@ body {
   font-style: italic;
 }
 
+/* v2 report tables keep the same filters and only change the chrome */
+.report-viz-v2 table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.report-viz-v2 thead tr {
+  background: #f8fafc !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+}
+
+.report-viz-v2 th {
+  color: #475569 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+.report-viz-v2 tbody tr {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.report-viz-v2 tbody tr:hover {
+  background: #f8fafc !important;
+}
+
+.report-viz-v2 td {
+  font-size: 12px !important;
+}
+
+.report-viz-v2 .bg-orange-600 {
+  background-color: #0052A5 !important;
+  border-color: #0052A5 !important;
+}
+
+.report-viz-v2 .text-orange-600 {
+  color: #0052A5 !important;
+}
+
+.report-viz-v2 .bg-gray-50.border-t {
+  background: transparent !important;
+  border-top-color: #e2e8f0 !important;
+}
+
 /* Fix z-index stacking context for Next.js */
 #root,
 #__next {

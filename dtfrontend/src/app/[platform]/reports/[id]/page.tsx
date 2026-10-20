@@ -36,7 +36,8 @@ import {
   FileDown,
   Maximize2,
   Shield,
-  FileCode
+  FileCode,
+  Sparkles
 } from 'lucide-react'
 import { reportsService } from '@/services/reports'
 import { DeleteModal } from '@/components/ui/delete-modal'
@@ -62,6 +63,17 @@ import {
   ExpandableTableVisualization,
   CardVisualization
 } from '@/components/visualizations'
+import {
+  AreaVisualizationV2,
+  BarVisualizationV2,
+  BoxPlotVisualizationV2,
+  CardVisualizationV2,
+  HistogramVisualizationV2,
+  LineVisualizationV2,
+  ParetoVisualizationV2,
+  PieVisualizationV2,
+  ScatterVisualizationV2,
+} from '@/components/visualizations/v2'
 import { GlobalFilters } from '@/components/reports/GlobalFilters'
 import { ReportOdakUpdateModal } from '@/components/reports/ReportOdakUpdateModal'
 import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
@@ -297,7 +309,9 @@ export default function ReportDetailPage() {
   const [authorizedUsers, setAuthorizedUsers] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<number | null>(null)
   const [isOdakUpdateModalOpen, setIsOdakUpdateModalOpen] = useState(false)
+  const [visualizationVersion, setVisualizationVersion] = useState<'v1' | 'v2'>('v1')
   const canUpdateOdakTables = isAdmin(user) || (Array.isArray(user?.role) && user.role.includes('odak:admin'))
+  const showVisualizationV2 = isAdmin(user) && visualizationVersion === 'v2'
 
   // Debounce timeout refs for each filter
   const debounceTimeouts = useRef<{ [key: string]: NodeJS.Timeout }>({})
@@ -1171,6 +1185,9 @@ export default function ReportDetailPage() {
     document.documentElement.lang = 'tr-TR'
     // Set mounted flag for portal rendering
     setIsMounted(true)
+    if (window.sessionStorage.getItem('report-viz-version') === 'v2') {
+      setVisualizationVersion('v2')
+    }
   }, [])
 
   // Close all popovers when scrolling or clicking outside
@@ -2492,13 +2509,17 @@ export default function ReportDetailPage() {
     })
 
     const colors = visualization.colors || DEFAULT_COLORS
+    const useV2 = showVisualizationV2
+    const frame = (node: React.ReactNode) => (
+      useV2 ? <div className="report-viz-v2 h-full min-h-0">{node}</div> : node
+    )
 
     switch (visualization.type) {
       case 'table':
         const queryState = queryResults[query.id]
         if (!queryState) return null
 
-        return (
+        return frame(
           <TableVisualization
             query={query}
             result={result}
@@ -2543,7 +2564,7 @@ export default function ReportDetailPage() {
         const expandableQueryState = queryResults[query.id]
         if (!expandableQueryState) return null
 
-        return (
+        return frame(
           <ExpandableTableVisualization
             query={query}
             result={result}
@@ -2598,31 +2619,49 @@ export default function ReportDetailPage() {
         )
 
       case 'bar':
-        return <BarVisualization query={query} result={result} colors={colors} scale={scale} />
+        return useV2
+          ? <BarVisualizationV2 query={query} result={result} colors={visualization.colors} scale={scale} />
+          : <BarVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'line':
-        return <LineVisualization query={query} result={result} colors={colors} scale={scale} />
+        return useV2
+          ? <LineVisualizationV2 query={query} result={result} colors={visualization.colors} scale={scale} />
+          : <LineVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'pie':
-        return <PieVisualization query={query} result={result} colors={colors} scale={scale} />
+        return useV2
+          ? <PieVisualizationV2 query={query} result={result} colors={visualization.colors} scale={scale} />
+          : <PieVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'area':
-        return <AreaVisualization query={query} result={result} colors={colors} scale={scale} />
+        return useV2
+          ? <AreaVisualizationV2 query={query} result={result} colors={visualization.colors} scale={scale} />
+          : <AreaVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'scatter':
-        return <ScatterVisualization query={query} result={result} colors={colors} scale={scale} />
+        return useV2
+          ? <ScatterVisualizationV2 query={query} result={result} colors={visualization.colors} scale={scale} />
+          : <ScatterVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'boxplot':
-        return <BoxPlotVisualization query={query} result={result} colors={colors} scale={scale} />
+        return useV2
+          ? <BoxPlotVisualizationV2 query={query} result={result} colors={visualization.colors} scale={scale} />
+          : <BoxPlotVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'pareto':
-        return <ParetoVisualization query={query} result={result} colors={colors} scale={scale} />
+        return useV2
+          ? <ParetoVisualizationV2 query={query} result={result} colors={visualization.colors} scale={scale} />
+          : <ParetoVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'histogram':
-        return <HistogramVisualization query={query} result={result} colors={colors} scale={scale} />
+        return useV2
+          ? <HistogramVisualizationV2 query={query} result={result} colors={visualization.colors} scale={scale} />
+          : <HistogramVisualization query={query} result={result} colors={colors} scale={scale} />
 
       case 'card':
-        return <CardVisualization query={query} result={result} colors={colors} scale={scale} />
+        return useV2
+          ? <CardVisualizationV2 query={query} result={result} colors={visualization.colors} scale={scale} />
+          : <CardVisualization query={query} result={result} colors={colors} scale={scale} />
 
       default:
         return (
@@ -2665,14 +2704,17 @@ export default function ReportDetailPage() {
   }
 
   return (
-    <div className="container min-w-full space-y-3" data-testid="report-page">
+    <div className={`container min-w-full space-y-3 ${showVisualizationV2 ? 'rounded-xl bg-[#F4F7FB] p-3' : ''}`} data-testid="report-page">
       {/* Report Header */}
-      <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 px-4 py-2 space-y-1.5 rounded-lg shadow-md">
+      <div className={showVisualizationV2
+        ? 'space-y-1.5 rounded-[10px] border border-[#0052A5]/10 bg-white px-4 py-3 shadow-[0_2px_12px_rgba(0,82,165,0.08)]'
+        : 'bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 px-4 py-2 space-y-1.5 rounded-lg shadow-md'
+      }>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold" data-testid="report-title">{report.name}</h1>
+                <h1 className={`text-xl font-bold ${showVisualizationV2 ? 'tracking-tight text-slate-800' : ''}`} data-testid="report-title">{report.name}</h1>
                 {isAdmin(user) && (
                   <div className="relative" ref={dropdownRef}>
                     <button
@@ -2730,6 +2772,27 @@ export default function ReportDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            {isAdmin(user) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setVisualizationVersion((current) => {
+                    const next = current === 'v2' ? 'v1' : 'v2'
+                    window.sessionStorage.setItem('report-viz-version', next)
+                    return next
+                  })
+                }}
+                title="Kokpit tarzı görünümü dene. Mevcut grafikler aynı kalır."
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-colors ${
+                  showVisualizationV2
+                    ? 'bg-[#0052A5] text-white hover:bg-[#003B7A]'
+                    : 'border border-[#0052A5]/30 bg-white text-[#0052A5] hover:bg-[#EAF3FF]'
+                }`}
+              >
+                <Sparkles className="h-3 w-3" />
+                {showVisualizationV2 ? 'Klasik görünüm' : 'Görünüm v2'}
+              </button>
+            )}
             {!isLayoutEditMode ? (
               <>
                 {isAdmin(user) && (
@@ -2888,7 +2951,7 @@ export default function ReportDetailPage() {
                 onClick={() => handleTabChange(tab.id)}
                 className={`px-4 py-2 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
                   activeTab === tab.id
-                    ? 'bg-blue-600 text-white'
+                    ? showVisualizationV2 ? 'bg-[#0052A5] text-white' : 'bg-blue-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
@@ -2935,11 +2998,11 @@ export default function ReportDetailPage() {
           const scale = isLayoutEditMode ? Math.min(gridItemHeight / 500, 1) : 1
 
           return (
-            <div key={query.id.toString()} className={`bg-white rounded-lg shadow-md border ${isLayoutEditMode ? 'border-blue-400 border-2' : 'border-gray-200'} h-full flex flex-col`} data-query-id={query.id} data-testid={`query-widget-${query.id}`}>
+            <div key={query.id.toString()} className={`bg-white h-full flex flex-col ${showVisualizationV2 ? 'rounded-[10px] border border-[#0052A5]/10 shadow-[0_2px_12px_rgba(0,82,165,0.08)]' : `rounded-lg shadow-md border ${isLayoutEditMode ? 'border-blue-400 border-2' : 'border-gray-200'}`}`} data-query-id={query.id} data-testid={`query-widget-${query.id}`}>
               <div className={`pb-2 px-4 pt-4 flex-shrink-0 ${isLayoutEditMode ? 'drag-handle cursor-move bg-blue-50' : ''}`}>
                 <div className="flex items-center gap-2">
-                  <Icon className="h-4 w-4 text-blue-600" />
-                  <span className="text-base font-semibold">{query.name}</span>
+                  <Icon className={`h-4 w-4 ${showVisualizationV2 ? 'text-[#0052A5]' : 'text-blue-600'}`} />
+                  <span className={showVisualizationV2 ? 'text-[13px] font-semibold text-[#003B7A]' : 'text-base font-semibold'}>{query.name}</span>
                   {isLayoutEditMode && (
                     <span className="ml-auto text-xs text-blue-600 font-medium">Sürükle</span>
                   )}
