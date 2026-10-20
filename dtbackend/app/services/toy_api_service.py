@@ -1,5 +1,5 @@
-import asyncio
 import logging
+from types import SimpleNamespace
 
 import httpx
 from sqlalchemy import select
@@ -10,7 +10,6 @@ from app.models.romiot_models import (
     CompanyIntegration,
     Station,
     WorkOrder,
-    WorkOrderRoute,
 )
 from app.schemas.order_pair import OrderPair
 
@@ -51,40 +50,6 @@ def _build_payload_item(
     }
 
 
-def _build_placeholder_item(
-    work_order,
-    station,
-    pair: OrderPair,
-    mes_order_id: str,
-    subcontractor_id: str | None,
-    source_company: str,
-) -> dict:
-    """Same shape as _build_payload_item but with no actual dates and zero quantity.
-    Used to pre-populate unscanned route stations so the MES sees the full planned route."""
-    return {
-        "AselsanOrderCode": pair.aselsan_order_number,
-        "WorkOrderItemNo": pair.order_item_number,
-        "ProductCode": work_order.part_number,
-        "Mes_ProductCode": work_order.part_number,
-        "RevisionNo": work_order.revision_number,
-        "Mes_MachineGroup": str(station.station_order_code) if station.station_order_code is not None else None,
-        "OperationCode": str(station.station_order_code) if station.station_order_code is not None else None,
-        "OperationDesc": station.name,
-        "Mes_OrderId": mes_order_id,
-        "SubcontractorWorkOrderNo": work_order.work_order_group_id,
-        "SubcontractorID": subcontractor_id,
-        "SourceCompany": source_company,
-        "ActualStartDate": None,
-        "ActualEndDate": None,
-        "PlannedQuantity": work_order.quantity,
-        "WorkOrderAmount": work_order.total_quantity,
-        "ActualQuantity": 0,
-        "MES_CreatedDate": work_order.qr_created_at.isoformat() if work_order.qr_created_at else None,
-        "NeedDate": work_order.target_date.isoformat() if work_order.target_date else None,
-        "AselsanSectorCode": work_order.sector,
-    }
-
-
 async def _post_one(api_url: str, api_key: str, payload: dict, work_order_id: int) -> bool:
     """POST one payload. Returns True on a 2xx response, False on a non-2xx
     response or any exception. Never raises."""
@@ -107,9 +72,34 @@ async def _post_one(api_url: str, api_key: str, payload: dict, work_order_id: in
         return False
 
 
+def _station_snapshot(rows: list) -> SimpleNamespace:
+    """Combine one station's package rows (same group + station) into a single
+    row-like object for _build_payload_item.
+
+    entrance_date = earliest entrance; exit_date = latest exit, but only once
+    every package has exited (else None); quantity / exited_quantity are summed
+    over the scanned packages. Group-level fields come from the first row."""
+    base = rows[0]
+    entrances = [r.entrance_date for r in rows if r.entrance_date is not None]
+    all_exited = all(r.exit_date is not None for r in rows)
+    return SimpleNamespace(
+        id=base.id,
+        work_order_group_id=base.work_order_group_id,
+        part_number=base.part_number,
+        revision_number=base.revision_number,
+        total_quantity=base.total_quantity,
+        qr_created_at=base.qr_created_at,
+        target_date=base.target_date,
+        sector=base.sector,
+        entrance_date=min(entrances) if entrances else None,
+        exit_date=max(r.exit_date for r in rows) if all_exited else None,
+        quantity=sum(r.quantity for r in rows),
+        exited_quantity=sum(r.exited_quantity for r in rows),
+    )
+
+
 async def send_production_order(
-    work_order,
-    station,
+    group_rows: list,
     api_url: str,
     api_key: str,
     company: str,
@@ -117,34 +107,41 @@ async def send_production_order(
     subcontractor_id: str | None = None,
 ) -> bool:
     """
-    Fire-and-forget Mekasan push.
+    Fire-and-forget Mekasan push of a whole work order group.
 
-    F3:
-      - `len(pairs) == 1`: one POST with Mes_OrderId = "{group_id}-{station.id}".
-      - `len(pairs) > 1`: N parallel POSTs, one per pair (AselsanOrderCode /
-        WorkOrderItemNo differ), all sharing the same
-        Mes_OrderId = "{group_id}-{station.id}".
+    `group_rows` is every (WorkOrder, Station) scan row of ONE group. Sends ONE
+    POST whose `data` holds one item per station x pair, all with
+    Mes_OrderId = "{group_id}". A station's packages are combined by
+    _station_snapshot; stations keep the order of their first row.
 
-    Returns True only if every POST succeeded, False otherwise.
+    Toy replaces by (SubcontractorID, Mes_OrderId) — it deletes the existing
+    rows and inserts the request's items in a single transaction — so each push
+    must carry the full group: anything left out is deleted. Separate parallel
+    POSTs with the same id would race on that delete-then-insert.
+
+    Returns the POST result: True on 2xx, False otherwise.
     """
-    if not pairs:
-        logger.warning("send_production_order skipped: empty pairs for work_order_id=%s", work_order.id)
+    if not group_rows or not pairs:
+        logger.warning(
+            "send_production_order skipped: %d rows, %d pairs",
+            len(group_rows), len(pairs),
+        )
         return False
 
-    base_id = f"{work_order.work_order_group_id}-{station.id}"
+    by_station: dict[int, tuple] = {}
+    for work_order, station in group_rows:
+        by_station.setdefault(station.id, (station, []))[1].append(work_order)
 
-    if len(pairs) == 1:
-        item = _build_payload_item(work_order, station, pairs[0], base_id, subcontractor_id, company)
-        return await _post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id)
-
-    # Multi-pair: N independent POSTs in parallel, all with the same
-    # Mes_OrderId. All-or-nothing: True only if every pair POST succeeded.
-    tasks = []
-    for pair in pairs:
-        item = _build_payload_item(work_order, station, pair, base_id, subcontractor_id, company)
-        tasks.append(_post_one(api_url, api_key, {"company": company, "data": [item]}, work_order.id))
-    results = await asyncio.gather(*tasks)
-    return all(results)
+    first = group_rows[0][0]
+    items = [
+        _build_payload_item(
+            _station_snapshot(rows), station, pair,
+            first.work_order_group_id, subcontractor_id, company,
+        )
+        for station, rows in by_station.values()
+        for pair in pairs
+    ]
+    return await _post_one(api_url, api_key, {"company": company, "data": items}, first.id)
 
 
 async def _resolve_pairs(db, work_order_group_id: str) -> list[OrderPair]:
@@ -164,88 +161,49 @@ async def _resolve_subcontractor_id(db, company_from_id) -> str | None:
     return result.scalar_one_or_none()
 
 
+async def _load_group_rows(db, work_order_group_id: str, company: str) -> list:
+    """Every (WorkOrder, Station) scan row of a group at `company`'s stations,
+    oldest first."""
+    result = await db.execute(
+        select(WorkOrder, Station)
+        .join(Station, WorkOrder.station_id == Station.id)
+        .where(
+            WorkOrder.work_order_group_id == work_order_group_id,
+            Station.company == company,
+        )
+        .order_by(WorkOrder.id)
+    )
+    return [tuple(row) for row in result.all()]
+
+
 async def _push_one_work_order(db, work_order, integration) -> bool:
-    """Reload a row's station/pairs/subcontractor, push the current state, and
-    record `sent`. Returns the push result. Assumes `integration` (api_url,
-    api_key, company) is the integration for the row's company."""
-    station = await db.get(Station, work_order.station_id)
-    if station is None:
+    """Push the current state of the row's WHOLE group and record `sent` on
+    every row of that group. Returns the push result. Assumes `integration`
+    (api_url, api_key, company) is the integration for the row's company."""
+    group_rows = await _load_group_rows(db, work_order.work_order_group_id, integration.company)
+    if not group_rows:
+        work_order.sent = False
         return False
     pairs = await _resolve_pairs(db, work_order.work_order_group_id)
     subcontractor_id = await _resolve_subcontractor_id(db, work_order.company_from_id)
     ok = await send_production_order(
-        work_order, station, integration.api_url, integration.api_key,
+        group_rows, integration.api_url, integration.api_key,
         integration.company, pairs, subcontractor_id,
     )
+    for row, _station in group_rows:
+        row.sent = ok
     work_order.sent = ok
     return ok
-
-
-async def _push_route_placeholders(
-    db,
-    work_order,
-    integration,
-    pairs: list[OrderPair],
-    subcontractor_id: str | None,
-) -> None:
-    """Push placeholder records for unscanned route stations after a real scan.
-
-    Only stations with no existing WorkOrder row (i.e. not yet touched by any
-    package) receive a placeholder. Uses the same Mes_OrderId format as the real
-    scan so Toy API upserts when the actual scan arrives later. Never raises."""
-    route_result = await db.execute(
-        select(WorkOrderRoute.station_id)
-        .where(WorkOrderRoute.work_order_group_id == work_order.work_order_group_id)
-        .order_by(WorkOrderRoute.position)
-    )
-    route_station_ids = [row[0] for row in route_result.all()]
-    if not route_station_ids:
-        return
-
-    scanned_result = await db.execute(
-        select(WorkOrder.station_id)
-        .where(
-            WorkOrder.work_order_group_id == work_order.work_order_group_id,
-            WorkOrder.station_id.in_(route_station_ids),
-        )
-        .distinct()
-    )
-    scanned_ids = {row[0] for row in scanned_result.all()}
-    unscanned_ids = [sid for sid in route_station_ids if sid not in scanned_ids]
-    if not unscanned_ids:
-        return
-
-    tasks = []
-    for station_id in unscanned_ids:
-        station = await db.get(Station, station_id)
-        if station is None:
-            continue
-        base_id = f"{work_order.work_order_group_id}-{station.id}"
-        if len(pairs) == 1:
-            item = _build_placeholder_item(work_order, station, pairs[0], base_id, subcontractor_id, integration.company)
-            tasks.append(_post_one(integration.api_url, integration.api_key, {"company": integration.company, "data": [item]}, work_order.id))
-        else:
-            for pair in pairs:
-                item = _build_placeholder_item(work_order, station, pair, base_id, subcontractor_id, integration.company)
-                tasks.append(_post_one(integration.api_url, integration.api_key, {"company": integration.company, "data": [item]}, work_order.id))
-
-    if not tasks:
-        return
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    failures = sum(1 for r in results if r is False or isinstance(r, Exception))
-    if failures:
-        logger.warning(
-            "route placeholder push: %d/%d failed for group=%s",
-            failures, len(tasks), work_order.work_order_group_id,
-        )
 
 
 async def push_and_sync(work_order_id: int) -> None:
     """Background entrypoint dispatched after a scan. Owns its own session.
 
-    Pushes the current row's state to Toy and records `sent`, then sweeps up to
-    20 `sent=false` rows for the SAME company (oldest first) and re-pushes them.
-    Idempotent on Toy's side (upsert by Mes_OrderId). Never raises."""
+    Pushes the current row's group to Toy and records `sent`, then sweeps up to
+    20 `sent=false` rows for the SAME company (oldest first) and re-pushes their
+    groups (each group once).
+    Re-pushing is safe: Toy replaces rows by (SubcontractorID, Mes_OrderId).
+    Never raises."""
     try:
         async with RomiotAsyncSessionLocal() as db:
             work_order = await db.get(WorkOrder, work_order_id)
@@ -263,10 +221,6 @@ async def push_and_sync(work_order_id: int) -> None:
 
             await _push_one_work_order(db, work_order, integration)
 
-            pairs = await _resolve_pairs(db, work_order.work_order_group_id)
-            subcontractor_id = await _resolve_subcontractor_id(db, work_order.company_from_id)
-            await _push_route_placeholders(db, work_order, integration, pairs, subcontractor_id)
-
             unsent_result = await db.execute(
                 select(WorkOrder)
                 .join(Station, WorkOrder.station_id == Station.id)
@@ -279,6 +233,8 @@ async def push_and_sync(work_order_id: int) -> None:
                 .limit(20)
             )
             for row in unsent_result.scalars().all():
+                if row.sent:   # already went out with an earlier push of its group
+                    continue
                 await _push_one_work_order(db, row, integration)
 
             await db.commit()

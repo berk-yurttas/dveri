@@ -38,30 +38,37 @@ def _execute_returning(*, scalar_one=None, scalars_all=None):
 
 
 class PushOneWorkOrderTest(unittest.TestCase):
-    def _run(self, *, send_result, station=SimpleNamespace(id=10, name="ST", station_order_code=2)):
+    def _run(self, *, send_result, group_rows=None):
         wo = _wo()
+        sibling = _wo(id=2, station_id=20, sent=True)
+        station = SimpleNamespace(id=10, name="ST", station_order_code=2)
+        if group_rows is None:
+            group_rows = [(wo, station), (sibling, station)]
         db = MagicMock()
-        db.get = AsyncMock(return_value=station)
-        with patch.object(svc, "_resolve_pairs", new=AsyncMock(return_value=[SimpleNamespace(
+        with patch.object(svc, "_load_group_rows", new=AsyncMock(return_value=group_rows)), \
+             patch.object(svc, "_resolve_pairs", new=AsyncMock(return_value=[SimpleNamespace(
                     aselsan_order_number="A1", order_item_number="K1")])), \
              patch.object(svc, "_resolve_subcontractor_id", new=AsyncMock(return_value="SUB")), \
              patch.object(svc, "send_production_order", new=AsyncMock(return_value=send_result)) as send:
             ok = asyncio.run(svc._push_one_work_order(db, wo, _integration()))
-        return ok, wo, send
+        return ok, wo, sibling, send
 
-    def test_success_sets_sent_true(self):
-        ok, wo, send = self._run(send_result=True)
+    def test_success_marks_every_row_of_the_group_sent(self):
+        ok, wo, sibling, send = self._run(send_result=True)
         self.assertTrue(ok)
         self.assertTrue(wo.sent)
+        self.assertTrue(sibling.sent)
         send.assert_awaited_once()
+        self.assertEqual(len(send.await_args.args[0]), 2)   # whole group in one send
 
-    def test_failure_leaves_sent_false(self):
-        ok, wo, send = self._run(send_result=False)
+    def test_failure_marks_every_row_of_the_group_unsent(self):
+        ok, wo, sibling, send = self._run(send_result=False)
         self.assertFalse(ok)
         self.assertFalse(wo.sent)
+        self.assertFalse(sibling.sent)
 
-    def test_missing_station_returns_false_without_sending(self):
-        ok, wo, send = self._run(send_result=True, station=None)
+    def test_no_group_rows_returns_false_without_sending(self):
+        ok, wo, _, send = self._run(send_result=True, group_rows=[])
         self.assertFalse(ok)
         self.assertFalse(wo.sent)
         send.assert_not_awaited()
@@ -102,6 +109,33 @@ class PushAndSyncTest(unittest.TestCase):
 
         self.assertEqual(pushed, [1, 2, 3])   # current row first, then swept rows
         db.commit.assert_awaited_once()
+
+    def test_sweep_skips_rows_already_sent_with_their_group(self):
+        current = _wo(id=1)
+        station = SimpleNamespace(id=10, name="ST", company="CMP", station_order_code=2)
+        u1, u2 = _wo(id=2, work_order_group_id="WO-2"), _wo(id=3, work_order_group_id="WO-2")
+
+        db = MagicMock()
+        db.get = AsyncMock(side_effect=[current, station])
+        db.execute = AsyncMock(side_effect=[
+            _execute_returning(scalar_one=_integration()),
+            _execute_returning(scalars_all=[u1, u2]),
+        ])
+        db.commit = AsyncMock()
+
+        pushed = []
+        async def _fake_push(_db, wo, _integ):
+            pushed.append(wo.id)
+            for row in (current, u1, u2):
+                if row.work_order_group_id == wo.work_order_group_id:
+                    row.sent = True
+            return True
+
+        with patch.object(svc, "RomiotAsyncSessionLocal", _session_factory(db)), \
+             patch.object(svc, "_push_one_work_order", new=AsyncMock(side_effect=_fake_push)):
+            asyncio.run(svc.push_and_sync(1))
+
+        self.assertEqual(pushed, [1, 2])   # u2 went out with u1's group push
 
     def test_no_integration_skips_push_and_commit(self):
         current = _wo(id=1)

@@ -44,13 +44,21 @@ delivered, and opportunistically retry rows that previously failed.
    `exit_date`, commits, then fires `send_production_order(...)` **again** with a
    payload that now carries `ActualEndDate` / `ActualQuantity`
    ([work_order.py:754-774](../../../dtbackend/app/api/v1/endpoints/romiot/station/work_order.py#L754-L774)).
-3. `send_production_order` builds one payload per pair and POSTs to the integration
-   URL. Single-pair → one POST; multi-pair → N parallel POSTs. `Mes_OrderId` is
-   `"{group_id}-{station.id}"` for every POST (single and multi-pair alike). It returns `None` and never raises — failures are logged and lost
+3. `send_production_order` sends the **whole group** in **one** POST: `data` holds
+   one item per station x pair, built from every scan row of the group at the
+   integration company's stations (a station's packages are combined: earliest
+   entrance, latest exit once all packages exited, summed quantities).
+   `Mes_OrderId` is `"{group_id}"` for every item. Because Toy replaces all rows
+   for that id on each POST, a push must carry the full group. It returns `None` and never raises — failures are logged and lost
    ([toy_api_service.py:61-102](../../../dtbackend/app/services/toy_api_service.py#L61-L102)).
 
 The same row is therefore pushed **twice** (entry, then exit), to the **same**
-`Mes_OrderId` — i.e. Toy treats the two pushes as an upsert of one logical record.
+`Mes_OrderId`. Toy (`ahtapot_api` `PostProductionOrders<Company>`) replaces by
+`(SubcontractorID, Mes_OrderId)`: in one transaction it deletes the existing rows
+with that key and inserts the request's items, so the later push replaces the
+earlier one. There is no unique constraint, and the read-then-delete is not
+atomic across requests — two concurrent POSTs with the same key can leave
+duplicate rows or fail with a 500.
 
 ## Design decisions (from brainstorming)
 
@@ -59,7 +67,7 @@ The same row is therefore pushed **twice** (entry, then exit), to the **same**
 | Meaning of `sent` | **"Current state synced"** — one boolean: true = the row's latest state is delivered. Reset to false whenever the row changes (entry created, exit filled); set true when a push of the current state succeeds. | Simplest model that still survives the double-push. The exit push carries the full final state, so "latest successful push" is exactly what Toy needs. |
 | Retry trigger | **Piggyback on next scan only** (no scheduler). | Requested scope; no new infra. Gap accepted (see Non-goals). |
 | Push execution | **Keep async fire-and-forget; the task writes `sent` back** using its own DB session. | Scan responses stay fast (Toy's 10s timeout never blocks the operator's screen). |
-| Multi-pair failure | **All-or-nothing.** `sent=true` only if every pair POST succeeds. | Toy upserts by `Mes_OrderId`, so re-pushing already-delivered pairs is idempotent — a full re-push is safe and simpler than per-pair tracking. |
+| Multi-pair failure | **All-or-nothing.** All pairs go in one POST; `sent=true` only if it succeeds. | Toy replaces every row for the `Mes_OrderId` in one transaction, so a re-push is safe and there is no per-pair state to track. |
 | Sweep bound | **`LIMIT 20`** unsent rows per scan event, oldest first. | Caps extra work per scan and prevents a flood if a company newly gains an integration (its backlog drains 20 rows per scan). |
 
 ## Design
@@ -91,9 +99,10 @@ bound drains any such backlog gradually.
 - `_post_one(...)` → return `bool`: `True` on a 2xx response, `False` on a
   non-2xx response or an exception. (Currently returns `None`; keep the existing
   logging.)
-- `send_production_order(...)` → return `bool` = **all-or-nothing**: `True` only
-  if every pair POST returned `True`. (Single-pair: the one result. Multi-pair:
-  `all(...)` over the gathered results.) Still never raises.
+- `send_production_order(group_rows, ...)` → return `bool`: the result of its
+  single POST (every station x pair of the group in one request). Still never
+  raises. `_push_one_work_order` loads the group's rows and sets `sent` on all
+  of them; the sweep skips rows already sent with an earlier group push.
 - **New** `push_and_sync(work_order_id: int) -> None` — the only coroutine the
   endpoints dispatch. Runs in the background and owns its own session via
   `RomiotAsyncSessionLocal`
@@ -143,12 +152,13 @@ be re-pushed to deliver the exit event.
 - **Latency:** unchanged. All Toy I/O remains in the background task; the scan
   endpoints return as fast as today.
 - **Idempotency** is what makes the simplifications safe:
-  - Multi-pair partial failure re-pushes the already-succeeded pairs, but Toy
-    upserts by `Mes_OrderId` (`{group_id}-{station.id}`, shared by all pairs),
-    so it is harmless.
+  - A failed push is retried as a whole; Toy replaces every row for the
+    `Mes_OrderId` (`{group_id}`, shared by all pairs and stations), so a
+    re-push is harmless.
   - Two concurrent scans for the same company can each sweep and re-push the same
-    unsent row; both target the same `Mes_OrderId`, so Toy sees one upsert. No
-    locking needed.
+    unsent row. Toy's replace is not atomic across requests, so this rare overlap
+    can leave a duplicate row or return a 500 (the row then stays `sent=false`
+    and is retried). Accepted; no locking added.
 - **Newly-integrated company:** all its historical `sent=false` rows become
   sweep-eligible at once; the `LIMIT 20` per scan drains them gradually rather
   than in one burst.

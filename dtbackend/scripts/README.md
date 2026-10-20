@@ -69,3 +69,17 @@ Total records updated: 1523
 - It uses a transaction and commits at the end
 - No existing data is overwritten
 - The script can be run multiple times safely (idempotent)
+
+### resend_toy_work_orders.py
+
+Re-sends existing atolye work orders to the Toy/Mekasan API, e.g. after a change to the payload or `Mes_OrderId` format. Each work order group is sent once, through the same push path as a live scan: one POST with a row per station x pair. Updates `work_orders.sent`. Only groups at stations whose company has a configured `CompanyIntegration` are sent.
+
+Dry run by default; pass `--send` to actually POST.
+
+```bash
+cd dtbackend
+python -m scripts.resend_toy_work_orders                      # dry run, all companies
+python -m scripts.resend_toy_work_orders --company MEKASAN    # dry run, one company
+python -m scripts.resend_toy_work_orders --group WO-... --send
+python -m scripts.resend_toy_work_orders --send
+```
