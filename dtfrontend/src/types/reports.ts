@@ -52,6 +52,38 @@ export interface NestedQueryConfig {
   valueField?: string
   lineYAxis?: string
   showLineOverlay?: boolean
+  // Expandable tables: clicking a row produced by THIS nested query opens the
+  // "Operasyon, CMM ve Test İzleri" panel, parametrized by the clicked child row.
+  tracePanel?: TracePanelConfig
+}
+
+// Row detail card (table / expandable table top-level rows). Clicking a row injects
+// the row's paramFields into {{placeholders}} of `sql`; the selected columns of the
+// first result row are shown as the card's fields.
+export interface RowDetailCardConfig {
+  enabled: boolean
+  title?: string  // default: 'Seçili Satır Detay Kartı'
+  sql: string
+  paramFields: string[]
+}
+
+// One "Doküman Linkleri" entry. `url` is a template: {{column}} is replaced with the
+// URL-encoded value of that column in the clicked child row. Not a query.
+export interface TraceDocumentLink {
+  id: string
+  title: string      // card heading, e.g. 'CMM Raporu'
+  linkText?: string  // link text, e.g. 'PDF çıktısını aç' (defaults to 'Aç')
+  url: string
+}
+
+// "Operasyon, CMM ve Test İzleri" panel for expandable-table child rows.
+export interface TracePanelConfig {
+  enabled: boolean
+  title?: string           // default: 'Operasyon, CMM ve Test İzleri'
+  paramFields: string[]    // child-row columns injected into {{placeholders}} of both queries
+  operationSql?: string    // Operasyon Akışı: one step per row (col1 = title, col2 = subtitle)
+  durationSql?: string     // Süre Dağılımı: [value, total] | [label, value, total] | [percent]
+  links?: TraceDocumentLink[]  // Doküman Linkleri
 }
 
 // Row Coloring Configuration for Table/Expandable Table
@@ -128,6 +160,9 @@ export interface VisualizationConfig {
 
     // Table/Expandable table specific - Column value coloring rules
     columnValueColorRules?: ColumnValueColorRule[]
+
+    // Table/Expandable table specific - detail card opened on row click
+    detailCard?: RowDetailCardConfig
 
     // Reference line for bar and line charts
     referenceLineField?: string

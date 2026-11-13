@@ -117,6 +117,13 @@ class ChartOptions(BaseModel):
     # Column value coloring for table visualizations
     column_value_color_rules: list[ColumnValueColorRule] | None = Field([], alias="columnValueColorRules")
 
+    # Row detail card for table / expandable table (top-level rows):
+    # {"enabled": true, "title": "...", "sql": "SELECT ... WHERE id = {{id}}", "paramFields": ["id"]}
+    # Clicking a row injects the row's paramFields into {{placeholders}} and shows the
+    # first result row as a detail card. Child-row trace panels live on each nested
+    # query as "tracePanel" (operationSql, durationSql, links[{title, linkText, url}]).
+    detail_card: dict[str, Any] | None = Field(None, alias="detailCard")
+
     class Config:
         populate_by_name = True  # Allow both field names and aliases
         from_attributes = True
