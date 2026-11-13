@@ -5,6 +5,7 @@ import { QueryData, QueryResult } from './types'
 import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
 import { reportsService } from '@/services/reports'
 import { RowColorRule, ColumnValueColorRule, TracePanelConfig } from '@/types/reports'
+import { isActivationKey } from '@/utils/rowDetailState'
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -2171,21 +2172,30 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                     const hasDeeperLevel = !!nested.nestedQueries && nested.nestedQueries.length > 0
                     const tracePanel: TracePanelConfig | undefined = nested.tracePanel?.enabled && onChildRowClick ? nested.tracePanel : undefined
                     const isChildSelected = selectedChildKey === nestedRowKey
+                    const handleChildClick = () => {
+                      if (hasDeeperLevel) {
+                        onRowExpand(query, originalIndex, nestedRow, nested.nestedQueries, level, rowKey)
+                      }
+                      if (tracePanel) {
+                        onChildRowClick!(query, nestedRowKey, nested.columns, nestedRow, tracePanel, hasDeeperLevel)
+                      }
+                    }
 
                     return (
                       <React.Fragment key={nestedRowIndex}>
                         <tr
                           className={`hover:bg-${bgColors[colorIndex].split('-')[1]}-50/30 transition-colors ${hasDeeperLevel || tracePanel ? 'cursor-pointer' : ''
-                            } ${isNestedExpanded ? `${bgColors[colorIndex]} font-semibold` : ''} ${isChildSelected ? 'bg-blue-100 font-bold' : ''}`}
+                            } ${isNestedExpanded ? `${bgColors[colorIndex]} font-semibold` : ''} ${isChildSelected ? 'ring-2 ring-inset ring-[#0b63c7] font-bold' : ''}`}
+                          data-row-key={nestedRowKey}
                           aria-current={isChildSelected ? 'true' : undefined}
-                          onClick={() => {
-                            if (hasDeeperLevel) {
-                              onRowExpand(query, originalIndex, nestedRow, nested.nestedQueries, level, rowKey)
+                          tabIndex={tracePanel ? 0 : undefined}
+                          onClick={handleChildClick}
+                          onKeyDown={tracePanel ? (e) => {
+                            if (e.target === e.currentTarget && isActivationKey(e.key)) {
+                              e.preventDefault()
+                              handleChildClick()
                             }
-                            if (tracePanel) {
-                              onChildRowClick!(query, nestedRowKey, nested.columns, nestedRow, tracePanel, hasDeeperLevel)
-                            }
-                          }}
+                          } : undefined}
                         >
                           {/* Expand column */}
                           {nested.nestedQueries && nested.nestedQueries.length > 0 && (
@@ -2510,7 +2520,8 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                 <React.Fragment key={rowIndex}>
                   {/* Parent Row */}
                   <tr
-                    className={`hover:bg-gray-50 transition-colors cursor-pointer ${isExpanded || isSelected ? 'bg-blue-50 font-bold' : ''}`}
+                    className={`hover:bg-gray-50 transition-colors cursor-pointer ${isExpanded ? 'bg-blue-50 font-bold' : ''} ${isSelected ? 'ring-2 ring-inset ring-[#0b63c7] font-bold' : ''}`}
+                    data-row-key={rowKey}
                     aria-current={isSelected ? 'true' : undefined}
                     onClick={() => onRowExpand(query, rowIndex, row, query.visualization.chartOptions?.nestedQueries || [], 0, '')}
                   >

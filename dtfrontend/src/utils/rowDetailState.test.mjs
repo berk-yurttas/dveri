@@ -54,3 +54,10 @@ test('createRequestTracker only treats the latest request as current', () => {
   t.invalidate()
   assert.equal(t.isCurrent(second), false)
 })
+
+test('isActivationKey accepts Enter and Space only', () => {
+  assert.equal(mod.isActivationKey('Enter'), true)
+  assert.equal(mod.isActivationKey(' '), true)
+  assert.equal(mod.isActivationKey('Tab'), false)
+  assert.equal(mod.isActivationKey('a'), false)
+})

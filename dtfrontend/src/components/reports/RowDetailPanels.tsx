@@ -255,6 +255,8 @@ interface RowDetailPanelsProps {
 export function RowDetailPanels({ detail, trace, onCloseDetail, onCloseTrace }: RowDetailPanelsProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const seenKeys = useRef<{ detail: string | null; trace: string | null }>({ detail: null, trace: null })
+  const detailCloseRef = useRef<HTMLButtonElement>(null)
+  const traceCloseRef = useRef<HTMLButtonElement>(null)
   const detailKey = detail?.rowKey ?? null
   const traceKey = trace?.rowKey ?? null
 
@@ -269,6 +271,17 @@ export function RowDetailPanels({ detail, trace, onCloseDetail, onCloseTrace }: 
     }
   }, [detailKey, traceKey])
 
+  // Closing must not drop focus to <body>: go to the other open panel, else back to the selected row.
+  const closePanel = (closedKey: string, otherCloseButton: React.RefObject<HTMLButtonElement | null>, otherOpen: boolean, close: () => void) => {
+    close()
+    setTimeout(() => {
+      const target = otherOpen
+        ? otherCloseButton.current
+        : document.querySelector<HTMLElement>(`[data-row-key="${closedKey}"]`)
+      target?.focus()
+    }, 0)
+  }
+
   if (!detail && !trace) return null
 
   return (
@@ -278,13 +291,13 @@ export function RowDetailPanels({ detail, trace, onCloseDetail, onCloseTrace }: 
         <section className="rdp-panel" aria-label={detail.title} data-testid="row-detail-card">
           <div className="rdp-head">
             <h2><span aria-hidden="true">◉</span> {detail.title}</h2>
-            <button type="button" className="rdp-close" aria-label={`${detail.title} panelini kapat`} onClick={onCloseDetail}>×</button>
+            <button ref={detailCloseRef} type="button" className="rdp-close" aria-label={`${detail.title} panelini kapat`} onClick={() => closePanel(detail.rowKey, traceCloseRef, !!trace, onCloseDetail)}>×</button>
           </div>
           <p className="rdp-muted">{detail.queryName}</p>
           {detail.status === 'ready' && detail.items.length > 0 ? (
             <div className="rdp-detail">
-              {detail.items.map((item) => (
-                <div className="rdp-info" key={item.label}>
+              {detail.items.map((item, index) => (
+                <div className="rdp-info" key={`${index}-${item.label}`}>
                   <b>{item.label}</b>
                   <span>{item.value}</span>
                 </div>
@@ -299,7 +312,7 @@ export function RowDetailPanels({ detail, trace, onCloseDetail, onCloseTrace }: 
         <section className="rdp-panel" aria-label={trace.title} data-testid="row-trace-panel">
           <div className="rdp-head">
             <h2><span aria-hidden="true">▣</span> {trace.title}</h2>
-            <button type="button" className="rdp-close" aria-label={`${trace.title} panelini kapat`} onClick={onCloseTrace}>×</button>
+            <button ref={traceCloseRef} type="button" className="rdp-close" aria-label={`${trace.title} panelini kapat`} onClick={() => closePanel(trace.rowKey, detailCloseRef, !!detail, onCloseTrace)}>×</button>
           </div>
           <p className="rdp-muted">{trace.queryName}</p>
           {trace.operations && (

@@ -34,3 +34,8 @@ export function createRequestTracker() {
     },
   }
 }
+
+/** Keys that activate a focused row like a click (Enter / Space). */
+export function isActivationKey(key: string): boolean {
+  return key === 'Enter' || key === ' '
+}

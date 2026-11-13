@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { QueryData, QueryResult, FilterData } from './types'
 import { RowColorRule, ColumnValueColorRule } from '@/types/reports'
-import { isDetailCardEnabled } from '@/utils/rowDetailState'
+import { isActivationKey, isDetailCardEnabled } from '@/utils/rowDetailState'
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -1152,10 +1152,18 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
               return (
                 <tr
                   key={rowIndex}
-                  className={`transition-colors ${rowsClickable ? 'cursor-pointer' : ''} ${isSelected ? 'bg-blue-50 font-bold' : 'hover:bg-gray-50'}`}
+                  className={`transition-colors hover:bg-gray-50 ${rowsClickable ? 'cursor-pointer' : ''} ${isSelected ? 'ring-2 ring-inset ring-[#0b63c7] font-bold' : ''}`}
                   data-testid="viz-table-row"
+                  data-row-key={`${query.id}_${rowIndex}`}
                   aria-current={isSelected ? 'true' : undefined}
+                  tabIndex={rowsClickable ? 0 : undefined}
                   onClick={rowsClickable ? () => onRowClick!(rowIndex, row) : undefined}
+                  onKeyDown={rowsClickable ? (e) => {
+                    if (e.target === e.currentTarget && isActivationKey(e.key)) {
+                      e.preventDefault()
+                      onRowClick!(rowIndex, row)
+                    }
+                  } : undefined}
                 >
                   {row.map((cell, cellIndex) => {
                     const cellValue = cell?.toString() || ''

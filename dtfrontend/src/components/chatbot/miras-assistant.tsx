@@ -38,6 +38,7 @@ export function MirasAssistant() {
       {/* Floating Chatbot Button - Fixed to viewport using Portal */}
       {createPortal(
         <button
+          data-print-hide
           onClick={() => setShowChatModal(!showChatModal)}
           className="w-18 h-18 rounded-full shadow-2xl hover:scale-110 transition-transform overflow-hidden bg-white/60"
           style={{

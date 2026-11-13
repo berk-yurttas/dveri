@@ -941,6 +941,7 @@ export default function ReportDetailPage() {
           ? (result.has_more ? page + 1 : page)  // If has_more, show at least one more page
           : 1
 
+        rowPanels.clearForQuery(query.id)
         setQueryResults(prev => ({
           ...prev,
           [query.id]: {
@@ -1132,6 +1133,7 @@ export default function ReportDetailPage() {
           ? (result.has_more ? page + 1 : page)  // If has_more, show at least one more page
           : 1
 
+        rowPanels.clearForQuery(query.id)
         setQueryResults(prev => ({
           ...prev,
           [query.id]: {
@@ -1709,6 +1711,8 @@ export default function ReportDetailPage() {
     const queryState = queryResults[query.id]
     if (!queryState) return
 
+    clearNestedStatesForQuery(query.id)
+
     // Get current sorting state for this query
     const currentSort = sorting[query.id]
 
@@ -1723,6 +1727,8 @@ export default function ReportDetailPage() {
 
   const handlePageSizeChange = async (query: QueryData, newPageSize: number) => {
     if (!report) return
+
+    clearNestedStatesForQuery(query.id)
 
     // Get current sorting state for this query
     const currentSort = sorting[query.id]
@@ -2367,7 +2373,7 @@ export default function ReportDetailPage() {
   const handleTableRowClick = (query: QueryData, rowIndex: number, row: any[]) => {
     const config = query.visualization.chartOptions?.detailCard
     const columns = queryResults[query.id]?.result?.columns
-    if (!isDetailCardEnabled(config) || !columns) return
+    if (!isDetailCardEnabled(config) || !columns || queryResults[query.id]?.loading) return
     rowPanels.openDetail({
       queryId: query.id, queryName: query.name, rowKey: `${query.id}_${rowIndex}`, config, columns, row, toggle: true
     })
@@ -2385,7 +2391,7 @@ export default function ReportDetailPage() {
     } else if (level === 0) {
       const config = query.visualization.chartOptions?.detailCard
       const columns = queryResults[query.id]?.result?.columns
-      if (isDetailCardEnabled(config) && columns) {
+      if (isDetailCardEnabled(config) && columns && !queryResults[query.id]?.loading) {
         rowPanels.openDetail({ queryId: query.id, queryName: query.name, rowKey, config, columns, row: rowData })
       }
     }
@@ -2396,6 +2402,7 @@ export default function ReportDetailPage() {
   const handleChildRowClick = (
     query: QueryData, nestedRowKey: string, columns: string[], row: any[], config: TracePanelConfig, hasDeeperLevel: boolean
   ) => {
+    if (queryResults[query.id]?.loading) return
     if (expandedRows[nestedRowKey]) {
       rowPanels.closeTrace(nestedRowKey)
       return
@@ -2549,7 +2556,8 @@ export default function ReportDetailPage() {
     }
   }
 
-  const renderVisualization = (query: QueryData, result: QueryResult, scale: number = 1) => {
+  // `interactive` is false in the fullscreen modal: its row panels would open hidden behind the modal.
+  const renderVisualization = (query: QueryData, result: QueryResult, scale: number = 1, interactive: boolean = true) => {
     const { visualization } = query
     const { data, columns } = result
 
@@ -2609,8 +2617,8 @@ export default function ReportDetailPage() {
             totalRows={result.total_rows}
             onPageChange={(page) => handlePageChange(query, page)}
             onPageSizeChange={(pageSize) => handlePageSizeChange(query, pageSize)}
-            selectedRowKey={rowPanels.detail?.queryId === query.id ? rowPanels.detail.rowKey : null}
-            onRowClick={(rowIndex, row) => handleTableRowClick(query, rowIndex, row)}
+            selectedRowKey={interactive && rowPanels.detail?.queryId === query.id ? rowPanels.detail.rowKey : null}
+            onRowClick={interactive ? (rowIndex, row) => handleTableRowClick(query, rowIndex, row) : undefined}
           />
         )
 
@@ -2669,11 +2677,11 @@ export default function ReportDetailPage() {
             setNestedFilterPositions={setNestedFilterPositions}
             setNestedSorting={setNestedSorting}
             setNestedPagination={setNestedPagination}
-            onRowExpand={handleExpandableRowClick}
+            onRowExpand={interactive ? handleExpandableRowClick : handleRowExpand}
             scale={scale}
-            selectedRowKey={rowPanels.detail?.queryId === query.id ? rowPanels.detail.rowKey : null}
-            selectedChildKey={rowPanels.trace?.queryId === query.id ? rowPanels.trace.rowKey : null}
-            onChildRowClick={handleChildRowClick}
+            selectedRowKey={interactive && rowPanels.detail?.queryId === query.id ? rowPanels.detail.rowKey : null}
+            selectedChildKey={interactive && rowPanels.trace?.queryId === query.id ? rowPanels.trace.rowKey : null}
+            onChildRowClick={interactive ? handleChildRowClick : undefined}
           />
         )
 
@@ -2763,7 +2771,7 @@ export default function ReportDetailPage() {
   }
 
   return (
-    <div className={`container min-w-full space-y-3 ${showVisualizationV2 ? 'rounded-xl bg-[#F4F7FB] p-3' : ''}`} data-testid="report-page">
+    <div className={`container min-w-full space-y-3 ${showVisualizationV2 ? 'rounded-xl bg-[#F4F7FB] p-3' : ''}`} data-testid="report-page" data-report-print-root>
       {/* Report Header */}
       <div className={showVisualizationV2
         ? 'space-y-1.5 rounded-[10px] border border-[#0052A5]/10 bg-white px-4 py-3 shadow-[0_2px_12px_rgba(0,82,165,0.08)]'
@@ -3419,9 +3427,7 @@ export default function ReportDetailPage() {
       />
 
       {/* MIRAS Assistant Chatbot */}
-      <div className="print:hidden">
-        <MirasAssistant />
-      </div>
+      <MirasAssistant />
 
       {/* Feedback Button */}
       <Feedback />
@@ -3534,7 +3540,7 @@ export default function ReportDetailPage() {
                   return (
                     <div className="h-full">
                       {fullscreenQuery.visualization.type !== 'table' && fullscreenQuery.visualization.type !== 'expandable' && renderQueryFilters(fullscreenQuery)}
-                      {renderVisualization(fullscreenQuery, queryState.result, 1)}
+                      {renderVisualization(fullscreenQuery, queryState.result, 1, false)}
                     </div>
                   )
                 }
