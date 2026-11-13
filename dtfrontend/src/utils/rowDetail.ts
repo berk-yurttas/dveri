@@ -37,7 +37,6 @@ export function fillUrlTemplate(url: string, columns: string[], row: any[]): str
 export function isSafeHref(url: string): boolean {
   // Browsers drop ASCII tab/newline anywhere and leading C0 controls/space before
   // resolving the scheme, so normalize the same way before inspecting it.
-  // eslint-disable-next-line no-control-regex
   const trimmed = (url || '').replace(/[\t\n\r]/g, '').replace(/^[\u0000- ]+/, '').trim()
   if (!trimmed) return false
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed)
