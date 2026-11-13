@@ -39,6 +39,8 @@ export function isSafeHref(url: string): boolean {
   // resolving the scheme, so normalize the same way before inspecting it.
   const trimmed = (url || '').replace(/[\t\n\r]/g, '').replace(/^[\u0000- ]+/, '').trim()
   if (!trimmed) return false
+  // Protocol-relative and backslash host forms (//host, \\host, /\host, \/host) leave the origin.
+  if (/^[\\/]{2}/.test(trimmed)) return false
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed)
   if (!scheme) return true
   return ['http', 'https'].includes(scheme[1].toLowerCase())

@@ -208,6 +208,9 @@ export function TracePanelConfigEditor({
 
       {enabled && (
         <div className="space-y-2 p-2 bg-white rounded border border-slate-200">
+          <p className="text-[11px] text-slate-500">
+            Aynı seviyede birden fazla alt sorguda iz paneli açıksa yalnızca ilki kullanılır.
+          </p>
           <div className="space-y-1">
             <label htmlFor={`${id}-title`} className={labelClass}>Başlık</label>
             <input

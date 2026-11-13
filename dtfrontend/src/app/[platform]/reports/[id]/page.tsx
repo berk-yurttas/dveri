@@ -2379,6 +2379,21 @@ export default function ReportDetailPage() {
     })
   }
 
+  // Collapsing a row closes its detail card (top level) and any trace panel opened from it or below.
+  const closePanelsOnCollapse = (rowKey: string, level: number) => {
+    rowPanels.closeTrace(rowKey)
+    if (level === 0) rowPanels.closeDetail(rowKey)
+  }
+
+  // Fullscreen modal: expand/collapse only; no panels are opened, but collapsing still closes them.
+  const handleFullscreenRowExpand = (
+    query: QueryData, rowIndex: number, rowData: any[], nestedQueries: any[], level: number, parentRowKey: string
+  ) => {
+    const rowKey = parentRowKey ? `${parentRowKey}_${rowIndex}` : `${query.id}_${rowIndex}`
+    if (expandedRows[rowKey]) closePanelsOnCollapse(rowKey, level)
+    return handleRowExpand(query, rowIndex, rowData, nestedQueries, level, parentRowKey)
+  }
+
   // Expandable table: expanding a top-level row opens its detail card, collapsing closes it
   // (and any trace panel opened from its child rows).
   const handleExpandableRowClick = (
@@ -2386,8 +2401,7 @@ export default function ReportDetailPage() {
   ) => {
     const rowKey = parentRowKey ? `${parentRowKey}_${rowIndex}` : `${query.id}_${rowIndex}`
     if (expandedRows[rowKey]) {
-      rowPanels.closeTrace(rowKey)
-      if (level === 0) rowPanels.closeDetail(rowKey)
+      closePanelsOnCollapse(rowKey, level)
     } else if (level === 0) {
       const config = query.visualization.chartOptions?.detailCard
       const columns = queryResults[query.id]?.result?.columns
@@ -2677,7 +2691,7 @@ export default function ReportDetailPage() {
             setNestedFilterPositions={setNestedFilterPositions}
             setNestedSorting={setNestedSorting}
             setNestedPagination={setNestedPagination}
-            onRowExpand={interactive ? handleExpandableRowClick : handleRowExpand}
+            onRowExpand={interactive ? handleExpandableRowClick : handleFullscreenRowExpand}
             scale={scale}
             selectedRowKey={interactive && rowPanels.detail?.queryId === query.id ? rowPanels.detail.rowKey : null}
             selectedChildKey={interactive && rowPanels.trace?.queryId === query.id ? rowPanels.trace.rowKey : null}
@@ -2772,6 +2786,8 @@ export default function ReportDetailPage() {
 
   return (
     <div className={`container min-w-full space-y-3 ${showVisualizationV2 ? 'rounded-xl bg-[#F4F7FB] p-3' : ''}`} data-testid="report-page" data-report-print-root>
+      {/* Only exists while the report page is mounted, so other pages keep their own page setup. */}
+      <style>{'@media print { @page { size: A4 landscape; margin: 10mm; } }'}</style>
       {/* Report Header */}
       <div className={showVisualizationV2
         ? 'space-y-1.5 rounded-[10px] border border-[#0052A5]/10 bg-white px-4 py-3 shadow-[0_2px_12px_rgba(0,82,165,0.08)]'

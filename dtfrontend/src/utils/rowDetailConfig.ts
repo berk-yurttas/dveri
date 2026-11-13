@@ -8,12 +8,13 @@ export function toggleParamField(current: string[] | undefined, field: string, c
   return list.filter(f => f !== field)
 }
 
-// Selected fields whose {{field}} placeholder does not appear in the SQL.
+// Selected fields whose {{field}} placeholder does not appear in the SQL. Exact match, no inner
+// spaces: the runtime replaces only `{{field}}`.
 export function missingPlaceholders(sql: string | undefined, paramFields: string[]): string[] {
   const text = sql ?? ''
   return paramFields.filter(field => {
     const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    return !new RegExp('\\{\\{\\s*' + escaped + '\\s*\\}\\}').test(text)
+    return !new RegExp('\\{\\{' + escaped + '\\}\\}').test(text)
   })
 }
 
@@ -49,13 +50,16 @@ export function removeLink(links: TraceDocumentLink[] | undefined, id: string): 
   return (links ?? []).filter(link => link.id !== id)
 }
 
-// Only http(s) and relative URLs are allowed; protocol-relative (//host) is rejected.
+// Only http(s) and relative URLs are allowed. Mirrors the runtime isSafeHref in rowDetail.ts
+// (same normalisation and rules; duplicated on purpose to stay import-free) except that an
+// empty template is accepted while editing. Keep both test files' HREF_CASES table identical.
 export function isSafeLinkTemplate(url: string): boolean {
-  const trimmed = url.trim()
+  const trimmed = (url || '').replace(/[\t\n\r]/g, '').replace(/^[\u0000- ]+/, '').trim()
   if (trimmed === '') return true
-  if (trimmed.startsWith('//')) return false
-  if (/^https?:\/\//i.test(trimmed)) return true
-  return !/^[a-z][a-z0-9+.-]*:/i.test(trimmed)
+  if (/^[\\/]{2}/.test(trimmed)) return false
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed)
+  if (!scheme) return true
+  return ['http', 'https'].includes(scheme[1].toLowerCase())
 }
 
 export function sameFieldList(a: string[], b: string[]): boolean {

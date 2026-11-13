@@ -1,11 +1,28 @@
 // Pure state helpers for the row detail card / trace panel runtime.
 // Keep this file import-free: it is unit-tested by src/utils/rowDetailState.test.mjs.
 
-/** First nested query config (of one level) whose trace panel is enabled. */
-export function pickTracePanel<T extends { tracePanel?: { enabled?: boolean } }>(
+interface TraceLike {
+  enabled?: boolean
+  operationSql?: string
+  durationSql?: string
+  links?: Array<{ url?: string }>
+}
+
+const nonBlank = (value?: string) => !!value && value.trim() !== ''
+
+/** An enabled trace panel is usable only with a query or at least one link URL configured. */
+function isTraceConfigured(tp: TraceLike | undefined): boolean {
+  return (
+    !!tp?.enabled &&
+    (nonBlank(tp.operationSql) || nonBlank(tp.durationSql) || (tp.links || []).some((link) => nonBlank(link?.url)))
+  )
+}
+
+/** First nested query config (of one level) with an enabled, configured trace panel. */
+export function pickTracePanel<T extends { tracePanel?: TraceLike }>(
   nestedQueries: T[] | undefined | null
 ): T['tracePanel'] | undefined {
-  return (nestedQueries || []).find((nq) => nq?.tracePanel?.enabled)?.tracePanel
+  return (nestedQueries || []).find((nq) => isTraceConfigured(nq?.tracePanel))?.tracePanel
 }
 
 /** A detail card is active only when enabled and its SQL is non-blank. */

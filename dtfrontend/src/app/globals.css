@@ -259,15 +259,10 @@ body {
 }
 
 /* Print / "PDF / Yazdır": clean A4 landscape printout of a report page.
-   Everything is scoped to pages that render [data-report-print-root]; other pages print as before. */
-@page report {
-  size: A4 landscape;
-  margin: 10mm;
-}
-
+   Everything is scoped to pages that render [data-report-print-root]; other pages print as before.
+   The A4 landscape @page size is injected by the report page itself (reports/[id]/page.tsx). */
 @media print {
   [data-report-print-root] {
-    page: report;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }

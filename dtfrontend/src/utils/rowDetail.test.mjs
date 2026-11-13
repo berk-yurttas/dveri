@@ -86,3 +86,35 @@ test('isSafeHref blocks schemes obfuscated with tabs/newlines/control chars (bro
   assert.equal(mod.isSafeHref('\u0001javascript:alert(1)'), false)
   assert.equal(mod.isSafeHref('/docs/a b.pdf'), true)
 })
+
+// SHARED CASE TABLE: keep identical in rowDetail.test.mjs and rowDetailConfig.test.mjs so the
+// runtime (isSafeHref) and the editor (isSafeLinkTemplate) cannot drift.
+const HREF_CASES = [
+  ['https://x/{{a}}', true],
+  ['HTTP://x.y/a.pdf', true],
+  ['/docs/a.pdf', true],
+  ['docs/a.pdf', true],
+  ['?q=1', true],
+  ['#top', true],
+  ['javascript:alert(1)', false],
+  [' JavaScript:alert(1)', false],
+  ['java\tscript:alert(1)', false],
+  ['java\nscript:alert(1)', false],
+  ['\u0001javascript:alert(1)', false],
+  ['data:text/html,x', false],
+  ['ftp://x/a', false],
+  ['mailto:a@b.c', false],
+  ['//evil.com/a', false],
+  ['  //evil.com/a', false],
+  ['\t//evil.com/a', false],
+  ['/\t/evil.com/a', false],
+  ['\\\\evil.com/a', false],
+  ['/\\evil.com/a', false],
+  ['\\/evil.com/a', false],
+]
+
+test('isSafeHref agrees with the shared href case table', () => {
+  for (const [url, expected] of HREF_CASES) {
+    assert.equal(mod.isSafeHref(url), expected, JSON.stringify(url))
+  }
+})

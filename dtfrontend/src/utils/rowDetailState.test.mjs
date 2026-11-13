@@ -13,12 +13,21 @@ const mod = await import('data:text/javascript;base64,' + Buffer.from(outputText
 test('pickTracePanel returns the first enabled tracePanel config', () => {
   const a = { id: 'a', tracePanel: { enabled: false, paramFields: [] } }
   const b = { id: 'b' }
-  const c = { id: 'c', tracePanel: { enabled: true, paramFields: ['x'] } }
-  const d = { id: 'd', tracePanel: { enabled: true, paramFields: ['y'] } }
+  const c = { id: 'c', tracePanel: { enabled: true, paramFields: ['x'], operationSql: 'SELECT 1' } }
+  const d = { id: 'd', tracePanel: { enabled: true, paramFields: ['y'], operationSql: 'SELECT 2' } }
   assert.equal(mod.pickTracePanel([a, b, c, d]), c.tracePanel)
   assert.equal(mod.pickTracePanel([a, b]), undefined)
   assert.equal(mod.pickTracePanel(undefined), undefined)
   assert.equal(mod.pickTracePanel([]), undefined)
+})
+
+test('pickTracePanel ignores enabled panels with nothing configured and falls through to the next', () => {
+  const empty = { tracePanel: { enabled: true, paramFields: [], operationSql: '  ', durationSql: '', links: [{ id: 'l', title: 't', url: ' ' }] } }
+  const byDuration = { tracePanel: { enabled: true, paramFields: [], durationSql: 'SELECT 1' } }
+  const byLink = { tracePanel: { enabled: true, paramFields: [], links: [{ id: 'l', title: 't', url: '/x/{{a}}' }] } }
+  assert.equal(mod.pickTracePanel([empty]), undefined)
+  assert.equal(mod.pickTracePanel([empty, byDuration]), byDuration.tracePanel)
+  assert.equal(mod.pickTracePanel([empty, byLink]), byLink.tracePanel)
 })
 
 test('isDetailCardEnabled needs enabled flag and a non-blank sql', () => {

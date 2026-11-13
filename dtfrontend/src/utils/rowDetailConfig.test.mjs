@@ -19,7 +19,7 @@ test('toggleParamField adds, removes and does not duplicate', () => {
 
 test('missingPlaceholders lists selected fields absent from the SQL', () => {
   assert.deepEqual(mod.missingPlaceholders('SELECT 1 WHERE a = {{a}}', ['a', 'b']), ['b'])
-  assert.deepEqual(mod.missingPlaceholders('x {{ a }}', ['a']), [])
+  assert.deepEqual(mod.missingPlaceholders('x {{ a }}', ['a']), ['a'])
   assert.deepEqual(mod.missingPlaceholders(undefined, ['a']), ['a'])
   assert.deepEqual(mod.missingPlaceholders('{{a.b(1)}}', ['a.b(1)']), [])
 })
@@ -88,4 +88,36 @@ test('needsTextResync converges for duplicate / padded / comma-containing select
   }
   assert.equal(mod.needsTextResync('', ['a']), true)
   assert.equal(mod.needsTextResync('a, ', ['a']), false)
+})
+
+// SHARED CASE TABLE: keep identical in rowDetail.test.mjs and rowDetailConfig.test.mjs so the
+// runtime (isSafeHref) and the editor (isSafeLinkTemplate) cannot drift.
+const HREF_CASES = [
+  ['https://x/{{a}}', true],
+  ['HTTP://x.y/a.pdf', true],
+  ['/docs/a.pdf', true],
+  ['docs/a.pdf', true],
+  ['?q=1', true],
+  ['#top', true],
+  ['javascript:alert(1)', false],
+  [' JavaScript:alert(1)', false],
+  ['java\tscript:alert(1)', false],
+  ['java\nscript:alert(1)', false],
+  ['\u0001javascript:alert(1)', false],
+  ['data:text/html,x', false],
+  ['ftp://x/a', false],
+  ['mailto:a@b.c', false],
+  ['//evil.com/a', false],
+  ['  //evil.com/a', false],
+  ['\t//evil.com/a', false],
+  ['/\t/evil.com/a', false],
+  ['\\\\evil.com/a', false],
+  ['/\\evil.com/a', false],
+  ['\\/evil.com/a', false],
+]
+
+test('isSafeLinkTemplate agrees with the shared href case table', () => {
+  for (const [url, expected] of HREF_CASES) {
+    assert.equal(mod.isSafeLinkTemplate(url), expected, JSON.stringify(url))
+  }
 })

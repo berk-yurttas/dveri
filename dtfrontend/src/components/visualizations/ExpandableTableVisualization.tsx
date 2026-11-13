@@ -2515,6 +2515,8 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
               // Calculate row text color based on rules
               const rowTextColor = getRowTextColor(row, columns, query.visualization.chartOptions?.rowColorRules)
               const isSelected = selectedRowKey === rowKey
+              const handleParentClick = () =>
+                onRowExpand(query, rowIndex, row, query.visualization.chartOptions?.nestedQueries || [], 0, '')
 
               return (
                 <React.Fragment key={rowIndex}>
@@ -2523,7 +2525,14 @@ export const ExpandableTableVisualization: React.FC<ExpandableTableVisualization
                     className={`hover:bg-gray-50 transition-colors cursor-pointer ${isExpanded ? 'bg-blue-50 font-bold' : ''} ${isSelected ? 'ring-2 ring-inset ring-[#0b63c7] font-bold' : ''}`}
                     data-row-key={rowKey}
                     aria-current={isSelected ? 'true' : undefined}
-                    onClick={() => onRowExpand(query, rowIndex, row, query.visualization.chartOptions?.nestedQueries || [], 0, '')}
+                    tabIndex={0}
+                    onClick={handleParentClick}
+                    onKeyDown={(e) => {
+                      if (e.target === e.currentTarget && isActivationKey(e.key)) {
+                        e.preventDefault()
+                        handleParentClick()
+                      }
+                    }}
                   >
                     <td className="px-3 py-2 text-xs text-gray-800">
                       {isExpanded ? (
