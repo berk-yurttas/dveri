@@ -66,3 +66,10 @@ export function sameFieldList(a: string[], b: string[]): boolean {
 export function staleSelectedFields(selected: string[], available: string[]): string[] {
   return selected.filter(field => !available.includes(field))
 }
+
+// True when the free-text field input no longer reflects `selected`. Both sides are
+// normalized with parseFieldList so resyncing to selected.join(', ') always converges
+// (a raw comparison would loop forever on duplicate/padded/comma-containing names).
+export function needsTextResync(text: string, selected: string[]): boolean {
+  return !sameFieldList(parseFieldList(text), parseFieldList(selected.join(', ')))
+}

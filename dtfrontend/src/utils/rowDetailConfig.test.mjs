@@ -80,3 +80,12 @@ test('staleSelectedFields returns selected fields not in the available list', ()
   assert.deepEqual(mod.staleSelectedFields(['a', 'x'], ['a', 'b']), ['x'])
   assert.deepEqual(mod.staleSelectedFields(['a'], ['a']), [])
 })
+
+test('needsTextResync converges for duplicate / padded / comma-containing selections', () => {
+  for (const selected of [['a', 'a'], [' a '], ['a,b'], ['', 'a'], ['a', 'b']]) {
+    // After resyncing to selected.join(', '), it must not ask to resync again (else render loop).
+    assert.equal(mod.needsTextResync(selected.join(', '), selected), false, JSON.stringify(selected))
+  }
+  assert.equal(mod.needsTextResync('', ['a']), true)
+  assert.equal(mod.needsTextResync('a, ', ['a']), false)
+})

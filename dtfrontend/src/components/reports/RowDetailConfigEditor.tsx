@@ -9,7 +9,7 @@ import {
   missingPlaceholders,
   parseFieldList,
   removeLink,
-  sameFieldList,
+  needsTextResync,
   setDetailCardEnabled,
   setTracePanelEnabled,
   staleSelectedFields,
@@ -38,7 +38,7 @@ function ParamFieldPicker({
   // Free-text fallback when the available columns are unknown (e.g. SELECT * nested queries).
   const [text, setText] = useState(selected.join(', '))
   // Resync when the selection changed elsewhere (e.g. switching from checkbox mode).
-  if (!sameFieldList(parseFieldList(text), selected)) setText(selected.join(', '))
+  if (needsTextResync(text, selected)) setText(selected.join(', '))
 
   if (fields.length === 0) {
     return (
