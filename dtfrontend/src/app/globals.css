@@ -257,3 +257,30 @@ body {
   position: relative;
   z-index: 0;
 }
+
+/* Print / "PDF / Yazdır": clean A4 landscape printout of a report page */
+@page {
+  size: A4 landscape;
+  margin: 10mm;
+}
+
+@media print {
+  html,
+  body {
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* App chrome: top navigation bar and sidebar */
+  header.fixed,
+  div.fixed.inset-y-0.left-0 {
+    display: none !important;
+  }
+
+  /* Content wrapper reserves room for the sidebar / header: reclaim it */
+  div:has(> main) {
+    margin-left: 0 !important;
+    padding-top: 0 !important;
+  }
+}

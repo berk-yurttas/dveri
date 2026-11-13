@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { QueryData, QueryResult, FilterData } from './types'
 import { RowColorRule, ColumnValueColorRule } from '@/types/reports'
+import { isDetailCardEnabled } from '@/utils/rowDetailState'
 
 const TEXT_FILTER_OPERATORS = [
   { value: 'CONTAINS', label: 'İçerir', icon: '⊃' },
@@ -921,6 +922,9 @@ interface TableVisualizationProps {
   onPageSizeChange: (pageSize: number) => void
   // Size prop for font sizes
   size?: 'sm' | 'md' | 'lg'
+  // Row detail card: row currently shown in the detail card and the click handler
+  selectedRowKey?: string | null
+  onRowClick?: (rowIndex: number, row: any[]) => void
 }
 
 export const TableVisualization: React.FC<TableVisualizationProps> = ({
@@ -943,8 +947,11 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
   onPageChange,
   onPageSizeChange,
   size = 'sm',
+  selectedRowKey = null,
+  onRowClick,
 }) => {
   const { columns, data } = result
+  const rowsClickable = !!onRowClick && isDetailCardEnabled(query.visualization.chartOptions?.detailCard)
 
   // Size-based classes
   const sizeClasses = {
@@ -1140,9 +1147,16 @@ export const TableVisualization: React.FC<TableVisualizationProps> = ({
             {data.map((row, rowIndex) => {
               // Calculate row text color based on rules
               const rowTextColor = getRowTextColor(row, columns, query.visualization.chartOptions?.rowColorRules)
+              const isSelected = selectedRowKey === `${query.id}_${rowIndex}`
 
               return (
-                <tr key={rowIndex} className="hover:bg-gray-50 transition-colors" data-testid="viz-table-row">
+                <tr
+                  key={rowIndex}
+                  className={`transition-colors ${rowsClickable ? 'cursor-pointer' : ''} ${isSelected ? 'bg-blue-50 font-bold' : 'hover:bg-gray-50'}`}
+                  data-testid="viz-table-row"
+                  aria-current={isSelected ? 'true' : undefined}
+                  onClick={rowsClickable ? () => onRowClick!(rowIndex, row) : undefined}
+                >
                   {row.map((cell, cellIndex) => {
                     const cellValue = cell?.toString() || ''
                     const displayValue = cellValue.length > 50 ? cellValue.substring(0, 50) + '...' : cellValue
