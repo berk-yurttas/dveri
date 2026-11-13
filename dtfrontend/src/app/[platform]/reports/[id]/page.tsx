@@ -37,9 +37,13 @@ import {
   Maximize2,
   Shield,
   FileCode,
-  Sparkles
+  Sparkles,
+  Printer
 } from 'lucide-react'
 import { reportsService } from '@/services/reports'
+import { RowDetailPanels, useRowDetailPanels } from '@/components/reports/RowDetailPanels'
+import { isDetailCardEnabled, pickTracePanel } from '@/utils/rowDetailState'
+import type { TracePanelConfig } from '@/types/reports'
 import { DeleteModal } from '@/components/ui/delete-modal'
 import { DepartmentSelectModal } from '@/components/reports/department-select-modal'
 import { api } from '@/lib/api'
@@ -291,7 +295,10 @@ export default function ReportDetailPage() {
   const [isSettingsDropdownOpen, setIsSettingsDropdownOpen] = useState(false)
   const [sorting, setSorting] = useState<{ [queryId: number]: { column: string, direction: 'asc' | 'desc' } | null }>({})
   const [expandedRows, setExpandedRows] = useState<{ [key: string]: boolean }>({})
-  const [nestedData, setNestedData] = useState<{ [key: string]: { columns: string[], data: any[], loading: boolean, nestedQueries?: any[], filters?: any[] } }>({})
+  const rowPanels = useRowDetailPanels((sql) =>
+    reportsService.previewQuery({ sql_query: sql, limit: 1000, db_config: report?.dbConfig || null })
+  )
+  const [nestedData, setNestedData] = useState<{ [key: string]: { columns: string[], data: any[], loading: boolean, nestedQueries?: any[], filters?: any[], tracePanel?: TracePanelConfig } }>({})
   const [nestedFilters, setNestedFilters] = useState<{ [key: string]: any }>({})
   const [nestedFilterPopovers, setNestedFilterPopovers] = useState<{ [key: string]: boolean }>({})
   const [fullscreenQuery, setFullscreenQuery] = useState<QueryData | null>(null)
@@ -379,6 +386,7 @@ export default function ReportDetailPage() {
     if (!report || !report.tabs) return
     
     setActiveTab(tabId)
+    rowPanels.clearAll()
     
     const tab = report.tabs.find(t => t.id === tabId)
     if (!tab) return
@@ -768,6 +776,7 @@ export default function ReportDetailPage() {
 
   // Execute a single query with custom filters and sorting
   const executeQueryWithSorting = async (query: QueryData, reportId: number, customFilters: FilterState, page: number = 1, pageSize: number = 200, sortConfig?: { column: string, direction: 'asc' | 'desc' }) => {
+    rowPanels.clearForQuery(query.id)
     try {
       // Update loading state
       setQueryResults(prev => ({
@@ -932,6 +941,7 @@ export default function ReportDetailPage() {
           ? (result.has_more ? page + 1 : page)  // If has_more, show at least one more page
           : 1
 
+        rowPanels.clearForQuery(query.id)
         setQueryResults(prev => ({
           ...prev,
           [query.id]: {
@@ -963,6 +973,7 @@ export default function ReportDetailPage() {
 
   // Execute a single query with custom filters
   const executeQueryWithFilters = async (query: QueryData, reportId: number, customFilters: FilterState, page: number = 1, pageSize: number = 200) => {
+    rowPanels.clearForQuery(query.id)
     try {
       // Update loading state
       setQueryResults(prev => ({
@@ -1122,6 +1133,7 @@ export default function ReportDetailPage() {
           ? (result.has_more ? page + 1 : page)  // If has_more, show at least one more page
           : 1
 
+        rowPanels.clearForQuery(query.id)
         setQueryResults(prev => ({
           ...prev,
           [query.id]: {
@@ -1699,6 +1711,8 @@ export default function ReportDetailPage() {
     const queryState = queryResults[query.id]
     if (!queryState) return
 
+    clearNestedStatesForQuery(query.id)
+
     // Get current sorting state for this query
     const currentSort = sorting[query.id]
 
@@ -1713,6 +1727,8 @@ export default function ReportDetailPage() {
 
   const handlePageSizeChange = async (query: QueryData, newPageSize: number) => {
     if (!report) return
+
+    clearNestedStatesForQuery(query.id)
 
     // Get current sorting state for this query
     const currentSort = sorting[query.id]
@@ -2353,6 +2369,49 @@ export default function ReportDetailPage() {
   }
 
 
+  // Plain table: clicking a row toggles its detail card
+  const handleTableRowClick = (query: QueryData, rowIndex: number, row: any[]) => {
+    const config = query.visualization.chartOptions?.detailCard
+    const columns = queryResults[query.id]?.result?.columns
+    if (!isDetailCardEnabled(config) || !columns || queryResults[query.id]?.loading) return
+    rowPanels.openDetail({
+      queryId: query.id, queryName: query.name, rowKey: `${query.id}_${rowIndex}`, config, columns, row, toggle: true
+    })
+  }
+
+  // Expandable table: expanding a top-level row opens its detail card, collapsing closes it
+  // (and any trace panel opened from its child rows).
+  const handleExpandableRowClick = (
+    query: QueryData, rowIndex: number, rowData: any[], nestedQueries: any[], level: number, parentRowKey: string
+  ) => {
+    const rowKey = parentRowKey ? `${parentRowKey}_${rowIndex}` : `${query.id}_${rowIndex}`
+    if (expandedRows[rowKey]) {
+      rowPanels.closeTrace(rowKey)
+      if (level === 0) rowPanels.closeDetail(rowKey)
+    } else if (level === 0) {
+      const config = query.visualization.chartOptions?.detailCard
+      const columns = queryResults[query.id]?.result?.columns
+      if (isDetailCardEnabled(config) && columns && !queryResults[query.id]?.loading) {
+        rowPanels.openDetail({ queryId: query.id, queryName: query.name, rowKey, config, columns, row: rowData })
+      }
+    }
+    return handleRowExpand(query, rowIndex, rowData, nestedQueries, level, parentRowKey)
+  }
+
+  // Expandable table child row with a trace panel configured on the query level that produced it
+  const handleChildRowClick = (
+    query: QueryData, nestedRowKey: string, columns: string[], row: any[], config: TracePanelConfig, hasDeeperLevel: boolean
+  ) => {
+    if (queryResults[query.id]?.loading) return
+    if (expandedRows[nestedRowKey]) {
+      rowPanels.closeTrace(nestedRowKey)
+      return
+    }
+    rowPanels.openTrace({
+      queryId: query.id, queryName: query.name, rowKey: nestedRowKey, config, columns, row, toggle: !hasDeeperLevel
+    })
+  }
+
   // Handle expandable row click and nested query execution (recursive for multiple levels)
   const handleRowExpand = async (
     query: QueryData,
@@ -2391,7 +2450,8 @@ export default function ReportDetailPage() {
         data: [],
         loading: true,
         nestedQueries: nestedQueries,
-        filters: nestedQueryFilters
+        filters: nestedQueryFilters,
+        tracePanel: pickTracePanel(nestedQueries)
       }
     }))
 
@@ -2470,7 +2530,8 @@ export default function ReportDetailPage() {
             data: allData,
             loading: false,
             nestedQueries: combinedNestedQueries,
-            filters: nestedQueryFilters
+            filters: nestedQueryFilters,
+            tracePanel: pickTracePanel(nestedQueries)
           }
         }))
       } else {
@@ -2495,7 +2556,8 @@ export default function ReportDetailPage() {
     }
   }
 
-  const renderVisualization = (query: QueryData, result: QueryResult, scale: number = 1) => {
+  // `interactive` is false in the fullscreen modal: its row panels would open hidden behind the modal.
+  const renderVisualization = (query: QueryData, result: QueryResult, scale: number = 1, interactive: boolean = true) => {
     const { visualization } = query
     const { data, columns } = result
 
@@ -2555,6 +2617,8 @@ export default function ReportDetailPage() {
             totalRows={result.total_rows}
             onPageChange={(page) => handlePageChange(query, page)}
             onPageSizeChange={(pageSize) => handlePageSizeChange(query, pageSize)}
+            selectedRowKey={interactive && rowPanels.detail?.queryId === query.id ? rowPanels.detail.rowKey : null}
+            onRowClick={interactive ? (rowIndex, row) => handleTableRowClick(query, rowIndex, row) : undefined}
           />
         )
 
@@ -2613,8 +2677,11 @@ export default function ReportDetailPage() {
             setNestedFilterPositions={setNestedFilterPositions}
             setNestedSorting={setNestedSorting}
             setNestedPagination={setNestedPagination}
-            onRowExpand={(query, rowIndex, rowData, nestedQueries, level, parentRowKey) => handleRowExpand(query, rowIndex, rowData, nestedQueries, level, parentRowKey)}
+            onRowExpand={interactive ? handleExpandableRowClick : handleRowExpand}
             scale={scale}
+            selectedRowKey={interactive && rowPanels.detail?.queryId === query.id ? rowPanels.detail.rowKey : null}
+            selectedChildKey={interactive && rowPanels.trace?.queryId === query.id ? rowPanels.trace.rowKey : null}
+            onChildRowClick={interactive ? handleChildRowClick : undefined}
           />
         )
 
@@ -2704,7 +2771,7 @@ export default function ReportDetailPage() {
   }
 
   return (
-    <div className={`container min-w-full space-y-3 ${showVisualizationV2 ? 'rounded-xl bg-[#F4F7FB] p-3' : ''}`} data-testid="report-page">
+    <div className={`container min-w-full space-y-3 ${showVisualizationV2 ? 'rounded-xl bg-[#F4F7FB] p-3' : ''}`} data-testid="report-page" data-report-print-root>
       {/* Report Header */}
       <div className={showVisualizationV2
         ? 'space-y-1.5 rounded-[10px] border border-[#0052A5]/10 bg-white px-4 py-3 shadow-[0_2px_12px_rgba(0,82,165,0.08)]'
@@ -2771,7 +2838,7 @@ export default function ReportDetailPage() {
               <p className="text-gray-600 text-xs mt-0.5">{report.description}</p>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 print:hidden">
             {isAdmin(user) && (
               <button
                 type="button"
@@ -2858,6 +2925,15 @@ export default function ReportDetailPage() {
                     </>
                   )}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  title="Raporu PDF olarak kaydet veya yazdır"
+                  className="flex items-center gap-1.5 bg-red-600 text-white px-2.5 py-1 text-xs rounded-md hover:bg-red-700 transition-colors"
+                >
+                  <Printer className="h-3 w-3" />
+                  PDF / Yazdır
+                </button>
               </>
             ) : (
               <>
@@ -2924,25 +3000,27 @@ export default function ReportDetailPage() {
 
       {/* Global Filters */}
       {report.globalFilters && report.globalFilters.length > 0 && (
-        <GlobalFilters
-          globalFilters={report.globalFilters}
-          filters={filters}
-          dropdownOptions={dropdownOptions}
-          searchTerms={searchTerms}
-          dropdownOpen={dropdownOpen}
-          operatorMenuOpen={operatorMenuOpen}
-          onFilterChange={handleFilterChange}
-          setSearchTerms={setSearchTerms}
-          setDropdownOpen={setDropdownOpen}
-          setOperatorMenuOpen={setOperatorMenuOpen}
-          onApplyFilters={() => report && executeAllQueries(report, filters)}
-          onClearFilters={handleClearGlobalFilters}
-        />
+        <div className="print:hidden">
+          <GlobalFilters
+            globalFilters={report.globalFilters}
+            filters={filters}
+            dropdownOptions={dropdownOptions}
+            searchTerms={searchTerms}
+            dropdownOpen={dropdownOpen}
+            operatorMenuOpen={operatorMenuOpen}
+            onFilterChange={handleFilterChange}
+            setSearchTerms={setSearchTerms}
+            setDropdownOpen={setDropdownOpen}
+            setOperatorMenuOpen={setOperatorMenuOpen}
+            onApplyFilters={() => report && executeAllQueries(report, filters)}
+            onClearFilters={handleClearGlobalFilters}
+          />
+        </div>
       )}
 
       {/* Tabs Navigation */}
       {report.tabs && report.tabs.length > 1 && (
-        <div className="bg-white rounded-lg shadow-md border border-gray-200 mb-4">
+        <div className="bg-white rounded-lg shadow-md border border-gray-200 mb-4 print:hidden">
           <div className="flex items-center gap-1 px-2 py-2 overflow-x-auto">
             {[...report.tabs].sort((a, b) => a.orderIndex - b.orderIndex).map((tab) => (
               <button
@@ -3007,7 +3085,7 @@ export default function ReportDetailPage() {
                     <span className="ml-auto text-xs text-blue-600 font-medium">Sürükle</span>
                   )}
                   {!isLayoutEditMode && queryState?.result && (
-                    <div className="ml-auto flex items-center gap-1">
+                    <div className="ml-auto flex items-center gap-1 print:hidden">
                       <button
                         onClick={() => setFullscreenQuery(query)}
                         className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
@@ -3298,6 +3376,13 @@ export default function ReportDetailPage() {
         })}
       </ResponsiveGridLayout>
 
+      <RowDetailPanels
+        detail={rowPanels.detail}
+        trace={rowPanels.trace}
+        onCloseDetail={() => rowPanels.closeDetail()}
+        onCloseTrace={() => rowPanels.closeTrace()}
+      />
+
       {/* Delete Confirmation Modal */}
       <DeleteModal
         isOpen={isDeleteDialogOpen}
@@ -3455,7 +3540,7 @@ export default function ReportDetailPage() {
                   return (
                     <div className="h-full">
                       {fullscreenQuery.visualization.type !== 'table' && fullscreenQuery.visualization.type !== 'expandable' && renderQueryFilters(fullscreenQuery)}
-                      {renderVisualization(fullscreenQuery, queryState.result, 1)}
+                      {renderVisualization(fullscreenQuery, queryState.result, 1, false)}
                     </div>
                   )
                 }

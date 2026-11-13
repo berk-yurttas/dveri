@@ -257,3 +257,36 @@ body {
   position: relative;
   z-index: 0;
 }
+
+/* Print / "PDF / Yazdır": clean A4 landscape printout of a report page.
+   Everything is scoped to pages that render [data-report-print-root]; other pages print as before. */
+@page report {
+  size: A4 landscape;
+  margin: 10mm;
+}
+
+@media print {
+  [data-report-print-root] {
+    page: report;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  html:has([data-report-print-root]),
+  body:has([data-report-print-root]) {
+    background: #fff !important;
+  }
+
+  /* App chrome: top navigation bar, sidebar and floating buttons */
+  body:has([data-report-print-root]) header.fixed,
+  body:has([data-report-print-root]) div.fixed.inset-y-0.left-0,
+  body:has([data-report-print-root]) [data-print-hide] {
+    display: none !important;
+  }
+
+  /* Content wrapper reserves room for the sidebar / header: reclaim it */
+  body:has([data-report-print-root]) div:has(> main) {
+    margin-left: 0 !important;
+    padding-top: 0 !important;
+  }
+}

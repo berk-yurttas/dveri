@@ -147,3 +147,13 @@ All components use:
 - `lucide-react` for icons (where needed)
 - Shared types from `./types.ts`
 
+
+## Row detail card, trace panel and PDF export (report view)
+
+Runtime side lives in `src/components/reports/RowDetailPanels.tsx` (hook `useRowDetailPanels` + `RowDetailPanels`), pure helpers in `src/utils/rowDetail.ts` and `src/utils/rowDetailState.ts`.
+
+- **Detail card** (`chartOptions.detailCard`): clicking a row of a `table` or the top-level row of an `expandable` table runs `detailCard.sql` with the row's `paramFields` injected and shows the first result row as label/value boxes. For expandable tables the click also expands the row; collapsing it closes the card.
+- **Trace panel** (`nestedQueries[].tracePanel`): clicking a child row of an expandable table whose producing nested query has `tracePanel.enabled` opens "Operasyon, CMM ve Test İzleri" (operation flow, duration bars, document links). The first enabled config of the level is stored in `nestedData[rowKey].tracePanel` by `handleRowExpand`.
+- Both panels render full width below the widget grid, are cleared when the query is re-executed or the tab changes, and ignore late responses of superseded clicks.
+- `TableVisualization` takes optional `selectedRowKey` / `onRowClick`; `ExpandableTableVisualization` takes optional `selectedRowKey` / `selectedChildKey` / `onChildRowClick`. Other pages need not pass them.
+- The report header has a **PDF / Yazdır** button (`window.print()`); print styles (A4 landscape, hidden chrome) are in `src/app/globals.css`.

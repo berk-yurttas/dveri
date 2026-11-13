@@ -152,6 +152,7 @@ export function Feedback() {
       {/* Floating Feedback Button - Fixed to viewport using Portal */}
       {createPortal(
         <button
+          data-print-hide
           onClick={() => setShowFeedbackModal(true)}
           className="w-18 h-18 rounded-full shadow-2xl hover:scale-110 transition-transform overflow-hidden bg-white"
           style={{
