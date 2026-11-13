@@ -16,6 +16,7 @@ import { BarChart, Bar, LineChart as RechartsLineChart, Line, PieChart as Rechar
 // Import types from the types file
 import { QueryConfig, FilterConfig, ReportConfig, VisualizationConfig, NestedQueryConfig } from '@/types/reports'
 import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
+import { DetailCardConfigEditor, TracePanelConfigEditor } from '@/components/reports/RowDetailConfigEditor'
 
 const VISUALIZATION_OPTIONS = [
   { value: 'table', label: 'Tablo', icon: Table },
@@ -828,6 +829,9 @@ const ChartPreview = ({
                   ))}
                 </div>
               )}
+              {nq.tracePanel?.enabled && (
+                <div className="mt-1 text-teal-700">İz paneli: {nq.tracePanel.title || 'Operasyon, CMM ve Test İzleri'}</div>
+              )}
               {nq.nestedQueries && nq.nestedQueries.length > 0 && renderNestedQueryInfo(nq.nestedQueries, level + 1)}
             </div>
           ))
@@ -869,6 +873,11 @@ const ChartPreview = ({
                 </tbody>
               </table>
             </div>
+            {visualization.chartOptions?.detailCard?.enabled && (
+              <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-900">
+                Satır detay kartı: {visualization.chartOptions.detailCard.title || 'Seçili Satır Detay Kartı'}
+              </div>
+            )}
             {visualization.chartOptions?.nestedQueries && visualization.chartOptions.nestedQueries.length > 0 && (
               <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-xs">
                 <div className="font-semibold text-purple-900 mb-2">Alt Tablo Hiyerarşisi:</div>
@@ -949,6 +958,11 @@ const ChartPreview = ({
       <div className="bg-white rounded-lg">
         {renderChart()}
       </div>
+      {visualization.type === 'table' && visualization.chartOptions?.detailCard?.enabled && (
+        <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-900">
+          Satır detay kartı: {visualization.chartOptions.detailCard.title || 'Seçili Satır Detay Kartı'}
+        </div>
+      )}
       <div className="text-xs text-slate-500 text-center space-y-1">
         <p>X Ekseni: {visualization.xAxis || columns[0]} | Y Ekseni: {visualization.yAxis || columns[1]}</p>
         <p>{chartData.length} veri noktası gösteriliyor</p>
@@ -1321,6 +1335,13 @@ const NestedQueryBuilder = ({
               </div>
             )}
             
+            {/* Trace panel (expandable tables only): opens when a row of this nested query is clicked */}
+            <TracePanelConfigEditor
+              value={nestedQuery.tracePanel}
+              availableFields={nestedFields}
+              onChange={(tracePanel) => updateNestedQuery(index, { tracePanel })}
+            />
+
             {/* Recursive Nested Queries */}
             <div className="pt-3 border-t border-gray-300">
               <div className="flex items-center justify-between mb-2">
@@ -3968,6 +3989,20 @@ export default function AddReportPage() {
                         </Button>
                       </div>
                         </div>
+
+                        {/* Row Detail Card - Only for Table/Expandable */}
+                        {(query.visualization.type === 'table' || query.visualization.type === 'expandable') && (
+                          <DetailCardConfigEditor
+                            value={query.visualization.chartOptions?.detailCard}
+                            availableFields={availableFields}
+                            onChange={(detailCard) => updateVisualization(queryIndex, {
+                              chartOptions: {
+                                ...query.visualization.chartOptions,
+                                detailCard
+                              }
+                            })}
+                          />
+                        )}
 
                         {/* Row Coloring Configuration - Only for Table/Expandable */}
                         {(query.visualization.type === 'table' || query.visualization.type === 'expandable') && (
