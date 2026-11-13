@@ -79,3 +79,10 @@ test('computeDurationBars: leading text column becomes the label, single number 
   ])
   assert.deepEqual(mod.computeDurationBars(['x'], [['abc']]), [])
 })
+
+test('isSafeHref blocks schemes obfuscated with tabs/newlines/control chars (browsers strip them)', () => {
+  assert.equal(mod.isSafeHref('java\tscript:alert(1)'), false)
+  assert.equal(mod.isSafeHref('java\nscript:alert(1)'), false)
+  assert.equal(mod.isSafeHref('\u0001javascript:alert(1)'), false)
+  assert.equal(mod.isSafeHref('/docs/a b.pdf'), true)
+})

@@ -35,7 +35,10 @@ export function fillUrlTemplate(url: string, columns: string[], row: any[]): str
 
 /** Allow only http(s) and relative links; blocks javascript:, data:, etc. */
 export function isSafeHref(url: string): boolean {
-  const trimmed = (url || '').trim()
+  // Browsers drop ASCII tab/newline anywhere and leading C0 controls/space before
+  // resolving the scheme, so normalize the same way before inspecting it.
+  // eslint-disable-next-line no-control-regex
+  const trimmed = (url || '').replace(/[\t\n\r]/g, '').replace(/^[\u0000- ]+/, '').trim()
   if (!trimmed) return false
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed)
   if (!scheme) return true
