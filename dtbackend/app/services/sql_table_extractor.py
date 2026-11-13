@@ -165,6 +165,18 @@ def collect_sql_from_nested(obj: Any, sqls: list[str]) -> None:
 
     collect_sql_from_nested(_nested_list(obj, "nestedQueries", "nested_queries"), sqls)
 
+    # Row detail card (chart options) and child-row trace panel (nested query)
+    for key in ("detailCard", "detail_card"):
+        card = obj.get(key)
+        if isinstance(card, dict):
+            collect_sql_from_nested(card, sqls)
+    trace = obj.get("tracePanel")
+    if isinstance(trace, dict):
+        for key in ("operationSql", "durationSql"):
+            value = trace.get(key)
+            if isinstance(value, str) and value.strip():
+                sqls.append(value)
+
     chart = obj.get("chartOptions") or obj.get("chart_options")
     if isinstance(chart, dict):
         collect_sql_from_nested(chart, sqls)

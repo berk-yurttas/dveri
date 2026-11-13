@@ -125,7 +125,7 @@ export function AppShell({
         />
       )}
       {isIvmePlatform && (
-        <div className="fixed top-0 left-0 right-0 z-40 flex h-[30px] items-center justify-between px-6 overflow-hidden" style={{ backgroundColor: '#efefef' }}>
+        <div data-print-hide className="fixed top-0 left-0 right-0 z-40 flex h-[30px] items-center justify-between px-6 overflow-hidden" style={{ backgroundColor: '#efefef' }}>
           <div className="absolute right-40 flex items-center gap-2 text-sm">
             <button
               onClick={() => setContactModalOpen(true)}
