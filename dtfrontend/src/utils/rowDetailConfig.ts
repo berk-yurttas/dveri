@@ -57,3 +57,12 @@ export function isSafeLinkTemplate(url: string): boolean {
   if (/^https?:\/\//i.test(trimmed)) return true
   return !/^[a-z][a-z0-9+.-]*:/i.test(trimmed)
 }
+
+export function sameFieldList(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((field, i) => field === b[i])
+}
+
+// Selected fields that are no longer among the available columns (e.g. the SQL was edited).
+export function staleSelectedFields(selected: string[], available: string[]): string[] {
+  return selected.filter(field => !available.includes(field))
+}

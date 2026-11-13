@@ -9,14 +9,16 @@ import {
   missingPlaceholders,
   parseFieldList,
   removeLink,
+  sameFieldList,
   setDetailCardEnabled,
   setTracePanelEnabled,
+  staleSelectedFields,
   toggleParamField,
   updateLink,
 } from '@/utils/rowDetailConfig'
 
 const inputClass =
-  'w-full px-3 py-1.5 text-xs border border-slate-200 rounded-md bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none disabled:opacity-50'
+  'w-full px-3 py-1.5 text-xs border border-slate-200 rounded-md bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none'
 const textareaClass = `${inputClass} min-h-[80px] font-mono`
 const labelClass = 'text-xs font-semibold text-slate-700'
 
@@ -35,6 +37,8 @@ function ParamFieldPicker({
 }) {
   // Free-text fallback when the available columns are unknown (e.g. SELECT * nested queries).
   const [text, setText] = useState(selected.join(', '))
+  // Resync when the selection changed elsewhere (e.g. switching from checkbox mode).
+  if (!sameFieldList(parseFieldList(text), selected)) setText(selected.join(', '))
 
   if (fields.length === 0) {
     return (
@@ -63,7 +67,7 @@ function ParamFieldPicker({
       aria-labelledby={labelledBy}
       className="space-y-1 max-h-32 overflow-y-auto bg-white p-2 rounded border border-slate-200"
     >
-      {fields.map((field) => (
+      {[...fields, ...staleSelectedFields(selected, fields)].map((field) => (
         <div key={field} className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -73,7 +77,7 @@ function ParamFieldPicker({
             className="w-4 h-4 text-blue-600 border-slate-300 rounded"
           />
           <label htmlFor={`${idPrefix}-${field}`} className="text-xs flex-1 text-slate-700">
-            {field}
+            {field}{fields.includes(field) ? '' : " (SQL'de yok)"}
           </label>
           <code className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{'{{' + field + '}}'}</code>
         </div>
@@ -275,13 +279,15 @@ export function TracePanelConfigEditor({
                   <input
                     type="text"
                     aria-label={`Doküman Linki ${i + 1} URL şablonu`}
+                    aria-invalid={!isSafeLinkTemplate(link.url)}
+                    aria-describedby={isSafeLinkTemplate(link.url) ? undefined : `${id}-link-${link.id}-error`}
                     value={link.url}
                     onChange={(e) => update({ links: updateLink(value?.links, link.id, { url: e.target.value }) })}
                     placeholder="https://docs.example.com/{{rapor_no}}.pdf"
                     className={`${inputClass} font-mono`}
                   />
                   {!isSafeLinkTemplate(link.url) && (
-                    <p className="text-[10px] text-red-600">
+                    <p id={`${id}-link-${link.id}-error`} className="text-[10px] text-red-600">
                       Hata: yalnızca http(s) veya göreli URL kullanılabilir.
                     </p>
                   )}

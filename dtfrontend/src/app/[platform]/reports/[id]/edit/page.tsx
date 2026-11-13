@@ -600,6 +600,11 @@ const ChartPreview = ({
       <div className="bg-white rounded-lg">
         {renderChart()}
       </div>
+      {visualization.type === 'table' && visualization.chartOptions?.detailCard?.enabled && (
+        <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-900">
+          Satır detay kartı: {visualization.chartOptions.detailCard.title || 'Seçili Satır Detay Kartı'}
+        </div>
+      )}
       <div className="text-xs text-slate-500 text-center space-y-1">
         <p>X Ekseni: {visualization.xAxis || columns[0]} | Y Ekseni: {visualization.yAxis || columns[1]}</p>
         <p>{chartData.length} veri noktası gösteriliyor</p>

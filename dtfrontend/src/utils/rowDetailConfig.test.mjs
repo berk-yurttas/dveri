@@ -68,3 +68,15 @@ test('isSafeLinkTemplate allows only http(s) and relative URLs', () => {
   assert.equal(mod.isSafeLinkTemplate('//evil.com/x'), false)
   assert.equal(mod.isSafeLinkTemplate(''), true)
 })
+
+test('sameFieldList compares order-sensitively', () => {
+  assert.equal(mod.sameFieldList(['a', 'b'], ['a', 'b']), true)
+  assert.equal(mod.sameFieldList(['a'], ['a', 'b']), false)
+  assert.equal(mod.sameFieldList(['a', 'b'], ['b', 'a']), false)
+  assert.equal(mod.sameFieldList([], []), true)
+})
+
+test('staleSelectedFields returns selected fields not in the available list', () => {
+  assert.deepEqual(mod.staleSelectedFields(['a', 'x'], ['a', 'b']), ['x'])
+  assert.deepEqual(mod.staleSelectedFields(['a'], ['a']), [])
+})
