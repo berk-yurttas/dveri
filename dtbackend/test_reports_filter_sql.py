@@ -286,6 +286,70 @@ class ApplyFiltersToQueryTest(unittest.TestCase):
         )
 
 
+class ArrayValueTokenFilterTest(unittest.TestCase):
+    """sql_expression containing {{value}} is used as the whole condition (e.g. array columns)."""
+
+    def setUp(self):
+        self.service = object.__new__(ReportsService)
+
+    def _filter(self, expr, filter_type="dropdown", field="tags"):
+        return type("obj", (object,), {
+            "field_name": field,
+            "display_name": "Tags",
+            "filter_type": filter_type,
+            "sql_expression": expr,
+            "required": False,
+        })()
+
+    def _apply(self, filt, value, sql="SELECT id, tags FROM items"):
+        return _norm(self.service.apply_filters_to_query(
+            sql, [filt], [FilterValue(field_name=filt.field_name, value=value, operator="=")]
+        ))
+
+    def test_dropdown_postgres_any(self):
+        self.assertEqual(
+            self._apply(self._filter("{{value}} = ANY(tags)"), "red"),
+            "SELECT id, tags FROM items WHERE ('red' = ANY(tags))",
+        )
+
+    def test_dropdown_clickhouse_has(self):
+        self.assertEqual(
+            self._apply(self._filter("has(tags, {{value}})"), "red"),
+            "SELECT id, tags FROM items WHERE (has(tags, 'red'))",
+        )
+
+    def test_multiselect_substitutes_comma_list(self):
+        self.assertEqual(
+            self._apply(self._filter("hasAny(tags, [{{value}}])", "multiselect"), ["red", "blue"]),
+            "SELECT id, tags FROM items WHERE (hasAny(tags, ['red','blue']))",
+        )
+
+    def test_value_quotes_are_escaped(self):
+        self.assertEqual(
+            self._apply(self._filter("{{value}} = ANY(tags)"), "O'Brien"),
+            "SELECT id, tags FROM items WHERE ('O''Brien' = ANY(tags))",
+        )
+
+    def test_empty_multiselect_adds_no_condition(self):
+        self.assertEqual(
+            self._apply(self._filter("hasAny(tags, [{{value}}])", "multiselect"), []),
+            "SELECT id, tags FROM items",
+        )
+
+    def test_dynamic_filters_placeholder_path(self):
+        sql = "SELECT id FROM items WHERE 1=1 {{dynamic_filters}}"
+        self.assertEqual(
+            self._apply(self._filter("{{value}} = ANY(tags)"), "red", sql),
+            "SELECT id FROM items WHERE 1=1 AND 'red' = ANY(tags)",
+        )
+
+    def test_expression_without_token_keeps_equality(self):
+        self.assertEqual(
+            self._apply(self._filter("LOWER(tags)"), "red"),
+            "SELECT id, tags FROM items WHERE (LOWER(tags) = 'red')",
+        )
+
+
 class SelectAliasParseTest(unittest.TestCase):
     def test_explicit_as_alias(self):
         self.assertEqual(select_aliases("SELECT u.name AS full_name FROM users u"), {"full_name"})
@@ -335,6 +399,10 @@ class SortExpressionTest(unittest.TestCase):
     def test_column_without_expression_stays_plain(self):
         filters = [type("F", (), {"field_name": "Tutar", "sql_expression": None})()]
         self.assertIsNone(sort_sql_expression("Tarih", filters))
+
+    def test_value_token_condition_is_not_used_for_sorting(self):
+        filters = [type("F", (), {"field_name": "tags", "sql_expression": "{{value}} = ANY(tags)"})()]
+        self.assertIsNone(sort_sql_expression("tags", filters))
 
 
 class DropdownSearchWrapTest(unittest.TestCase):

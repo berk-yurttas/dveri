@@ -5,6 +5,27 @@ export type DropdownParentValue = string | number | boolean | null | undefined |
  * the placeholder condition is replaced with a truthy expression (1=1) so the query
  * returns the full option set without filtering.
  */
+/**
+ * Build the WHERE condition for a dropdown/multiselect filter. Mirrors the backend:
+ * when sqlField contains {{value}} (e.g. "{{value}} = ANY(tags)" for array columns)
+ * it is used as the whole condition with the quoted value(s) substituted in;
+ * otherwise the plain `field = 'v'` / `field IN (...)` form is used.
+ */
+export function dropdownFilterCondition(sqlField: string, rawValue: DropdownParentValue): string {
+  if (sqlField.includes('{{value}}')) {
+    const values = (Array.isArray(rawValue) ? rawValue : [rawValue]).filter(
+      (value) => value !== undefined && value !== null && value !== ''
+    )
+    if (values.length === 0) return ''
+    const literal = values.map((value) => `'${String(value).replace(/'/g, "''")}'`).join(',')
+    return sqlField.split('{{value}}').join(literal)
+  }
+  if (Array.isArray(rawValue)) {
+    return rawValue.length > 0 ? `${sqlField} IN (${rawValue.map((v) => `'${v}'`).join(',')})` : ''
+  }
+  return rawValue ? `${sqlField} = '${rawValue}'` : ''
+}
+
 export function buildDropdownQuery(
   baseSql: string,
   placeholderField: string,

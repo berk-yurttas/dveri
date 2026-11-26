@@ -1018,6 +1018,9 @@ def sort_sql_expression(sort_by: str, filters: list[Any] | None) -> str | None:
         expression = getattr(db_filter, "sql_expression", None)
         if not expression or not str(expression).strip():
             continue
+        if "{{value}}" in str(expression):
+            # A {{value}} expression is a whole filter condition, not a sortable column.
+            continue
         if _sort_column_key(getattr(db_filter, "field_name", None)) == target:
             return str(expression).strip()
     return None
@@ -1965,7 +1968,15 @@ class ReportsService:
                     condition = f"{date_func}({field_expression}) {operator} {date_func}('{value}')"
                     bucket.append(condition)
             elif db_filter.filter_type in ["dropdown", "multiselect"]:
-                if isinstance(value, list) and len(value) > 0:
+                if db_filter.sql_expression and "{{value}}" in db_filter.sql_expression:
+                    # The expression is the whole condition, e.g. array columns:
+                    # "{{value}} = ANY(tags)" or "hasAny(tags, [{{value}}])".
+                    items = value if isinstance(value, list) else [value]
+                    items = [v for v in items if v is not None and v != ""]
+                    if items:
+                        literal = ",".join("'" + str(v).replace("'", "''") + "'" for v in items)
+                        inner_conditions.append(db_filter.sql_expression.replace("{{value}}", literal))
+                elif isinstance(value, list) and len(value) > 0:
                     quoted_values = [f"'{v}'" for v in value]
                     bucket.append(f"{field_expression} IN ({','.join(quoted_values)})")
                 elif not isinstance(value, list) and value:

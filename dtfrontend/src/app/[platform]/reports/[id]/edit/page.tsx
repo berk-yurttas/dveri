@@ -16,7 +16,7 @@ import { BarChart, Bar, LineChart as RechartsLineChart, Line, PieChart as Rechar
 
 // Import types from the types file
 import { QueryConfig, FilterConfig, ReportConfig, VisualizationConfig, NestedQueryConfig } from '@/types/reports'
-import { buildDropdownQuery } from '@/utils/sqlPlaceholders'
+import { buildDropdownQuery, dropdownFilterCondition } from '@/utils/sqlPlaceholders'
 import { DetailCardConfigEditor, TracePanelConfigEditor } from '@/components/reports/RowDetailConfigEditor'
 
 const VISUALIZATION_OPTIONS = [
@@ -1752,12 +1752,7 @@ export default function EditReportPage() {
           break
         case 'dropdown':
         case 'multiselect':
-          const dropdownValue = values[filter.fieldName]
-          if (Array.isArray(dropdownValue)) {
-            condition = `${sqlField} IN (${dropdownValue.map(v => `'${v}'`).join(',')})`
-          } else if (dropdownValue) {
-            condition = `${sqlField} = '${dropdownValue}'`
-          }
+          condition = dropdownFilterCondition(sqlField, values[filter.fieldName])
           break
       }
 
@@ -2349,7 +2344,7 @@ export default function EditReportPage() {
                           className="h-9 text-xs font-mono"
                         />
                         <p className="text-xs text-slate-500">
-                          Alan adı yerine özel bir SQL ifadesi kullanmak için
+                          Alan adı yerine özel bir SQL ifadesi kullanmak için. Dizi (array) kolonlarda seçilen değer için {'{{value}}'} kullanın, örn. {'{{value}}'} = ANY(kolon) veya has(kolon, {'{{value}}'})
                         </p>
                       </div>
                     </div>
@@ -3619,6 +3614,11 @@ export default function EditReportPage() {
                                             placeholder={`DATE(${filter.fieldName})`}
                                             className="h-6 text-[10px] font-mono"
                                           />
+                                          {(filter.type === 'dropdown' || filter.type === 'multiselect') && (
+                                            <p className="text-[10px] text-slate-500">
+                                              Dizi kolon: {'{{value}}'} = ANY(kolon) veya has(kolon, {'{{value}}'})
+                                            </p>
+                                          )}
                                         </div>
                                         
                                         {/* Dropdown Query */}
